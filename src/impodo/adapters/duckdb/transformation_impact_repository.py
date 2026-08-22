@@ -255,7 +255,7 @@ class TransformationImpactRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
-        """Acknowledge one zero-match rule for the exact current snapshot."""
+        """Acknowledge one reviewable rule fact for the exact current snapshot."""
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
@@ -271,7 +271,9 @@ class TransformationImpactRepository(DuckDbRepository):
             ).fetchone()
             rule = connection.execute(
                 """
-                SELECT matched_value_count
+                SELECT dataset_id, target_field, rule_kind,
+                       evaluated_value_count, matched_value_count,
+                       changed_value_count
                   FROM transformation_rule_impact
                  WHERE rule_fingerprint = ?
                 """,
@@ -283,8 +285,21 @@ class TransformationImpactRepository(DuckDbRepository):
                 or rule is None
             ):
                 raise WorkspaceError("Prepare the current rule effects first")
-            if int(rule[0]) != 0:
-                raise WorkspaceError("Only a rule with no matches needs review")
+            impact = (
+                TransformationRuleImpact(
+                    dataset_id=str(rule[0]),
+                    target_field=str(rule[1]),
+                    rule_kind=str(rule[2]),
+                    rule_fingerprint=rule_fingerprint,
+                    evaluated_value_count=int(rule[3]),
+                    matched_value_count=int(rule[4]),
+                    changed_value_count=int(rule[5]),
+                )
+                if rule is not None
+                else None
+            )
+            if impact is None or not impact.requires_acknowledgement:
+                raise WorkspaceError("This rule result does not need acknowledgement")
             connection.execute(
                 """
                 INSERT OR REPLACE INTO transformation_rule_acknowledgement (

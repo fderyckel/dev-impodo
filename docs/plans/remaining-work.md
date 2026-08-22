@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status:** Active roadmap, updated 2026-08-19.
+**Status:** Active roadmap, updated 2026-08-22.
 
 This is the authoritative cross-product roadmap in `docs/plans/`. Scoped
 implementation proposals do not change its priority order unless explicitly
@@ -17,10 +17,10 @@ read-back path. Mapping contract v11, validation-bound categorical coverage,
 split reusable control definitions/DataVersion expectations, legacy upgrade
 review, and the shared application-layer source scan are implemented.
 
-Recipe Phases R0 through R7 are complete: the active Recipe-first aggregate,
-DataVersion, TargetBinding, qualification, cutover, credential-rotation,
-intent, recovery, and bound contracts are frozen with deterministic fixtures
-and executable tests. The Recipe root, independent Recipe/DataVersion lineage,
+Recipe Phases R0 through R7 are complete: the implemented Recipe-first
+aggregate, DataVersion, TargetBinding, qualification, cutover,
+credential-rotation, intent, recovery, and bound contracts have deterministic
+fixtures and executable tests. The Recipe root, independent Recipe/DataVersion lineage,
 protected persistence, migration ledgers, recovery intents, workspace seals,
 and compatibility resolution for current project routes are implemented.
 Recipe-native creation, a nonduplicating RecipeDraft readiness projection,
@@ -46,6 +46,32 @@ The current preparation limits remain:
 - 25,000 physical rows for current derived or materialized routes.
 
 This roadmap decision does not raise, remove, or reinterpret those limits.
+
+## Current product priority — Migration Projects and multi-Recipe cutover
+
+**Priority decision, 2026-08-22:** Product ownership accepted
+[ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
+and made the [Migration projects and multi-Recipe cutover implementation
+plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) the
+active product-delivery focus.
+
+The current Recipe-first implementation remains the runtime until the
+replacement plan passes its clean-root gate. The accepted target makes
+`MigrationProject` the business root, lets a Project exist without a Recipe,
+makes DataVersion a Project-owned complete source package, supports several
+Project-scoped Recipes, and qualifies their exact revisions together through
+one CutoverPlan and MigrationRun.
+
+The implementation must retain the current portable Recipe compiler, fresh
+Test and Production evidence, credential separation, Odoo 19 boundaries,
+immutable execution evidence, and reconciliation behavior. It must remove the
+Project-as-Recipe alias, Recipe-owned DataVersions and cutover pointer,
+Recipe-root creation route, old schema migrations, compatibility shells, and
+stale documentation before completion.
+
+No deferred product track becomes current while this plan is active. Narrow
+maintenance, security, data-loss, regression, and performance fixes required
+to preserve the current workflow remain in scope.
 
 ## Completed product priority — Recipe test-to-production reuse
 
@@ -81,9 +107,10 @@ The Recipe work owned the following sequence. Steps 1 through 9 completed on
 9. qualify Customers, Product/BOM, and parameterized stock-level Recipe shapes
    within their currently supported limits — completed.
 
-No deferred product track is current automatically. Product ownership must now
-name the next priority and its accepted prerequisites before implementation
-resumes outside maintenance, security, and regression work.
+On 2026-08-22, product ownership selected the Migration Project and
+multi-Recipe cutover correction above as the next priority. The completed
+Recipe-first work remains current implementation evidence, not the active
+forward architecture.
 
 Maintenance, security fixes, data-loss prevention, dependency compatibility,
 and regressions blocking this Recipe path remain in scope. They do not reopen a
@@ -103,8 +130,8 @@ The existing
 [high-volume transformation architecture implementation
 plan](transformation-scale-architecture-plan.md), measurements, fixtures, and
 acceptance evidence remain valid historical and future inputs. Do not raise the
-current relationship/derived limits or resume generalized scale work while the
-Recipe plan is active.
+  current relationship/derived limits or resume generalized scale work while the
+  Migration Project and multi-Recipe cutover plan is active.
 
 Recipe acceptance may use representative Customer, Product/BOM, and stock-level
 volumes only within the route limits already supported. A concrete Recipe
@@ -117,14 +144,14 @@ acceptance path; it does not reopen the general 100,000-row objective.
 reopening is still required.
 
 Formal organization-specific certification remains a conditional future track.
-The active Recipe plan implements exact Test qualification and Production
-fresh-evidence boundaries only. It does not claim a general clean-package
+The current Recipe implementation provides exact Test qualification and
+Production fresh-evidence boundaries only. It does not claim a general clean-package
 certificate or reuse Test qualification as Production approval.
 
 ## 3. Complete general remote acceptance and production readiness
 
 **Status:** Deferred except for the exact remote Test-to-Production behavior
-required by the active Recipe plan.
+already implemented and retained by the active Migration Project plan.
 
 The Recipe vertical slice includes current remote server binding, API-key
 generation changes, principal/permission capture, comparison, explicit write
@@ -144,7 +171,7 @@ reopening is still required.
 The [Odoo source import and round-trip update implementation
 plan](odoo-source-import-plan.md) retains its completed capture and comparison
 evidence and its future guarded-update design. No later Odoo-source phase may
-displace the Recipe work.
+displace the active Migration Project work.
 
 ## 5. Conditional target-side gateway
 
@@ -162,12 +189,13 @@ method surface is permitted.
 
 PostgreSQL repositories, object storage, durable workers, distributed target
 locks, SSO actors, centralized authorization, and managed secrets remain
-conditional on a hosted deployment requirement. The local contained workspace
-remains the implementation target for the active Recipe plan.
+conditional on a hosted deployment requirement. The local composition remains
+the implementation target for the active Migration Project plan.
 
 ## Reopening another track
 
-No deferred track becomes active automatically. After the Recipe definition of
-done passes, product ownership must make a new explicit priority decision in
-this file. That decision must name the next track, its accepted prerequisites,
-and any interaction with current Recipe behavior and evidence.
+No deferred track becomes active automatically. After the Migration Project
+and multi-Recipe definition of done passes, product ownership must make a new
+explicit priority decision in this file. That decision must name the next
+track, its accepted prerequisites, and any interaction with Project, Recipe,
+DataVersion, run, and cutover evidence.

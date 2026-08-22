@@ -1,0 +1,8 @@
+extends: substitution
+message: "Use the product name '%s' instead of '%s'."
+level: warning
+ignorecase: false
+scope: ~frontmatter
+swap:
+  odoo: Odoo
+  winget: WinGet

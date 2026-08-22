@@ -21,6 +21,7 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarOperationKind,
     ColumnarScalarFieldProgram,
     ColumnarSelectionConditionProgram,
+    ColumnarSelectionRuleProgram,
     ColumnarTransformationProgram,
 )
 from ..domain.prepared_snapshot import PreparedSnapshot
@@ -38,6 +39,7 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
     TransformationRuleImpact,
     _display_value,
+    selection_rule_impact_definition,
 )
 from ..models import (
     Issue,
@@ -833,8 +835,8 @@ def _selection_condition_expression(
         return (~blank) & (left == right)
     if operator == "not_equals":
         return (~blank) & (left != right)
-    if operator == "equals_casefold":
-        return (~blank) & (text.str.to_lowercase() == comparison.casefold())
+    if operator == "equals_ignore_case":
+        return (~blank) & (text.str.to_lowercase() == comparison.lower())
     if operator == "contains":
         return (~blank) & text.str.contains(comparison, literal=True)
     if operator == "starts_with":
@@ -1410,6 +1412,66 @@ def _compile_rule_observations(
     expressions: list[pl.Expr] = []
     for scalar_index, scalar in enumerate(layout.scalars):
         field = scalar.field
+        if field.provider.operation is ColumnarOperationKind.CONDITIONAL_SELECTION:
+            rule_matches = tuple(
+                _selection_rule_match_expression(rule).fill_null(False)
+                for rule in field.provider.selection_rules
+            )
+            match_count = pl.sum_horizontal(
+                *(matched.cast(pl.Int16) for matched in rule_matches)
+            )
+            preceding_match = pl.lit(False)
+            for rule_index, (rule, matched) in enumerate(
+                zip(field.provider.selection_rules, rule_matches, strict=True)
+            ):
+                selected = matched & ~preceding_match
+                overlap = matched & (match_count > 1)
+                for definition, observed_match, observed_change in (
+                    (
+                        _columnar_selection_rule_definition(
+                            program,
+                            field,
+                            rule_index,
+                            rule,
+                            "selection_rule",
+                        ),
+                        matched,
+                        selected,
+                    ),
+                    (
+                        _columnar_selection_rule_definition(
+                            program,
+                            field,
+                            rule_index,
+                            rule,
+                            "selection_rule_overlap",
+                        ),
+                        overlap,
+                        overlap,
+                    ),
+                ):
+                    observation_index = len(observations)
+                    prefix = (
+                        f"__impodo_rule_{scalar_index:06d}_"
+                        f"{observation_index:06d}"
+                    )
+                    observation = _RuleObservationLayout(
+                        rule=definition,
+                        evaluated_alias=f"{prefix}_evaluated",
+                        matched_alias=f"{prefix}_matched",
+                        changed_alias=f"{prefix}_changed",
+                    )
+                    observations.append(observation)
+                    expressions.extend(
+                        (
+                            pl.col(SOURCE_ROW_COLUMN)
+                            .is_not_null()
+                            .alias(observation.evaluated_alias),
+                            observed_match.alias(observation.matched_alias),
+                            observed_change.alias(observation.changed_alias),
+                        )
+                    )
+                preceding_match = preceding_match | matched
         definitions = dict(_columnar_rule_definitions(program, field))
         if not definitions:
             continue
@@ -1473,6 +1535,49 @@ def _compile_rule_observations(
                 continue
             raise ValueError(f"Unsupported native text operation {operation.value}")
     return tuple(observations), tuple(expressions)
+
+
+def _selection_rule_match_expression(
+    rule: ColumnarSelectionRuleProgram,
+) -> pl.Expr:
+    conditions = [
+        _selection_condition_expression(condition)
+        for condition in rule.conditions
+    ]
+    matched = conditions[0]
+    for condition in conditions[1:]:
+        matched = (
+            matched & condition
+            if rule.join == "all"
+            else matched | condition
+        )
+    return matched
+
+
+def _columnar_selection_rule_definition(
+    program: ColumnarTransformationProgram,
+    field: ColumnarScalarFieldProgram,
+    rule_index: int,
+    rule: ColumnarSelectionRuleProgram,
+    rule_kind: str,
+) -> TransformationRuleImpact:
+    return selection_rule_impact_definition(
+        dataset_id=program.dataset_id,
+        target_field=field.target_field,
+        rule_index=rule_index,
+        join=rule.join,
+        target_value=rule.target_value,
+        conditions=tuple(
+            {
+                "source_column_key": condition.source.stable_key,
+                "operator": condition.operator,
+                "comparison_value": condition.comparison_value,
+                "value_type": condition.value_type,
+            }
+            for condition in rule.conditions
+        ),
+        rule_kind=rule_kind,
+    )
 
 
 def _aggregate_rule_observations(

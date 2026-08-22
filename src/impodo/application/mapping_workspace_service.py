@@ -45,7 +45,10 @@ from ..domain.mapping.upgrade_review import (
     review_mapping_contract_upgrade,
 )
 from .categorical_coverage_service import CategoricalCoverageService
-from ..domain.staging.transformation_impact import TransformationRuleReview
+from ..domain.staging.transformation_impact import (
+    TransformationRuleReview,
+    reviewable_rule_impact_definitions,
+)
 from ..workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -716,12 +719,12 @@ class MappingWorkspaceService:
                 "Acknowledge every current validation warning before "
                 "confirming"
             )
-        text_cleanup_configured = any(
-            field.transform.configured_text_steps
+        rule_review_required = any(
+            reviewable_rule_impact_definitions(dataset.dataset_id, field)
             for dataset in revision.definition.datasets
             for field in dataset.fields
         )
-        if text_cleanup_configured and self.transformation_impacts is not None:
+        if rule_review_required and self.transformation_impacts is not None:
             review = self.transformation_impacts.get_transformation_rule_review(
                 project_id,
                 mapping_content_hash=revision.definition.content_hash,
@@ -734,7 +737,8 @@ class MappingWorkspaceService:
                 )
             if review.unacknowledged_rule_impacts:
                 raise WorkspaceError(
-                    "Review every cleanup step that changed no values before confirming"
+                    "Review every rule with no matches or overlapping priority "
+                    "before confirming"
                 )
         existing = self.mappings.get_mapping_submission(
             project_id,

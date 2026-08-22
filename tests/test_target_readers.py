@@ -18,6 +18,7 @@ from impodo.models import (
     target_identity_hash,
 )
 from impodo.projects import MigrationProject, OdooConnectionMode
+from impodo.planner import PreflightRequirementPlan, ReferenceReadRequirement
 from impodo.secrets import MemorySecretStore
 from impodo.web.target_credentials import (
     TargetCredentialRole,
@@ -61,9 +62,16 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             models=(
                 SimpleNamespace(
                     name="res.partner",
-                    fields=(SimpleNamespace(relation="res.country"),),
+                    fields=(
+                        SimpleNamespace(
+                            name="country_id",
+                            type="many2one",
+                            relation="res.country",
+                        ),
+                    ),
                 ),
             ),
+            odoo_version="19.0",
             read_credential_binding_hash=self.first.binding_hash,
             read_principal_hash="sha256:" + "2" * 64,
             read_permission_hash="sha256:" + "3" * 64,
@@ -72,6 +80,19 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         )
         self.probe_calls: list[tuple[str, tuple[str, ...]]] = []
         self.reader_calls = 0
+
+    @staticmethod
+    def _requirements(
+        metadata_requests=(),
+        record_requests=(),
+        reference_requirements=(),
+    ):
+        return PreflightRequirementPlan(
+            metadata_requests=tuple(metadata_requests),
+            record_requests=tuple(record_requests),
+            reference_requirements=tuple(reference_requirements),
+            source_record_count=0,
+        )
 
     def _context(self, *, permission_hash: str | None = None):
         def probe(_project, secret, models):
@@ -112,7 +133,11 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         context = self._context()
 
         with self.assertRaisesRegex(WorkspaceError, "read key.*changed"):
-            _read_readiness_snapshots(context, self.project, (), ())
+            _read_readiness_snapshots(
+                context,
+                self.project,
+                self._requirements(),
+            )
 
         self.assertEqual(
             self.probe_calls,
@@ -124,7 +149,11 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         context = self._context(permission_hash="sha256:" + "9" * 64)
 
         with self.assertRaisesRegex(WorkspaceError, "permissions.*changed"):
-            _read_readiness_snapshots(context, self.project, (), ())
+            _read_readiness_snapshots(
+                context,
+                self.project,
+                self._requirements(),
+            )
 
         self.assertEqual(self.reader_calls, 0)
 
@@ -146,8 +175,21 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         result = _read_readiness_snapshots(
             context,
             self.project,
-            metadata_requests,
-            record_requests,
+            self._requirements(
+                metadata_requests,
+                record_requests,
+                (
+                    ReferenceReadRequirement(
+                        parent_model="res.partner",
+                        relationship_field="country_id",
+                        relationship_type="many2one",
+                        relation_model="res.country",
+                        key_fields=("code",),
+                        scope_fields=(),
+                        requested_fields=("code",),
+                    ),
+                ),
+            ),
         )
 
         self.assertEqual(result, ("metadata", "records"))
@@ -165,12 +207,13 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
     ) -> None:
         context = self._context()
 
-        with self.assertRaisesRegex(WorkspaceError, "outside the captured schema"):
+        with self.assertRaisesRegex(WorkspaceError, "governed read policy"):
             _read_readiness_snapshots(
                 context,
                 self.project,
-                (MetadataRequest(model="res.users", fields=("login",)),),
-                (),
+                self._requirements(
+                    (MetadataRequest(model="res.users", fields=("login",)),),
+                ),
             )
 
         self.assertEqual(self.probe_calls, [])
@@ -179,12 +222,29 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
     def test_comparison_rejects_unreviewed_field_on_linked_model(self) -> None:
         context = self._context()
 
-        with self.assertRaisesRegex(WorkspaceError, "outside the captured schema"):
+        with self.assertRaisesRegex(WorkspaceError, "governed read policy"):
             _read_readiness_snapshots(
                 context,
                 self.project,
-                (MetadataRequest(model="res.country", fields=("vat_label",)),),
-                (),
+                self._requirements(
+                    (
+                        MetadataRequest(
+                            model="res.country",
+                            fields=("vat_label",),
+                        ),
+                    ),
+                    reference_requirements=(
+                        ReferenceReadRequirement(
+                            parent_model="res.partner",
+                            relationship_field="country_id",
+                            relationship_type="many2one",
+                            relation_model="res.country",
+                            key_fields=("code",),
+                            scope_fields=(),
+                            requested_fields=("code",),
+                        ),
+                    ),
+                ),
             )
 
         self.assertEqual(self.probe_calls, [])

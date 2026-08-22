@@ -43,6 +43,7 @@ from ..models import (
     assert_no_numeric_odoo_ids,
     canonical_json_bytes,
 )
+from ..planner import PreflightRequirementPlan
 from ..projects import MigrationProject
 from ..source_snapshot_io import load_source_snapshot_table, validate_snapshot_for_dataset
 from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SourceSelection
@@ -57,7 +58,7 @@ ODOO_COMPARISON_ARTIFACT_NAME = "impodo_odoo_comparison.protected.json"
 ODOO_COMPARISON_CHUNK_SIZE = 500
 
 OdooComparisonReader = Callable[
-    [tuple[MetadataRequest, ...], tuple[RecordRequest, ...]],
+    [PreflightRequirementPlan],
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
 
@@ -130,7 +131,14 @@ def build_odoo_comparison_publication(
         fields,
         record_ids,
     )
-    metadata, records = reader(metadata_requests, record_requests)
+    metadata, records = reader(
+        PreflightRequirementPlan(
+            metadata_requests=metadata_requests,
+            record_requests=record_requests,
+            reference_requirements=(),
+            source_record_count=len(prepared),
+        )
+    )
     metadata, records = bind_snapshot_hashes(metadata, records)
     _validate_live_binding(
         project,

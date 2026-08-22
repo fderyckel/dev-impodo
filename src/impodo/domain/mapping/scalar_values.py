@@ -56,6 +56,8 @@ def evaluate_scalar_mapping_value(
     source_values_by_ordinal: Mapping[int, Any] | None = None,
     source_values_by_key: Mapping[str, Any] | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
+    selection_rule_observer: Callable[[int, bool, bool, bool], None]
+    | None = None,
 ) -> str | int | Decimal | bool | date | datetime | None:
     """Evaluate one scalar through the shared preview/runtime boundary."""
 
@@ -64,6 +66,7 @@ def evaluate_scalar_mapping_value(
         selected_value = _evaluate_selection_rules(
             mapping,
             source_values_by_key or {},
+            observer=selection_rule_observer,
         )
     return canonicalize_scalar_value(
         mapping,
@@ -193,6 +196,8 @@ def canonicalize_scalar_value(
 def _evaluate_selection_rules(
     mapping: ScalarFieldMapping,
     source_values_by_key: Mapping[str, Any],
+    *,
+    observer: Callable[[int, bool, bool, bool], None] | None = None,
 ) -> str:
     """Return the first matching portable Odoo key or block the row."""
 
@@ -202,6 +207,7 @@ def _evaluate_selection_rules(
             "SOURCE_SELECTION_RULE_INVALID",
             "Conditional Selection rules are missing.",
         )
+    matches_by_rule: list[bool] = []
     for rule in rule_set.rules:
         matches = tuple(
             _selection_condition_matches(
@@ -215,8 +221,22 @@ def _evaluate_selection_rules(
             if rule.join is SelectionRuleJoin.ALL
             else any(matches)
         )
-        if rule_matches:
-            return rule.target_value
+        matches_by_rule.append(rule_matches)
+    selected_index = next(
+        (index for index, matched in enumerate(matches_by_rule) if matched),
+        None,
+    )
+    overlapping = sum(matches_by_rule) > 1
+    if observer is not None:
+        for index, matched in enumerate(matches_by_rule):
+            observer(
+                index,
+                matched,
+                index == selected_index,
+                matched and overlapping,
+            )
+    if selected_index is not None:
+        return rule_set.rules[selected_index].target_value
     if rule_set.otherwise_value is not None:
         return rule_set.otherwise_value
     raise ScalarValueRuleError(
@@ -274,8 +294,8 @@ def _selection_condition_matches(
         return left == right
     if operator is SelectionConditionOperator.NOT_EQUALS:
         return left != right
-    if operator is SelectionConditionOperator.EQUALS_CASEFOLD:
-        return str(left).casefold() == str(right).casefold()
+    if operator is SelectionConditionOperator.EQUALS_IGNORE_CASE:
+        return str(left).lower() == str(right).lower()
     if operator is SelectionConditionOperator.CONTAINS:
         return str(right) in str(left)
     if operator is SelectionConditionOperator.STARTS_WITH:

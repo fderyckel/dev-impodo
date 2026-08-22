@@ -439,7 +439,7 @@ def _validate_selection_rules(
                 )
             )
     text_only = {
-        SelectionConditionOperator.EQUALS_CASEFOLD,
+        SelectionConditionOperator.EQUALS_IGNORE_CASE,
         SelectionConditionOperator.CONTAINS,
         SelectionConditionOperator.STARTS_WITH,
         SelectionConditionOperator.ENDS_WITH,
@@ -503,6 +503,22 @@ def _validate_selection_rules(
                         condition_path,
                         "True and false comparisons require a yes/no source value.",
                         "Choose the yes/no comparison type.",
+                        dataset=dataset,
+                        source_column=condition.source_column_key,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            if condition.value_type == "boolean" and condition.operator not in {
+                SelectionConditionOperator.IS_BLANK,
+                SelectionConditionOperator.IS_NOT_BLANK,
+                *boolean_only,
+            }:
+                issues.append(
+                    _issue(
+                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
+                        condition_path,
+                        "A yes/no source value requires a yes, no, or blank comparison.",
+                        "Choose a yes/no comparison.",
                         dataset=dataset,
                         source_column=condition.source_column_key,
                         target_field=field_mapping.target_field,

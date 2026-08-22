@@ -80,7 +80,7 @@ class SelectionConditionOperator(StrEnum):
     IS_NOT_BLANK = "is_not_blank"
     EQUALS = "equals"
     NOT_EQUALS = "not_equals"
-    EQUALS_CASEFOLD = "equals_casefold"
+    EQUALS_IGNORE_CASE = "equals_ignore_case"
     CONTAINS = "contains"
     STARTS_WITH = "starts_with"
     ENDS_WITH = "ends_with"

@@ -1,8 +1,9 @@
 # Architecture decisions
 
-These decisions are accepted for the read-only milestone. Reversing one
-requires an explicit architecture decision update and review of affected
-contracts.
+Each decision records its own current status. Accepted decisions constrain
+implementation; superseded decisions remain historical evidence and must not
+be used as current architecture. Reversing an accepted decision requires an
+explicit architecture update and review of affected contracts.
 
 ## ADR-001 — Prepared records are the portable domain boundary
 
@@ -252,12 +253,13 @@ project deletion or retention expiry.
 
 ## ADR-012 — Project series group contained migration projects
 
-**Status:** Superseded by ADR-013 on 2026-08-19
+**Status:** Superseded by ADR-014 on 2026-08-22, after ADR-013 replaced it on
+2026-08-19.
 
 This decision is retained as the historical architecture used by the original
 reusable-Recipe Phase 0 fixtures. Do not implement `ProjectSeries` or
-`series_id` from this decision. ADR-013 preserves contained project workspaces
-while replacing the aggregate and target-ownership model.
+`series_id` from this decision. ADR-014 makes `MigrationProject` the genuine
+business root instead of restoring this compatibility wrapper.
 
 **Decision:** A reusable business migration is represented by a new
 `ProjectSeries` aggregate above existing `MigrationProject` workspaces. Each
@@ -308,7 +310,14 @@ record.
 
 ## ADR-013 — Recipe is the aggregate root and target bindings are application-specific
 
-**Status:** Accepted
+**Status:** Superseded by ADR-014 on 2026-08-22. The current code still
+implements this decision until the replacement plan passes its clean-root
+gate.
+
+ADR-014 retains this decision's portable Recipe revision, independent target
+binding, credential separation, immutable qualification, and fresh Production
+evidence boundaries. It replaces Recipe ownership of DataVersions and cutover
+selection.
 
 **Decision:** Recipe is Impodo's primary business object and aggregate root.
 It owns immutable Recipe revision lineage, DataVersion lineage, qualification
@@ -384,9 +393,118 @@ across environments.
 - all competing roadmap tracks remain deferred until the Recipe-first
   definition of done passes.
 
-The delivery sequence and acceptance gates are defined in the
+The historical delivery sequence and acceptance gates are recorded in the
 [Recipe-first test-to-production implementation
-plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md). The
-active payload, lifecycle, evidence, recovery, and bound details are frozen in
+plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md) and
 the [Recipe-first Phase R0
-contracts](../plans/reusable-recipes-phase-r0-contracts.md).
+contracts](../plans/reusable-recipes-phase-r0-contracts.md). The replacement
+architecture is defined by ADR-014 and the active implementation plan below.
+
+## ADR-014 — Migration projects coordinate reusable Recipes and cutover plans
+
+**Status:** Accepted on 2026-08-22; implementation planned.
+
+**Supersedes:** ADR-012 and ADR-013 for aggregate ownership, DataVersion
+ownership, and cutover coordination.
+
+**Current implementation note:** The browser and persistence layer remain
+Recipe-first until the
+[Migration projects and multi-Recipe cutover implementation
+plan](../plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
+passes its corresponding gates. Current contracts continue to describe the
+runtime during that transition.
+
+**Decision:** `MigrationProject` is Impodo's operator-facing business identity
+and Project-level governance root. A Project owns its DataVersion,
+MigrationRun, Recipe-membership, and CutoverPlan lineages. A Project may exist
+and complete a one-off migration without publishing a Recipe.
+
+`Recipe` is a Project-scoped, separately versioned aggregate root. It owns
+immutable RecipeRevision lineage but does not own DataVersion or cutover
+selection. Creating a Project does not create an empty Recipe. Publishing
+eligible reusable meaning from an Authoring workspace creates the Recipe and
+its first immutable revision together.
+
+`DataVersion` belongs to the Project and owns one immutable complete source
+package. Several Recipe applications may consume different logical datasets
+from the same DataVersion. Each application receives an isolated
+`MigrationWorkspace`; no application copies or shares another workspace's
+mapping, credentials, current pointers, approvals, journals, or evidence.
+
+`MigrationRun` coordinates one Authoring, Test, or Production use of one exact
+DataVersion against one exact Odoo target. The run owns the non-secret
+TargetBinding and unioned Odoo requirements plan. Each RecipeApplication binds
+one exact RecipeRevision, DataVersion, run, target binding, and workspace.
+
+`CutoverPlan` is a Project-scoped versioned aggregate. One CutoverPlan revision
+pins the participating Recipe revisions, their acyclic dependency graph,
+declared write ownership, and shared controls. An integrated Test run must
+qualify that exact plan before the data manager may select it for rollout. A
+one-Recipe Project uses the same one-item plan path.
+
+One Recipe may contain several logically related source datasets and may write
+one or more Odoo models when they form one business outcome, owner,
+qualification lifecycle, and dependency unit. Odoo model boundaries do not
+automatically create Recipe boundaries.
+
+`MigrationProject`, `DataVersion`, `MigrationRun`, `MigrationWorkspace`,
+`Recipe`, `RecipeApplication`, and `CutoverPlan` use independent identifiers.
+Product containment does not make them one large in-memory aggregate.
+Repositories use bounded Project-scoped projections and do not open every
+workspace to list or update one Project.
+
+**Why:** A data manager uses representative legacy data to prepare and test
+reusable migration meaning before rollout. On rollout day, the data manager
+must apply the exact qualified meaning to a fresh complete data package and
+fresh Odoo evidence. One Project may require several independent but ordered
+Recipes, such as Customer and Product/BOM migration units. Treating Project as
+a browser alias for one Recipe prevents that workflow and creates a Recipe
+before reusable meaning exists.
+
+The current one-Recipe implementation was a valid vertical slice, but its
+one-to-one cardinality is not a stable domain identity. A Project-level run
+and CutoverPlan are required to detect cross-Recipe dependencies, conflicting
+writes, shared-control failures, and inconsistent target evidence before
+execution.
+
+**Consequences:**
+
+- Choosing **New project** creates a Project and its initial authoring data
+  package, run, and workspace, but no Recipe.
+- A submitted mapping can complete as a one-off migration or publish reusable
+  meaning through an explicit **Save as Recipe** action.
+- A RecipeRevision retains portable logical source, mapping, transformation,
+  relationship, Odoo target-requirement, quality, parameter-definition, and
+  control-definition meaning.
+- Recipe meaning excludes source rows, physical IDs, target identity,
+  credentials, numeric Odoo IDs, approvals, and execution evidence.
+- DataVersion acceptance records complete package membership, hashes, logical
+  datasets, as-of context, and controls. Accepted files are never replaced in
+  place.
+- A later application distinguishes compatible physical drift, per-application
+  bindings, declared parameter values, and semantic changes. A semantic change
+  creates a new RecipeRevision and invalidates affected qualification.
+- The run planner rejects cyclic dependencies and implicit overlapping writes.
+  General last-writer-wins or merge behavior is unsupported.
+- One run-level requirements plan unions Odoo 19 metadata, identity,
+  reference, and comparison reads. No application path may add an Odoo call per
+  Recipe or source row when one bounded shared capture is sufficient.
+- Test and Production runs always establish independent target, credential,
+  comparison, approval, execution, and reconciliation evidence.
+- Individual Recipe qualification cannot replace integrated CutoverPlan
+  qualification.
+- Cross-Project Recipe sharing is outside the first release. A future sharing
+  feature must create a reviewed Project-scoped copy with lineage instead of a
+  mutable cross-Project aggregate.
+- The existing internal `MigrationProject` workspace is renamed to
+  `MigrationWorkspace`; no completed implementation may use **project** for
+  both the business root and an internal workspace.
+- Because the product is in development, the implementation uses new exact
+  schema generations. Old Recipe-first storage fails closed and requires an
+  explicit developer reset. Runtime backfill, dual writes, Project shells,
+  lazy adoption, compatibility routes, and temporary type aliases are not
+  retained.
+- Historical Recipe-first plans and reports remain labelled evidence. Current
+  contracts, architecture, browser documentation, BPMN models, screenshots,
+  code maps, and tests change with the implementation gate that changes their
+  behavior.

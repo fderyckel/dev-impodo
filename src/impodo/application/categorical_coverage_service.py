@@ -45,7 +45,7 @@ import polars as pl  # noqa: E402
 
 CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
     {
-        "contract_version": 1,
+        "contract_version": 2,
         "input": "source_snapshot_value_columns",
         "blank": "trimmed_empty_excluded",
         "grouping": "exact_utf8_tuple",
@@ -55,12 +55,14 @@ CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
 )
 CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
     {
-        "contract_version": 1,
+        "contract_version": 2,
         "explicit_match_choice": "str(raw).strip()",
         "exact_target_value": "evaluate_scalar_mapping_value",
         "relationship_choice": "str(raw).strip()",
         "blank_policy": "governed_separately",
         "target_reference_resolution": "deferred_to_preparation",
+        "conditional_selection": "ordered_first_match_with_typed_inputs",
+        "conditional_blank_domain": "included",
     }
 )
 

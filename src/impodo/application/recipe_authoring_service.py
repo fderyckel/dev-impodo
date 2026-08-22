@@ -26,7 +26,16 @@ from ..domain.recipe_parameters import (
 from ..domain.serialization import canonical_json, content_hash, portable
 from ..projects import MigrationProject, ProjectService, SourceMode
 from ..quality import QualityRuleSet, QualityRuleSource
-from ..reference_keys import StandardReferenceKey, standard_reference_key
+from ..reference_keys import (
+    REFERENCE_POLICY_HASH,
+    GovernedReferenceDecision,
+    GovernedReferenceRequest,
+    ReferenceEvidenceKind,
+    ReferencePolicyDenial,
+    ReferenceReadPurpose,
+    authorize_governed_reference,
+    captured_reference_field_contracts,
+)
 from ..recipes import (
     DataVersionPurpose,
     Recipe,
@@ -687,7 +696,7 @@ class RecipeAuthoringService:
             "contract_versions": {
                 "control_definitions": 1,
                 "mapping_recipe": 2,
-                "odoo_target_contract": 1,
+                "odoo_target_contract": 2,
                 "quality_recipe": 1,
                 "recipe_definition": 2,
                 "recipe_parameter_definitions": 1,
@@ -1135,33 +1144,131 @@ class RecipeAuthoringService:
     def _target(self, mappings, schema, governance, dataset_ids):
         del dataset_ids
         schema_models = {item.name: item for item in schema.models}
+        major_match = re.match(r"([0-9]+)", schema.odoo_version)
+        if major_match is None:
+            raise _RecipeDraftBlocked(
+                self._issue(
+                    "ODOO_VERSION_EVIDENCE_INVALID",
+                    "The current Odoo version evidence cannot be verified.",
+                    "Refresh Odoo data before publishing the Recipe.",
+                    RecipeDraftRecoveryStep.ODOO_DATA,
+                    support_reference=schema.odoo_version,
+                )
+            )
+        odoo_major_version = int(major_match.group(1))
         field_roles: dict[tuple[str, str], set[str]] = {}
         write_fields: dict[str, set[str]] = {}
         selection_codes: dict[tuple[str, str], set[str]] = {}
-        reviewed_references: dict[str, StandardReferenceKey] = {}
-        unreviewed_reference_models: set[str] = set()
+        reference_decisions: dict[str, list[GovernedReferenceDecision]] = {}
+        reference_paths: dict[str, list[dict[str, object]]] = {}
+        governed_signatures = {
+            (item.model, item.key_fields, item.scope_fields)
+            for item in governance.business_keys
+            if item.status is BusinessKeyStatus.CONFIRMED
+        }
 
-        def register_resolver(resolver) -> None:
+        def register_resolver(
+            parent_model: str,
+            relationship_field: str,
+            relationship_type: str,
+            resolver,
+        ) -> None:
             if resolver is None or resolver.model is None:
                 return
             for key in (*resolver.key_mappings, *resolver.scope_mappings):
                 field_roles.setdefault(
                     (resolver.model, key.target_field), set()
                 ).add("relationship_key")
-            standard = standard_reference_key(resolver.model)
-            if standard is None:
-                return
-            is_reviewed = (
-                tuple(item.target_field for item in resolver.key_mappings)
-                == standard.key_fields
-                and tuple(item.target_field for item in resolver.scope_mappings)
-                == standard.scope_fields
+            parent = schema_models.get(parent_model)
+            relationship = next(
+                (
+                    field
+                    for field in (parent.fields if parent is not None else ())
+                    if field.name == relationship_field
+                ),
+                None,
             )
-            if is_reviewed and resolver.model not in unreviewed_reference_models:
-                reviewed_references[resolver.model] = standard
-            elif not is_reviewed:
-                unreviewed_reference_models.add(resolver.model)
-                reviewed_references.pop(resolver.model, None)
+            key_fields = tuple(
+                item.target_field for item in resolver.key_mappings
+            )
+            scope_fields = tuple(
+                item.target_field for item in resolver.scope_mappings
+            )
+            related = schema_models.get(resolver.model)
+            decision = authorize_governed_reference(
+                GovernedReferenceRequest(
+                    parent_model=parent_model,
+                    relationship_field=relationship_field,
+                    relationship_type=(
+                        relationship.type
+                        if relationship is not None
+                        else relationship_type
+                    ),
+                    relationship_model=(
+                        relationship.relation if relationship is not None else None
+                    ),
+                    related_model=resolver.model,
+                    key_fields=key_fields,
+                    scope_fields=scope_fields,
+                    requested_fields=(*key_fields, *scope_fields),
+                    purpose=ReferenceReadPurpose.RECIPE_PUBLICATION,
+                    odoo_major_version=odoo_major_version,
+                    governed_key=(
+                        resolver.model,
+                        key_fields,
+                        scope_fields,
+                    )
+                    in governed_signatures,
+                ),
+                captured_fields=(
+                    captured_reference_field_contracts(related.fields)
+                    if related is not None
+                    else None
+                ),
+            )
+            if not decision.accepted:
+                captured_metadata_changed = (
+                    decision.denial
+                    is ReferencePolicyDenial.CAPTURED_METADATA_MISMATCH
+                )
+                raise _RecipeDraftBlocked(
+                    self._issue(
+                        (
+                            "ODOO_STANDARD_REFERENCE_CHANGED"
+                            if captured_metadata_changed
+                            else "ODOO_REFERENCE_POLICY_MISMATCH"
+                        ),
+                        (
+                            "A reviewed Odoo reference no longer matches current evidence."
+                            if captured_metadata_changed
+                            else "A saved relationship no longer matches its governed Odoo reference."
+                        ),
+                        (
+                            "Review the affected record type in Odoo data before publishing."
+                            if captured_metadata_changed
+                            else "Review the affected field match before publishing the Recipe."
+                        ),
+                        (
+                            RecipeDraftRecoveryStep.ODOO_DATA
+                            if captured_metadata_changed
+                            else RecipeDraftRecoveryStep.MATCH_DATA
+                        ),
+                        support_reference=(
+                            f"{parent_model}.{relationship_field} -> "
+                            f"{resolver.model}"
+                        ),
+                    )
+                )
+            reference_decisions.setdefault(resolver.model, []).append(decision)
+            reference_paths.setdefault(resolver.model, []).append(
+                {
+                    "key_fields": list(key_fields),
+                    "parent_model": parent_model,
+                    "relationship_field": relationship_field,
+                    "relationship_type": relationship_type,
+                    "scope_fields": list(scope_fields),
+                }
+            )
 
         for mapping in mappings:
             write_fields.setdefault(mapping.target_model, set()).update(
@@ -1172,31 +1279,55 @@ class RecipeAuthoringService:
                     field_roles.setdefault((mapping.target_model, field), set()).add(
                         "business_key"
                     )
-                register_resolver(identity.resolver)
+                if identity.resolver is not None:
+                    register_resolver(
+                        mapping.target_model,
+                        identity.target_fields[0],
+                        "many2one",
+                        identity.resolver,
+                    )
             for field in mapping.fields:
                 field_roles.setdefault(
                     (mapping.target_model, field.target_field), set()
                 ).add("mapped_field")
-                selection_codes.setdefault(
-                    (mapping.target_model, field.target_field), set()
-                ).update(item.target_value for item in field.value_mappings)
-                if field.literal_value is not None:
-                    selection_codes[(mapping.target_model, field.target_field)].add(
-                        field.literal_value
-                    )
-                if field.selection_rules is not None:
-                    selection_codes[(mapping.target_model, field.target_field)].update(
-                        rule.target_value for rule in field.selection_rules.rules
-                    )
-                    if field.selection_rules.otherwise_value is not None:
+                model = schema_models.get(mapping.target_model)
+                metadata = next(
+                    (
+                        item
+                        for item in (model.fields if model is not None else ())
+                        if item.name == field.target_field
+                    ),
+                    None,
+                )
+                if metadata is not None and metadata.type == "selection":
+                    selection_codes.setdefault(
+                        (mapping.target_model, field.target_field), set()
+                    ).update(item.target_value for item in field.value_mappings)
+                    if field.literal_value is not None:
                         selection_codes[(mapping.target_model, field.target_field)].add(
-                            field.selection_rules.otherwise_value
+                            field.literal_value
                         )
+                    if field.selection_rules is not None:
+                        selection_codes[
+                            (mapping.target_model, field.target_field)
+                        ].update(
+                            rule.target_value
+                            for rule in field.selection_rules.rules
+                        )
+                        if field.selection_rules.otherwise_value is not None:
+                            selection_codes[
+                                (mapping.target_model, field.target_field)
+                            ].add(field.selection_rules.otherwise_value)
             for relation in mapping.relationships:
                 field_roles.setdefault(
                     (mapping.target_model, relation.target_field), set()
                 ).add("relationship")
-                register_resolver(relation.resolver)
+                register_resolver(
+                    mapping.target_model,
+                    relation.target_field,
+                    relation.kind,
+                    relation.resolver,
+                )
         business_keys = []
         for key in governance.business_keys:
             if key.status is not BusinessKeyStatus.CONFIRMED:
@@ -1212,18 +1343,6 @@ class RecipeAuthoringService:
                 field_roles.setdefault((key.model, field), set()).add("business_key")
         model_payload = []
         dependencies = []
-        major_match = re.match(r"([0-9]+)", schema.odoo_version)
-        if major_match is None:
-            raise _RecipeDraftBlocked(
-                self._issue(
-                    "ODOO_VERSION_EVIDENCE_INVALID",
-                    "The current Odoo version evidence cannot be verified.",
-                    "Refresh Odoo data before publishing the Recipe.",
-                    RecipeDraftRecoveryStep.ODOO_DATA,
-                    support_reference=schema.odoo_version,
-                )
-            )
-        odoo_major_version = int(major_match.group(1))
         for model_name in sorted({item[0] for item in field_roles}):
             model = schema_models.get(model_name)
             required_fields = {
@@ -1231,16 +1350,24 @@ class RecipeAuthoringService:
                 for candidate_model, field_name in field_roles
                 if candidate_model == model_name
             }
-            standard = reviewed_references.get(model_name)
+            model_reference_decisions = reference_decisions.get(model_name, ())
             reviewed_reference_only = bool(
-                standard is not None
-                and standard.odoo_major_version == odoo_major_version
+                model_reference_decisions
+                and all(
+                    decision.evidence_kind
+                    is ReferenceEvidenceKind.REVIEWED_STANDARD
+                    for decision in model_reference_decisions
+                )
                 and not write_fields.get(model_name)
                 and all(
                     roles == {"relationship_key"}
-                    and standard.field_contract(field_name) is not None
                     for field_name, roles in required_fields.items()
                 )
+            )
+            standard = (
+                model_reference_decisions[0].contract
+                if reviewed_reference_only
+                else None
             )
             if model is None and not reviewed_reference_only:
                 raise _RecipeDraftBlocked(
@@ -1321,7 +1448,24 @@ class RecipeAuthoringService:
                         "roles": sorted(roles),
                     }
                 )
-            model_payload.append({"fields": fields, "model": model_name})
+            model_payload.append(
+                {
+                    "fields": fields,
+                    "model": model_name,
+                    "reference_evidence_kind": (
+                        ReferenceEvidenceKind.REVIEWED_STANDARD.value
+                        if reviewed_reference_only
+                        else ReferenceEvidenceKind.CAPTURED_GOVERNED.value
+                    ),
+                    "reference_paths": sorted(
+                        reference_paths.get(model_name, ()),
+                        key=lambda item: (
+                            item["parent_model"],
+                            item["relationship_field"],
+                        ),
+                    ),
+                }
+            )
         return (
             {
                 "approved_write_fields": {
@@ -1334,6 +1478,7 @@ class RecipeAuthoringService:
                 ),
                 "models": model_payload,
                 "odoo_major_version": odoo_major_version,
+                "reference_policy_hash": REFERENCE_POLICY_HASH,
                 "required_applications": [],
             },
             {"dependencies": dependencies},

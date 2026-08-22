@@ -86,7 +86,9 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
 
         return invoke
 
-    def read_snapshot(metadata_requests, record_requests):
+    def read_snapshot(requirements):
+        metadata_requests = requirements.metadata_requests
+        record_requests = requirements.record_requests
         request_counts["metadata"] = len(metadata_requests)
         request_counts["records"] = len(record_requests)
         request_counts["chunks"] = len(record_requests)

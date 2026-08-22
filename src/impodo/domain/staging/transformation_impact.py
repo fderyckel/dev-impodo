@@ -21,13 +21,20 @@ from ..contracts import (
     TRANSFORMATION_IMPACT_CONTRACT_VERSION,
     TRANSFORMATION_IMPACT_DETAIL_LIMIT,
 )
-from ..mapping.contracts import ScalarFieldMapping
+from ..mapping.contracts import ScalarFieldMapping, ScalarValueSource
 from ..serialization import content_hash
 
 
 @dataclass(frozen=True, slots=True)
 class TransformationRuleImpact:
-    """Complete counts for one configured transformation rule."""
+    """Complete counts for one configured cleanup or Selection rule fact.
+
+    For ``selection_rule``, ``matched_value_count`` counts every row whose
+    conditions matched before priority and ``changed_value_count`` counts rows
+    that selected the rule after first-match priority. For
+    ``selection_rule_overlap``, both counts contain the rows where that rule
+    matched alongside at least one other rule.
+    """
 
     dataset_id: str
     target_field: str
@@ -54,9 +61,26 @@ class TransformationRuleImpact:
 
     @property
     def requires_acknowledgement(self) -> bool:
-        """Return whether a configured rule had no observable effect."""
+        """Return whether current evidence requires an operator decision."""
+
+        if self.rule_kind == "selection_rule":
+            return self.matched_value_count == 0
+        if self.rule_kind == "selection_rule_overlap":
+            return self.matched_value_count > 0
 
         return self.changed_value_count == 0
+
+    @property
+    def acknowledgement_reason(self) -> str | None:
+        """Name the exact review decision represented by this fact."""
+
+        if not self.requires_acknowledgement:
+            return None
+        if self.rule_kind == "selection_rule":
+            return "zero_match"
+        if self.rule_kind == "selection_rule_overlap":
+            return "overlap"
+        return "zero_change"
 
 
 def transformation_rule_impact_definitions(
@@ -96,6 +120,86 @@ def transformation_rule_impact_definitions(
             )
         )
     return tuple(definitions)
+
+
+def selection_rule_impact_definitions(
+    dataset_id: str,
+    field: ScalarFieldMapping,
+) -> tuple[TransformationRuleImpact, ...]:
+    """Describe match and overlap evidence for every ordered Selection rule."""
+
+    if (
+        field.value_source is not ScalarValueSource.CONDITIONAL_RULES
+        or field.selection_rules is None
+    ):
+        return ()
+    definitions: list[TransformationRuleImpact] = []
+    for rule_index, rule in enumerate(field.selection_rules.rules):
+        for rule_kind in ("selection_rule", "selection_rule_overlap"):
+            definitions.append(
+                selection_rule_impact_definition(
+                    dataset_id=dataset_id,
+                    target_field=field.target_field,
+                    rule_index=rule_index,
+                    join=rule.join.value,
+                    target_value=rule.target_value,
+                    conditions=tuple(
+                        {
+                            "source_column_key": condition.source_column_key,
+                            "operator": condition.operator.value,
+                            "comparison_value": condition.comparison_value,
+                            "value_type": condition.value_type,
+                        }
+                        for condition in rule.conditions
+                    ),
+                    rule_kind=rule_kind,
+                )
+            )
+    return tuple(definitions)
+
+
+def selection_rule_impact_definition(
+    *,
+    dataset_id: str,
+    target_field: str,
+    rule_index: int,
+    join: str,
+    target_value: str,
+    conditions: tuple[Mapping[str, object], ...],
+    rule_kind: str,
+) -> TransformationRuleImpact:
+    """Build one stable Selection rule fact from portable rule meaning."""
+
+    if rule_kind not in {"selection_rule", "selection_rule_overlap"}:
+        raise ValueError("Selection rule evidence kind is unsupported")
+    return TransformationRuleImpact(
+        dataset_id=dataset_id,
+        target_field=target_field,
+        rule_kind=rule_kind,
+        rule_fingerprint=content_hash(
+            {
+                "dataset_id": dataset_id,
+                "target_field": target_field,
+                "rule_index": rule_index,
+                "join": join,
+                "target_value": target_value,
+                "conditions": [dict(condition) for condition in conditions],
+                "evidence_kind": rule_kind,
+            }
+        ),
+    )
+
+
+def reviewable_rule_impact_definitions(
+    dataset_id: str,
+    field: ScalarFieldMapping,
+) -> tuple[TransformationRuleImpact, ...]:
+    """Return every rule fact that the current impact review must publish."""
+
+    return (
+        *transformation_rule_impact_definitions(dataset_id, field),
+        *selection_rule_impact_definitions(dataset_id, field),
+    )
 
 
 @dataclass(frozen=True, slots=True)

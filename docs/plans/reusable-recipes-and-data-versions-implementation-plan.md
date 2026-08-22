@@ -2,8 +2,12 @@
 
 ## Status and authority
 
-**Status:** Completed on 2026-08-19. Product ownership must explicitly select
-the next roadmap track.
+**Status:** Completed historical implementation plan from 2026-08-19.
+Superseded as forward-looking architecture authority by ADR-014 and the
+[Migration projects and multi-Recipe cutover implementation
+plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) on
+2026-08-22. The current code continues to implement this Recipe-first slice
+until the replacement plan passes its clean-root gate.
 
 Phases R0 through R7, including the R4.5 clean-root consolidation, completed on
 2026-08-19. The active contracts are in the

@@ -75,9 +75,9 @@ An Odoo API key is neither Recipe meaning nor workspace data. Read and write
 credentials use separate role-specific fields and vault entries and never fall
 back to one another.
 Changing the target removes both roles for the old target; deleting the owning
-Recipe or a permitted standalone workspace removes both roles. Stored evidence
-may retain only non-secret generation, principal, permission, and context
-bindings.
+unpublished Recipe draft removes both roles for its contained workspace.
+Stored evidence may retain only non-secret generation, principal, permission,
+and context bindings.
 
 Registration and connection configuration do not grant Odoo read or write
 capability. Each connector operation requires its own narrow capability and
@@ -102,13 +102,12 @@ Domain and application code access artifacts through ports; filesystem paths
 are not domain contract values. Hosted deployments must supply their own
 identity, database, storage, secret, and job adapters.
 
-Every workspace registry row has one exact Recipe/DataVersion linkage. Legacy
-workspaces receive that shell without opening their contained database during
-registry list/backfill; opening the workspace hydrates only the approved setup
-allowlist and writes the exact local linkage marker. Sealed DataVersion
-workspaces reject mutation. Standalone workspace deletion is permitted
-only for an unpublished one-DataVersion bootstrap shell; otherwise deletion
-must begin at the Recipe boundary and persist an exact target enumeration.
+Every current workspace registry row has one exact Recipe/DataVersion linkage
+from its creation operation. The current build does not backfill or lazily
+adopt an unlinked standalone workspace. Sealed DataVersion workspaces reject
+mutation. Direct workspace deletion is unsupported; deleting an unpublished
+Recipe draft validates its exact Recipe and workspace revisions before it
+removes the contained workspace.
 
 Workspace databases outside the exact supported base contract are not opened.
 Checksum-pinned additive Recipe linkage migrations are the only current

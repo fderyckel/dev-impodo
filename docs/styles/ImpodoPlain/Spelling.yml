@@ -1,0 +1,8 @@
+extends: spelling
+message: "Check the spelling of '%s'. Add valid Impodo, Odoo, or example terms to the reviewed spelling vocabulary."
+level: error
+ignore:
+  - Impodo.txt
+filters:
+  - '^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$'
+  - '^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$'

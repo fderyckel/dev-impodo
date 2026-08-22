@@ -2828,7 +2828,7 @@ document.addEventListener("DOMContentLoaded", () => {
     string: [
       ["is_blank", "is blank"], ["is_not_blank", "is not blank"],
       ["equals", "equals"], ["not_equals", "does not equal"],
-      ["equals_casefold", "equals, ignoring case"], ["contains", "contains"],
+      ["equals_ignore_case", "equals, ignoring case"], ["contains", "contains"],
       ["starts_with", "starts with"], ["ends_with", "ends with"],
     ],
     ordered: [
@@ -2904,6 +2904,15 @@ document.addEventListener("DOMContentLoaded", () => {
         const join = card.querySelector("[data-selection-rule-join]");
         const target = card.querySelector("[data-selection-rule-target]");
         join.value = rule.join || "all";
+        if (
+          rule.target_value &&
+          !Array.from(target.options).some((option) => option.value === rule.target_value)
+        ) {
+          const unavailable = document.createElement("option");
+          unavailable.value = rule.target_value;
+          unavailable.textContent = `Unavailable in captured Odoo choices — ${rule.target_value}`;
+          target.append(unavailable);
+        }
         target.value = rule.target_value || target.options[0]?.value || "";
         rule.target_value = target.value;
         join.addEventListener("change", () => { rule.join = join.value; sync(); });
@@ -3009,6 +3018,9 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         card.querySelector("[data-remove-selection-rule]")
           .addEventListener("click", () => {
+            if (state.rules.length === 1) {
+              return;
+            }
             state.rules.splice(ruleIndex, 1);
             render();
             sync();
@@ -3028,6 +3040,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         list.append(fragment);
       });
+      if (
+        state.otherwise_value &&
+        !Array.from(otherwise.options).some(
+          (option) => option.value === state.otherwise_value
+        )
+      ) {
+        const unavailable = document.createElement("option");
+        unavailable.value = state.otherwise_value;
+        unavailable.textContent =
+          `Unavailable in captured Odoo choices — ${state.otherwise_value}`;
+        otherwise.append(unavailable);
+      }
       otherwise.value = state.otherwise_value || "";
     };
     row.querySelector("[data-add-selection-rule]").addEventListener("click", () => {

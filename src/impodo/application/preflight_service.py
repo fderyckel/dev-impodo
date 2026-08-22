@@ -44,7 +44,7 @@ from ..domain.preflight.reports import (
 from ..domain.odoo_comparison import OdooComparisonArtifact
 from ..engine import PreflightEngine
 from ..models import canonical_json_bytes, target_identity_hash
-from ..planner import plan_preflight_requirements
+from ..planner import PreflightRequirementPlan, plan_preflight_requirements
 from ..projects import SourceMode
 from ..staging import StagingRunSummary
 from ..workspace_errors import WorkspaceError
@@ -70,7 +70,7 @@ MANIFEST_NAME = "impodo_preflight_manifest.json"
 EXECUTION_SNAPSHOT_NAME = "impodo_execution_snapshot.json"
 
 ReadinessReader = Callable[
-    [tuple[MetadataRequest, ...], tuple[RecordRequest, ...]],
+    [PreflightRequirementPlan],
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
 
@@ -320,10 +320,7 @@ class PreflightService:
                 "An Odoo record read could not be narrowed safely. "
                 "Odoo was not contacted."
             )
-        metadata, records = reader(
-            requirements.metadata_requests,
-            requirements.record_requests,
-        )
+        metadata, records = reader(requirements)
         metadata, records = bind_snapshot_hashes(metadata, records)
         _validate_snapshot_projection(
             requirements.metadata_requests,

@@ -85,6 +85,7 @@ from impodo.models import canonical_json_text
 from impodo.odoo_readback import ReadbackRecord
 from impodo.projects import OdooConnectionMode, ProjectStatus, SourceMode
 from impodo.preparation_jobs import PreparationJobStatus, PreparationWorkspace
+from impodo.planner import PreflightRequirementPlan
 from impodo.recipes import DataVersionState
 from impodo.quality import (
     QualityOutcomePolicy,
@@ -850,7 +851,9 @@ class LocalStackBrowserTests(unittest.TestCase):
 
         def compare_with_reader(_project_id, *, reader, actor):
             self.assertEqual(actor, context.actor)
-            return reader((), ())
+            return reader(
+                PreflightRequirementPlan((), (), (), source_record_count=0)
+            )
 
         with patch.object(
             context.preflight,
@@ -1709,7 +1712,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         def compare_with_reader(_project_id, *, reader, actor):
             self.assertEqual(actor, context.actor)
-            return reader((), ())
+            return reader(
+                PreflightRequirementPlan((), (), (), source_record_count=0)
+            )
 
         with patch.object(
             context.preflight,

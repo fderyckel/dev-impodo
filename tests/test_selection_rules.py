@@ -75,7 +75,7 @@ def _mapping(*, otherwise: str | None = "person") -> ScalarFieldMapping:
                         ),
                         _condition(
                             "column:category",
-                            SelectionConditionOperator.EQUALS_CASEFOLD,
+                            SelectionConditionOperator.EQUALS_IGNORE_CASE,
                             "business",
                         ),
                     ),
@@ -125,6 +125,40 @@ class SelectionRuleTests(unittest.TestCase):
                 },
             )
         self.assertEqual(raised.exception.code, "SOURCE_SELECTION_RULE_UNRESOLVED")
+
+    def test_invalid_typed_source_value_blocks_instead_of_using_otherwise(self) -> None:
+        mapping = ScalarFieldMapping(
+            target_field="company_type",
+            value_source=ScalarValueSource.CONDITIONAL_RULES,
+            selection_rules=SelectionRuleSet(
+                rules=(
+                    SelectionRule(
+                        rule_id=str(uuid4()),
+                        conditions=(
+                            SelectionCondition(
+                                condition_id=str(uuid4()),
+                                source_column_key="column:employees",
+                                operator=SelectionConditionOperator.GREATER_THAN,
+                                comparison_value="5",
+                                value_type="integer",
+                            ),
+                        ),
+                        target_value="company",
+                    ),
+                ),
+                otherwise_value="person",
+            ),
+        )
+        with self.assertRaises(ScalarValueRuleError) as raised:
+            evaluate_scalar_mapping_value(
+                mapping,
+                None,
+                source_values_by_key={"column:employees": "unknown"},
+            )
+        self.assertEqual(
+            raised.exception.code,
+            "SOURCE_SELECTION_RULE_SOURCE_INVALID",
+        )
 
     def test_contract_v12_round_trips_rules_without_changing_order(self) -> None:
         definition = MappingDefinition(
@@ -210,7 +244,7 @@ class SelectionRuleTests(unittest.TestCase):
                         ),
                         ColumnarSelectionConditionProgram(
                             category,
-                            "equals_casefold",
+                            "equals_ignore_case",
                             "business",
                             "string",
                         ),

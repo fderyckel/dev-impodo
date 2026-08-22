@@ -28,10 +28,24 @@ from .models import (
     portable_value,
 )
 from .profile import DatasetSpec, ResolveSpec
+from .reference_keys import REFERENCE_POLICY_HASH
 
 
-PREFLIGHT_REQUIREMENT_PLAN_VERSION = 1
+PREFLIGHT_REQUIREMENT_PLAN_VERSION = 2
 MAX_KEYS_PER_RECORD_REQUEST = 500
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceReadRequirement:
+    """Preserve why one related Odoo model appears in a bounded read plan."""
+
+    parent_model: str
+    relationship_field: str
+    relationship_type: str
+    relation_model: str
+    key_fields: tuple[str, ...]
+    scope_fields: tuple[str, ...]
+    requested_fields: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +54,9 @@ class PreflightRequirementPlan:
 
     metadata_requests: tuple[MetadataRequest, ...]
     record_requests: tuple[RecordRequest, ...]
+    reference_requirements: tuple[ReferenceReadRequirement, ...]
     source_record_count: int
+    reference_policy_hash: str = REFERENCE_POLICY_HASH
     contract_version: int = PREFLIGHT_REQUIREMENT_PLAN_VERSION
 
     @property
@@ -50,6 +66,7 @@ class PreflightRequirementPlan:
         payload = {
             "contract_version": self.contract_version,
             "source_record_count": self.source_record_count,
+            "reference_policy_hash": self.reference_policy_hash,
             "metadata": [
                 {
                     "model": item.model,
@@ -66,6 +83,18 @@ class PreflightRequirementPlan:
                     "domain": portable_value(item.domain),
                 }
                 for item in self.record_requests
+            ],
+            "references": [
+                {
+                    "parent_model": item.parent_model,
+                    "relationship_field": item.relationship_field,
+                    "relationship_type": item.relationship_type,
+                    "relation_model": item.relation_model,
+                    "key_fields": list(item.key_fields),
+                    "scope_fields": list(item.scope_fields),
+                    "requested_fields": list(item.requested_fields),
+                }
+                for item in self.reference_requirements
             ],
         }
         return "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
@@ -233,7 +262,76 @@ def plan_preflight_requirements(
     return PreflightRequirementPlan(
         metadata_requests=plan_metadata_requests(plan),
         record_requests=tuple(requests),
+        reference_requirements=plan_reference_read_requirements(plan),
         source_record_count=len(prepared_records),
+    )
+
+
+def plan_reference_read_requirements(
+    plan: CompiledMigrationPlan,
+) -> tuple[ReferenceReadRequirement, ...]:
+    """Retain each parent relation behind a target-only resolver read."""
+
+    requirements: set[ReferenceReadRequirement] = set()
+    for dataset in plan.datasets:
+        for component in (
+            *dataset.target_identity.components,
+            *dataset.target_identity.scope,
+        ):
+            resolve = component.resolve
+            if resolve is None or resolve.target_model is None:
+                continue
+            requirements.add(
+                ReferenceReadRequirement(
+                    parent_model=dataset.target.model,
+                    relationship_field=component.target_fields[0],
+                    relationship_type="many2one",
+                    relation_model=resolve.target_model,
+                    key_fields=resolve.target_fields,
+                    scope_fields=resolve.target_scope_fields,
+                    requested_fields=tuple(
+                        sorted(
+                            {
+                                *resolve.target_fields,
+                                *resolve.target_scope_fields,
+                            }
+                        )
+                    ),
+                )
+            )
+        for relationship_field, relation in dataset.relations.items():
+            resolve = relation.resolve
+            if resolve.target_model is None:
+                continue
+            requirements.add(
+                ReferenceReadRequirement(
+                    parent_model=dataset.target.model,
+                    relationship_field=relationship_field,
+                    relationship_type=relation.kind,
+                    relation_model=resolve.target_model,
+                    key_fields=resolve.target_fields,
+                    scope_fields=resolve.target_scope_fields,
+                    requested_fields=tuple(
+                        sorted(
+                            {
+                                *resolve.target_fields,
+                                *resolve.target_scope_fields,
+                            }
+                        )
+                    ),
+                )
+            )
+    return tuple(
+        sorted(
+            requirements,
+            key=lambda item: (
+                item.parent_model,
+                item.relationship_field,
+                item.relation_model,
+                item.key_fields,
+                item.scope_fields,
+            ),
+        )
     )
 
 

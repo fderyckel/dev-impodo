@@ -270,7 +270,7 @@ class TransformationImpactService:
         *,
         actor: Actor,
     ) -> None:
-        """Acknowledge one zero-match rule for the exact current evidence."""
+        """Acknowledge one zero-match or overlap fact for current evidence."""
 
         context = self.context(project_id)
         self.authorization.require(

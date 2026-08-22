@@ -83,6 +83,8 @@ from .transformation_impact import (
     _TransformationImpactCollector,
     _display_value,
     _display_values_equal,
+    reviewable_rule_impact_definitions,
+    selection_rule_impact_definitions,
     transformation_rule_impact_definitions,
 )
 
@@ -353,7 +355,7 @@ def evaluate_browser_mapping(
     if impact_collector is not None:
         for dataset_mapping in definition.datasets:
             for field in dataset_mapping.fields:
-                for rule in transformation_rule_impact_definitions(
+                for rule in reviewable_rule_impact_definitions(
                     dataset_mapping.dataset_id, field
                 ):
                     impact_collector.register_rule(rule)
@@ -1096,6 +1098,17 @@ def _apply_scalar_mappings(
                     strict=True,
                 )
             }
+            selection_definitions = selection_rule_impact_definitions(
+                plan.dataset_id,
+                field,
+            )
+            selection_rules = {
+                index: (
+                    selection_definitions[index * 2],
+                    selection_definitions[index * 2 + 1],
+                )
+                for index in range(len(selection_definitions) // 2)
+            }
             proposed = evaluate_scalar_mapping_value(
                 field,
                 scalar_input,
@@ -1112,6 +1125,25 @@ def _apply_scalar_mappings(
                         )
                     )
                     if impact_collector is not None and rules_by_step
+                    else None
+                ),
+                selection_rule_observer=(
+                    (
+                        lambda rule_index, matched, selected, overlap,
+                        configured=selection_rules: (
+                            impact_collector.record_rule(
+                                configured[rule_index][0],
+                                matched=matched,
+                                changed=selected,
+                            ),
+                            impact_collector.record_rule(
+                                configured[rule_index][1],
+                                matched=overlap,
+                                changed=overlap,
+                            ),
+                        )
+                    )
+                    if impact_collector is not None and selection_rules
                     else None
                 ),
             )

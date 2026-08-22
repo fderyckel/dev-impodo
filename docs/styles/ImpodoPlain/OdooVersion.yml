@@ -1,0 +1,7 @@
+extends: existence
+message: "Impodo targets Odoo 19. Keep '%s' only when the historical version is necessary and explicitly identified as historical."
+level: warning
+ignorecase: false
+tokens:
+  - '\bOdoo 17\b'
+  - '\bOdoo 18\b'

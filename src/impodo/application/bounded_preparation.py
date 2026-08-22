@@ -56,7 +56,7 @@ from ..domain.staging.scale import (
 from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
     _TransformationImpactCollector,
-    transformation_rule_impact_definitions,
+    reviewable_rule_impact_definitions,
 )
 from ..inspection import SourceFileCatalog
 from ..models import Issue, PreparedRecord, canonical_json_bytes
@@ -274,7 +274,7 @@ def prepare_bounded_direct_session(
     )
     for dataset_mapping in definition.datasets:
         for field in dataset_mapping.fields:
-            for rule in transformation_rule_impact_definitions(
+            for rule in reviewable_rule_impact_definitions(
                 dataset_mapping.dataset_id, field
             ):
                 impact_collector.register_rule(rule)

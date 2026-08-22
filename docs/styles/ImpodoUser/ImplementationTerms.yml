@@ -1,0 +1,6 @@
+extends: existence
+message: "Explain '%s' in business language before using it, or move the implementation detail to developer documentation."
+level: suggestion
+tokens:
+  - '\b(?:DuckDB|FastAPI|JSON-2)\b'
+  - '\b[A-Z][A-Za-z0-9]*(?:Service|Repository|Adapter|Presenter|Router)\b'

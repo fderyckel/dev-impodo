@@ -13,6 +13,7 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
     TransformationImpactRow,
+    selection_rule_impact_definitions,
     transformation_rule_impact_definitions,
 )
 from ...domain.mapping.contracts import ScalarValueSource
@@ -296,7 +297,8 @@ def _transformation_rule_impact_views(
         for index, dataset in enumerate(selection.datasets)
     }
     acknowledged = frozenset(snapshot.acknowledged_rule_fingerprints)
-    rule_steps = {}
+    cleanup_steps = {}
+    selection_steps = {}
     for dataset in revision.definition.datasets:
         for field in dataset.fields:
             definitions = transformation_rule_impact_definitions(
@@ -312,20 +314,37 @@ def _transformation_rule_impact_views(
             for (step_index, step), definition in zip(
                 authored_steps, definitions, strict=True
             ):
-                rule_steps[definition.rule_fingerprint] = (
+                cleanup_steps[definition.rule_fingerprint] = (
                     step_index,
                     step,
                 )
+            selection_definitions = selection_rule_impact_definitions(
+                dataset.dataset_id,
+                field,
+            )
+            if field.selection_rules is not None:
+                for rule_index, rule in enumerate(field.selection_rules.rules):
+                    match_definition = selection_definitions[rule_index * 2]
+                    overlap_definition = selection_definitions[rule_index * 2 + 1]
+                    selection_steps[match_definition.rule_fingerprint] = (
+                        rule_index,
+                        rule,
+                        overlap_definition.rule_fingerprint,
+                    )
+    impact_by_fingerprint = {
+        impact.rule_fingerprint: impact
+        for impact in snapshot.report.rule_impacts
+    }
     views = []
     for impact in snapshot.report.rule_impacts:
         configured = fields.get((impact.dataset_id, impact.target_field))
         located = datasets.get(impact.dataset_id)
         if configured is None or located is None:
             continue
-        rule_step = rule_steps.get(impact.rule_fingerprint)
-        if rule_step is None:
+        cleanup_step = cleanup_steps.get(impact.rule_fingerprint)
+        selection_step = selection_steps.get(impact.rule_fingerprint)
+        if cleanup_step is None and selection_step is None:
             continue
-        step_index, step = rule_step
         dataset_index, dataset = located
         field_label = field_labels.get(
             (dataset.name, impact.target_field),
@@ -338,20 +357,85 @@ def _transformation_rule_impact_views(
             scalar_page=1,
             field_query=field_label,
         )
+        common = {
+            "impact": impact,
+            "dataset_index": dataset_index,
+            "dataset_name": dataset.name,
+            "field_label": field_label,
+            "fix_url": f"{fix_url}#mapping-dataset-{dataset_index}",
+        }
+        if cleanup_step is not None:
+            step_index, step = cleanup_step
+            views.append(
+                {
+                    **common,
+                    "kind": "cleanup",
+                    "step_number": step_index + 1,
+                    "search_value": step.search_value,
+                    "replacement_value": step.replacement_value,
+                    "requires_acknowledgement": impact.requires_acknowledgement,
+                    "acknowledged": impact.rule_fingerprint in acknowledged,
+                    "acknowledgements": (
+                        (
+                            {
+                                "fingerprint": impact.rule_fingerprint,
+                                "label": "Keep this cleanup step",
+                            },
+                        )
+                        if impact.requires_acknowledgement
+                        and impact.rule_fingerprint not in acknowledged
+                        else ()
+                    ),
+                }
+            )
+            continue
+        assert selection_step is not None
+        rule_index, rule, overlap_fingerprint = selection_step
+        overlap_impact = impact_by_fingerprint.get(overlap_fingerprint)
+        overlap_count = (
+            overlap_impact.matched_value_count
+            if overlap_impact is not None
+            else 0
+        )
+        pending_acknowledgements = []
+        if (
+            impact.requires_acknowledgement
+            and impact.rule_fingerprint not in acknowledged
+        ):
+            pending_acknowledgements.append(
+                {
+                    "fingerprint": impact.rule_fingerprint,
+                    "label": "Keep this unused rule",
+                }
+            )
+        if (
+            overlap_impact is not None
+            and overlap_impact.requires_acknowledgement
+            and overlap_fingerprint not in acknowledged
+        ):
+            pending_acknowledgements.append(
+                {
+                    "fingerprint": overlap_fingerprint,
+                    "label": "Keep this rule priority",
+                }
+            )
+        required_fingerprints = {
+            candidate.rule_fingerprint
+            for candidate in (impact, overlap_impact)
+            if candidate is not None and candidate.requires_acknowledgement
+        }
         views.append(
             {
-                "impact": impact,
-                "dataset_index": dataset_index,
-                "dataset_name": dataset.name,
-                "field_label": field_label,
-                "step_number": step_index + 1,
-                "search_value": step.search_value,
-                "replacement_value": step.replacement_value,
-                "requires_acknowledgement": impact.requires_acknowledgement,
-                "acknowledged": (
-                    impact.rule_fingerprint in acknowledged
-                ),
-                "fix_url": f"{fix_url}#mapping-dataset-{dataset_index}",
+                **common,
+                "kind": "selection",
+                "step_number": rule_index + 1,
+                "target_value": rule.target_value,
+                "condition_count": len(rule.conditions),
+                "selected_count": impact.changed_value_count,
+                "overlap_count": overlap_count,
+                "requires_acknowledgement": bool(required_fingerprints),
+                "acknowledged": required_fingerprints.issubset(acknowledged),
+                "acknowledgements": tuple(pending_acknowledgements),
             }
         )
     return tuple(

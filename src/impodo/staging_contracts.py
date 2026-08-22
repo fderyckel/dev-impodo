@@ -30,7 +30,7 @@ from .source import PreparedBundle
 
 
 STAGING_CONTRACT_VERSION = 5
-BROWSER_EVALUATOR_VERSION = 5
+BROWSER_EVALUATOR_VERSION = 6
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 

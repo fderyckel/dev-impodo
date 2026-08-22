@@ -34,6 +34,9 @@ from ...domain.mapping.scalar_values import (
 )
 from ...domain.mapping.upgrade_review import review_mapping_contract_upgrade
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
+from ...domain.staging.transformation_impact import (
+    reviewable_rule_impact_definitions,
+)
 from ...quality import (
     MAX_MANAGER_RULES_PER_DATASET,
     QualityOutcomePolicy,
@@ -250,17 +253,17 @@ def _render_mapping(
     validation_problem_count = len(visible_validation_issues) + (
         1 if readonly_field_recovery else 0
     )
-    text_cleanup_configured = bool(
+    rule_review_required = bool(
         revision is not None
         and any(
-            field.transform.configured_text_steps
+            reviewable_rule_impact_definitions(dataset.dataset_id, field)
             for dataset in revision.definition.datasets
             for field in dataset.fields
         )
     )
     rule_impact_snapshot = None
     if (
-        text_cleanup_configured
+        rule_review_required
         and revision is not None
         and not has_unvalidated_changes
         and selection is not None
@@ -279,7 +282,7 @@ def _render_mapping(
                 )
             )
     rule_review_ready = bool(
-        not text_cleanup_configured
+        not rule_review_required
         or (
             rule_impact_snapshot is not None
             and not rule_impact_snapshot.unacknowledged_rule_impacts
@@ -344,7 +347,7 @@ def _render_mapping(
         validation_problem_count=validation_problem_count,
         blocking_issue_views=blocking_issue_views,
         next_step=next_step,
-        text_cleanup_configured=text_cleanup_configured,
+        rule_review_required=rule_review_required,
         rule_impact_snapshot=rule_impact_snapshot,
         rule_review_ready=rule_review_ready,
         quality_view=quality_view,
@@ -908,9 +911,10 @@ def _mapping_next_step(
         ):
             blockers.append(
                 {
-                    "title": "Cleanup effects still need review",
+                    "title": "Rule effects still need review",
                     "message": (
-                        "Review what the saved cleanup rules changed before confirming."
+                        "Review rules with no matches or overlapping priority "
+                        "before confirming."
                     ),
                     "href": (
                         f"/projects/{project_id}/mapping/transformation-impact"

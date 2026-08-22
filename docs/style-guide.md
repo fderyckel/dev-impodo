@@ -54,14 +54,12 @@ details, exact symbols, evidence boundaries, or exceptions in later sentences.
 
 For example, do not write:
 
-> operator-project creation as Recipe plus Authoring DataVersion 1, with a
-> contained `FILE` or `ODOO` workspace.
+> source confirmation as selected tables plus snapshots and hashes.
 
 Write:
 
-> Creating an operator project creates a reusable Recipe and its first editable
-> DataVersion. That DataVersion has its own isolated workspace for either
-> uploaded files (`FILE`) or records captured from Odoo (`ODOO`).
+> When the data manager confirms the selected source tables, Impodo freezes an
+> immutable snapshot and records the hashes that identify the accepted data.
 
 Before accepting prose, confirm that a reader unfamiliar with the
 implementation can answer:

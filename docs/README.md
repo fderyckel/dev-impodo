@@ -65,9 +65,13 @@ applies those rules when documentation is created or rewritten.
 ## Plans
 
 - [Impodo remaining work](plans/remaining-work.md) — the authoritative
-  forward-looking roadmap. Recipe-first Test-to-Production reuse is the only
-  current product-delivery focus; every competing feature, scale,
-  certification, gateway, and hosted track is deferred until it is complete.
+  forward-looking roadmap. Migration Project ownership, optional reusable
+  Recipes, Project-owned data packages, and integrated multi-Recipe cutover
+  are the current product-delivery focus.
+- [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
+  — accepted target architecture and active plan for replacing the current
+  Project-as-Recipe model without retaining compatibility shells, aliases, or
+  old storage readers. The behavior is not yet implemented.
 - [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
   — approved design for separating Odoo choices from source values, preserving
   fixed choice mappings, and adding a governed multi-column rule provider for
@@ -81,14 +85,13 @@ applies those rules when documentation is created or rewritten.
   for reducing transformation CPU and memory, extending bounded preparation to
   related Products and BOMs, and retaining governed audit evidence.
 - [Reusable recipes and data versions implementation plan](plans/reusable-recipes-and-data-versions-implementation-plan.md)
-  — active Recipe-first plan for authoring and fine-tuning immutable revisions
-  against remote Test Odoo, qualifying one cutover candidate, then applying it
-  to the latest same-format-kind data on a different Production Odoo server
-  with current independent credentials and fresh evidence.
+  — completed historical plan for the currently implemented Recipe-first
+  vertical slice. ADR-014 and the Migration Project plan supersede it as
+  forward-looking architecture authority.
 - [Recipe-first Phase R0 contracts](plans/reusable-recipes-phase-r0-contracts.md)
-  — active aggregate, identity, target-binding, qualification, cutover,
-  credential-rotation, intent, recovery, bound, and UI-continuity contracts
-  for the Recipe implementation.
+  — historical frozen contracts for the currently implemented Recipe-first
+  slice. Current runtime contracts remain authoritative until each replacement
+  implementation gate passes.
 - [Recipe-first Phase R1 implementation report](reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
   — completed Recipe/DataVersion registry lineage, protected payload storage,
   workspace linkage and sealing, compatibility resolution, and deterministic
@@ -159,6 +162,8 @@ python -m unittest tests.test_documentation_quality tests.test_code_documentatio
 
 The workflow and module checks are blocking. The public-symbol list and Vale
 style rules are advisory and require semantic review rather than percentage or
-readability-score targets. When Vale is installed, run `vale docs/user
-docs/developer` to apply the repository vocabulary and audience-specific prose
-warnings.
+readability-score targets. Run `vale docs` to check every documentation lane.
+Vale accepts Impodo and Odoo terminology, but it asks writers to explain
+implementation terms before using them in user documentation. Treat each Vale
+alert as a review prompt: correct unclear prose, preserve exact example data and
+identifiers, and improve the rule when it produces a repeatable false positive.

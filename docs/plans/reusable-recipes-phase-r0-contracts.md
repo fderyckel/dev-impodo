@@ -2,14 +2,18 @@
 
 ## Status and authority
 
-**Status:** Completed on 2026-08-19.
+**Status:** Completed historical contracts from 2026-08-19. Superseded as
+target architecture authority by ADR-014 and the
+[Migration projects and multi-Recipe cutover implementation
+plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) on
+2026-08-22. Current runtime contracts remain authoritative until the
+replacement implementation gates pass.
 
 This document freezes Phase R0 of the
 [Recipe-first test-to-production implementation
-plan](reusable-recipes-and-data-versions-implementation-plan.md). It is the
-active contract authority for Recipe persistence and workflow implementation.
-[ADR-013](../decisions/README.md#adr-013--recipe-is-the-aggregate-root-and-target-bindings-are-application-specific)
-governs the architecture.
+plan](reusable-recipes-and-data-versions-implementation-plan.md). It records
+the frozen inputs used to implement the current Recipe-first persistence and
+workflow. It is no longer the forward-looking architecture authority.
 
 The superseded `ProjectSeries`, `series_id`, edition, series-owned endpoint, and
 credential-copy contracts and fixtures have been removed and are not

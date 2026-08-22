@@ -1,0 +1,19 @@
+extends: substitution
+message: "Use the direct wording '%s' instead of '%s'."
+level: suggestion
+ignorecase: true
+swap:
+  in order to: to
+  is able to: can
+  are able to: can
+  prior to: before
+  subsequent to: after
+  due to the fact that: because
+  at this point in time: now
+  utilize: use
+  utilizes: uses
+  utilized: used
+  leveraging: using
+  leverages: uses
+  facilitate: help
+  facilitates: helps

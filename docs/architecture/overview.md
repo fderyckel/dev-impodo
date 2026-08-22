@@ -11,6 +11,15 @@ those boundaries.
 Impodo currently runs as a local browser application. It helps a data manager
 govern source data and perform a bounded migration to Odoo 19.
 
+This page describes the implemented Recipe-first composition. Product
+ownership accepted a replacement Project and multi-Recipe architecture in
+[ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans).
+That target remains planned in the [Migration projects and multi-Recipe
+cutover implementation
+plan](../plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md);
+the browser behavior below does not change until its implementation gates
+pass.
+
 For uploaded files, the supported `FILE` workflow accepts CSV and XLSX data,
 maps and prepares it, compares it with Odoo without writing, and creates an
 exact execution snapshot. After an explicit confirmation, Impodo can load that
@@ -98,10 +107,9 @@ operation:
    target, mapping, credentials, evidence, and audit state.
 
 Each object has its own identifier. A workspace identifier must not be used as
-a Recipe or DataVersion identifier. For older standalone workspaces, Impodo
-creates a minimal Recipe and DataVersion registry shell. Opening such a
-workspace loads only an allowlisted setup projection and records the exact
-local linkage.
+a Recipe or DataVersion identifier. Current creation writes the exact Recipe,
+DataVersion, and workspace linkage from the first operation. The current build
+does not backfill or lazily adopt a standalone workspace into Recipe lineage.
 
 The Recipe overview checks the current Authoring workspace evidence to decide
 whether the Recipe is ready to publish. Publishing creates an immutable,

@@ -80,6 +80,14 @@ from ..projects import (
     OdooConnectionMode,
     ProjectService,
 )
+from ..reference_keys import (
+    REFERENCE_POLICY_HASH,
+    GovernedReferenceRequest,
+    ReferenceEvidenceKind,
+    ReferenceReadPurpose,
+    authorize_governed_reference,
+    captured_reference_field_contracts,
+)
 from ..quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -965,6 +973,12 @@ class RecipeApplicationService:
     def _target_assessment(self, definition, schema):
         issues = []
         contract = dict(definition["odoo_target_contract"])
+        target_contract_version = int(
+            dict(definition.get("contract_versions", {})).get(
+                "odoo_target_contract",
+                1,
+            )
+        )
         try:
             actual_major = int(str(schema.odoo_version).split(".", 1)[0])
         except ValueError:
@@ -973,6 +987,18 @@ class RecipeApplicationService:
             issues.append(self._block("RECIPE_TARGET_VERSION_INCOMPATIBLE", "The connected Odoo major version does not match this Recipe.", "Choose a compatible Odoo server or publish and retest a new Recipe revision."))
         actual_models = {item.name: item for item in schema.models}
         dependency_projection = []
+        if (
+            target_contract_version >= 2
+            and contract.get("reference_policy_hash") != REFERENCE_POLICY_HASH
+        ):
+            issues.append(
+                self._block(
+                    "RECIPE_REFERENCE_POLICY_CHANGED",
+                    "The reviewed Odoo reference policy changed after this Recipe was published.",
+                    "Review and publish a new Recipe revision under the current policy.",
+                    str(contract.get("reference_policy_hash", "missing")),
+                )
+            )
         provider_fields = {
             (str(dataset["target_model"]), str(field["target_field"]))
             for dataset in dict(definition["mapping"]).get("datasets", ())
@@ -992,14 +1018,160 @@ class RecipeApplicationService:
         for required_model in contract.get("models", ()):
             model_name = str(required_model["model"])
             model = actual_models.get(model_name)
-            if model is None:
-                issues.append(self._block("RECIPE_TARGET_MODEL_MISSING", f"Required Odoo model {model_name} is missing.", "Install or expose the required Odoo application, then refresh Odoo data.", model_name))
+            evidence_kind = str(
+                required_model.get(
+                    "reference_evidence_kind",
+                    ReferenceEvidenceKind.CAPTURED_GOVERNED.value,
+                )
+            )
+            reviewed_standard = bool(
+                target_contract_version >= 2
+                and evidence_kind
+                == ReferenceEvidenceKind.REVIEWED_STANDARD.value
+            )
+            reference_decisions = []
+            if reviewed_standard:
+                for path in required_model.get("reference_paths", ()):
+                    parent_model = str(path["parent_model"])
+                    relationship_field = str(path["relationship_field"])
+                    parent = actual_models.get(parent_model)
+                    relationship = next(
+                        (
+                            field
+                            for field in (
+                                parent.fields if parent is not None else ()
+                            )
+                            if field.name == relationship_field
+                        ),
+                        None,
+                    )
+                    key_fields = tuple(
+                        str(item) for item in path["key_fields"]
+                    )
+                    scope_fields = tuple(
+                        str(item) for item in path.get("scope_fields", ())
+                    )
+                    reference_decisions.append(
+                        authorize_governed_reference(
+                            GovernedReferenceRequest(
+                                parent_model=parent_model,
+                                relationship_field=relationship_field,
+                                relationship_type=(
+                                    relationship.type
+                                    if relationship is not None
+                                    else str(
+                                        path.get("relationship_type", "")
+                                    )
+                                ),
+                                relationship_model=(
+                                    relationship.relation
+                                    if relationship is not None
+                                    else None
+                                ),
+                                related_model=model_name,
+                                key_fields=key_fields,
+                                scope_fields=scope_fields,
+                                requested_fields=(
+                                    *key_fields,
+                                    *scope_fields,
+                                ),
+                                purpose=(
+                                    ReferenceReadPurpose.RECIPE_APPLICATION
+                                ),
+                                odoo_major_version=actual_major,
+                            ),
+                            captured_fields=(
+                                captured_reference_field_contracts(model.fields)
+                                if model is not None
+                                else None
+                            ),
+                        )
+                    )
+                if not reference_decisions or any(
+                    not decision.accepted
+                    for decision in reference_decisions
+                ):
+                    issues.append(
+                        self._block(
+                            "RECIPE_REFERENCE_POLICY_MISMATCH",
+                            (
+                                f"Reviewed Odoo reference {model_name} no "
+                                "longer matches this Recipe."
+                            ),
+                            (
+                                "Review the relationship and publish a new "
+                                "Recipe revision."
+                            ),
+                            model_name,
+                        )
+                    )
+                    continue
+            if model is None and not reviewed_standard:
+                issues.append(
+                    self._block(
+                        "RECIPE_TARGET_MODEL_MISSING",
+                        f"Required Odoo model {model_name} is missing.",
+                        (
+                            "Install or expose the required Odoo application, "
+                            "then refresh Odoo data."
+                        ),
+                        model_name,
+                    )
+                )
                 continue
-            fields = {item.name: item for item in model.fields}
+            fields = (
+                {item.name: item for item in model.fields}
+                if model is not None
+                else {}
+            )
             for required_field in required_model.get("fields", ()):
                 field_name = str(required_field["name"])
                 field = fields.get(field_name)
                 logical = f"{model_name}.{field_name}"
+                if field is None and reviewed_standard:
+                    standard = reference_decisions[0].contract
+                    expected = (
+                        standard.field_contract(field_name)
+                        if standard is not None
+                        else None
+                    )
+                    if expected is None or any(
+                        (
+                            str(required_field["field_type"])
+                            != expected.field_type,
+                            bool(required_field["required"])
+                            != expected.required,
+                            bool(required_field["readonly"])
+                            != expected.readonly,
+                            required_field.get("relation_model")
+                            != expected.relation_model,
+                            bool(required_field.get("write_use")),
+                        )
+                    ):
+                        issues.append(
+                            self._block(
+                                "RECIPE_REFERENCE_CONTRACT_INVALID",
+                                (
+                                    f"Reviewed Odoo reference field {logical} "
+                                    "is not valid under the current policy."
+                                ),
+                                "Review and publish a new Recipe revision.",
+                                logical,
+                            )
+                        )
+                        continue
+                    dependency_projection.append(
+                        {
+                            "model": model_name,
+                            "field": field_name,
+                            "type": expected.field_type,
+                            "relation": expected.relation_model,
+                            "required": expected.required,
+                            "readonly": expected.readonly,
+                            "selection": [],
+                        }
+                    )
+                    continue
                 if field is None:
                     issues.append(self._block("RECIPE_TARGET_FIELD_MISSING", f"Required Odoo field {logical} is missing.", "Add or expose the field, then refresh Odoo data.", logical))
                     continue
@@ -1014,8 +1186,14 @@ class RecipeApplicationService:
                 missing_codes = sorted(set(required_field.get("required_selection_codes", ())) - actual_codes)
                 if missing_codes:
                     issues.append(self._block("RECIPE_TARGET_SELECTION_MISSING", f"Odoo field {logical} no longer offers required value {missing_codes[0]}.", "Restore the choice or update and retest the Recipe value mapping.", logical))
-            for field in model.fields:
-                if field.required and not field.readonly and (model_name, field.name) not in provider_fields | dispositions:
+            for field in (model.fields if model is not None else ()):
+                if (
+                    model_name in contract.get("approved_write_fields", {})
+                    and field.required
+                    and not field.readonly
+                    and (model_name, field.name)
+                    not in provider_fields | dispositions
+                ):
                     issues.append(self._block("RECIPE_TARGET_NEW_REQUIRED_FIELD", f"Odoo now requires {model_name}.{field.name}, but this Recipe provides no value.", "Add a provider/default or publish and retest a new Recipe revision.", f"{model_name}.{field.name}"))
         assessment_hash = content_hash({"contract": contract, "current_dependencies": dependency_projection})
         return assessment_hash, issues

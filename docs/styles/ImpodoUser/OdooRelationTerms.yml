@@ -1,0 +1,8 @@
+extends: substitution
+message: "Use the readable Odoo relationship name '%s' instead of '%s' in user documentation."
+level: suggestion
+ignorecase: false
+swap:
+  many2one: Many2one
+  many2many: Many2many
+  one2many: One2many

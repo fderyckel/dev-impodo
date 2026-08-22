@@ -128,12 +128,11 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         project = context.queries.get(project_id)
         verified_read_identity = None
 
-        def reader(metadata_requests, record_requests):
+        def reader(requirements):
             return _read_readiness_snapshots(
                 context,
                 project,
-                metadata_requests,
-                record_requests,
+                requirements,
                 verified_read_identity=verified_read_identity,
             )
 

@@ -70,8 +70,22 @@ class DocumentationQualityTests(unittest.TestCase):
         )
 
         self.assertEqual(configuration.defaults()["stylespath"], "docs/styles")
-        self.assertIn("docs/user/**/*.md", configuration)
-        self.assertIn("docs/developer/**/*.md", configuration)
+        expected_sections = {
+            "docs/*.md",
+            "docs/architecture/**/*.md",
+            "docs/bpmn/**/*.md",
+            "docs/decisions/**/*.md",
+            "docs/developer/**/*.md",
+            "docs/plans/**/*.md",
+            "docs/reports/**/*.md",
+            "docs/testing/**/*.md",
+            "docs/user/**/*.md",
+        }
+        self.assertTrue(expected_sections.issubset(configuration.sections()))
+        for section in expected_sections:
+            styles = configuration[section]["basedonstyles"].split(",")
+            self.assertIn("ImpodoPlain", {style.strip() for style in styles})
+
         styles = sorted((ROOT / "docs/styles").glob("*/*.yml"))
         self.assertTrue(styles)
         for path in styles:
@@ -79,6 +93,29 @@ class DocumentationQualityTests(unittest.TestCase):
             self.assertIsInstance(payload, dict, path)
             self.assertIn("extends", payload, path)
             self.assertIn("message", payload, path)
+
+        plain_style_names = {
+            path.name for path in (ROOT / "docs/styles/ImpodoPlain").glob("*.yml")
+        }
+        self.assertTrue(
+            {
+                "CompressedRelationships.yml",
+                "Filler.yml",
+                "OdooVersion.yml",
+                "PlainWords.yml",
+                "ProductNames.yml",
+                "Spelling.yml",
+            }.issubset(plain_style_names)
+        )
+
+        spelling_vocabulary = ROOT / "docs/styles/config/ignore/Impodo.txt"
+        self.assertTrue(spelling_vocabulary.is_file())
+        vocabulary = [
+            line.strip()
+            for line in spelling_vocabulary.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(len(vocabulary), len(set(vocabulary)))
 
 
 if __name__ == "__main__":

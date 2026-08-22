@@ -138,12 +138,11 @@ protected Recipe store keeps immutable Recipe and qualification payloads
 encrypted with one vault-backed key per Recipe. Each DataVersion workspace owns
 a separate DuckDB database and its own project artifacts.
 
-Publication, DataVersion creation, qualification, cutover selection, and
-deletion enumeration cross storage boundaries through recoverable intents.
-Standalone workspace deletion is allowed only for an unpublished bootstrap
-Recipe with one DataVersion. Reusable or published Recipe deletion begins at
-the Recipe boundary and persists the exact protected-key, workspace, and
-registry target set before destructive cleanup.
+Publication, DataVersion creation, qualification, and cutover selection cross
+storage boundaries through recoverable intents. An unpublished Recipe draft
+with one DataVersion may be deleted only after its exact Recipe and workspace
+revisions are validated. Published Recipe deletion is outside the current
+product surface.
 
 ## Current support boundary
 

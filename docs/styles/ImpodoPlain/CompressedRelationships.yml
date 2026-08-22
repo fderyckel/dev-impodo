@@ -1,0 +1,10 @@
+extends: existence
+message: "Rewrite '%s' as complete sentences that explain which actor acts and how the named objects relate."
+level: warning
+scope: ~table
+ignorecase: true
+tokens:
+  - '\b(?:operator[- ]project|project) creation as\b'
+  - '\b(?:creation|provisioning|application|execution|validation|preparation|comparison|publication) as\b'
+  - '\bRecipe plus (?:Authoring )?DataVersion\b'
+  - '\bDataVersion plus (?:FILE|ODOO|MigrationProject)\b'

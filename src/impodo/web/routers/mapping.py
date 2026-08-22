@@ -228,6 +228,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     context,
                     project,
                     schema,
+                    target_model,
                     field,
                     key,
                     refresh=_text(form, "refresh") == "1",
@@ -834,7 +835,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         request: Request,
         project_id: str,
     ):
-        """Acknowledge one zero-match rule for the exact impact snapshot."""
+        """Acknowledge one zero-match or overlap fact for the current snapshot."""
 
         require_session(request)
         _require_mapping_idle(context, project_id)
@@ -849,7 +850,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
         except WorkspaceError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        _flash(request, "The unchanged rule was reviewed.")
+        _flash(request, "The rule result was reviewed.")
         return RedirectResponse(
             f"/projects/{project_id}/mapping/transformation-impact",
             status_code=303,

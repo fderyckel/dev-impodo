@@ -1,7 +1,7 @@
 extends: existence
-message: "Address the reader as 'you' instead of '%s'."
+message: "Address the reader as 'you' instead of writing '%s'."
 level: suggestion
 ignorecase: true
 tokens:
-  - '\bthe user\b'
+  - '\bthe user(?=\s+(?:can|must|should|selects?|enters?|chooses?|reviews?|confirms?|opens?|returns?|uploads?|starts?|sees?|uses?|needs?|decides?))\b'
   - '\busers should\b'

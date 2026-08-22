@@ -1,0 +1,9 @@
+extends: existence
+message: "Remove '%s' and state the important information directly."
+level: suggestion
+ignorecase: true
+tokens:
+  - '\bplease note that\b'
+  - '\bit should be noted that\b'
+  - '\bobviously\b'
+  - '\bsimply\b'

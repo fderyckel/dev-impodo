@@ -389,7 +389,7 @@
                           <p><strong>Choose the Odoo value from source data</strong></p>
                           <small>Rules run from top to bottom. The first matching rule wins.</small>
                           <div data-selection-rule-list></div>
-                          <button class="button secondary compact" type="button" data-add-selection-rule>Add rule</button>
+                          <button class="button secondary compact" type="button" data-add-selection-rule {% if not row.selection_choice_count %}disabled{% endif %}>Add rule</button>
                           <label>When no rule matches
                             <select data-selection-rule-otherwise>
                               <option value="">Block the row for review</option>
@@ -1148,13 +1148,13 @@
             </div>
             <p class="muted">Shows how the confirmed rules prepare every source row. This does not contact or change Odoo.</p>
           {% endif %}
-          {% if text_cleanup_configured and not rule_review_ready %}
+          {% if rule_review_required and not rule_review_ready %}
             <div class="notice warning">
               {% if rule_impact_snapshot %}
-                <strong>One or more cleanup steps changed no values.</strong>
-                Review the full-row result and either fix or explicitly keep each unchanged step before confirming.
+                <strong>One or more rules need your decision.</strong>
+                Review rules that matched no rows or overlapped an earlier rule, then fix or explicitly keep each result before confirming.
               {% else %}
-                <strong>Review what the cleanup steps did before confirming.</strong>
+                <strong>Review what the saved rules did before confirming.</strong>
                 Impodo must evaluate the current saved mapping against every source row first.
               {% endif %}
               <div class="actions">

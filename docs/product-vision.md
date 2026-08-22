@@ -40,9 +40,9 @@ capabilities.
 
 The completed disposable-target migration is retained as acceptance evidence.
 The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
-extending bounded/set-based preparation to related, derived, quality, and
-normalization paths before optional clean-package, production, gateway, or
-hosted capabilities.
+the clean Migration Project, Project-owned data package, optional Recipe, and
+multi-Recipe cutover architecture. Scale expansion, optional clean-package,
+general production, gateway, and hosted capabilities remain deferred.
 
 ## 2. User workflow
 
@@ -593,15 +593,25 @@ functional mapping-approval lifecycle; optional clean-package certification;
 production loading; a target-side gateway; or hosted multi-user
 infrastructure.
 
+Product ownership has accepted a replacement architecture in which
+`MigrationProject` becomes the business root, DataVersion becomes a
+Project-owned complete source package, and several Project-scoped Recipes can
+participate in one qualified CutoverPlan. This target is not implemented. The
+[Migration projects and multi-Recipe cutover implementation
+plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
+defines the clean cutover from the current Recipe-first composition.
+
 ## 8. Delivery roadmap
 
-**Current priority note, 2026-08-19:** The historical capability phases below
+**Current priority note, 2026-08-22:** The historical capability phases below
 describe the wider product progression. Product ownership has made the
-[Recipe-first Test-to-Production plan](plans/reusable-recipes-and-data-versions-implementation-plan.md)
-the only active product-delivery track. Scale expansion, general certification,
-general production hardening, Odoo-source guarded updates, gateway, and hosted
-work remain deferred under the
-[authoritative remaining-work roadmap](plans/remaining-work.md).
+[Migration projects and multi-Recipe cutover
+plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
+the active product-delivery track. The completed Recipe-first plan remains
+historical evidence for the current implementation. Scale expansion, general
+certification, general production hardening, Odoo-source guarded updates,
+gateway, and hosted work remain deferred under the [authoritative
+remaining-work roadmap](plans/remaining-work.md).
 
 ### Phase 1 — Source discovery
 

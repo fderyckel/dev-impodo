@@ -44,9 +44,12 @@ from impodo.quality import (
     QualityRuleFamily,
     manager_quality_rule,
 )
+from impodo.reference_keys import REFERENCE_POLICY_HASH
 from impodo.recipes import DataVersionPurpose
 from impodo.workspace_contracts import (
     MappingWorkingDraft,
+    SchemaField,
+    SchemaModel,
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
@@ -397,6 +400,98 @@ def _service_fixture(
 
 
 class RecipeApplicationTests(unittest.TestCase):
+    def test_reviewed_country_reference_applies_with_or_without_model_capture(self):
+        service, _recipes, _applications, _mapping, _store, schema = (
+            _service_fixture()
+        )
+        partner = schema.models[0]
+        country_relation = SchemaField(
+            name="country_id",
+            label="Country",
+            type="many2one",
+            required=False,
+            readonly=False,
+            relation="res.country",
+            relation_field=None,
+            selection=(),
+        )
+        schema_without_country = replace(
+            schema,
+            models=(
+                replace(
+                    partner,
+                    fields=(*partner.fields, country_relation),
+                ),
+            ),
+        )
+        definition = {
+            "contract_versions": {"odoo_target_contract": 2},
+            "mapping": {"datasets": []},
+            "odoo_target_contract": {
+                "approved_write_fields": {},
+                "business_keys": [],
+                "models": [
+                    {
+                        "fields": [
+                            {
+                                "field_type": "char",
+                                "name": "code",
+                                "readonly": False,
+                                "required": True,
+                                "write_use": False,
+                            }
+                        ],
+                        "model": "res.country",
+                        "reference_evidence_kind": "REVIEWED_STANDARD",
+                        "reference_paths": [
+                            {
+                                "key_fields": ["code"],
+                                "parent_model": "res.partner",
+                                "relationship_field": "country_id",
+                                "relationship_type": "many2one",
+                                "scope_fields": [],
+                            }
+                        ],
+                    }
+                ],
+                "odoo_major_version": 19,
+                "reference_policy_hash": REFERENCE_POLICY_HASH,
+                "required_applications": [],
+            },
+        }
+
+        absent_hash, absent_issues = service._target_assessment(
+            definition,
+            schema_without_country,
+        )
+        country = SchemaModel(
+            name="res.country",
+            label="Country",
+            fields=(
+                SchemaField(
+                    name="code",
+                    label="Code",
+                    type="char",
+                    required=True,
+                    readonly=False,
+                    relation=None,
+                    relation_field=None,
+                    selection=(),
+                ),
+            ),
+        )
+        captured_hash, captured_issues = service._target_assessment(
+            definition,
+            replace(
+                schema_without_country,
+                models=(*schema_without_country.models, country),
+            ),
+        )
+
+        self.assertEqual(absent_issues, [])
+        self.assertEqual(captured_issues, [])
+        self.assertEqual(absent_hash, captured_hash)
+
     def test_same_shape_binds_exactly_and_ignores_new_unused_column(self):
         service, _recipes, _applications, _mapping, _store, schema = _service_fixture()
         review = service.review(
