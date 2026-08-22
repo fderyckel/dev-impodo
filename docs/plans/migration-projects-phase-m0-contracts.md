@@ -2,8 +2,9 @@
 
 ## Status and authority
 
-**Status:** Completed architecture-contract phase from 2026-08-22. Runtime
-implementation has not started.
+**Status:** Completed architecture-contract phase from 2026-08-22. This phase
+made no runtime change; the Phase M1 persistence foundation now implements its
+first clean roots outside the browser composition.
 
 This document freezes Phase M0 of the [Migration projects and multi-Recipe
 cutover implementation

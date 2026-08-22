@@ -172,6 +172,35 @@ Errors are grouped by where recovery belongs:
 | Connector, artifact, secret, local-stack errors | A contained infrastructure boundary could not complete safely | The route owning that boundary catches its typed error and avoids exposing response bodies, credentials, raw filesystem capability, or arbitrary process controls. |
 | Unexpected exceptions | Programming/infrastructure faults outside an expected recovery contract | They propagate; repositories/unit-of-work roll back and artifact-compensation blocks prevent partial publication. |
 
+## Migration Project M1 foundation
+
+Phase M1 adds the clean Migration Project persistence foundation beside the
+current browser composition. No browser route calls it yet. Use the current
+Stage A journey below when tracing an operator action; use this section when
+continuing the architecture cutover in Phase M2.
+
+| Responsibility | Domain and port | Local adapter |
+| --- | --- | --- |
+| Business migration root and bounded list | [`migration_projects.py`](../../src/impodo/migration_projects.py) | [`migration_foundation_repository.py`](../../src/impodo/adapters/duckdb/migration_foundation_repository.py) |
+| Project-owned source-package identity | [`data_versions.py`](../../src/impodo/data_versions.py) | The foundation repository plus the exact DataVersion store |
+| Authoring, Test, or Production run identity | [`migration_runs.py`](../../src/impodo/migration_runs.py) | The foundation repository and registry projection |
+| Isolated mapping and execution workspace | [`migration_workspaces.py`](../../src/impodo/migration_workspaces.py) | The foundation repository plus the exact workspace store |
+| Shared validation, conflicts, and operation intents | [`migration_foundation.py`](../../src/impodo/migration_foundation.py) | [`migration_foundation_database.py`](../../src/impodo/adapters/duckdb/migration_foundation_database.py) and the exact schema modules |
+| Recoverable development cutover | [`development_reset.py`](../../src/impodo/development_reset.py) | [`reset-development-storage.py`](../../scripts/reset-development-storage.py) |
+
+The new adapter owns a separate exact registry generation. Project list reads
+one registry query and opens no child store. Create commands reserve
+actor-bound, hash-bound operation intents and advance optimistic Project state
+when they add a DataVersion, run, or workspace. The database verifies exact
+DataVersion and workspace linkage before returning mutable state. Older
+Recipe-first databases fail closed and require the explicit, confirmed,
+developer-only quarantine procedure.
+
+The [Phase M1 persistence
+foundation](../plans/migration-projects-phase-m1-foundation.md) records the
+implemented schema generations, storage layout, recovery behavior, and focused
+gate. It does not make the target workflow available in the browser.
+
 ## Stage A–D class and evidence families
 
 The early workflow is easier to navigate as four evidence chains. A `current`

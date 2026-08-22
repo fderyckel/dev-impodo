@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted target architecture and active implementation plan from
-2026-08-22. No runtime phase in this plan is implemented yet.
+2026-08-22. Phases M0 and M1 are complete; Phase M2 is next.
 
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target architecture. It supersedes ADR-012 and ADR-013 for
@@ -664,7 +664,9 @@ dependency cycles, write collisions, and qualification drift.
 
 ### Phase M1 - Introduce clean Project, DataVersion, run, and workspace roots
 
-**Status:** Planned.
+**Status:** Completed on 2026-08-22. See the [Phase M1 persistence
+foundation](migration-projects-phase-m1-foundation.md). The clean services and
+stores exist but are not composed into the current browser.
 
 - Implement the new domain modules and repository ports.
 - Create the new exact registry, DataVersion-store, and workspace schema
@@ -675,7 +677,10 @@ dependency cycles, write collisions, and qualification drift.
   tests for each new root.
 
 **Gate:** the new repositories create and resolve exact relationships without
-dual-writing or reading any Recipe-first table.
+dual-writing or reading any Recipe-first table. The focused M1 suite passes 11
+tests covering exact schemas, four distinct roots, bounded Project lists,
+authorization, optimistic concurrency, idempotency, injected faults,
+identifier confusion, old-storage rejection, and recoverable reset.
 
 ### Phase M2 - Separate source packages from application workspaces
 

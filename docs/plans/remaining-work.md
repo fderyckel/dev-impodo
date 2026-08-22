@@ -73,12 +73,14 @@ No deferred product track becomes current while this plan is active. Narrow
 maintenance, security, data-loss, regression, and performance fixes required
 to preserve the current workflow remain in scope.
 
-**Phase status, 2026-08-22:** Phase M0 is complete. The [Phase M0
-contracts](migration-projects-phase-m0-contracts.md), deterministic fixture,
-and focused tests freeze the target identities, ownership changes,
-cardinalities, integrated-plan rules, and exclusions. This architecture-only
-gate changes no current browser or persistence behavior. Phase M1 is the next
-implementation phase.
+**Phase status, 2026-08-22:** Phases M0 and M1 are complete. The [Phase M0
+contracts](migration-projects-phase-m0-contracts.md) freeze the target
+ownership and integrated-plan rules. The [Phase M1 persistence
+foundation](migration-projects-phase-m1-foundation.md) implements the clean
+Project, DataVersion, run, and workspace roots, exact new stores, bounded
+registry projection, compatibility rejection, and recoverable development
+reset. The current browser still uses the Recipe-first composition. Phase M2
+is next and will separate source-package storage from application workspaces.
 
 ## Completed product priority — Recipe test-to-production reuse
 

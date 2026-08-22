@@ -71,12 +71,17 @@ applies those rules when documentation is created or rewritten.
 - [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
   — accepted target architecture and active plan for replacing the current
   Project-as-Recipe model without retaining compatibility shells, aliases, or
-  old storage readers. The behavior is not yet implemented.
+  old storage readers. Phases M0 and M1 are complete; the browser cutover has
+  not started.
 - [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
   — completed architecture-only contracts and executable fixtures for Project
   ownership, optional and multiple Recipes, Project-owned data packages,
-  integrated runs, CutoverPlans, and exact qualification. Runtime
-  implementation has not started.
+  integrated runs, CutoverPlans, and exact qualification.
+- [Migration Projects Phase M1 persistence foundation](plans/migration-projects-phase-m1-foundation.md)
+  — clean Project, DataVersion, run, and workspace roots, exact new DuckDB
+  generations, bounded projections, restart-safe intents, old-storage
+  rejection, and recoverable development reset. These services are not yet
+  composed into the browser.
 - [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
   — approved design for separating Odoo choices from source values, preserving
   fixed choice mappings, and adding a governed multi-column rule provider for
