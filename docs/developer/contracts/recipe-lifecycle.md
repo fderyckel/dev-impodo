@@ -59,6 +59,13 @@ the related lookup model to the primary schema scope. Any non-standard key,
 write use, version mismatch, or metadata mismatch still requires captured Odoo
 evidence and fails closed. This exception never expands Odoo write authority.
 
+New publications use target-contract version 2. It records the
+reference-policy hash, the captured parent relationship, and whether the
+supporting meaning came from compatible captured metadata or the reviewed
+standard contract. Recipe application replays that same policy against fresh
+Odoo 19 evidence. Target-contract version 1 remains readable and retains its
+original application rules; Impodo does not rewrite published revisions.
+
 Each blocked `RecipeDraft` issue names the workflow step that owns recovery.
 The web presenter maps that structured step to one existing page and action;
 it does not infer navigation by parsing the issue message or code.

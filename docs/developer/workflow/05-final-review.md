@@ -30,6 +30,13 @@ serves the manifest, workbook, and review package.
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
 
+`PreflightRequirementPlan` also retains each supporting read as a
+`ReferenceReadRequirement`. The requirement names the captured parent model
+and relationship field, related model, ordered key and scope, requested
+fields, and reference-policy hash. `target_readers.py` re-authorizes every
+requirement against current captured metadata before Odoo is contacted. It
+does not infer authority from the flattened union of requested fields.
+
 For `ODOO` source mode, `build_odoo_comparison_publication` follows a separate
 pinned-ID branch. It verifies the protected capture origins once and loads the
 frozen Parquet baseline once. It then groups exact IDs into fixed 500-record
@@ -45,6 +52,12 @@ profile. `LocalOdooRecoveryRequired` returns the user to the shared local-Odoo
 dialog; `target.py` validates the selected address, database, readiness, and
 read-only fingerprint before comparison can resume.
 
+`odoo_read_failures.py` classifies connector, evidence, credential, local
+profile, storage, and unexpected failures below the presenters. The summary
+presenter maps the stable failure to one owning action. It renders the
+read-key form only for missing, rejected, or insufficient read access; schema,
+mapping, preparation, transport, and storage failures never open that form.
+
 ## Code references
 
 | Role | Code |
@@ -55,6 +68,8 @@ read-only fingerprint before comparison can resume.
 | Frozen input | [`frozen_input.py`](../../../src/impodo/domain/preflight/frozen_input.py) |
 | Review reports | [`reports.py`](../../../src/impodo/domain/preflight/reports.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
+| Failure classification | [`odoo_read_failures.py`](../../../src/impodo/application/odoo_read_failures.py) |
+| Recovery presentation | [`comparison_recovery.py`](../../../src/impodo/web/presenters/comparison_recovery.py) |
 | Local recovery routes | [`target.py`](../../../src/impodo/web/routers/target.py) |
 | Local target reader | [`target_readers.py`](../../../src/impodo/web/target_readers.py) |
 | Shared recovery dialog | [`_local_odoo_dialog.html`](../../../src/impodo/web/templates/_local_odoo_dialog.html) |
@@ -100,6 +115,12 @@ new comparison rather than editing their manifest.
 The preflight planner groups metadata and record reads by target model. Keep
 domains bounded and reject unrestricted record requests. Adding one
 `search_read` per prepared row is an N+1 correctness and performance defect.
+
+Remote comparison performs at most one exact captured-schema identity probe
+and one combined supplemental-model identity probe. Local comparison receives
+only the authorized supplemental models named by the plan, not every relation
+present in captured metadata. Source-row count must not increase either probe
+count.
 
 Target reads must use the narrow Odoo 19 read connector. No generic method call
 and no write method belongs in this stage.

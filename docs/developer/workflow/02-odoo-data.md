@@ -58,6 +58,13 @@ may come from one exact supported rule or one unambiguous Odoo uniqueness
 constraint, but it remains non-authoritative until confirmation. Relationships
 and matching use these portable keys rather than remembered numeric Odoo IDs.
 
+`reference_keys.py` owns the versioned Odoo 19 governed-reference policy. A
+captured parent relation may authorize a reviewed supporting model outside the
+primary schema only for its exact key, scope, display fields, and read purpose.
+The policy rejects write use, unrestricted metadata, extra fields, wrong
+relations, and incompatible captured metadata. The supporting model therefore
+remains outside the migration write scope.
+
 ## Code references
 
 | Role | Code |
@@ -65,6 +72,7 @@ and matching use these portable keys rather than remembered numeric Odoo IDs.
 | Schema orchestration | [`SchemaWorkspaceService`](../../../src/impodo/application/schema_workspace_service.py) |
 | Purpose-specific connection check | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Schema governance | [`governance.py`](../../../src/impodo/domain/schema/governance.py) |
+| Governed supporting references | [`reference_keys.py`](../../../src/impodo/reference_keys.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
 | Local reader | [`local_odoo_reader.py`](../../../src/impodo/local_odoo_reader.py) |
 

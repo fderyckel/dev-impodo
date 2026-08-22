@@ -35,6 +35,15 @@ providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
 
+For each conditional Selection rule, the impact snapshot records every
+evaluated row, every raw match before priority, every row selected by
+first-match priority, and every row where that rule matched alongside another
+rule. A zero-match fact and an overlap fact have separate stable fingerprints.
+The data manager must acknowledge every current warning fact or edit the rule
+before submission. The snapshot identity includes the mapping, source,
+schema, evaluator, and impact-contract versions, so a rule edit or reorder
+retires the prior decisions.
+
 For a published Recipe Test or Production application,
 `RecipeApplicationService.apply` first checks exact current source, target,
 parameter, control, reference, credential-generation, and categorical
@@ -114,6 +123,11 @@ compile its narrow field contract without widening the primary schema scope.
 The compiler rejects mixed, unregistered, writable, version-mismatched, or
 metadata-mismatched reference use instead of guessing a contract.
 
+Mapping validation contract version 3 binds the current reference-policy hash.
+Supporting lookup contract version 2 binds the same hash to its lookup key and
+snapshot. Older evidence remains readable for audit, but it cannot authorize a
+new submission or be reused as a current lookup after the policy changes.
+
 Since mapping contract version 8, cleanup is stored exclusively as ordered
 `text_steps`. Legacy scalar search/replacement fields are rejected rather than
 silently converted or dropped. Quick matching remains bounded to 500 source
@@ -134,10 +148,14 @@ claim those results.
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/mapping_workspace_service.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
 | Semantic validator | [`validator.py`](../../../src/impodo/domain/mapping/validation/validator.py) |
+| Governed-reference policy | [`reference_keys.py`](../../../src/impodo/reference_keys.py) |
 | Shared scalar and conditional-rule evaluator | [`scalar_values.py`](../../../src/impodo/domain/mapping/scalar_values.py) |
 | Categorical source-domain scan | [`CategoricalCoverageService`](../../../src/impodo/application/categorical_coverage_service.py) |
 | Native conditional-rule compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Rule-impact service | [`TransformationImpactService`](../../../src/impodo/application/transformation_impact_service.py) |
+| Rule-impact facts and fingerprints | [`transformation_impact.py`](../../../src/impodo/domain/staging/transformation_impact.py) |
+| Native rule-impact summary | [`polars_transformation.py`](../../../src/impodo/adapters/polars_transformation.py) |
+| Rule-impact persistence and acknowledgements | [`TransformationImpactRepository`](../../../src/impodo/adapters/duckdb/transformation_impact_repository.py) |
 | Recipe draft compilation | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
 
@@ -159,8 +177,11 @@ without matching submission does not unlock Prepare data.
 
 Source or schema changes invalidate the current mapping boundary. Editing a
 submitted mapping creates new work; it never rewrites the old revision.
-Configured text steps require current effect evidence. A zero-match rule must
-be changed or acknowledged explicitly before submission.
+Configured text steps and conditional Selection rules require current effect
+evidence. A cleanup step with no effect and a Selection rule with no matches
+must be changed or acknowledged explicitly before submission. A Selection
+rule that overlaps another rule also requires an explicit acknowledgement of
+the current first-match priority.
 
 Form parsers must reject unexpected fields and stale versions. Preserve the
 working draft when validation fails so the data manager can correct it.
@@ -188,8 +209,8 @@ look plausible.
 - [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
-ordered transformations, zero-match acknowledgement, hash binding, and exact
-submission.
+ordered transformations, zero-match and overlap acknowledgement, hash binding,
+and exact submission.
 
 ## Related documentation
 

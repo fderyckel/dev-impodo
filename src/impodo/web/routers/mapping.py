@@ -285,11 +285,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             project_id,
             identity,
         )
-        datasets, field_labels, field_choices = _transformation_impact_labels(
-            context,
-            project_id,
-            revision,
-            effective_selection,
+        (
+            datasets,
+            field_labels,
+            field_choices,
+            selection_labels,
+        ) = _transformation_impact_labels(
+            context, project_id, revision, effective_selection
         )
         filters = _transformation_impact_filters(
             dataset=request.query_params.get("dataset", ""),
@@ -356,6 +358,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 revision,
                 effective_selection,
                 field_labels,
+                selection_labels,
             ),
             rows=rows,
             datasets=datasets,
@@ -398,11 +401,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
         except (OSError, ReadinessError, WorkspaceError) as error:
-            datasets, field_labels, field_choices = _transformation_impact_labels(
-                context,
-                project_id,
-                revision,
-                effective_selection,
+            (
+                datasets,
+                field_labels,
+                field_choices,
+                _selection_labels,
+            ) = _transformation_impact_labels(
+                context, project_id, revision, effective_selection
             )
             return _render(
                 request,
@@ -453,11 +458,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             effective_selection,
             plan,
         )
-        datasets, _field_labels, field_choices = _transformation_impact_labels(
-            context,
-            project_id,
-            revision,
-            effective_selection,
+        (
+            datasets,
+            _field_labels,
+            field_choices,
+            _selection_labels,
+        ) = _transformation_impact_labels(
+            context, project_id, revision, effective_selection
         )
         filters = _transformation_impact_filters(
             dataset=_text(form, "dataset"),

@@ -50,12 +50,24 @@
         <div class="page-heading compact">
           <div>
             <p class="eyebrow">Rule review</p>
-            <h2 id="rule-impact-title">What each cleanup step did</h2>
+            <h2 id="rule-impact-title">What each rule did</h2>
           </div>
         </div>
         <div class="rule-impact-list">
           {% for item in rule_impact_views %}
             <article class="notice {{ 'warning' if item.requires_acknowledgement and not item.acknowledged else 'success' }}">
+              {% if item.kind == 'selection' %}
+                <strong>
+                  {{ item.dataset_name }} · {{ item.field_label }} · choice rule {{ item.step_number }}
+                  matched {{ item.impact.matched_value_count }} row{{ 's' if item.impact.matched_value_count != 1 else '' }}
+                </strong>
+                <p>
+                  When its {{ item.condition_count }} condition{{ 's' if item.condition_count != 1 else '' }} matched, this rule proposed <strong>{{ item.target_label }}</strong>.
+                  {% if item.target_label != item.target_value %}<span class="muted">Odoo value: <code>{{ item.target_value }}</code>.</span>{% endif %}
+                  First-match priority selected it for {{ item.selected_count }} row{{ 's' if item.selected_count != 1 else '' }}.
+                  {% if item.overlap_count %}It overlapped another rule on {{ item.overlap_count }} row{{ 's' if item.overlap_count != 1 else '' }}. The earlier matching rule supplied the final choice.{% else %}It did not overlap another rule.{% endif %}
+                </p>
+              {% else %}
               <strong>
                 {{ item.dataset_name }} · {{ item.field_label }} · cleanup {{ item.step_number }}
                 {% if item.impact.changed_value_count == 0 %}changed no values{% else %}changed {{ item.impact.changed_value_count }} value{{ 's' if item.impact.changed_value_count != 1 else '' }}{% endif %}
@@ -78,17 +90,20 @@
                 {{ item.field_label|lower }} value{{ 's' if item.impact.evaluated_value_count != 1 else '' }}.
                 {% if item.step_number > 1 %}This cleanup ran after the preceding step{{ 's' if item.step_number > 2 else '' }}.{% endif %}
               </p>
+              {% endif %}
               {% if item.requires_acknowledgement %}
                 <div class="actions">
                   <a class="button secondary" href="{{ item.fix_url }}">Fix {{ item.field_label|lower }} rule</a>
                   {% if item.acknowledged %}
                     <span class="status ready">Reviewed</span>
                   {% else %}
-                    <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/acknowledge">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="rule_fingerprint" value="{{ item.impact.rule_fingerprint }}">
-                      <button class="button primary" type="submit">Keep this cleanup step</button>
-                    </form>
+                    {% for acknowledgement in item.acknowledgements %}
+                      <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/acknowledge">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="rule_fingerprint" value="{{ acknowledgement.fingerprint }}">
+                        <button class="button primary" type="submit">{{ acknowledgement.label }}</button>
+                      </form>
+                    {% endfor %}
                   {% endif %}
                 </div>
               {% endif %}

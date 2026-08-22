@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import re
 
+from ..artifacts import ArtifactStoreError
 from ..connectors import (
     ConnectorAuthenticationError,
     ConnectorAuthorizationError,
@@ -173,7 +174,15 @@ def classify_odoo_read_failure(error: Exception) -> OdooReadFailure:
             code = OdooReadFailureCode.TARGET_UNREACHABLE
         elif isinstance(error, ConnectorIncompleteResultError):
             code = OdooReadFailureCode.RESPONSE_INCOMPLETE
-        elif isinstance(error, (SecretStoreError, WorkspaceDatabaseBusyError, OSError)):
+        elif isinstance(
+            error,
+            (
+                ArtifactStoreError,
+                SecretStoreError,
+                WorkspaceDatabaseBusyError,
+                OSError,
+            ),
+        ):
             code = OdooReadFailureCode.COMPARISON_STORAGE_FAILED
         elif isinstance(error, ConnectorError):
             code = OdooReadFailureCode.UNEXPECTED_COMPARISON_FAILURE

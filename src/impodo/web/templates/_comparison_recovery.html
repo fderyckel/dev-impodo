@@ -1,0 +1,77 @@
+<section
+  id="comparison-recovery"
+  class="next-action-card review comparison-recovery"
+  aria-labelledby="comparison-recovery-title"
+  role="alert"
+>
+  <div>
+    <p class="eyebrow">{{ comparison_recovery.eyebrow }}</p>
+    <h2 id="comparison-recovery-title">{{ comparison_recovery.title }}</h2>
+    <p>{{ comparison_recovery.message }}</p>
+    <p>Nothing was changed in Odoo, and your saved work is unchanged.</p>
+    <details>
+      <summary>Support details</summary>
+      <p><code>{{ comparison_recovery.support_code }}</code></p>
+      {% if comparison_recovery.support_reference %}
+        <p><code>{{ comparison_recovery.support_reference }}</code></p>
+      {% endif %}
+    </details>
+  </div>
+  {% if comparison_recovery.action_kind == 'credential' %}
+    <form
+      method="post"
+      action="{{ comparison_recovery.action_href }}"
+      data-preflight-compare
+      class="remote-read-recovery-form"
+    >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>
+        {{ comparison_recovery.credential_label }}
+        <input
+          type="password"
+          name="read_api_key"
+          autocomplete="off"
+          autofocus
+          {% if comparison_recovery.credential_required %}required{% endif %}
+        >
+      </label>
+      <fieldset class="credential-storage-choice compact">
+        <legend>How long should Impodo keep it?</legend>
+        <label class="radio-line">
+          <input type="radio" name="read_api_key_storage" value="vault" checked>
+          <span>
+            <strong>Keep it on this computer</strong>
+            <small>Securely saved in Windows Credential Manager.</small>
+          </span>
+        </label>
+        <label class="radio-line">
+          <input type="radio" name="read_api_key_storage" value="session">
+          <span>
+            <strong>Until Impodo closes</strong>
+            <small>Forgotten when this Impodo process ends.</small>
+          </span>
+        </label>
+      </fieldset>
+      <button class="button primary" type="submit">
+        {{ comparison_recovery.action_label }}
+      </button>
+      <small class="muted" data-preflight-comparison-status hidden>
+        Checking read-only access and comparing with Odoo... Keep this page open.
+      </small>
+    </form>
+  {% elif comparison_recovery.action_kind == 'retry' %}
+    <form method="post" action="{{ comparison_recovery.action_href }}" data-preflight-compare>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button primary" type="submit">
+        {{ comparison_recovery.action_label }}
+      </button>
+      <small class="muted" data-preflight-comparison-status hidden>
+        Comparing with Odoo... Keep this page open.
+      </small>
+    </form>
+  {% elif comparison_recovery.action_kind == 'link' %}
+    <a class="button primary" href="{{ comparison_recovery.action_href }}">
+      {{ comparison_recovery.action_label }}
+    </a>
+  {% endif %}
+</section>

@@ -71,6 +71,10 @@ from impodo.domain.odoo_source_capture import (
 from impodo.domain.odoo_comparison import OdooComparisonOutcome
 from impodo.application.preflight_service import MANIFEST_NAME
 from impodo.application.odoo_connection_service import OdooConnectionTestService
+from impodo.application.odoo_read_failures import (
+    OdooReadFailureCode,
+    OdooReadWorkflowError,
+)
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
@@ -96,7 +100,7 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from impodo.secrets import MemorySecretStore
+from impodo.secrets import MemorySecretStore, SecretStoreError
 from impodo.staging_contracts import CanonicalControlTotal
 from impodo.web.app import create_local_app
 from impodo.web.target_credentials import (
@@ -1728,10 +1732,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
 
         self.assertEqual(blocked.status_code, 422)
-        self.assertIn("Reconnect to Odoo", blocked.text)
+        self.assertIn("Enter the Odoo read key", blocked.text)
         self.assertIn('name="read_api_key"', blocked.text)
         self.assertIn('name="read_api_key_storage"', blocked.text)
-        self.assertIn("Reconnect and continue comparison", blocked.text)
+        self.assertIn("Save key and compare", blocked.text)
         self.assertIn("Nothing was changed in Odoo", blocked.text)
         self.assertNotIn("We could not complete that action", blocked.text)
         self.assertEqual(self.schema_calls, [])
@@ -1773,9 +1777,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         page = self.client.get(reconnected.headers["location"])
         self.assertNotIn("replacement-read-key", page.text)
-        self.assertNotIn('id="reconnect-odoo"', page.text)
+        self.assertNotIn('id="comparison-recovery"', page.text)
 
-    def test_remote_compare_failure_offers_key_recovery_with_saved_key(
+    def test_remote_reference_failure_returns_to_matching_without_key_form(
         self,
     ) -> None:
         context = self.app.state.context
@@ -1789,8 +1793,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             patch.object(
                 context.preflight,
                 "compare",
-                side_effect=WorkspaceError(
-                    "The comparison needs Odoo models outside the captured schema"
+                side_effect=OdooReadWorkflowError(
+                    OdooReadFailureCode.REFERENCE_POLICY_MISMATCH,
+                    "Internal wording must not select or leak into recovery",
+                    support_reference="res.partner.country_id -> res.country",
                 ),
             ),
             patch(
@@ -1805,10 +1811,81 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
 
         self.assertEqual(blocked.status_code, 422)
-        self.assertIn('id="reconnect-odoo"', blocked.text)
-        self.assertIn("Recheck Odoo access and continue", blocked.text)
-        self.assertIn("Use a different read-only key", blocked.text)
-        self.assertIn('name="read_api_key"', blocked.text)
+        self.assertIn('id="comparison-recovery"', blocked.text)
+        self.assertIn("Review the linked field match", blocked.text)
+        self.assertIn(
+            f'href="/projects/{project.project_id}/mapping"',
+            blocked.text,
+        )
+        self.assertNotIn('name="read_api_key"', blocked.text)
+        self.assertNotIn("Internal wording", blocked.text)
+
+    def test_remote_compare_recovery_matches_the_classified_failure(self) -> None:
+        context = self.app.state.context
+        project, schema = self._registered_remote_schema_project()
+        available_key = SimpleNamespace(
+            available=True,
+            binding_hash=schema.read_credential_binding_hash,
+        )
+        cases = (
+            (
+                ConnectorAuthenticationError("raw rejected key response"),
+                "Replace the Odoo read key",
+                'name="read_api_key"',
+            ),
+            (
+                ConnectorTransportError("HTTP 503 raw upstream response"),
+                "Try the comparison again",
+                'action="/projects/',
+            ),
+            (
+                OdooReadWorkflowError(
+                    OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
+                    "raw schema mismatch",
+                ),
+                "Refresh the Odoo data structure",
+                f'href="/projects/{project.project_id}/schema"',
+            ),
+            (
+                OdooReadWorkflowError(
+                    OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                    "raw prepared mismatch",
+                ),
+                "Prepare and approve the data again",
+                f'href="/projects/{project.project_id}/prepare"',
+            ),
+            (
+                SecretStoreError("raw Windows credential-store failure"),
+                "Impodo could not save the comparison",
+                "COMPARISON_STORAGE_FAILED",
+            ),
+        )
+
+        for failure, title, expected_action in cases:
+            with self.subTest(failure=type(failure).__name__):
+                with (
+                    patch.object(
+                        context.preflight,
+                        "compare",
+                        side_effect=failure,
+                    ),
+                    patch(
+                        "impodo.web.presenters.summary.get_target_credential_status",
+                        return_value=available_key,
+                    ),
+                ):
+                    blocked = self.client.post(
+                        f"/projects/{project.project_id}/summary/compare",
+                        data={"csrf_token": self.csrf},
+                        headers=POST_HEADERS,
+                    )
+
+                self.assertEqual(blocked.status_code, 422)
+                self.assertIn(title, blocked.text)
+                self.assertIn(expected_action, blocked.text)
+                if not isinstance(failure, ConnectorAuthenticationError):
+                    self.assertNotIn('name="read_api_key"', blocked.text)
+                self.assertNotIn("raw ", blocked.text)
 
     def test_remote_connection_failure_shows_safe_red_checks(self) -> None:
         def rejected_connection(_project, _api_key):
@@ -1854,7 +1931,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Odoo rejected the access key, database name, or API entitlement.",
             result.text,
         )
-        self.assertIn("ODOO_ACCESS_REJECTED", result.text)
+        self.assertIn("ODOO_READ_KEY_REJECTED", result.text)
         self.assertIn(">Try again</button>", result.text)
         self.assertNotIn("never-render-this-key", result.text)
         self.assertNotIn("raw remote response", result.text)
@@ -1933,7 +2010,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             (
                 unreachable,
                 "Impodo could not reach Odoo. Check the address and network connection.",
-                "ODOO_UNREACHABLE",
+                "ODOO_TARGET_UNREACHABLE",
             ),
         )
 

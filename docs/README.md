@@ -72,6 +72,11 @@ applies those rules when documentation is created or rewritten.
   — accepted target architecture and active plan for replacing the current
   Project-as-Recipe model without retaining compatibility shells, aliases, or
   old storage readers. The behavior is not yet implemented.
+- [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
+  — completed architecture-only contracts and executable fixtures for Project
+  ownership, optional and multiple Recipes, Project-owned data packages,
+  integrated runs, CutoverPlans, and exact qualification. Runtime
+  implementation has not started.
 - [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
   — approved design for separating Odoo choices from source values, preserving
   fixed choice mappings, and adding a governed multi-column rule provider for

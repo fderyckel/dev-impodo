@@ -285,20 +285,16 @@ class TransformationImpactRepository(DuckDbRepository):
                 or rule is None
             ):
                 raise WorkspaceError("Prepare the current rule effects first")
-            impact = (
-                TransformationRuleImpact(
-                    dataset_id=str(rule[0]),
-                    target_field=str(rule[1]),
-                    rule_kind=str(rule[2]),
-                    rule_fingerprint=rule_fingerprint,
-                    evaluated_value_count=int(rule[3]),
-                    matched_value_count=int(rule[4]),
-                    changed_value_count=int(rule[5]),
-                )
-                if rule is not None
-                else None
+            impact = TransformationRuleImpact(
+                dataset_id=str(rule[0]),
+                target_field=str(rule[1]),
+                rule_kind=str(rule[2]),
+                rule_fingerprint=rule_fingerprint,
+                evaluated_value_count=int(rule[3]),
+                matched_value_count=int(rule[4]),
+                changed_value_count=int(rule[5]),
             )
-            if impact is None or not impact.requires_acknowledgement:
+            if not impact.requires_acknowledgement:
                 raise WorkspaceError("This rule result does not need acknowledgement")
             connection.execute(
                 """

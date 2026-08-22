@@ -34,6 +34,12 @@ Use portable values such as customer reference, internal product reference,
 country code, or BoM reference. Do not choose an Odoo numeric database ID as a
 portable business key.
 
+A reviewed standard reference, such as Country matched by its Odoo 19 country
+code, can remain outside the migration record-type scope. Impodo may read only
+the bounded reference values needed for matching and Final review. It does not
+turn that supporting record type into data that the project will create or
+update.
+
 ![Current Odoo record-type selection for a fictional Recipe data version.](../../images/user/08-odoo-models.png)
 
 ![Current confirmed matching rule for finding one existing Odoo Contact.](../../images/user/08b-odoo-business-keys.png)
@@ -61,6 +67,8 @@ Recipe or guess a replacement value.
   never several.
 - Linked records can be resolved by an incoming table or approved existing
   Odoo data.
+- A supporting reference is read-only and does not enter the intended Odoo
+  write scope merely because another record links to it.
 - The scope contains no unrelated business areas.
 
 ## What Complete means

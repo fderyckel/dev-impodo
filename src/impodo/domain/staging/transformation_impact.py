@@ -340,7 +340,7 @@ class TransformationImpactSnapshot:
 
     @property
     def unacknowledged_rule_impacts(self) -> tuple[TransformationRuleImpact, ...]:
-        """Return zero-match rules that still require explicit review."""
+        """Return current rule facts that still require explicit review."""
 
         acknowledged = frozenset(self.acknowledged_rule_fingerprints)
         return tuple(

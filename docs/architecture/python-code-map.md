@@ -475,6 +475,10 @@ payload, the shared scalar evaluator supplies preview and preparation meaning,
 categorical coverage scans the union of referenced source columns once, and
 the columnar compiler emits native first-match-wins expressions. Captured Odoo
 technical keys remain the only rule outputs; labels are presentation only.
+The transformation-impact evaluator and native Polars summarizer publish
+per-rule raw-match, first-selected, and overlap counts. The DuckDB impact
+repository binds zero-match and overlap acknowledgements to the current impact
+identity, and mapping submission rejects missing decisions.
 
 ```mermaid
 sequenceDiagram

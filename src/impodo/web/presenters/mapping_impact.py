@@ -161,6 +161,7 @@ def _transformation_impact_labels(
         dataset.dataset_id: dataset for dataset in effective_selection.datasets
     }
     field_labels: dict[tuple[str, str], str] = {}
+    selection_labels: dict[tuple[str, str, str], str] = {}
     field_choices: dict[str, str] = {}
     for mapping in revision.definition.datasets:
         dataset = dataset_by_id.get(mapping.dataset_id)
@@ -170,6 +171,10 @@ def _transformation_impact_labels(
         if model is not None:
             for field in model.fields:
                 field_labels[(dataset.name, field.name)] = field.label
+                for technical_value, label in field.selection:
+                    selection_labels[
+                        (dataset.name, field.name, str(technical_value))
+                    ] = label
         for field in mapping.fields:
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
                 continue
@@ -188,6 +193,7 @@ def _transformation_impact_labels(
         datasets,
         field_labels,
         tuple(sorted(field_choices.items(), key=lambda item: item[1].casefold())),
+        selection_labels,
     )
 
 
@@ -282,6 +288,7 @@ def _transformation_rule_impact_views(
     revision,
     selection,
     field_labels,
+    selection_labels,
 ) -> tuple[dict[str, object], ...]:
     """Join persisted rule counts to current business labels and edit links."""
 
@@ -430,6 +437,10 @@ def _transformation_rule_impact_views(
                 "kind": "selection",
                 "step_number": rule_index + 1,
                 "target_value": rule.target_value,
+                "target_label": selection_labels.get(
+                    (dataset.name, impact.target_field, rule.target_value),
+                    rule.target_value,
+                ),
                 "condition_count": len(rule.conditions),
                 "selected_count": impact.changed_value_count,
                 "overlap_count": overlap_count,

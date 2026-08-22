@@ -228,21 +228,6 @@ def captured_reference_field_contracts(
     )
 
 
-def matches_standard_reference_key(
-    model: str,
-    key_fields: tuple[str, ...],
-    scope_fields: tuple[str, ...],
-) -> bool:
-    """Whether the supplied identity exactly matches a reviewed reference rule."""
-
-    rule = standard_reference_key(model)
-    return bool(
-        rule is not None
-        and rule.key_fields == key_fields
-        and rule.scope_fields == scope_fields
-    )
-
-
 def authorize_governed_reference(
     request: GovernedReferenceRequest,
     *,

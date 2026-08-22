@@ -264,13 +264,20 @@ class SnapshotProjectionTests(unittest.TestCase):
             requested_fields={"res.partner": ("name", "ref")},
         )
 
-        with self.assertRaisesRegex(ReadinessError, "snapshot is incomplete"):
+        with self.assertRaisesRegex(
+            ReadinessError,
+            "snapshot is incomplete",
+        ) as raised:
             _validate_snapshot_projection(
                 self.metadata_requests,
                 self.record_requests,
                 metadata,
                 records,
             )
+        self.assertEqual(
+            raised.exception.failure_code,
+            "ODOO_RESPONSE_INCOMPLETE",
+        )
 
     def test_unplanned_metadata_field_fails_closed(self) -> None:
         metadata = MetadataSnapshot(

@@ -2,18 +2,20 @@
 
 ## Status and authority
 
-**Status:** Proposed. Implementation has not started.
+**Status:** Implemented on 2026-08-22. Verification results and any environment
+limitations belong in the implementation handoff.
+
+Sections 1 through 14 retain the delivery wording and acceptance gates used
+during implementation. The current workflow and contract pages describe the
+resulting operator and developer behavior.
 
 **Plan date:** 2026-08-22.
 
-This plan describes future behavior across Match data, Final review, and Recipe
-reuse. The current user and developer workflow pages remain authoritative until
-every acceptance gate in this plan passes.
-
-This proposal does not alter accepted source files, current mappings, prepared
-data, comparison evidence, or Recipe revisions. It also does not change the
-priority order in [Impodo remaining work](remaining-work.md). Product ownership
-must adopt the refactor as current work before implementation begins.
+This plan records the delivered behavior across Match data, Final review, and
+Recipe reuse. The current user and developer workflow pages are authoritative
+for operation. The refactor did not edit accepted source files, frozen
+mappings, prepared data, comparison evidence, or published Recipe revisions in
+place.
 
 ## 1. Decision summary
 

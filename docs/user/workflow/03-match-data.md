@@ -36,6 +36,13 @@ record identity automatically.
 9. Review transformation effects, including rules that changed no values.
 10. Select **Confirm field matches** for the exact checked revision.
 
+For reviewed Odoo 19 references such as Country, Language, and Currency,
+Impodo checks the parent relationship and exact portable key through one
+shared policy. It may show the bounded Odoo choices without asking you to add
+the supporting record type to the migration scope. A changed relationship,
+key, or Odoo field contract blocks the check and returns ownership to this
+stage.
+
 ### Fill an Odoo choice field
 
 An Odoo choice field now shows **View available Odoo choices** even when the
@@ -102,6 +109,8 @@ Confirming these choices still does not contact or change Odoo.
   to a current Odoo choice or is deliberately blocked for review.
 - Many2one, One2many, and Many2many relationships use portable keys.
 - Cleanup rules change only the intended values and run in the intended order.
+- Choice rules show how many rows matched, how many rows first-match priority
+  selected, and how many rows also matched another rule.
 - No field is mapped merely because its name looks similar.
 
 ## What Complete means
@@ -119,9 +128,10 @@ itself, authorize a load, or write to Odoo.
 ## Needs attention
 
 Resolve missing required fields, duplicate target assignments, incompatible
-types, unresolved relationships, unexpected selection values, and cleanup
-rules with zero matches. Keep a zero-match rule only after explicitly
-reviewing why it is intentional.
+types, unresolved relationships, unexpected selection values, and rules with
+zero matches or overlapping priority. Keep a zero-match rule only after you
+review why it is intentional. Keep overlapping rules only after you confirm
+that the earlier matching rule should supply the final Odoo choice.
 
 When **Confirm field matches** is unavailable, the reason panel beside the
 bottom workflow actions lists every current blocker even if a field search or

@@ -63,6 +63,10 @@ from .odoo_comparison_service import (
     ODOO_COMPARISON_ARTIFACT_NAME,
     build_odoo_comparison_publication,
 )
+from .odoo_read_failures import (
+    OdooReadFailureCode,
+    OdooReadWorkflowError,
+)
 from .odoo_provenance_service import OdooProvenanceService
 
 
@@ -316,9 +320,10 @@ class PreflightService:
             frozen.prepared.records,
         )
         if any(not request.domain for request in requirements.record_requests):
-            raise ReadinessError(
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
                 "An Odoo record read could not be narrowed safely. "
-                "Odoo was not contacted."
+                "Odoo was not contacted.",
             )
         metadata, records = reader(requirements)
         metadata, records = bind_snapshot_hashes(metadata, records)
@@ -338,7 +343,10 @@ class PreflightService:
             database=project.odoo_database,
         )
         if metadata.fingerprint.target_hash != expected_target:
-            raise ReadinessError("Readiness data came from a different Odoo target")
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
+                "Readiness data came from a different Odoo target",
+            )
         result = self.engine.run(
             frozen.plan,
             frozen.prepared,
@@ -347,7 +355,10 @@ class PreflightService:
             captured_schema=getattr(frozen, "captured_schema", None),
         )
         if not result.metadata_snapshot_hash or not result.record_snapshot_hash:
-            raise ReadinessError("Odoo snapshot evidence is incomplete")
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.RESPONSE_INCOMPLETE,
+                "Odoo snapshot evidence is incomplete",
+            )
         run_id = str(uuid4())
         execution_snapshot = build_execution_snapshot(
             preflight_run_id=run_id,
@@ -565,7 +576,10 @@ class PreflightService:
         project = self.projects.get(project_id)
         revision = self.mappings.get_mapping_revision(project_id)
         if revision is None:
-            raise ReadinessError("Submit the mapping before comparing with Odoo")
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
+                "Submit the mapping before comparing with Odoo",
+            )
         submission = self.mappings.get_mapping_submission(
             project_id, revision.version
         )
@@ -573,8 +587,9 @@ class PreflightService:
             submission is None
             or submission.mapping_content_hash != revision.definition.content_hash
         ):
-            raise ReadinessError(
-                "Submit the current mapping before comparing with Odoo"
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
+                "Submit the current mapping before comparing with Odoo",
             )
         captured_schema = None
         if self.schemas is not None:
@@ -597,9 +612,14 @@ class PreflightService:
                     and governance.catalog_hash != captured_schema.content_hash
                 )
             ):
-                raise ReadinessError(
+                raise OdooReadWorkflowError(
+                    (
+                        OdooReadFailureCode.SCHEMA_EVIDENCE_MISSING
+                        if captured_schema is None
+                        else OdooReadFailureCode.SCHEMA_EVIDENCE_STALE
+                    ),
                     "The captured Odoo fields no longer match the submitted "
-                    "mapping. Odoo was not contacted."
+                    "mapping. Odoo was not contacted.",
                 )
         selection = self.sources.get_mapping_source_selection(project_id)
         staging_summary = self.staging.get_current_staging_summary(project_id)
@@ -608,13 +628,16 @@ class PreflightService:
             project_id
         )
         if selection is None or staging_summary is None or quality_summary is None:
-            raise ReadinessError(
-                "Prepare the data before comparing it with Odoo. Odoo was not contacted."
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                "Prepare the data before comparing it with Odoo. "
+                "Odoo was not contacted.",
             )
         if normalization is None:
-            raise ReadinessError(
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
                 "Approve the prepared data before comparing it with Odoo. "
-                "Odoo was not contacted."
+                "Odoo was not contacted.",
             )
         staging = self.staging.get_canonical_staging_run(
             project_id, staging_summary.run_id
@@ -623,49 +646,67 @@ class PreflightService:
         effective = None
         if quality_summary.effective_dataset_run_id is not None:
             if self.effective is None:
-                raise ReadinessError(
-                    "The approved resolved rows could not be loaded. Odoo was not contacted."
+                raise OdooReadWorkflowError(
+                    OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                    "The approved resolved rows could not be loaded. "
+                    "Odoo was not contacted.",
                 )
             effective = self.effective.get_current_effective_dataset(project_id)
             if (
                 effective is None
                 or effective.content_hash != quality_summary.effective_dataset_hash
             ):
-                raise ReadinessError(
-                    "The approved resolved rows could not be verified. Odoo was not contacted."
+                raise OdooReadWorkflowError(
+                    OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                    "The approved resolved rows could not be verified. "
+                    "Odoo was not contacted.",
                 )
         dry_run = self.normalization.get_normalization_dry_run(
             project_id, normalization.run_id
         )
         if staging is None or quality is None or dry_run is None:
-            raise ReadinessError(
-                "The approved prepared evidence is incomplete. Odoo was not contacted."
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                "The approved prepared evidence is incomplete. "
+                "Odoo was not contacted.",
             )
-        plan = compile_browser_mapping(
-            revision.definition,
-            selection,
-            derived_plan_hash=staging.derived_plan_hash,
-        )
-        dataset_labels, source_field_labels = browser_mapping_labels(
-            revision.definition,
-            selection,
-        )
-        return build_frozen_preflight_input(
-            project_id=project.project_id,
-            revision=revision,
-            selection=selection,
-            staging_summary=staging_summary,
-            staging=staging,
-            quality_summary=quality_summary,
-            quality=quality,
-            normalization=normalization,
-            dry_run=dry_run,
-            plan=plan,
-            dataset_labels=dataset_labels,
-            source_field_labels=source_field_labels,
-            effective=effective,
-            captured_schema=captured_schema,
-        )
+        try:
+            plan = compile_browser_mapping(
+                revision.definition,
+                selection,
+                derived_plan_hash=staging.derived_plan_hash,
+            )
+            dataset_labels, source_field_labels = browser_mapping_labels(
+                revision.definition,
+                selection,
+            )
+        except ReadinessError as error:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
+                str(error),
+            ) from error
+        try:
+            return build_frozen_preflight_input(
+                project_id=project.project_id,
+                revision=revision,
+                selection=selection,
+                staging_summary=staging_summary,
+                staging=staging,
+                quality_summary=quality_summary,
+                quality=quality,
+                normalization=normalization,
+                dry_run=dry_run,
+                plan=plan,
+                dataset_labels=dataset_labels,
+                source_field_labels=source_field_labels,
+                effective=effective,
+                captured_schema=captured_schema,
+            )
+        except ReadinessError as error:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                str(error),
+            ) from error
 
 
 def _validate_snapshot_projection(
@@ -683,27 +724,45 @@ def _validate_snapshot_projection(
 
     expected_metadata = {item.model: item.fields for item in metadata_requests}
     if set(metadata.models) != set(expected_metadata):
-        raise ReadinessError("Odoo metadata snapshot is incomplete")
+        raise OdooReadWorkflowError(
+            OdooReadFailureCode.RESPONSE_INCOMPLETE,
+            "Odoo metadata snapshot is incomplete",
+        )
     for model, fields in expected_metadata.items():
         actual_fields = set(metadata.models[model].fields)
         expected_fields = set(fields)
         if actual_fields != expected_fields:
             if actual_fields - expected_fields:
-                raise ReadinessError("Odoo metadata snapshot contains unplanned fields")
-            raise ReadinessError("Odoo metadata snapshot is incomplete")
+                raise OdooReadWorkflowError(
+                    OdooReadFailureCode.RESPONSE_INCOMPLETE,
+                    "Odoo metadata snapshot contains unplanned fields",
+                )
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.RESPONSE_INCOMPLETE,
+                "Odoo metadata snapshot is incomplete",
+            )
 
     expected_records: dict[str, tuple[str, ...]] = {}
     for request in record_requests:
         previous = expected_records.setdefault(request.model, request.fields)
         if previous != request.fields:
-            raise ReadinessError("Odoo record plan has inconsistent field projections")
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
+                "Odoo record plan has inconsistent field projections",
+            )
     if set(records.records) != set(expected_records) or set(
         records.requested_fields
     ) != set(expected_records):
-        raise ReadinessError("Odoo record snapshot is incomplete")
+        raise OdooReadWorkflowError(
+            OdooReadFailureCode.RESPONSE_INCOMPLETE,
+            "Odoo record snapshot is incomplete",
+        )
     for model, fields in expected_records.items():
         if tuple(records.requested_fields[model]) != tuple(fields):
-            raise ReadinessError("Odoo record snapshot omitted requested fields")
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.RESPONSE_INCOMPLETE,
+                "Odoo record snapshot omitted requested fields",
+            )
 
 
 def _snapshot_matches_report(

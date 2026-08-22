@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from impodo.artifacts import ArtifactStoreError
 from impodo.application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     OdooReadFailureCode,
@@ -86,6 +87,14 @@ class OdooReadFailureClassificationTests(unittest.TestCase):
             OdooReadFailureCode.COMPARISON_STORAGE_FAILED,
         )
         self.assertEqual(failure.owner, RecoveryOwner.SUPPORT)
+
+        artifact_failure = classify_odoo_read_failure(
+            ArtifactStoreError("comparison publication failed")
+        )
+        self.assertEqual(
+            artifact_failure.code,
+            OdooReadFailureCode.COMPARISON_STORAGE_FAILED,
+        )
 
 
 if __name__ == "__main__":

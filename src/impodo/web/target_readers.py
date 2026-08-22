@@ -340,8 +340,6 @@ def _authorized_supplemental_models(
         *(request.model for request in requirements.record_requests),
     }
     supplemental_models = requested_models - set(captured_models)
-    if not supplemental_models:
-        return ()
     try:
         odoo_major_version = int(str(schema.odoo_version).split(".", 1)[0])
     except ValueError:
@@ -349,22 +347,21 @@ def _authorized_supplemental_models(
     requested_fields = {model: set() for model in supplemental_models}
     metadata_flags: dict[str, tuple[bool, bool]] = {}
     for request in requirements.metadata_requests:
-        if request.model in supplemental_models:
+        if request.model in requested_fields:
             requested_fields[request.model].update(request.fields)
-            metadata_flags[request.model] = (
-                request.all_fields,
-                request.include_unique_constraints,
-            )
+        metadata_flags[request.model] = (
+            request.all_fields,
+            request.include_unique_constraints,
+        )
     for request in requirements.record_requests:
-        if request.model in supplemental_models:
+        if request.model in requested_fields:
             requested_fields[request.model].update(request.fields)
 
     authorized_fields = {model: set() for model in supplemental_models}
     authorized_models: set[str] = set()
     for reference in requirements.reference_requirements:
-        if reference.relation_model not in supplemental_models:
-            continue
         parent = captured_models.get(reference.parent_model)
+        related = captured_models.get(reference.relation_model)
         relationship = next(
             (
                 field
@@ -394,8 +391,13 @@ def _authorized_supplemental_models(
                 odoo_major_version=odoo_major_version,
                 all_fields=flags[0],
                 include_unique_constraints=flags[1],
+                governed_key=related is not None,
             ),
-            captured_fields=None,
+            captured_fields=(
+                captured_reference_field_contracts(related.fields)
+                if related is not None
+                else None
+            ),
         )
         if not decision.accepted:
             raise OdooReadWorkflowError(
@@ -406,10 +408,11 @@ def _authorized_supplemental_models(
                     f"{reference.relation_model}"
                 ),
             )
-        authorized_models.add(reference.relation_model)
-        authorized_fields[reference.relation_model].update(
-            reference.requested_fields
-        )
+        if reference.relation_model in supplemental_models:
+            authorized_models.add(reference.relation_model)
+            authorized_fields[reference.relation_model].update(
+                reference.requested_fields
+            )
     if authorized_models != supplemental_models or any(
         not requested_fields[model].issubset(authorized_fields[model])
         for model in supplemental_models
@@ -490,7 +493,10 @@ def _read_readiness_snapshots(
             "Enter the Odoo read API key for this remote target before checking data."
         )
     if project.odoo_connection_mode is None:
-        raise WorkspaceError("Configure the Odoo target before checking data")
+        raise OdooReadWorkflowError(
+            OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
+            "Configure the Odoo target before checking data",
+        )
     if not schema.read_principal_hash:
         raise OdooReadWorkflowError(
             OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
@@ -569,7 +575,10 @@ def _read_pinned_odoo_snapshots(
             "Save the Odoo read API key before comparing captured records."
         )
     if project.odoo_connection_mode is None:
-        raise WorkspaceError("Configure the Odoo target before comparing records")
+        raise OdooReadWorkflowError(
+            OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
+            "Configure the Odoo target before comparing records",
+        )
     schema = context.queries.get_odoo_schema_catalog(project.project_id)
     if schema is None:
         raise OdooReadWorkflowError(

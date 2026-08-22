@@ -26,6 +26,7 @@ from impodo.source import (
     prepare_sources,
     validated_xlsx_table_bounds,
 )
+from impodo.reference_keys import REFERENCE_POLICY_HASH
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -399,6 +400,23 @@ class PlannerTests(unittest.TestCase):
         requirements = plan_preflight_requirements(self.profile, ())
 
         self.assertEqual(requirements.record_requests, ())
+
+    def test_reference_reads_keep_the_parent_relation_and_policy_hash(self) -> None:
+        requirements = plan_preflight_requirements(
+            self.profile,
+            self.plannable_records,
+        )
+
+        uom = next(
+            item
+            for item in requirements.reference_requirements
+            if item.relation_model == "uom.uom"
+        )
+        self.assertEqual(uom.parent_model, "product.template")
+        self.assertEqual(uom.relationship_field, "uom_id")
+        self.assertEqual(uom.relationship_type, "many2one")
+        self.assertEqual(uom.key_fields, ("x_external_code",))
+        self.assertEqual(requirements.reference_policy_hash, REFERENCE_POLICY_HASH)
 
     def test_record_keys_are_split_into_bounded_chunks(self) -> None:
         product = next(

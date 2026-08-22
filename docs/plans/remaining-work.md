@@ -73,6 +73,13 @@ No deferred product track becomes current while this plan is active. Narrow
 maintenance, security, data-loss, regression, and performance fixes required
 to preserve the current workflow remain in scope.
 
+**Phase status, 2026-08-22:** Phase M0 is complete. The [Phase M0
+contracts](migration-projects-phase-m0-contracts.md), deterministic fixture,
+and focused tests freeze the target identities, ownership changes,
+cardinalities, integrated-plan rules, and exclusions. This architecture-only
+gate changes no current browser or persistence behavior. Phase M1 is the next
+implementation phase.
+
 ## Completed product priority — Recipe test-to-production reuse
 
 **Priority decision, 2026-08-19:** Product ownership made the

@@ -22,13 +22,18 @@ from ...connectors import ConnectorError
 from ...projects import OdooConnectionMode, ProjectError
 from ...domain.errors import ReadinessError
 from ...application.preflight_service import MANIFEST_NAME
+from ...application.odoo_read_failures import (
+    OdooReadFailureCode,
+    OdooReadWorkflowError,
+    classify_odoo_read_failure,
+)
 from ...reporting import (
     ReportGenerationError,
     WORKBOOK_NAME,
     write_review_workbook,
 )
 from ...secrets import SecretStoreError
-from ...workspace_errors import WorkspaceError
+from ...workspace_errors import WorkspaceDatabaseBusyError, WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
@@ -55,9 +60,10 @@ def _read_key_persistence(form) -> bool:
         return True
     if storage == "session":
         return False
-    raise SecretStoreError(
+    raise OdooReadWorkflowError(
+        OdooReadFailureCode.READ_KEY_MISSING,
         "Choose whether Impodo should keep the read-only key on this computer "
-        "or only until Impodo closes."
+        "or only until Impodo closes.",
     )
 
 
@@ -79,13 +85,22 @@ def _rebind_remote_read_access(context: WebContext, project, credential):
         probe_models,
     )
     snapshot = context.schema_reader(project, credential.secret)
-    context.schema_workspace.rebind_current_access(
-        project.project_id,
-        snapshot,
-        read_credential_binding_hash=credential.binding_hash,
-        read_identity=identity,
-        actor=context.actor,
-    )
+    try:
+        context.schema_workspace.rebind_current_access(
+            project.project_id,
+            snapshot,
+            read_credential_binding_hash=credential.binding_hash,
+            read_identity=identity,
+            actor=context.actor,
+        )
+    except WorkspaceDatabaseBusyError:
+        raise
+    except WorkspaceError as error:
+        raise OdooReadWorkflowError(
+            OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
+            "The Odoo fields or read access changed; refresh Odoo data before "
+            "comparing again.",
+        ) from error
     context.remote_connections.mark_checked(
         project,
         snapshot.fingerprint,
@@ -140,8 +155,9 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             submitted_key = _text(form, "read_api_key")
             if submitted_key:
                 if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
-                    raise SecretStoreError(
-                        "A read-only API key can be entered here only for Remote Odoo."
+                    raise OdooReadWorkflowError(
+                        OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
+                        "A read-only API key can be entered here only for Remote Odoo.",
                     )
                 credential = store_target_credential(
                     context.secret_store,
@@ -190,29 +206,20 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 open_local_stack=True,
                 status_code=422,
             )
-        except SecretStoreError as error:
-            return _render_summary(
-                request,
-                context,
-                project_id,
-                remote_read_error=str(error),
-                open_remote_read_recovery=True,
-                status_code=422,
-            )
         except (
+            ArtifactStoreError,
             ConnectorError,
             ProjectError,
             ReadinessError,
+            SecretStoreError,
             WorkspaceError,
+            OSError,
         ) as error:
             return _render_summary(
                 request,
                 context,
                 project_id,
-                error=str(error),
-                open_remote_read_recovery=(
-                    project.odoo_connection_mode is OdooConnectionMode.REMOTE
-                ),
+                comparison_failure=classify_odoo_read_failure(error),
                 status_code=422,
             )
         _flash(request, "Prepared data compared with Odoo. Nothing was changed.")

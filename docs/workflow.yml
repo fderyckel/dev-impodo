@@ -150,7 +150,10 @@ stages:
       - src/impodo/application/categorical_coverage_service.py::CategoricalCoverageService
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/scalar_values.py::evaluate_scalar_mapping_value
+      - src/impodo/domain/staging/transformation_impact.py::selection_rule_impact_definitions
       - src/impodo/domain/compiler/columnar_transformation.py::compile_columnar_transformation_program
+      - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
+      - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
     tests:
       - tests/test_mapping_forms.py
       - tests/test_mapping_validation.py

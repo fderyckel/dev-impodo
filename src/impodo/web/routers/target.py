@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...application.odoo_connection_service import OdooConnectionPurpose
+from ...application.odoo_read_failures import OdooReadCredentialMissingError
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
 from ...projects import (
@@ -473,7 +474,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 local_profile = _selected_local_profile(context, project)
                 if local_profile is not None:
                     if project.source_mode is SourceMode.ODOO and read_credential is None:
-                        raise SecretStoreError(
+                        raise OdooReadCredentialMissingError(
                             "Enter a read-only Odoo API key before checking an Odoo source."
                         )
                     show_local_results = True
@@ -500,12 +501,12 @@ def build_target_router(context: WebContext) -> APIRouter:
                             project.odoo_connection_mode
                             is OdooConnectionMode.LOCAL
                         ):
-                            raise SecretStoreError(
+                            raise OdooReadCredentialMissingError(
                                 "Local mode does not require an API key. "
                                 "Choose and validate odoo.conf with the local "
                                 "readiness assistant first."
                             )
-                        raise SecretStoreError(
+                        raise OdooReadCredentialMissingError(
                             "Enter an Odoo API key for this exact remote target "
                             "to test"
                         )

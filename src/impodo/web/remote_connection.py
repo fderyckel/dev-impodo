@@ -10,21 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-import re
 from threading import RLock
 
-from ..connectors import (
-    ConnectorAuthenticationError,
-    ConnectorAuthorizationError,
-    ConnectorConfigurationError,
-    ConnectorError,
-    ConnectorIncompleteResultError,
-    ConnectorTransportError,
+from ..application.odoo_read_failures import (
+    OdooReadFailureCode,
+    classify_odoo_read_failure,
 )
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..application.odoo_connection_service import OdooConnectionPurpose
 from ..projects import MigrationProject
-from ..secrets import SecretStoreError
 
 
 class RemoteConnectionLevel(str, Enum):
@@ -283,15 +277,16 @@ class RemoteConnectionStatusService:
         unknown = RemoteConnectionLevel.UNKNOWN
         ready = RemoteConnectionLevel.READY
         failed = RemoteConnectionLevel.ERROR
-        if isinstance(error, SecretStoreError):
+        failure = classify_odoo_read_failure(error)
+        if failure.code is OdooReadFailureCode.READ_KEY_MISSING:
             values = (
                 (unknown, "The Odoo server was not contacted."),
                 (failed, "Enter an Odoo access key for this remote target."),
                 (unknown, "Waiting for database access."),
                 (unknown, "Waiting for an authenticated principal check."),
-                "ODOO_ACCESS_KEY_MISSING",
+                failure.support_code,
             )
-        elif isinstance(error, ConnectorAuthenticationError):
+        elif failure.code is OdooReadFailureCode.READ_KEY_REJECTED:
             values = (
                 (ready, "Odoo responded to the read-only check."),
                 (
@@ -300,9 +295,9 @@ class RemoteConnectionStatusService:
                 ),
                 (unknown, "Waiting for database access."),
                 (unknown, "Waiting for an authenticated principal check."),
-                "ODOO_ACCESS_REJECTED",
+                failure.support_code,
             )
-        elif isinstance(error, ConnectorAuthorizationError):
+        elif failure.code is OdooReadFailureCode.READ_ACCESS_MISSING:
             values = (
                 (ready, "Odoo responded to the read-only check."),
                 (ready, "Authenticated database access succeeded."),
@@ -311,18 +306,18 @@ class RemoteConnectionStatusService:
                     failed,
                     "The authenticated principal lacks the required read access.",
                 ),
-                "ODOO_READ_ACCESS_MISSING",
+                failure.support_code,
             )
-        elif isinstance(error, ConnectorConfigurationError):
+        elif failure.code is OdooReadFailureCode.CONNECTION_DETAILS_INVALID:
             values = (
                 (failed, "Review the Odoo web address and database name."),
                 (unknown, "Waiting for the Odoo server check."),
                 (unknown, "Waiting for database access."),
                 (unknown, "Waiting for an authenticated principal check."),
-                "ODOO_CONNECTION_DETAILS_INVALID",
+                failure.support_code,
             )
-        elif isinstance(error, ConnectorTransportError):
-            status_code = _http_status(error)
+        elif failure.code is OdooReadFailureCode.TARGET_UNREACHABLE:
+            status_code = _support_http_status(failure.support_code)
             if status_code is None:
                 values = (
                     (
@@ -332,7 +327,7 @@ class RemoteConnectionStatusService:
                     (unknown, "Waiting for the Odoo server check."),
                     (unknown, "Waiting for database access."),
                     (unknown, "Waiting for an authenticated principal check."),
-                    "ODOO_UNREACHABLE",
+                    failure.support_code,
                 )
             else:
                 database_message = (
@@ -348,23 +343,23 @@ class RemoteConnectionStatusService:
                     (failed, database_message),
                     (unknown, "Waiting for database access."),
                     (unknown, "Waiting for an authenticated principal check."),
-                    f"ODOO_API_HTTP_{status_code}",
+                    failure.support_code,
                 )
-        elif isinstance(error, ConnectorIncompleteResultError):
+        elif failure.code is OdooReadFailureCode.RESPONSE_INCOMPLETE:
             values = (
                 (ready, "Odoo responded to the read-only check."),
                 (failed, "Odoo returned incomplete information for this database."),
                 (unknown, "Waiting for complete database access."),
                 (unknown, "Waiting for a complete principal check."),
-                "ODOO_RESPONSE_INCOMPLETE",
+                failure.support_code,
             )
-        elif isinstance(error, ConnectorError):
+        elif failure.code is OdooReadFailureCode.UNEXPECTED_COMPARISON_FAILURE:
             values = (
                 (ready, "Odoo responded to the read-only check."),
                 (failed, "Odoo could not complete the read-only database check."),
                 (unknown, "Waiting for database access."),
                 (unknown, "Waiting for an authenticated principal check."),
-                "ODOO_CONNECTION_FAILED",
+                failure.support_code,
             )
         else:
             values = (
@@ -372,7 +367,7 @@ class RemoteConnectionStatusService:
                 (failed, "Impodo could not complete the read-only database check."),
                 (unknown, "Waiting for database access."),
                 (unknown, "Waiting for an authenticated principal check."),
-                "ODOO_CONNECTION_FAILED",
+                failure.support_code,
             )
         server, database, version, principal, support_code = values
         status = _status(
@@ -471,9 +466,12 @@ def _status(
     )
 
 
-def _http_status(error: Exception) -> int | None:
-    matched = re.search(r"\bHTTP\s+(\d{3})\b", str(error))
-    return int(matched.group(1)) if matched is not None else None
+def _support_http_status(support_code: str) -> int | None:
+    prefix = "ODOO_API_HTTP_"
+    if not support_code.startswith(prefix):
+        return None
+    value = support_code.removeprefix(prefix)
+    return int(value) if value.isdigit() else None
 
 
 def _now() -> str:

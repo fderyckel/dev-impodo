@@ -1,0 +1,624 @@
+{
+  "contract_version": 1,
+  "phase": "M0",
+  "implementation_status": "ARCHITECTURE_CONTRACT_ONLY",
+  "retained_recipe_envelope": {
+    "recipe_contract_version": 2,
+    "canonical_fixture": "fixtures/recipes/phase-r0/customer-recipe-v3.json",
+    "envelope_fields": [
+      "compatibility_hints",
+      "payload_hash",
+      "provenance",
+      "recipe",
+      "recipe_contract_version",
+      "semantic_hash"
+    ],
+    "semantic_fields": [
+      "contract_versions",
+      "control_definitions",
+      "mapping",
+      "odoo_target_contract",
+      "parameter_definitions",
+      "quality",
+      "reference_dependencies",
+      "source_preparation",
+      "source_shape",
+      "target_governance"
+    ],
+    "forbidden_semantic_fields": [
+      "application_id",
+      "connection_target_hash",
+      "credential_generation",
+      "cutover_plan_id",
+      "data_version_id",
+      "database",
+      "endpoint",
+      "mapping_id",
+      "migration_run_id",
+      "numeric_odoo_id",
+      "payload_hash",
+      "principal_hash",
+      "project_id",
+      "recipe_id",
+      "source_artifact_hash",
+      "source_file_id",
+      "source_selection_hash",
+      "target_binding_id",
+      "workspace_id",
+      "workspace_project_id"
+    ]
+  },
+  "cardinality_examples": [
+    {
+      "project_id": "10000000-0000-4000-8000-000000000010",
+      "case": "ZERO_RECIPES",
+      "recipe_ids": []
+    },
+    {
+      "project_id": "10000000-0000-4000-8000-000000000011",
+      "case": "ONE_RECIPE",
+      "recipe_ids": [
+        "50000000-0000-4000-8000-000000000011"
+      ]
+    },
+    {
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "case": "SEVERAL_RECIPES",
+      "recipe_ids": [
+        "50000000-0000-4000-8000-000000000001",
+        "50000000-0000-4000-8000-000000000002"
+      ]
+    }
+  ],
+  "project": {
+    "project_id": "10000000-0000-4000-8000-000000000001",
+    "display_name": "Legacy ERP to Odoo 19 rollout",
+    "migration_purpose": "Prepare, test, and roll out governed master data",
+    "source_system_identity": "Fictional Legacy ERP",
+    "data_classification": "INTERNAL",
+    "retention_days": 365,
+    "optimistic_revision": 4,
+    "data_version_ids": [
+      "20000000-0000-4000-8000-000000000001",
+      "20000000-0000-4000-8000-000000000002",
+      "20000000-0000-4000-8000-000000000003"
+    ],
+    "recipe_ids": [
+      "50000000-0000-4000-8000-000000000001",
+      "50000000-0000-4000-8000-000000000002"
+    ],
+    "migration_run_ids": [
+      "30000000-0000-4000-8000-000000000001",
+      "30000000-0000-4000-8000-000000000002",
+      "30000000-0000-4000-8000-000000000003"
+    ],
+    "cutover_plan_ids": [
+      "70000000-0000-4000-8000-000000000001"
+    ]
+  },
+  "data_versions": [
+    {
+      "data_version_id": "20000000-0000-4000-8000-000000000001",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "version_number": 1,
+      "parent_data_version_id": null,
+      "purpose": "AUTHORING",
+      "state": "FROZEN",
+      "label": "Representative export - 15 August",
+      "export_as_of": "2026-08-15T18:00:00+07:00",
+      "source_package_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logical_dataset_ids": [
+        "dataset:customers",
+        "dataset:products",
+        "dataset:bom_headers",
+        "dataset:bom_lines"
+      ]
+    },
+    {
+      "data_version_id": "20000000-0000-4000-8000-000000000002",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "version_number": 2,
+      "parent_data_version_id": "20000000-0000-4000-8000-000000000001",
+      "purpose": "TEST",
+      "state": "FROZEN",
+      "label": "Integrated Test export - 25 August",
+      "export_as_of": "2026-08-25T18:00:00+07:00",
+      "source_package_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "logical_dataset_ids": [
+        "dataset:customers",
+        "dataset:products",
+        "dataset:bom_headers",
+        "dataset:bom_lines"
+      ]
+    },
+    {
+      "data_version_id": "20000000-0000-4000-8000-000000000003",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "version_number": 3,
+      "parent_data_version_id": "20000000-0000-4000-8000-000000000002",
+      "purpose": "PRODUCTION",
+      "state": "FROZEN",
+      "label": "Rollout export - 31 August, 18:00 cutoff",
+      "export_as_of": "2026-08-31T18:00:00+07:00",
+      "source_package_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "logical_dataset_ids": [
+        "dataset:customers",
+        "dataset:products",
+        "dataset:bom_headers",
+        "dataset:bom_lines"
+      ]
+    }
+  ],
+  "recipes": [
+    {
+      "recipe_id": "50000000-0000-4000-8000-000000000001",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "display_name": "Customer master",
+      "business_purpose": "Create and update customer master records",
+      "current_revision": 1,
+      "revisions": [
+        {
+          "version": 1,
+          "parent_version": null,
+          "recipe_contract_version": 2,
+          "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+          "logical_dataset_ids": [
+            "dataset:customers"
+          ],
+          "target_models": [
+            "res.partner"
+          ]
+        }
+      ]
+    },
+    {
+      "recipe_id": "50000000-0000-4000-8000-000000000002",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "display_name": "Products and bills of materials",
+      "business_purpose": "Create products and their dependent bills of materials",
+      "current_revision": 2,
+      "revisions": [
+        {
+          "version": 1,
+          "parent_version": null,
+          "recipe_contract_version": 2,
+          "semantic_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "logical_dataset_ids": [
+            "dataset:products",
+            "dataset:bom_headers",
+            "dataset:bom_lines"
+          ],
+          "target_models": [
+            "product.template",
+            "mrp.bom",
+            "mrp.bom.line"
+          ]
+        },
+        {
+          "version": 2,
+          "parent_version": 1,
+          "recipe_contract_version": 2,
+          "semantic_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+          "logical_dataset_ids": [
+            "dataset:products",
+            "dataset:bom_headers",
+            "dataset:bom_lines"
+          ],
+          "target_models": [
+            "product.template",
+            "mrp.bom",
+            "mrp.bom.line"
+          ]
+        }
+      ]
+    }
+  ],
+  "migration_runs": [
+    {
+      "migration_run_id": "30000000-0000-4000-8000-000000000001",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "purpose": "AUTHORING",
+      "data_version_id": "20000000-0000-4000-8000-000000000001",
+      "target_binding_id": "90000000-0000-4000-8000-000000000001",
+      "workspace_ids": [
+        "40000000-0000-4000-8000-000000000001",
+        "40000000-0000-4000-8000-000000000002"
+      ],
+      "application_ids": [],
+      "cutover_selection_id": null
+    },
+    {
+      "migration_run_id": "30000000-0000-4000-8000-000000000002",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "purpose": "TEST",
+      "data_version_id": "20000000-0000-4000-8000-000000000002",
+      "target_binding_id": "90000000-0000-4000-8000-000000000002",
+      "workspace_ids": [
+        "40000000-0000-4000-8000-000000000003",
+        "40000000-0000-4000-8000-000000000004"
+      ],
+      "application_ids": [
+        "60000000-0000-4000-8000-000000000001",
+        "60000000-0000-4000-8000-000000000002"
+      ],
+      "cutover_selection_id": null
+    },
+    {
+      "migration_run_id": "30000000-0000-4000-8000-000000000003",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "purpose": "PRODUCTION",
+      "data_version_id": "20000000-0000-4000-8000-000000000003",
+      "target_binding_id": "90000000-0000-4000-8000-000000000003",
+      "workspace_ids": [
+        "40000000-0000-4000-8000-000000000005",
+        "40000000-0000-4000-8000-000000000006"
+      ],
+      "application_ids": [
+        "60000000-0000-4000-8000-000000000003",
+        "60000000-0000-4000-8000-000000000004"
+      ],
+      "cutover_selection_id": "81000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "target_bindings": [
+    {
+      "target_binding_id": "90000000-0000-4000-8000-000000000001",
+      "environment": "TEST",
+      "connection_target_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "credential_generation": "authoring-read-generation-1",
+      "credential_role": "READ"
+    },
+    {
+      "target_binding_id": "90000000-0000-4000-8000-000000000002",
+      "environment": "TEST",
+      "connection_target_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "credential_generation": "integrated-test-read-generation-1",
+      "credential_role": "READ"
+    },
+    {
+      "target_binding_id": "90000000-0000-4000-8000-000000000003",
+      "environment": "PRODUCTION",
+      "connection_target_hash": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "credential_generation": "rollout-read-generation-1",
+      "credential_role": "READ"
+    }
+  ],
+  "workspaces": [
+    {
+      "workspace_id": "40000000-0000-4000-8000-000000000001",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "data_version_id": "20000000-0000-4000-8000-000000000001",
+      "migration_run_id": "30000000-0000-4000-8000-000000000001",
+      "purpose": "AUTHORING",
+      "recipe_application_id": null
+    },
+    {
+      "workspace_id": "40000000-0000-4000-8000-000000000002",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "data_version_id": "20000000-0000-4000-8000-000000000001",
+      "migration_run_id": "30000000-0000-4000-8000-000000000001",
+      "purpose": "AUTHORING",
+      "recipe_application_id": null
+    },
+    {
+      "workspace_id": "40000000-0000-4000-8000-000000000003",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "data_version_id": "20000000-0000-4000-8000-000000000002",
+      "migration_run_id": "30000000-0000-4000-8000-000000000002",
+      "purpose": "APPLICATION",
+      "recipe_application_id": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "workspace_id": "40000000-0000-4000-8000-000000000004",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "data_version_id": "20000000-0000-4000-8000-000000000002",
+      "migration_run_id": "30000000-0000-4000-8000-000000000002",
+      "purpose": "APPLICATION",
+      "recipe_application_id": "60000000-0000-4000-8000-000000000002"
+    },
+    {
+      "workspace_id": "40000000-0000-4000-8000-000000000005",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "data_version_id": "20000000-0000-4000-8000-000000000003",
+      "migration_run_id": "30000000-0000-4000-8000-000000000003",
+      "purpose": "APPLICATION",
+      "recipe_application_id": "60000000-0000-4000-8000-000000000003"
+    },
+    {
+      "workspace_id": "40000000-0000-4000-8000-000000000006",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "data_version_id": "20000000-0000-4000-8000-000000000003",
+      "migration_run_id": "30000000-0000-4000-8000-000000000003",
+      "purpose": "APPLICATION",
+      "recipe_application_id": "60000000-0000-4000-8000-000000000004"
+    }
+  ],
+  "recipe_applications": [
+    {
+      "application_id": "60000000-0000-4000-8000-000000000001",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "migration_run_id": "30000000-0000-4000-8000-000000000002",
+      "data_version_id": "20000000-0000-4000-8000-000000000002",
+      "workspace_id": "40000000-0000-4000-8000-000000000003",
+      "recipe_id": "50000000-0000-4000-8000-000000000001",
+      "recipe_revision": 1,
+      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "target_binding_id": "90000000-0000-4000-8000-000000000002",
+      "physical_binding_hash": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "evidence_hash": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "status": "RECONCILED"
+    },
+    {
+      "application_id": "60000000-0000-4000-8000-000000000002",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "migration_run_id": "30000000-0000-4000-8000-000000000002",
+      "data_version_id": "20000000-0000-4000-8000-000000000002",
+      "workspace_id": "40000000-0000-4000-8000-000000000004",
+      "recipe_id": "50000000-0000-4000-8000-000000000002",
+      "recipe_revision": 2,
+      "recipe_semantic_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "target_binding_id": "90000000-0000-4000-8000-000000000002",
+      "physical_binding_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "evidence_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "status": "RECONCILED"
+    },
+    {
+      "application_id": "60000000-0000-4000-8000-000000000003",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "migration_run_id": "30000000-0000-4000-8000-000000000003",
+      "data_version_id": "20000000-0000-4000-8000-000000000003",
+      "workspace_id": "40000000-0000-4000-8000-000000000005",
+      "recipe_id": "50000000-0000-4000-8000-000000000001",
+      "recipe_revision": 1,
+      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "target_binding_id": "90000000-0000-4000-8000-000000000003",
+      "physical_binding_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "evidence_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "status": "DRAFT_READINESS"
+    },
+    {
+      "application_id": "60000000-0000-4000-8000-000000000004",
+      "project_id": "10000000-0000-4000-8000-000000000001",
+      "migration_run_id": "30000000-0000-4000-8000-000000000003",
+      "data_version_id": "20000000-0000-4000-8000-000000000003",
+      "workspace_id": "40000000-0000-4000-8000-000000000006",
+      "recipe_id": "50000000-0000-4000-8000-000000000002",
+      "recipe_revision": 2,
+      "recipe_semantic_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "target_binding_id": "90000000-0000-4000-8000-000000000003",
+      "physical_binding_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "evidence_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "status": "DRAFT_READINESS"
+    }
+  ],
+  "cutover_plan": {
+    "cutover_plan_id": "70000000-0000-4000-8000-000000000001",
+    "project_id": "10000000-0000-4000-8000-000000000001",
+    "current_revision": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "selected_recipe_revisions": [
+          {
+            "recipe_id": "50000000-0000-4000-8000-000000000001",
+            "recipe_revision": 1,
+            "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5"
+          },
+          {
+            "recipe_id": "50000000-0000-4000-8000-000000000002",
+            "recipe_revision": 2,
+            "semantic_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        ],
+        "dependency_edges": [
+          {
+            "before_recipe_id": "50000000-0000-4000-8000-000000000001",
+            "after_recipe_id": "50000000-0000-4000-8000-000000000002",
+            "kind": "PROJECT_SEQUENCE",
+            "reason": "The data manager chose one deterministic integrated rehearsal order."
+          }
+        ],
+        "write_ownership": [
+          {
+            "recipe_id": "50000000-0000-4000-8000-000000000001",
+            "model": "res.partner",
+            "fields": [
+              "company_type",
+              "country_id",
+              "lang",
+              "name",
+              "ref",
+              "x_open_balance"
+            ]
+          },
+          {
+            "recipe_id": "50000000-0000-4000-8000-000000000002",
+            "model": "product.template",
+            "fields": [
+              "default_code",
+              "name"
+            ]
+          },
+          {
+            "recipe_id": "50000000-0000-4000-8000-000000000002",
+            "model": "mrp.bom",
+            "fields": [
+              "code",
+              "product_qty",
+              "product_tmpl_id",
+              "product_uom_id"
+            ]
+          },
+          {
+            "recipe_id": "50000000-0000-4000-8000-000000000002",
+            "model": "mrp.bom.line",
+            "fields": [
+              "bom_id",
+              "product_id",
+              "product_qty",
+              "product_uom_id"
+            ]
+          }
+        ],
+        "shared_control_ids": [
+          "control:project.package_completeness",
+          "control:project.integrated_reconciliation"
+        ]
+      }
+    ]
+  },
+  "cutover_plan_qualification": {
+    "qualification_id": "80000000-0000-4000-8000-000000000001",
+    "project_id": "10000000-0000-4000-8000-000000000001",
+    "cutover_plan_id": "70000000-0000-4000-8000-000000000001",
+    "cutover_plan_revision": 1,
+    "test_run_id": "30000000-0000-4000-8000-000000000002",
+    "selected_recipe_revisions": [
+      {
+        "recipe_id": "50000000-0000-4000-8000-000000000001",
+        "recipe_revision": 1,
+        "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5"
+      },
+      {
+        "recipe_id": "50000000-0000-4000-8000-000000000002",
+        "recipe_revision": 2,
+        "semantic_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    ],
+    "application_ids": [
+      "60000000-0000-4000-8000-000000000001",
+      "60000000-0000-4000-8000-000000000002"
+    ],
+    "integrated_evidence_hash": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+    "status": "TEST_QUALIFIED"
+  },
+  "project_cutover_selection": {
+    "cutover_selection_id": "81000000-0000-4000-8000-000000000001",
+    "project_id": "10000000-0000-4000-8000-000000000001",
+    "cutover_plan_id": "70000000-0000-4000-8000-000000000001",
+    "cutover_plan_revision": 1,
+    "qualification_id": "80000000-0000-4000-8000-000000000001",
+    "grants_write_authority": false
+  },
+  "ownership_changes": [
+    {
+      "legacy_field": "Recipe.current_data_version_id",
+      "target_owner": "MigrationRun.data_version_id",
+      "disposition": "Remove the Recipe pointer. Each run selects one exact Project-owned DataVersion."
+    },
+    {
+      "legacy_field": "Recipe.cutover_candidate_id",
+      "target_owner": "MigrationProject.project_cutover_selection",
+      "disposition": "Replace the Recipe candidate with one Project selection that pins a qualified CutoverPlan revision."
+    },
+    {
+      "legacy_field": "Recipe.data_classification",
+      "target_owner": "MigrationProject.data_classification",
+      "disposition": "Make the Project authoritative. A Recipe may retain a derived governance projection."
+    },
+    {
+      "legacy_field": "Recipe.retention_days",
+      "target_owner": "MigrationProject.retention_policy",
+      "disposition": "Make the Project authoritative. A Recipe may retain a derived governance projection."
+    },
+    {
+      "legacy_field": "DataVersion.recipe_id",
+      "target_owner": "DataVersion.project_id",
+      "disposition": "Replace Recipe ownership with immutable Project ownership."
+    },
+    {
+      "legacy_field": "DataVersion.workspace_project_id",
+      "target_owner": "MigrationWorkspace.data_version_id",
+      "disposition": "Remove the one-workspace pointer. Several isolated workspaces may consume one DataVersion."
+    },
+    {
+      "legacy_field": "DataVersion.pinned_recipe_revision",
+      "target_owner": "RecipeApplication.recipe_revision",
+      "disposition": "Remove the package-level Recipe pin. Each application selects one exact revision."
+    },
+    {
+      "legacy_field": "DataVersion.parameter_values_hash",
+      "target_owner": "RecipeApplication.parameter_values_hash",
+      "disposition": "Move Recipe-specific values to the exact application. Project package context remains on DataVersion."
+    },
+    {
+      "legacy_field": "RecipeApplication.workspace_project_id",
+      "target_owner": "RecipeApplication.workspace_id",
+      "disposition": "Rename the internal workspace identity and keep it distinct from the business Project."
+    },
+    {
+      "legacy_field": "RecipeApplication.target_binding_hash",
+      "target_owner": "MigrationRun.target_binding_id",
+      "disposition": "Let the run own one target binding. Each application references the exact binding and hash."
+    },
+    {
+      "legacy_field": "RecipeApplication.credential_generation",
+      "target_owner": "MigrationRun.TargetBinding.credential_generation",
+      "disposition": "Capture credential evidence once per run and project a bounded reference into each application."
+    },
+    {
+      "legacy_field": "RecipeApplication.source_selection_hash",
+      "target_owner": "DataVersion.source_package_hash",
+      "disposition": "Let DataVersion own the complete accepted package. The application owns only its physical binding hash."
+    },
+    {
+      "legacy_field": "RecipeQualification",
+      "target_owner": "CutoverPlanQualification",
+      "disposition": "Retain per-Recipe evidence as a component and qualify the exact integrated Test plan at Project level."
+    },
+    {
+      "legacy_field": "CutoverCandidate",
+      "target_owner": "MigrationProject.project_cutover_selection",
+      "disposition": "Replace the Recipe candidate with one exact Project-level qualified plan selection."
+    },
+    {
+      "legacy_field": "RecipeIntent.recipe_id",
+      "target_owner": "Owner-specific operation intents",
+      "disposition": "Use the identifier of the aggregate that owns each operation instead of one universal Recipe coordinator."
+    },
+    {
+      "legacy_field": "WorkspaceResolution.recipe_id",
+      "target_owner": "WorkspaceResolution.project_id",
+      "disposition": "Resolve every workspace to Project, DataVersion, run, and optional RecipeApplication identities explicitly."
+    }
+  ],
+  "out_of_scope": [
+    "ARBITRARY_CROSS_RECIPE_MERGE",
+    "CROSS_PROJECT_RECIPE_SHARING",
+    "DELTA_OR_INFERRED_DELETE_SEMANTICS",
+    "MIXED_TARGET_RUNS",
+    "UNATTENDED_ROLLOUT"
+  ],
+  "rejected_cases": [
+    {
+      "case": "CROSS_PROJECT_RECIPE",
+      "mutation": "CHANGE_CUSTOMER_RECIPE_PROJECT",
+      "expected_issue_code": "RECIPE_PROJECT_MISMATCH"
+    },
+    {
+      "case": "MIXED_TARGET_RUN",
+      "mutation": "CHANGE_ONE_TEST_APPLICATION_TARGET",
+      "expected_issue_code": "RUN_TARGET_MISMATCH"
+    },
+    {
+      "case": "DEPENDENCY_CYCLE",
+      "mutation": "ADD_REVERSE_DEPENDENCY_EDGE",
+      "expected_issue_code": "CUTOVER_DEPENDENCY_CYCLE"
+    },
+    {
+      "case": "OVERLAPPING_WRITES",
+      "mutation": "ADD_PRODUCT_RECIPE_PARTNER_NAME_WRITE",
+      "expected_issue_code": "CUTOVER_WRITE_COLLISION"
+    },
+    {
+      "case": "QUALIFICATION_REVISION_DRIFT",
+      "mutation": "CHANGE_QUALIFIED_PRODUCT_RECIPE_REVISION",
+      "expected_issue_code": "CUTOVER_QUALIFICATION_MISMATCH"
+    },
+    {
+      "case": "PRODUCTION_CONTEXT_IN_SELECTION",
+      "mutation": "ADD_PRODUCTION_RUN_TO_SELECTION",
+      "expected_issue_code": "CUTOVER_SELECTION_CONTAINS_PRODUCTION_CONTEXT"
+    }
+  ]
+}

@@ -487,6 +487,15 @@ class ProjectLifecycleTests(unittest.TestCase):
             matched_value_count=0,
             changed_value_count=0,
         )
+        overlap_rule = TransformationRuleImpact(
+            dataset_id="dataset:products",
+            target_field="category",
+            rule_kind="selection_rule_overlap",
+            rule_fingerprint="sha256:" + "8" * 64,
+            evaluated_value_count=205,
+            matched_value_count=4,
+            changed_value_count=4,
+        )
 
         def build(write_row):
             for row in rows:
@@ -501,7 +510,7 @@ class ProjectLifecycleTests(unittest.TestCase):
                 provided_count=0,
                 unchanged_count=0,
                 rows=(),
-                rule_impacts=(zero_match_rule,),
+                rule_impacts=(zero_match_rule, overlap_rule),
                 detail_limit=0,
             )
 
@@ -532,10 +541,13 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
 
         self.assertEqual(snapshot.affected_row_count, 103)
-        self.assertEqual(snapshot.report.rule_impacts, (zero_match_rule,))
+        self.assertEqual(
+            snapshot.report.rule_impacts,
+            (zero_match_rule, overlap_rule),
+        )
         self.assertEqual(
             snapshot.unacknowledged_rule_impacts,
-            (zero_match_rule,),
+            (zero_match_rule, overlap_rule),
         )
         self.assertEqual((first.start_position, first.end_position), (1, 100))
         self.assertEqual(len(first.rows), 100)
@@ -570,6 +582,21 @@ class ProjectLifecycleTests(unittest.TestCase):
             project.project_id,
             identity,
             zero_match_rule.rule_fingerprint,
+            actor=LOCAL_ACTOR,
+        )
+        acknowledged = self.transformation_impacts.get_transformation_impact_snapshot(
+            project.project_id,
+            identity,
+        )
+        assert acknowledged is not None
+        self.assertEqual(
+            acknowledged.unacknowledged_rule_impacts,
+            (overlap_rule,),
+        )
+        self.transformation_impacts.acknowledge_transformation_rule(
+            project.project_id,
+            identity,
+            overlap_rule.rule_fingerprint,
             actor=LOCAL_ACTOR,
         )
         acknowledged = self.transformation_impacts.get_transformation_impact_snapshot(

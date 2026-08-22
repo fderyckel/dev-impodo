@@ -11,6 +11,11 @@ from ...application.bounded_preparation import (
     supports_bounded_direct_preparation,
 )
 from ...application.odoo_connection_service import OdooConnectionPurpose
+from ...application.odoo_read_failures import (
+    OdooReadCredentialMissingError,
+    OdooReadFailure,
+    classify_odoo_read_failure,
+)
 from ...application.preparation_capability import (
     compile_preparation_capability,
 )
@@ -37,6 +42,7 @@ from ..target_credentials import (
     get_target_credential_status,
 )
 from .common import _render
+from .comparison_recovery import comparison_recovery_view
 
 
 def _render_target(
@@ -183,8 +189,7 @@ def _render_summary(
     local_stack_error: str | None = None,
     local_stack_support_error: str | None = None,
     open_local_stack: bool = False,
-    remote_read_error: str | None = None,
-    open_remote_read_recovery: bool = False,
+    comparison_failure: OdooReadFailure | None = None,
     status_code: int = 200,
 ):
     session_error = request.session.pop("summary_error", None)
@@ -201,14 +206,10 @@ def _render_summary(
         if project.odoo_connection_mode is OdooConnectionMode.REMOTE
         else None
     )
-    remote_read_recovery_needed = (
+    remote_read_credential_missing = (
         project.odoo_connection_mode is OdooConnectionMode.REMOTE
         and schema_catalog is not None
-        and (
-            not read_credential_status.available
-            or read_credential_status.binding_hash
-            != schema_catalog.read_credential_binding_hash
-        )
+        and not read_credential_status.available
     )
     local_stack = context.local_stack.get(project_id)
     local_stack_matches = _local_stack_matches_project(project, local_stack)
@@ -288,18 +289,23 @@ def _render_summary(
     ):
         quality = None
     report = context.preflight.current_report(project_id)
-    remote_read_recovery_visible = (
-        project.odoo_connection_mode is OdooConnectionMode.REMOTE
+    if (
+        comparison_failure is None
+        and remote_read_credential_missing
         and (
-            open_remote_read_recovery
-            or (
-                remote_read_recovery_needed
-                and (
-                    report is not None
-                    or (normalization is not None and normalization.frozen)
-                )
+            report is not None
+            or (normalization is not None and normalization.frozen)
+        )
+    ):
+        comparison_failure = classify_odoo_read_failure(
+            OdooReadCredentialMissingError(
+                "The Odoo read key is not available for this target."
             )
         )
+    comparison_recovery = (
+        comparison_recovery_view(project_id, comparison_failure)
+        if comparison_failure is not None
+        else None
     )
     try:
         load_preview = context.execution.current_preview(project_id)
@@ -487,9 +493,8 @@ def _render_summary(
         local_stack=local_stack,
         local_odoo_recovery_needed=local_odoo_recovery_needed,
         read_credential_status=read_credential_status,
-        remote_read_recovery_needed=remote_read_recovery_needed,
-        remote_read_recovery_visible=remote_read_recovery_visible,
-        remote_read_error=remote_read_error,
+        comparison_recovery=comparison_recovery,
+        comparison_recovery_needed=comparison_recovery is not None,
         local_stack_auto_open=(
             open_local_stack
             or request.query_params.get("local_stack") == "1"

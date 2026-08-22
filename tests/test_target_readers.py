@@ -250,6 +250,56 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         self.assertEqual(self.probe_calls, [])
         self.assertEqual(self.reader_calls, 0)
 
+    def test_comparison_rejects_incompatible_captured_reference_metadata(
+        self,
+    ) -> None:
+        self.schema.models = (
+            *self.schema.models,
+            SimpleNamespace(
+                name="res.country",
+                fields=(
+                    SimpleNamespace(
+                        name="code",
+                        type="char",
+                        required=True,
+                        readonly=True,
+                        relation=None,
+                    ),
+                ),
+            ),
+        )
+        context = self._context()
+
+        with self.assertRaisesRegex(WorkspaceError, "governed read policy"):
+            _read_readiness_snapshots(
+                context,
+                self.project,
+                self._requirements(
+                    (MetadataRequest(model="res.country", fields=("code",)),),
+                    (
+                        RecordRequest(
+                            model="res.country",
+                            fields=("code",),
+                            domain=(["code", "in", ["FR"]],),
+                        ),
+                    ),
+                    (
+                        ReferenceReadRequirement(
+                            parent_model="res.partner",
+                            relationship_field="country_id",
+                            relationship_type="many2one",
+                            relation_model="res.country",
+                            key_fields=("code",),
+                            scope_fields=(),
+                            requested_fields=("code",),
+                        ),
+                    ),
+                ),
+            )
+
+        self.assertEqual(self.probe_calls, [])
+        self.assertEqual(self.reader_calls, 0)
+
     def test_remote_supporting_lookup_reads_inferred_model_outside_schema(
         self,
     ) -> None:

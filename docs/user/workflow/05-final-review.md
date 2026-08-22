@@ -36,6 +36,26 @@ Choose the matching setup, then select **Continue comparison** when ready.
 
 ![Current local-Odoo reconnect dialog shown before comparison.](../../images/user/16b-local-odoo-reconnect.png)
 
+### If Impodo cannot compare
+
+Final review shows the action that owns the problem:
+
+- **Enter the Odoo read key** or **Replace the Odoo read key** appears only
+  when the read credential is missing, rejected, or lacks the required read
+  access. Enter the key in the protected form and retry immediately.
+- **Review Odoo connection**, **Capture Odoo data**, or **Refresh Odoo data**
+  returns you to the Odoo stage when the target details or captured evidence
+  needs attention.
+- **Review field matches** and **Prepare data again** return you to the stage
+  whose saved evidence is no longer current.
+- **Try comparison again** appears for a temporary connection failure or an
+  incomplete read-only response. It does not ask for a new key.
+- An internal storage or unexpected failure shows safe **Support details** and
+  does not claim that the Odoo credential is wrong.
+
+Every recovery panel confirms that nothing was changed in Odoo and that your
+saved work is unchanged.
+
 ## How Recipes reuse this work
 
 Comparison evidence is never reusable. A Test data version compares its
@@ -76,9 +96,9 @@ Downloading a workbook or package does not authorize execution.
 ## Needs attention
 
 Stop for an unexpected create count, duplicate match, blocked relationship,
-wrong target fingerprint, or remote read failure. A browser HTTP error may
-wrap an upstream Odoo or network failure; check the recorded cause before
-retrying.
+wrong target fingerprint, or Odoo read failure. Follow the one recovery action
+shown on the page. Use **Support details** for the stable failure code; do not
+replace a key unless the page specifically asks for one.
 
 ## What makes this work stale
 

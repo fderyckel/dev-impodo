@@ -2,17 +2,17 @@
 
 ## Status and authority
 
-**Status:** Core implementation complete; extended evidence and browser
-qualification remain open.
+**Status:** Core implementation and per-rule decision evidence complete;
+browser qualification remains open.
 
 **Plan date:** 2026-08-21.
 
 The current Match data workflow now implements the three provider paths,
 mapping contract v12, shared evaluation, native compilation, categorical
-coverage, and Recipe portability. Per-rule overlap evidence, complete browser
-qualification, the maximum-shape scale run, and the current screenshot remain
-open acceptance work. The current user and developer workflow pages describe
-the behavior that is ready to use.
+coverage, Recipe portability, and hash-bound review of zero-match and
+overlapping rules. Complete browser qualification, the maximum-shape scale
+run, and the current screenshot remain open acceptance work. The current user
+and developer workflow pages describe the behavior that is ready to use.
 
 This scoped proposal does not change the priority order in
 [Impodo remaining work](remaining-work.md). Product ownership must adopt the
@@ -560,6 +560,13 @@ uses the native route.
 This slice will scan the union of referenced fields once, publish versioned rule
 coverage, add complete counts and bounded samples, and bind zero-match and
 overlap acknowledgements.
+
+**Implemented:** The impact report now records each rule's complete evaluated,
+raw-match, first-selected, and per-rule overlap counts through both the browser
+oracle and native Polars summarizer. The current snapshot stores separate
+fingerprints for zero-match and overlap decisions, and mapping submission
+rejects unacknowledged current facts. Additional categorical samples remain
+part of the broader evidence work.
 
 **Gate:** One dataset scan produces complete results for several ordinary
 selection mappings and conditional providers. Editing or reordering one rule

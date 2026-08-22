@@ -642,7 +642,9 @@ The branch is not complete until Phase M7 deletes the old ownership path.
 
 ### Phase M0 - Freeze target contracts and acceptance fixtures
 
-**Status:** Planned.
+**Status:** Completed on 2026-08-22. This phase added architecture contracts
+and executable fixtures only; it changed no runtime behavior. See the
+[Phase M0 contracts](migration-projects-phase-m0-contracts.md).
 
 - Add executable identity, cardinality, Recipe boundary, DataVersion,
   MigrationRun, application, CutoverPlan, collision, dependency, and
@@ -656,7 +658,9 @@ The branch is not complete until Phase M7 deletes the old ownership path.
 
 **Gate:** fixtures prove that Project, DataVersion, Recipe, run, plan,
 application, and workspace identifiers are distinct and that a Project can
-have zero, one, or several Recipes.
+have zero, one, or several Recipes. The focused M0 suite passes 11 tests,
+including fail-closed mutations for Project membership, mixed targets,
+dependency cycles, write collisions, and qualification drift.
 
 ### Phase M1 - Introduce clean Project, DataVersion, run, and workspace roots
 

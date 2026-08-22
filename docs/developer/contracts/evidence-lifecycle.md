@@ -94,6 +94,22 @@ publication replaces physical column keys with logical source-column IDs;
 application rebinds those IDs to the fresh frozen selection and revalidates
 the current Odoo choices before creating a normal mapping draft.
 
+Governed-reference policy version 1 has one canonical hash shared by Match,
+supporting lookups, Final review, Recipe publication, and Recipe application.
+Mapping validation contract version 3, supporting lookup contract version 2,
+preflight requirement-plan contract version 2, and Recipe target-contract
+version 2 bind that hash. Older versions remain readable for audit, but they
+cannot silently become current evidence under a changed policy.
+
+The transformation-impact snapshot records two hash-bound facts for each
+conditional Selection rule. The match fact counts rows that matched before
+priority and rows that the rule selected after first-match priority. The
+overlap fact counts rows where that rule matched alongside another rule. A
+zero-match fact or nonzero overlap fact blocks mapping submission until the
+data manager edits the rule or acknowledges that exact current fingerprint.
+Changing or reordering a rule changes the mapping and impact identities, so
+the previous acknowledgement cannot satisfy the new revision.
+
 A Recipe revision contains logical source, preparation, mapping, target,
 quality, reference, parameter-definition, and control-definition meaning. It
 does not contain physical source IDs or rows, a concrete target, credentials,
@@ -119,6 +135,7 @@ portable source or relationship identities.
 | Recapture target schema | Schema governance, mapping, and downstream evidence |
 | Change target identity or model scope | Target schema, governance, mapping, comparison, and execution evidence |
 | Change governed business keys | Mapping, target comparison, and execution evidence |
+| Change the governed-reference policy | Mapping validation and submission, supporting lookups, preparation, comparison, and new Recipe target contracts |
 | Save or remove a related-dataset plan | Mapping and downstream prepared evidence |
 | Save a new mapping revision | Prior validation, impact review, submission, and downstream evidence |
 | Add, remove, edit, or reorder a conditional Selection rule | Prior categorical coverage, impact review, submission, preparation, comparison, and execution evidence |

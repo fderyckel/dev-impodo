@@ -9,7 +9,12 @@ from uuid import uuid4
 import polars as pl
 from starlette.datastructures import FormData
 
-from impodo.adapters.polars_transformation import _provider_expression
+from impodo.adapters.polars_transformation import (
+    _aggregate_rule_observations,
+    _compile_rule_observations,
+    _execution_layout,
+    _provider_expression,
+)
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarInputColumn,
     ColumnarOperationKind,
@@ -34,6 +39,9 @@ from impodo.domain.mapping.contracts import (
 from impodo.domain.mapping.scalar_values import (
     ScalarValueRuleError,
     evaluate_scalar_mapping_value,
+)
+from impodo.domain.staging.transformation_impact import (
+    selection_rule_impact_definitions,
 )
 from impodo.domain.source_snapshot import source_value_column
 from impodo.domain.source_snapshot import SOURCE_ROW_COLUMN
@@ -159,6 +167,75 @@ class SelectionRuleTests(unittest.TestCase):
             raised.exception.code,
             "SOURCE_SELECTION_RULE_SOURCE_INVALID",
         )
+
+    def test_rule_observer_reports_first_match_and_every_overlap(self) -> None:
+        first = _mapping()
+        assert first.selection_rules is not None
+        mapping = replace(
+            first,
+            selection_rules=SelectionRuleSet(
+                rules=(
+                    first.selection_rules.rules[0],
+                    SelectionRule(
+                        rule_id=str(uuid4()),
+                        conditions=(
+                            _condition(
+                                "column:category",
+                                SelectionConditionOperator.EQUALS_IGNORE_CASE,
+                                "business",
+                            ),
+                        ),
+                        target_value="person",
+                    ),
+                ),
+                otherwise_value="person",
+            ),
+        )
+        observed: list[tuple[int, bool, bool, bool]] = []
+
+        proposed = evaluate_scalar_mapping_value(
+            mapping,
+            None,
+            source_values_by_key={
+                "column:organisation": "Acme",
+                "column:category": "BUSINESS",
+            },
+            selection_rule_observer=(
+                lambda index, matched, selected, overlap: observed.append(
+                    (index, matched, selected, overlap)
+                )
+            ),
+        )
+
+        self.assertEqual(proposed, "company")
+        self.assertEqual(
+            observed,
+            [(0, True, True, True), (1, True, False, True)],
+        )
+        definitions = selection_rule_impact_definitions("dataset:contacts", mapping)
+        self.assertEqual(
+            [item.rule_kind for item in definitions],
+            [
+                "selection_rule",
+                "selection_rule_overlap",
+                "selection_rule",
+                "selection_rule_overlap",
+            ],
+        )
+        zero_match = replace(
+            definitions[2],
+            evaluated_value_count=3,
+            matched_value_count=0,
+            changed_value_count=0,
+        )
+        overlap = replace(
+            definitions[1],
+            evaluated_value_count=3,
+            matched_value_count=1,
+            changed_value_count=1,
+        )
+        self.assertEqual(zero_match.acknowledgement_reason, "zero_match")
+        self.assertEqual(overlap.acknowledgement_reason, "overlap")
 
     def test_contract_v12_round_trips_rules_without_changing_order(self) -> None:
         definition = MappingDefinition(
@@ -337,6 +414,119 @@ class SelectionRuleTests(unittest.TestCase):
         self.assertEqual(
             program.from_portable_dict(program.to_portable_dict()),
             program,
+        )
+
+    def test_native_rule_evidence_counts_priority_and_overlap_set_wise(self) -> None:
+        from tests.test_columnar_compiler import _selection, _supported_definition
+
+        selection = _selection()
+        definition = _supported_definition(selection)
+        dataset = definition.datasets[0]
+        conditional = ScalarFieldMapping(
+            target_field="category",
+            value_source=ScalarValueSource.CONDITIONAL_RULES,
+            selection_rules=SelectionRuleSet(
+                rules=(
+                    SelectionRule(
+                        rule_id=str(uuid4()),
+                        conditions=(
+                            _condition(
+                                "product.name",
+                                SelectionConditionOperator.CONTAINS,
+                                "Ltd",
+                            ),
+                        ),
+                        target_value="company",
+                    ),
+                    SelectionRule(
+                        rule_id=str(uuid4()),
+                        conditions=(
+                            _condition(
+                                "product.quantity",
+                                SelectionConditionOperator.IS_NOT_BLANK,
+                                None,
+                            ),
+                        ),
+                        target_value="person",
+                    ),
+                ),
+                otherwise_value="person",
+            ),
+        )
+        definition = replace(
+            definition,
+            datasets=(
+                replace(
+                    dataset,
+                    fields=tuple(
+                        conditional if field.target_field == "category" else field
+                        for field in dataset.fields
+                    ),
+                ),
+            ),
+        )
+        decision = compile_columnar_transformation_program(
+            definition,
+            selection,
+            dataset.dataset_id,
+        )
+        program = decision.program
+        assert program is not None
+        observations, expressions = _compile_rule_observations(
+            program,
+            _execution_layout(program),
+        )
+        values = {
+            SOURCE_ROW_COLUMN: [1, 2, 3],
+            **{
+                source_value_column(item.ordinal): (
+                    ["Acme Ltd", "Solo Ltd", "Person"]
+                    if item.stable_key == "product.name"
+                    else ["2", "", "1"]
+                    if item.stable_key == "product.quantity"
+                    else ["", "", ""]
+                )
+                for item in program.inputs
+            },
+        }
+        frame = pl.DataFrame(values).with_columns(expressions)
+        impacts = _aggregate_rule_observations(frame, observations)
+        selection_impacts = sorted(
+            (
+                item
+                for item in impacts.values()
+                if item.target_field == "category"
+                and item.rule_kind.startswith("selection_rule")
+            ),
+            key=lambda item: item.rule_fingerprint,
+        )
+
+        self.assertEqual(len(selection_impacts), 4)
+        self.assertEqual(
+            {item.rule_fingerprint for item in selection_impacts},
+            {
+                item.rule_fingerprint
+                for item in selection_rule_impact_definitions(
+                    dataset.dataset_id,
+                    conditional,
+                )
+            },
+        )
+        self.assertEqual(
+            sorted(
+                (
+                    item.rule_kind,
+                    item.matched_value_count,
+                    item.changed_value_count,
+                )
+                for item in selection_impacts
+            ),
+            [
+                ("selection_rule", 2, 1),
+                ("selection_rule", 2, 2),
+                ("selection_rule_overlap", 1, 1),
+                ("selection_rule_overlap", 1, 1),
+            ],
         )
 
 
