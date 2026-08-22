@@ -8,12 +8,13 @@ status: current
 
 ## Scope
 
-One `MigrationProject` is the contained evidence, credential, authorization,
-and filesystem workspace for one DataVersion in a Recipe. Its setup selects
-exactly one source mode: governed files (`FILE`) or existing records in one
-configured Odoo database (`ODOO`). It is not created per Odoo model and is not
-the operator-facing aggregate root. The browser label **project** refers to the
-owning Recipe; use **workspace** when this contract means `MigrationProject`.
+One `MigrationProject` provides the contained workspace for one DataVersion in
+a Recipe. It stores that DataVersion's evidence, credentials, authorization
+state, and files. Setup selects exactly one source mode: governed files
+(`FILE`) or existing records in one configured Odoo database (`ODOO`). Impodo
+does not create a separate workspace for each Odoo model. The browser label
+**project** refers to the owning Recipe; this contract uses **workspace** when
+it means `MigrationProject`.
 
 The browser is the normal authoring interface. Stored manifests, hashes, audit
 events, and DuckDB records are machine evidence and must not be edited directly.
@@ -28,13 +29,13 @@ DRAFT --register--> REGISTERED
 
 `CLOSED` is reserved in the domain model but has no browser transition.
 
-Registration requires the workspace name, its stable source-system label, and
-one exact source mode. `FILE` mode additionally requires at least one governed
-CSV or XLSX file; it does not require export date, ownership fields, governance
-fields, or an Odoo destination. `ODOO` mode rejects file attachment and
-requires the source connection mode, normalized endpoint, and database. The
-normal browser also requires a successful purpose-specific read check before it
-registers the Odoo-source workspace.
+Registration requires the workspace name, stable source-system label, and one
+exact source mode. `FILE` mode also requires at least one governed CSV or XLSX
+file. It does not require an export date, ownership fields, governance fields,
+or an Odoo destination. `ODOO` mode rejects file attachments and requires the
+source connection mode, normalized endpoint, and database. Before registering
+an Odoo-source workspace, the normal browser also requires a successful
+purpose-specific read check.
 
 Registration fixes the source mode, increments the optimistic revision,
 publishes canonical registration evidence, and records an actor-bound audit
@@ -63,8 +64,8 @@ file sources it is configured after source freeze in the Odoo-data stage. For
 Odoo sources the same identity is established during initial source setup and
 remains both capture origin and pinned-comparison target:
 
-- `LOCAL` permits HTTP only on literal loopback targets;
-- `REMOTE` requires HTTPS and rejects loopback targets.
+- `LOCAL` permits HTTP only when the target is a literal loopback address.
+- `REMOTE` requires HTTPS and rejects loopback addresses.
 
 Changing mode, endpoint, or database changes the target identity and
 invalidates target-derived schema, mapping, comparison, and execution evidence.
@@ -94,12 +95,12 @@ evidence.
 
 ## Persistence boundary
 
-The local composition stores Recipe/DataVersion lineage in the registry, one
-application-encrypted protected Recipe store, plus one protected workspace
-directory and DuckDB database per DataVersion workspace. Domain and
-application code access artifacts through ports; filesystem paths are not
-domain contract values. Hosted deployments must supply their own identity,
-database, storage, secret, and job adapters.
+The local composition stores Recipe and DataVersion lineage in the registry.
+It uses one application-encrypted protected Recipe store and creates one
+protected directory with a DuckDB database for each DataVersion workspace.
+Domain and application code access artifacts through ports; filesystem paths
+are not domain contract values. Hosted deployments must supply their own
+identity, database, storage, secret, and job adapters.
 
 Every workspace registry row has one exact Recipe/DataVersion linkage. Legacy
 workspaces receive that shell without opening their contained database during

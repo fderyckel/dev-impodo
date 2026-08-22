@@ -50,11 +50,13 @@ meaning from its contained workspace.
 
 ## Contract invariants
 
-Each dataset declares one permitted target model and `upsert`, `create`,
-`reference`, or `odoo_pinned_update` mode. Each scalar target field has one explicit provider: source,
-constant, source with fallback, or leave unset for the Odoo default.
-Transformations, null behavior, comparison policy, and relationship resolution
-are closed, versioned choices rather than arbitrary code.
+Each dataset declares one permitted target model and one operating mode:
+`upsert`, `create`, `reference`, or `odoo_pinned_update`. Each scalar target
+field has exactly one provider. The provider can use a source value, a
+constant, a source value with a fallback, or no sent value so Odoo can apply
+its default. Transformations, null behavior, comparison policy, and
+relationship resolution use closed, versioned choices rather than arbitrary
+code.
 
 Mapping contract version 9 also records a required-field disposition when no
 value is sent: `odoo_default` means the target configuration must supply the
@@ -63,21 +65,24 @@ or many2many fields. Both remain warning-bearing decisions that require review;
 Impodo does not call arbitrary Odoo `default_get` logic while editing a mapping.
 Version 8 mappings remain readable and retain their original content hashes.
 
-Mapping contract version 10 adds `odoo_pinned_update` and sorted
-`approved_write_fields`. Pinned mappings require an `OdooSourceBinding`, keep
-the originating model, have no source/target business identity, create policy,
-field disposition, or relationship write, and require a separate approval for
-every non-validation scalar mapping. Each approved write needs a captured
-baseline and fail-closed Tier-1 metadata: supported scalar type, stored,
-writable, non-computed, non-related, non-translated, and non-company-dependent.
-The mapping content hash binds those approvals. Numeric Odoo IDs never enter
-the portable mapping or canonical rows.
+Mapping contract version 10 adds `odoo_pinned_update` and a sorted
+`approved_write_fields` set. A pinned mapping requires an `OdooSourceBinding`
+and retains the originating model. It has no source or target business
+identity, create policy, field disposition, or relationship write. Every
+non-validation scalar mapping requires a separate approval.
+
+Each approved write requires a captured baseline and fail-closed Tier-1 field
+metadata. The field must use a supported scalar type and must be stored,
+writable, non-computed, non-related, non-translated, and
+non-company-dependent. The mapping content hash binds the approvals. Numeric
+Odoo IDs never enter the portable mapping or canonical rows.
 
 Many2one and many2many relationships resolve through incoming datasets or
-existing-target business keys. One2many is represented through the child
-dataset's inverse many2one and is never written as an independently owned list.
-Dynamic value matching uses one frozen source column and batched target choices;
-it persists portable codes or business keys, never numeric Odoo IDs.
+existing-target business keys. A one2many relationship is represented through
+the child dataset's inverse many2one field; Impodo never writes it as an
+independently owned list. Dynamic value matching reads one frozen source column
+and fetches target choices in batches. It persists portable codes or business
+keys, never numeric Odoo IDs.
 
 Since mapping contract version 8, cleanup is stored exclusively as ordered
 `text_steps`. Legacy scalar search/replacement fields are rejected rather than
@@ -86,10 +91,11 @@ choices and 2,000 target records; composite or scoped identities use the normal
 governed relationship workflow.
 
 The recoverable working draft is deliberately non-authoritative. Semantic
-validation creates immutable issues and coverage; submission binds the exact
-valid revision, source/schema evidence, impact review, warning acknowledgement,
-and actor. Row-level uniqueness and relationship resolution remain preparation
-and final-review responsibilities, not mapping-preview claims.
+validation creates immutable issues and coverage. Submission then binds the
+exact valid revision to the source and schema evidence, impact review, warning
+acknowledgement, and actor. Preparation and final review remain responsible for
+row-level uniqueness and relationship resolution; a mapping preview does not
+claim those results.
 
 ## Code references
 

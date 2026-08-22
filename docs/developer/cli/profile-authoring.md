@@ -56,9 +56,11 @@ required by the schema; do not rely on an active or first sheet.
 
 Choose one target mode:
 
-- `upsert`: create when missing; compare one existing match.
-- `create`: create when missing and apply the declared existing-record policy.
-- `reference`: resolve relationships without producing an import decision.
+- `upsert` creates the record when no target matches and compares the source
+  with one existing match.
+- `create` creates the record when no target matches and applies the declared
+  existing-record policy when a match exists.
+- `reference` resolves relationships without producing an import decision.
 
 Use one dataset for one governed entity and target model. Split unrelated
 entities instead of creating one wide, ambiguous profile.
@@ -115,13 +117,13 @@ fields:
 
 Useful controls include:
 
-- `required`: the source value must be present;
-- `required_on_create`: Odoo must receive the value in the first create
-  request, so Impodo cannot defer it;
-- `compare`: include it in change classification;
-- `validate_only`: validate without proposing a target change;
-- `normalize`: apply declared string normalization;
-- `null_policy`: keep null comparison explicit.
+- `required` means the source value must be present.
+- `required_on_create` means Odoo must receive the value in the first create
+  request, so Impodo cannot defer it.
+- `compare` includes the value in change classification.
+- `validate_only` validates the value without proposing a target change.
+- `normalize` applies the declared string normalization.
+- `null_policy` makes null comparison explicit.
 
 Supported portable types include string, integer, decimal, boolean, date, and
 timezone-aware datetime. Use decimal for business quantities and prices; do

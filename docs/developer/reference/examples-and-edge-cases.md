@@ -70,8 +70,8 @@ The compact fixture has 12 import candidates:
 | `asset_lines / ASSET-MISSING + 1` | `BLOCKED` | Incoming parent cannot be resolved |
 
 This fixture covers the required semantic shapes, but it is not the planned
-100–300-record deployment acceptance slice. That larger sanitized slice and live
-Live-target runs remain acceptance work.
+100–300-record deployment acceptance slice. That larger sanitized slice and
+live-target runs remain acceptance work.
 
 ## 2. Prepared-record example
 
@@ -464,7 +464,7 @@ duplicate check over canonical target identities.
 | HTTP 401 or 403 | Redacted authentication/authorization failure |
 | HTTP 429, 502, 503, or 504 | Safe read retries with bounded exponential delay |
 | Timeout or unreachable host | Bounded retries, then a redacted transport error |
-| Odoo version endpoint unavailable | Fingerprint records version `unknown` plus a non-blocking limitation |
+| Odoo version endpoint unavailable | Fingerprint records version `unknown` and a non-blocking limitation |
 | Module-version read unavailable | Non-blocking limitation, when relevant modules were configured |
 | URL is not HTTPS | Configuration is rejected |
 | Connection mode is not `LOCAL` or `REMOTE` | Configuration is rejected |
@@ -472,16 +472,18 @@ duplicate check over canonical target identities.
 
 Current snapshot limitations:
 
-- snapshot envelopes are loaded from trusted local files and are not yet
-  validated by a complete JSON Schema;
-- `kind` is written but not strictly rejected when absent or changed;
-- profile/source bindings are checked when those fields are present, so
-  operators must use snapshots produced by this CLI rather than hand-trimmed
-  JSON;
-- record snapshots do not persist a requirements-plan hash or requested
-  domain;
-- `SnapshotConnector` assumes its fixture or saved record snapshot was already
-  scoped correctly; it projects fields but does not re-evaluate Odoo domains.
+- Snapshot envelopes are loaded from trusted local files and are not yet
+  validated by a complete JSON Schema.
+- The writer records `kind`, but the reader does not strictly reject a snapshot
+  when `kind` is absent or changed.
+- Impodo checks profile and source bindings when the snapshot contains those
+  fields. Operators must therefore use snapshots produced by this CLI rather
+  than hand-trimmed JSON.
+- Record snapshots do not persist a requirements-plan hash or requested
+  domain.
+- `SnapshotConnector` assumes that its fixture or saved record snapshot was
+  already scoped correctly. It projects fields but does not re-evaluate Odoo
+  domains.
 
 These limitations do not change the deterministic committed fixture result,
 but they are reasons not to treat hand-authored snapshots as trusted live
@@ -493,7 +495,7 @@ evidence.
 constructed in Python. The CLI environment loader does not expose
 either setting, so CLI-created live fingerprints currently have an empty
 module-version map and use an empty context. Company-specific context must be
-added and reviewed before a organization deployment that depends on it.
+added and reviewed before an organizational deployment that depends on it.
 
 ### Scoped target-only references
 

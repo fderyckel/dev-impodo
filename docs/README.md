@@ -68,6 +68,10 @@ applies those rules when documentation is created or rewritten.
   forward-looking roadmap. Recipe-first Test-to-Production reuse is the only
   current product-delivery focus; every competing feature, scale,
   certification, gateway, and hosted track is deferred until it is complete.
+- [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
+  — approved design for separating Odoo choices from source values, preserving
+  fixed choice mappings, and adding a governed multi-column rule provider for
+  Odoo Selection fields. The behavior is not yet implemented.
 - [Odoo source import and round-trip update implementation plan](plans/odoo-source-import-plan.md)
   — scoped proposal for selecting existing Odoo 19 records as immutable
   Impodo source data, transforming them, and applying guarded updates back to

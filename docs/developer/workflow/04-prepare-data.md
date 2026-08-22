@@ -27,7 +27,7 @@ Before spawning, the route resolves and captures the active Recipe/DataVersion.
 `preparation_worker.py` composes project-only adapters and validates that
 captured identity against the project's immutable linkage; it cannot open the
 shared Recipe registry. The progress page renders from the same in-memory job
-snapshot and therefore does not race either DuckDB writer.
+snapshot. It therefore does not race either DuckDB writer.
 `PreparationService` selects the supported preparation capability, compiles the
 mapping, writes bounded staging batches, publishes quality/accounting evidence,
 and records the preparation session.
@@ -57,12 +57,12 @@ Publication is project-scoped and hash-bound.
 
 For `odoo_pinned_update`, `PreparationService` verifies the one current
 protected manifest and bounded origin sidecar against the source binding and
-Parquet snapshot before row processing. This is one constant number of local
-reads, not a per-row provenance lookup. The transformation path then uses the
-same origin-neutral snapshot reader and canonical staging contracts as a file
-source. Empty business identity is intentional for pinned rows and is excluded
-from duplicate grouping; source ordinals remain ordinary lineage while numeric
-Odoo IDs stay protected.
+Parquet snapshot before it processes any rows. This verification requires a
+constant number of local reads; it does not look up provenance for each row.
+The transformation path then uses the same origin-neutral snapshot reader and
+canonical staging contracts as a file source. Pinned rows intentionally have
+no business identity, so duplicate grouping excludes that empty value. Source
+ordinals remain ordinary lineage, while numeric Odoo IDs remain protected.
 
 ## Completion and navigation
 

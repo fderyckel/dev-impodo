@@ -8,17 +8,19 @@ status: current
 
 ## Scope
 
-This contract defines bindings and invalidation across Recipe publication and
-application plus Source data, Odoo data, and Match data. Stage-specific routes,
-services, formats, and tests belong in the corresponding developer workflow
-pages.
+This contract defines how evidence binds Recipe publication and application to
+the Source data, Odoo data, and Match data stages. It also defines when a
+change invalidates that evidence. The corresponding developer workflow pages
+own stage-specific routes, services, formats, and tests.
 
 Every dataset uses one discriminated source binding:
 
-- `FILE` binds a confirmed registered file table and frozen source snapshot;
-- `ODOO` binds an authenticated, bounded capture selection and published
-  snapshot;
-- `DERIVED` binds a versioned structural rule and its exact input datasets.
+- A `FILE` binding identifies one confirmed registered file table and its
+  frozen source snapshot.
+- An `ODOO` binding identifies one authenticated, bounded capture selection
+  and its published snapshot.
+- A `DERIVED` binding identifies one versioned structural rule and its exact
+  input datasets.
 
 There are no placeholder files or alternate historical JSON shapes.
 
@@ -54,19 +56,21 @@ application, and evidence hashes; no stage infers linkage from display names.
 
 ## Binding rules
 
-Source confirmation binds source and catalogue hashes, parsing/header settings,
-the selected physical table, warning acknowledgement, actor, and timestamp.
-Source freeze binds stable dataset and column identities, row counts, lineage,
-reader version, logical content hash, and immutable snapshot location.
+Source confirmation binds the source and catalogue hashes to the parsing and
+header settings, selected physical table, warning acknowledgement, actor, and
+timestamp. Source freeze then binds stable dataset and column identities, row
+counts, lineage, reader version, logical content hash, and immutable snapshot
+location.
 
-Live target schema binds target identity, permitted models, effective fields,
-relation and selection metadata, and read-credential provenance. A local manual
-draft is unverified and cannot authorize mapping submission.
+Live target schema evidence binds the target identity to the permitted models,
+effective fields, relationship and selection metadata, and read-credential
+provenance. A local manual draft remains unverified and cannot authorize
+mapping submission.
 
 Schema governance binds confirmed natural business keys and optional scope to
-one exact schema revision. Mapping binds the exact source selection, schema,
-governance, providers, transformations, relationships, validation result,
-reviewed warnings, and actor submission.
+one exact schema revision. Mapping evidence then binds the exact source
+selection, schema, governance, providers, transformations, relationships,
+validation result, reviewed warnings, and actor submission.
 
 Mapping contract v11 additionally binds an explicit closed-domain policy for
 every scalar selection and relationship. Application validation scans each

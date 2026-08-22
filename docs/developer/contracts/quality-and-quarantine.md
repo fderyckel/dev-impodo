@@ -23,10 +23,10 @@ cross-field checks are bounded and versioned with the exact mapping and schema.
 
 Outcomes are:
 
-- `WARNING`: retain eligibility and require review;
-- `BLOCK`: stop because setup or policy is incomplete;
-- `QUARANTINE`: set the affected business record aside;
-- `EXCLUDE`: omit only under an explicit governed rule.
+- `WARNING` retains eligibility but requires review.
+- `BLOCK` stops the record because setup or policy is incomplete.
+- `QUARANTINE` sets the affected business record aside.
+- `EXCLUDE` omits the record only under an explicit governed rule.
 
 Unknown values, ambiguity, parsing failures, and unsupported contexts never
 become silent exclusions. Identity collisions set aside the complete collision

@@ -4,7 +4,12 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from impodo.connectors import MetadataSnapshot, RecordSnapshot
+from impodo.connectors import (
+    MetadataRequest,
+    MetadataSnapshot,
+    RecordRequest,
+    RecordSnapshot,
+)
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
@@ -53,7 +58,12 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             database=self.project.odoo_database,
         )
         self.schema = SimpleNamespace(
-            models=(SimpleNamespace(name="res.partner"),),
+            models=(
+                SimpleNamespace(
+                    name="res.partner",
+                    fields=(SimpleNamespace(relation="res.country"),),
+                ),
+            ),
             read_credential_binding_hash=self.first.binding_hash,
             read_principal_hash="sha256:" + "2" * 64,
             read_permission_hash="sha256:" + "3" * 64,
@@ -116,6 +126,68 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceError, "permissions.*changed"):
             _read_readiness_snapshots(context, self.project, (), ())
 
+        self.assertEqual(self.reader_calls, 0)
+
+    def test_comparison_reads_reviewed_linked_model_outside_primary_schema(
+        self,
+    ) -> None:
+        context = self._context()
+        metadata_requests = (
+            MetadataRequest(model="res.country", fields=("code",)),
+        )
+        record_requests = (
+            RecordRequest(
+                model="res.country",
+                fields=("code",),
+                domain=(["code", "in", ["FR"]],),
+            ),
+        )
+
+        result = _read_readiness_snapshots(
+            context,
+            self.project,
+            metadata_requests,
+            record_requests,
+        )
+
+        self.assertEqual(result, ("metadata", "records"))
+        self.assertEqual(
+            self.probe_calls,
+            [
+                ("first-secret", ("res.partner",)),
+                ("first-secret", ("res.country",)),
+            ],
+        )
+        self.assertEqual(self.reader_calls, 1)
+
+    def test_comparison_rejects_unreviewed_model_outside_primary_schema(
+        self,
+    ) -> None:
+        context = self._context()
+
+        with self.assertRaisesRegex(WorkspaceError, "outside the captured schema"):
+            _read_readiness_snapshots(
+                context,
+                self.project,
+                (MetadataRequest(model="res.users", fields=("login",)),),
+                (),
+            )
+
+        self.assertEqual(self.probe_calls, [])
+        self.assertEqual(self.reader_calls, 0)
+
+    def test_comparison_rejects_unreviewed_field_on_linked_model(self) -> None:
+        context = self._context()
+
+        with self.assertRaisesRegex(WorkspaceError, "outside the captured schema"):
+            _read_readiness_snapshots(
+                context,
+                self.project,
+                (MetadataRequest(model="res.country", fields=("vat_label",)),),
+                (),
+            )
+
+        self.assertEqual(self.probe_calls, [])
         self.assertEqual(self.reader_calls, 0)
 
     def test_remote_supporting_lookup_reads_inferred_model_outside_schema(

@@ -29,9 +29,9 @@ reconciliation and fallout routes.
 
 `ExecutionService` validates the project and API scope, starts a durable run,
 records planned rows before transport, executes datasets in dependency order,
-stops after an unknown outcome, and records row-level results.
-`ReconciliationService` then reads back the affected scope and publishes a
-separate reconciliation run.
+and records row-level results. If an outcome becomes unknown, the service stops
+before sending later writes. `ReconciliationService` then reads back the
+affected scope and publishes a separate reconciliation run.
 
 ## Code references
 
@@ -79,10 +79,10 @@ journal.
 
 Remote writes use the Odoo 19 JSON-2 boundary with named, scoped operations.
 Creates are grouped by compatible field shape and sent in bounded batches.
-Updates currently perform identity resolution and `update_row` per record;
-this is an N+1-sensitive path and must be measured before production-scale
-claims. Any batching change must preserve per-row journaling and unknown-outcome
-semantics.
+For updates, Impodo currently resolves identity and calls `update_row` once per
+record. This path is sensitive to N+1 performance and must be measured before
+any production-scale claim. Any future batching change must preserve per-row
+journaling and unknown-outcome semantics.
 
 Read-back reconciliation must batch by model and requested field scope. Keep
 write and read interfaces separate so a nominally read-only component cannot

@@ -782,6 +782,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 message = "Field matches confirmed."
                 _flash(request, message)
+                mapping_return_url = f"/projects/{project_id}/prepare"
         except HTTPException as error:
             return _mapping_save_error_response(
                 request,

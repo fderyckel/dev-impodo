@@ -6,13 +6,13 @@ Use this opt-in run after a fresh, disposable on-premises Odoo 19 database is
 available. It exercises the real Impodo path against three models and 150
 sanitized records:
 
-- read-only schema and target capture;
-- scalar creates and updates;
-- an incoming product-category many2one;
-- remote `Model.load()` creates with External IDs;
-- ORM `write()` updates;
-- exact-ID and External-ID read-back; and
-- a second preview proving all 150 rows are unchanged.
+- It captures schema and target evidence without writing.
+- It creates and updates scalar values.
+- It resolves an incoming product-category many2one relationship.
+- It creates remote records through `Model.load()` and External IDs.
+- It updates records through ORM `write()`.
+- It reads results back by exact ID and External ID.
+- It runs a second preview that must classify all 150 rows as unchanged.
 
 This is acceptance evidence, not a production cutover command. The runner
 does not delete or roll back records.
@@ -25,8 +25,8 @@ does not delete or roll back records.
   the workstation. Literal-loopback development Odoo remains supported.
 - A dedicated acceptance user and API key with the required read, create,
   import, and write access on `product.category`, `product.template`, and
-  `res.partner`, plus read access needed for schema, constraint, module, and
-  External-ID verification.
+  `res.partner`. The user also needs the read access required for schema,
+  constraint, module, and External-ID verification.
 - A database backup or a database that can simply be discarded afterward.
 
 Do not point the runner at production. It refuses database names outside the
@@ -48,10 +48,10 @@ The first empty-target run seeds 25 controlled records so the reviewed load
 contains 125 creates, 20 updates, and 5 unchanged rows. A successful result
 then reports:
 
-- 145 committed writes;
-- 150 verified rows with no fallout or unknown result;
-- a repeat preview containing 150 unchanged rows; and
-- observed execution and read-back rows per second.
+- It reports 145 committed writes.
+- It verifies 150 rows with no fallout or unknown result.
+- Its repeat preview contains 150 unchanged rows.
+- It reports the observed execution and read-back rows per second.
 
 Timing is evidence, not a release threshold. Keep the JSON result with the
 Odoo database name, module build information, server logs, and workstation

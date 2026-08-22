@@ -54,20 +54,24 @@ parameter, or control evidence.
 
 Reusable Recipe meaning may contain:
 
-- logical source tables and columns;
-- preparation, mapping, transformation, relationship, and disposition rules;
-- Odoo model/field requirements and governed business keys;
-- reusable manager-authored quality rules and reference dependencies; and
-- parameter definitions and reusable control definitions.
+- A Recipe revision may define logical source tables and columns.
+- A Recipe revision may define preparation, mapping, transformation,
+  relationship, and disposition rules.
+- A Recipe revision may require specific Odoo models and fields and define
+  governed business keys.
+- A Recipe revision may contain reusable manager-authored quality rules and
+  reference dependencies.
+- A Recipe revision may define parameters and reusable controls.
 
 It must exclude:
 
-- source rows, source-file IDs, physical dataset/column IDs, and current source
-  hashes;
-- endpoint, database, target, schema-capture, principal, permission, company,
-  credential, actor, and timestamp identity from semantic meaning;
-- numeric Odoo record IDs and target snapshots; and
-- approvals, execution journals, read-back, and reconciliation evidence.
+- A Recipe revision must exclude source rows, source-file IDs, physical dataset
+  or column IDs, and current source hashes.
+- Its semantic meaning must exclude the endpoint, database, target, schema
+  capture, principal, permissions, company, credentials, actor, and timestamp.
+- A Recipe revision must exclude numeric Odoo record IDs and target snapshots.
+- A Recipe revision must exclude approvals, execution journals, read-back, and
+  reconciliation evidence.
 
 Physical Authoring hashes, actor, and time may appear only in protected
 publication provenance. Publishing semantic meaning that already exists in the
@@ -81,12 +85,14 @@ preparation, quality, comparison, approval, credential, execution, or
 reconciliation evidence.
 
 Application binds required source tables by logical name and used columns by
-source name. Reordered columns are compatible. New unused tables or columns are
-informational. A renamed used column requires an explicit DataVersion-only
-physical override. Missing structure, stale overrides, undeclared or missing
-parameters/controls, uncovered categorical values, incompatible Odoo fields,
-missing references, and stale credential generations block only the current
-application; they do not mutate the published Recipe.
+source name. Reordered columns remain compatible, and new unused tables or
+columns are informational. A renamed used column requires an explicit physical
+override that applies only to the current DataVersion.
+
+Missing structure or stale overrides block the current application. Undeclared
+or missing parameters and controls, uncovered categorical values, incompatible
+Odoo fields, missing references, and stale credential generations also block
+that application. None of these conditions mutates the published Recipe.
 
 An accepted application creates a fresh ordinary `MappingWorkingDraft`,
 rebuilds supported preparation and governance, and stages reusable quality
@@ -115,11 +121,11 @@ authority.
 
 ## Persistence, recovery, and deletion
 
-The registry owns bounded Recipe/DataVersion lineage, application and
+The registry stores bounded Recipe and DataVersion lineage, application and
 qualification projections, cutover selection, and restart-safe intents. The
-protected Recipe store owns encrypted immutable Recipe and qualification
-payloads with one vault-backed key per Recipe. Each DataVersion workspace owns
-its separate DuckDB and project artifacts.
+protected Recipe store keeps immutable Recipe and qualification payloads
+encrypted with one vault-backed key per Recipe. Each DataVersion workspace owns
+a separate DuckDB database and its own project artifacts.
 
 Publication, DataVersion creation, qualification, cutover selection, and
 deletion enumeration cross storage boundaries through recoverable intents.
@@ -130,11 +136,11 @@ registry target set before destructive cleanup.
 
 ## Current support boundary
 
-Reusable Recipe publication and Test/Production application currently require
-file-based source meaning and a remote Odoo application target. Odoo-origin
-capture, pinned preparation, and same-database comparison are implemented as a
-separate governed update path; they do not become a cross-database Recipe
-application and cannot write back in the current product boundary.
+Reusable Recipe publication and both Test and Production application currently
+require file-based source meaning and a remote Odoo application target.
+Odoo-origin capture, pinned preparation, and same-database comparison use a
+separate governed update path. That path does not become a cross-database
+Recipe application and cannot write back within the current product boundary.
 
 ## Related documentation
 

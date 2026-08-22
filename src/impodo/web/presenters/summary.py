@@ -289,11 +289,16 @@ def _render_summary(
         quality = None
     report = context.preflight.current_report(project_id)
     remote_read_recovery_visible = (
-        remote_read_recovery_needed
+        project.odoo_connection_mode is OdooConnectionMode.REMOTE
         and (
             open_remote_read_recovery
-            or report is not None
-            or (normalization is not None and normalization.frozen)
+            or (
+                remote_read_recovery_needed
+                and (
+                    report is not None
+                    or (normalization is not None and normalization.frozen)
+                )
+            )
         )
     )
     try:

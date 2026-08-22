@@ -103,6 +103,7 @@ from impodo.web.target_credentials import (
     get_target_credential,
 )
 from impodo.web.target_readers import _source_value_choices
+from impodo.workspace_errors import WorkspaceError
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -1768,6 +1769,41 @@ class ProjectSetupWizardTests(unittest.TestCase):
         page = self.client.get(reconnected.headers["location"])
         self.assertNotIn("replacement-read-key", page.text)
         self.assertNotIn('id="reconnect-odoo"', page.text)
+
+    def test_remote_compare_failure_offers_key_recovery_with_saved_key(
+        self,
+    ) -> None:
+        context = self.app.state.context
+        project, schema = self._registered_remote_schema_project()
+        available_key = SimpleNamespace(
+            available=True,
+            binding_hash=schema.read_credential_binding_hash,
+        )
+
+        with (
+            patch.object(
+                context.preflight,
+                "compare",
+                side_effect=WorkspaceError(
+                    "The comparison needs Odoo models outside the captured schema"
+                ),
+            ),
+            patch(
+                "impodo.web.presenters.summary.get_target_credential_status",
+                return_value=available_key,
+            ),
+        ):
+            blocked = self.client.post(
+                f"/projects/{project.project_id}/summary/compare",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn('id="reconnect-odoo"', blocked.text)
+        self.assertIn("Recheck Odoo access and continue", blocked.text)
+        self.assertIn("Use a different read-only key", blocked.text)
+        self.assertIn('name="read_api_key"', blocked.text)
 
     def test_remote_connection_failure_shows_safe_red_checks(self) -> None:
         def rejected_connection(_project, _api_key):
@@ -3937,10 +3973,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(submitted.status_code, 303)
+        self.assertEqual(
+            submitted.headers["location"],
+            f"/projects/{project_id}/prepare",
+        )
         submitted_page = self.client.get(submitted.headers["location"])
         self.assertIn("Field matches confirmed", submitted_page.text)
-        self.assertIn("Field matches confirmed", submitted_page.text)
-        self.assertIn("valid", submitted_page.text.casefold())
+        self.assertIn("Prepare all source rows", submitted_page.text)
+        confirmed_mapping_page = self.client.get(
+            f"/projects/{project_id}/mapping"
+        )
+        self.assertIn("Field matches are confirmed", confirmed_mapping_page.text)
+        self.assertIn("Continue to Prepare data", confirmed_mapping_page.text)
+        self.assertRegex(
+            confirmed_mapping_page.text,
+            rf'class="button secondary" href="/projects/{project_id}/prepare"',
+        )
         revision = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
         )
@@ -3993,7 +4041,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_link = (
             f"/projects/{project_id}/mapping/transformation-impact"
         )
-        self.assertIn("Review rule effects", submitted_page.text)
+        self.assertIn("Review rule effects", confirmed_mapping_page.text)
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
         self.assertIn("Review rule effects", impact_page.text)
@@ -5656,21 +5704,29 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         submitted = self.client.post(
             f"/projects/{project_id}/mapping/save",
-            data={
-                **mapping_data,
-                "action": "submit",
-                "expected_parent_version": str(current_revision.version),
-                "expected_working_draft_version": str(current_working.version),
-                "warning_acknowledgement": warning_fingerprint,
+            json={
+                "entries": [
+                    *mapping_data.items(),
+                    ["action", "submit"],
+                    ["expected_parent_version", str(current_revision.version)],
+                    [
+                        "expected_working_draft_version",
+                        str(current_working.version),
+                    ],
+                    ["warning_acknowledgement", warning_fingerprint],
+                ]
             },
-            headers=POST_HEADERS,
-            follow_redirects=False,
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
 
-        self.assertEqual(submitted.status_code, 303)
-        submitted_page = self.client.get(submitted.headers["location"])
-        self.assertIn("Matches confirmed", submitted_page.text)
-        self.assertIn("Prepare data", submitted_page.text)
+        self.assertEqual(submitted.status_code, 200)
+        self.assertEqual(
+            submitted.json()["redirect_url"],
+            f"/projects/{project_id}/prepare",
+        )
+        submitted_page = self.client.get(submitted.json()["redirect_url"])
+        self.assertIn("Field matches confirmed", submitted_page.text)
+        self.assertIn("Prepare all source rows", submitted_page.text)
 
     def test_required_field_decisions_keep_other_checked_items_available(
         self,

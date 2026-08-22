@@ -826,10 +826,11 @@ def _mapping_next_step(
 
     if submission is not None:
         return {
-            "label": "Prepare data",
+            "label": "Continue to Prepare data",
             "available": True,
             "kind": "link",
             "href": f"/projects/{project_id}/prepare",
+            "button_style": "secondary",
             "blockers": (),
             "previous_check_items": (),
         }
@@ -922,6 +923,7 @@ def _mapping_next_step(
         "available": not blockers,
         "kind": "submit",
         "action": "submit",
+        "button_style": "primary",
         "blockers": tuple(blockers),
         "previous_check_items": tuple(previous_check_items),
     }

@@ -8,8 +8,9 @@
     <h2 id="reconnect-odoo-title">Reconnect to Odoo</h2>
     {% if read_credential_status.available %}
       <p>
-        Impodo has a read-only key, but it has not yet been verified against
-        the saved Odoo fields for <strong>{{ project.odoo_database }}</strong>.
+        Impodo has a read-only key for
+        <strong>{{ project.odoo_database }}</strong>. Recheck it, or enter a
+        different key below if the saved access is no longer valid.
       </p>
     {% else %}
       <p>
@@ -52,7 +53,7 @@
         </label>
       </fieldset>
     {% else %}
-      <details class="technical-details replacement-key-entry">
+      <details class="replacement-key-entry">
         <summary>Use a different read-only key</summary>
         <label>
           Replacement Odoo API key

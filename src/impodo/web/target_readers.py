@@ -389,7 +389,43 @@ def _read_readiness_snapshots(
         *(request.model for request in record_requests),
     }
     probe_models = tuple(sorted(model.name for model in schema.models))
-    if not requested_models.issubset(probe_models):
+    captured_models = set(probe_models)
+    # A reviewed standard reference (country, language, or currency) may be
+    # read without widening the project's primary model scope. Keep that seam
+    # exact: the captured schema must declare the relation and the comparison
+    # may request only the reviewed identity/display fields.
+    linked_models = {
+        field.relation
+        for model in schema.models
+        for field in model.fields
+        if field.relation
+    }
+    inferred_reference_models = requested_models - captured_models
+    allowed_reference_fields: dict[str, set[str]] = {}
+    for model in inferred_reference_models:
+        reference_key = standard_reference_key(model)
+        if model not in linked_models or reference_key is None:
+            continue
+        allowed_reference_fields[model] = {
+            *reference_key.key_fields,
+            *reference_key.scope_fields,
+            reference_key.display_field,
+        }
+    requested_reference_fields: dict[str, set[str]] = {
+        model: set() for model in inferred_reference_models
+    }
+    for request in (*metadata_requests, *record_requests):
+        if request.model in requested_reference_fields:
+            requested_reference_fields[request.model].update(request.fields)
+    if any(
+        model not in allowed_reference_fields
+        or not fields.issubset(allowed_reference_fields[model])
+        for model, fields in requested_reference_fields.items()
+    ) or any(
+        request.model in inferred_reference_models
+        and (request.all_fields or request.include_unique_constraints)
+        for request in metadata_requests
+    ):
         raise WorkspaceError(
             "The comparison needs Odoo models outside the captured schema; "
             "refresh the schema before checking data"
@@ -411,6 +447,23 @@ def _read_readiness_snapshots(
             "The Odoo read key, principal, permissions, or context changed; "
             "refresh the schema before checking data"
         )
+    inferred_probe_models = tuple(sorted(inferred_reference_models))
+    if inferred_probe_models:
+        inferred_identity = context.read_identity_probe(
+            project,
+            credential.secret,
+            inferred_probe_models,
+        )
+        if (
+            inferred_identity.target_hash != schema.connection_target_hash
+            or inferred_identity.principal_hash != schema.read_principal_hash
+            or inferred_identity.context_hash != schema.read_context_hash
+            or inferred_identity.readable_models != inferred_probe_models
+        ):
+            raise WorkspaceError(
+                "The Odoo reader or access context changed for linked records; "
+                "refresh the schema before checking data"
+            )
     if context.readiness_reader is not None:
         return context.readiness_reader(
             project,

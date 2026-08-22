@@ -17,10 +17,10 @@ execution plan, approval, or write authorization.
 
 ## Prepared-record boundary
 
-Every nonblank input row produces an immutable prepared record, including rows
-with validation issues. It separates source trace, target model, ordered
-business identity/scope, typed scalars, symbolic relationships, and structured
-issues.
+Every nonblank input row produces an immutable prepared record, including a row
+with validation issues. The record stores the source trace and target model
+separately from its ordered business identity and scope. It also stores typed
+scalar values, symbolic relationships, and structured issues.
 
 Portable values include strings, arbitrary-precision integers, `Decimal`,
 booleans, dates, timezone-aware UTC datetimes, null, and business-key
@@ -32,10 +32,10 @@ silently dropping it.
 
 ## Odoo read boundary
 
-The preflight port exposes only target fingerprint, requested model metadata,
-and requested records. The live Odoo 19 JSON-2 adapter allowlists `fields_get`
-and `search_read`; it exposes no generic method, mutation, SQL, import, server
-action, or caller-supplied context surface.
+The preflight port exposes only the target fingerprint, requested model
+metadata, and requested records. The live Odoo 19 JSON-2 adapter allowlists
+`fields_get` and `search_read`. It exposes no generic method, mutation, SQL,
+import, server action, or caller-supplied context.
 
 Requests contain exact models, fields, and service-generated bounded domains.
 Metadata and record requirements are merged by model and paged deterministically.
@@ -43,10 +43,10 @@ No connector call may occur inside a source-row loop.
 
 ## Target evidence
 
-Metadata and record snapshots share one target fingerprint and bind the current
-target, Odoo version, capture time, relevant modules, requested coverage, and
-source/profile or browser bindings. Credentials and transport authorization are
-excluded.
+Metadata and record snapshots share one target fingerprint. They bind the
+current target, Odoo version, capture time, relevant modules, requested
+coverage, and the applicable CLI profile or browser evidence. They exclude
+credentials and transport authorization.
 
 Numeric Odoo IDs are allowed only in protected target-specific snapshots and
 indexes so relationships can be reverse-resolved to portable business keys.
@@ -58,9 +58,10 @@ indexed once per mapped field, not fetched per row.
 
 ## Resolution and classification
 
-Source duplicates remain explicit. Target identity plus scope forms the lookup
-key; target duplicates remain visible. Incoming and existing-target
-relationships resolve through preloaded business-key indexes.
+Source duplicates remain explicit. The target identity and its scope together
+form the lookup key, and target duplicates remain visible. Preloaded
+business-key indexes resolve relationships to both incoming and existing
+target records.
 
 Every import candidate receives exactly one result in this precedence:
 
@@ -93,10 +94,11 @@ does not authorize overwriting an approved field that changed concurrently.
 
 ## Portable result
 
-The canonical manifest binds source/snapshot hashes, input definition, target
-fingerprint, totals, decisions, differences, relationships, issues, coverage,
-and a semantic hash. Each decision retains its dataset, source row, business
-identity/scope, match count, classification, differences, and issues.
+The canonical manifest binds the source and snapshot hashes to the input
+definition, target fingerprint, totals, decisions, differences, relationships,
+issues, coverage, and semantic hash. Each decision records its dataset, source
+row, business identity and scope, match count, classification, differences,
+and issues.
 
 Serialization recursively rejects numeric record IDs, credentials, and
 transport authorization. Workbooks are projections of the manifest and contain

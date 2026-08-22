@@ -59,10 +59,10 @@ wheel, and publishes one immutable directory below `dist\internal`.
 
 A release bundle includes:
 
-- the Impodo wheel and hashed dependency lock;
-- test, secret-scan, dependency-audit, and SBOM evidence;
-- the installer;
-- a manifest containing artifact sizes and SHA-256 hashes.
+- It contains the Impodo wheel and hashed dependency lock.
+- It contains test, secret-scan, dependency-audit, and SBOM evidence.
+- It contains the installer.
+- Its manifest records artifact sizes and SHA-256 hashes.
 
 The gate refuses a dirty worktree, inconsistent tooling, invalid lock, failed
 evidence step, or an existing destination. Inspect any retained work directory

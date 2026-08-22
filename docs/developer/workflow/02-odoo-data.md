@@ -11,8 +11,8 @@ status: current
 Odoo data configures the Odoo destination when a file DataVersion does not yet
 have one, then captures selected Odoo 19 model and field metadata. In file mode,
 it also governs the business keys used by mapping and comparison. It owns
-connection-purpose separation, metadata provenance, and the confirmed
-target-schema boundary.
+the confirmed target-schema boundary. It keeps source-read checks separate from
+destination-read checks and records where the captured metadata came from.
 
 It does not read an unrestricted business-record export and does not expose a
 generic RPC escape hatch.
@@ -31,9 +31,9 @@ fields define what may be captured.
 verify either source-read or destination-read purpose without discovering
 models or fields. `schema.py` then refreshes the permitted model catalogue,
 saves the selected scope, captures field details, and, for file mode, submits
-key governance.
-`SchemaWorkspaceService` coordinates the model catalogue, schema catalogue,
-source selection, and mapping invalidation ports.
+key governance. `SchemaWorkspaceService` coordinates these operations through
+separate ports for the model catalogue, schema catalogue, source selection,
+and mapping invalidation.
 
 Local capture uses the isolated local reader. Remote capture uses the narrow
 JSON-2 read connector. Both normalize metadata into the same domain catalogue
@@ -46,11 +46,12 @@ Target evidence is either verified `LIVE_API` capture or an unverified
 authorize mapping submission. Abstract and transient models are excluded, and
 related models are never silently added to the permitted scope.
 
-Field capture records the effective inherited Odoo 19 field set, requirements,
-readonly state, relations, inverse fields, and selection codes. It performs one
-`fields_get` request per selected model, never per field or source row. Optional
-uniqueness metadata is fetched in one bounded model batch; inability to read it
-does not turn a recommendation into confirmed governance.
+Field capture records the effective inherited Odoo 19 field set. For each
+field, it records requirements, read-only state, relationships, inverse fields,
+and selection codes. It performs one `fields_get` request per selected model,
+never per field or source row. Impodo fetches optional uniqueness metadata in
+one bounded model batch. If it cannot read that metadata, it does not present a
+recommendation as confirmed governance.
 
 Business keys are explicit, versioned, and actor-confirmed. A recommendation
 may come from one exact supported rule or one unambiguous Odoo uniqueness

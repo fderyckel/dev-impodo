@@ -31,14 +31,14 @@ requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
 
 For `ODOO` source mode, `build_odoo_comparison_publication` follows a separate
-pinned-ID branch. It verifies protected capture origins once, loads the frozen
-Parquet baseline once, and groups exact IDs into fixed 500-record requests.
-The same governed JSON-2 read credential is re-probed for target, principal,
-permission, and context before any value read. Baseline, proposed, current,
-numeric ID, and write-date evidence is stored only in an AES-GCM-protected
-artifact; the portable manifest and persisted record snapshot are redacted.
-No business-key lookup, create fallback, per-row Odoo call, or write connector
-is available in this branch.
+pinned-ID branch. It verifies the protected capture origins once and loads the
+frozen Parquet baseline once. It then groups exact IDs into fixed 500-record
+requests. Before reading values, Impodo re-probes the governed JSON-2 read
+credential and verifies the target, principal, permissions, and context.
+Impodo stores baseline, proposed, current, numeric ID, and write-date evidence
+only in an AES-GCM-protected artifact. It redacts the portable manifest and
+persisted record snapshot. This branch exposes no business-key lookup, create
+fallback, per-row Odoo call, or write connector.
 
 For local Odoo, `_read_readiness_snapshots` requires a matching session
 profile. `LocalOdooRecoveryRequired` returns the user to the shared local-Odoo
@@ -66,11 +66,11 @@ protected Odoo IDs. The portable report contains natural identities and the
 existing deterministic classifications. The execution snapshot binds only
 eligible writes to the exact reviewed evidence.
 
-For Odoo sources, the persisted target snapshot is redacted. Exact IDs and
-baseline/proposed/current values live only in the protected comparison
-artifact. Portable rows expose `UPDATE`, `UNCHANGED`, or `BLOCKED`; protected
-rows distinguish missing/inaccessible records, missing baseline, schema drift,
-and concurrent intended-field changes.
+For Odoo sources, the persisted target snapshot is redacted. Exact IDs and the
+baseline, proposed, and current values live only in the protected comparison
+artifact. Portable rows expose `UPDATE`, `UNCHANGED`, or `BLOCKED`. Protected
+rows distinguish inaccessible or missing records, a missing baseline, schema
+drift, and concurrent changes to intended fields.
 
 ## Completion and navigation
 

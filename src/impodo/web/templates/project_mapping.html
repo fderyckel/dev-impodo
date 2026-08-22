@@ -1230,9 +1230,9 @@
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
         <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
         {% if next_step.available and next_step.kind == 'link' %}
-          <a class="button primary" href="{{ next_step.href }}">{{ next_step.label }}</a>
+          <a class="button {{ next_step.button_style }}" href="{{ next_step.href }}">{{ next_step.label }}</a>
         {% elif next_step.available %}
-          <button class="button primary" name="action" value="{{ next_step.action }}" type="submit" data-confirm-mapping>{{ next_step.label }}</button>
+          <button class="button {{ next_step.button_style }}" name="action" value="{{ next_step.action }}" type="submit" data-confirm-mapping>{{ next_step.label }}</button>
         {% else %}
           <button class="button primary" type="button" aria-describedby="next-step-blockers" disabled>{{ next_step.label }}</button>
         {% endif %}

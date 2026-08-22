@@ -18,10 +18,11 @@ dependency.
 
 ## Bound inputs
 
-Every staging run binds the project, physical and effective source selections,
-submitted mapping, governed schema, related-dataset plan, compiled-plan
-semantics, evaluator/contract versions, declared control totals, and exact
-source-content hashes.
+Before evaluation starts, Impodo binds the staging run to one project and the
+exact physical and effective source selections. It also binds the submitted
+mapping, governed schema, related-dataset plan, compiled-plan meaning,
+evaluator and contract versions, declared control totals, and source-content
+hashes.
 
 Changed bindings produce a different run and retire the current pointer. They
 never mutate historical staging evidence. Publication rechecks the bindings
@@ -30,13 +31,13 @@ inside the same transaction that advances the current pointer.
 ## Canonical rows and lineage
 
 Every evaluated input produces a canonical result, including rows with blocking
-issues. Each row retains:
+issues. Each row records or retains the following evidence:
 
-- deterministic row and dataset coordinates;
-- all contributing physical source-row pointers;
-- target model, portable business identity, and scope;
-- typed proposed scalar values and symbolic relationships;
-- structured issues and field-level source lineage.
+- The row records deterministic row and dataset coordinates.
+- The row points to every physical source row that contributed to the result.
+- The row identifies the target model, portable business identity, and scope.
+- The row stores typed proposed scalar values and symbolic relationships.
+- The row retains structured issues and field-level source lineage.
 
 Portable staging recursively forbids numeric Odoo record IDs. Decimal, date,
 datetime, null, and symbolic-reference values use canonical serialization.
@@ -48,17 +49,17 @@ Each canonical row has exactly one source-side disposition: `CANDIDATE`,
 target classifications `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, and
 `BLOCKED`.
 
-Reconciliation requires every canonical row and every physical source row to
-be accounted for. Dataset controls retain physical rows read and used,
-canonical rows produced, lineage links, grouping, derived fan-out, and source
-rows that did not produce a derived entity.
+Reconciliation accounts for every canonical row and every physical source row.
+Dataset controls record how many physical rows Impodo read and used, how many
+canonical rows it produced, and how those rows are linked. They also record
+grouping, derived fan-out, and source rows that produced no derived entity.
 
 ## Determinism
 
-Rows use deterministic dataset/source ordering, canonical JSON, and exact bound
-evidence. Readers reject unsupported versions, malformed hashes, row/lineage
-mismatches, duplicate row IDs, incomplete accounting, inconsistent blocking
-status, numeric Odoo IDs, or a changed content hash.
+Rows use deterministic dataset and source ordering, canonical JSON, and exact
+bound evidence. Readers reject an unsupported version or malformed hash. They
+also reject mismatched row lineage, duplicate row IDs, incomplete accounting,
+inconsistent blocking status, numeric Odoo IDs, or a changed content hash.
 
 Mapping preview and full evaluation must share the same scalar-provider,
 formula, transformation, parsing, and validation semantics. Client-side
@@ -76,9 +77,10 @@ Odoo capability.
 
 ## Publication
 
-Publication is immutable, atomic, idempotent for identical current evidence,
-and project scoped. Run header, rows, reconciliation, current-pointer update,
-and audit event commit together; failure rolls the publication back.
+Publication is immutable, atomic, project-scoped, and idempotent when the
+current evidence is identical. The run header, rows, reconciliation,
+current-pointer update, and audit event commit together. If any part fails,
+Impodo rolls back the publication.
 
 Preparation capability and row limits are selected from the actual compiled
 mapping and snapshot path. Current measured limits and qualification evidence

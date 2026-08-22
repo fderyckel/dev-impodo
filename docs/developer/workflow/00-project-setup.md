@@ -8,13 +8,13 @@ status: current
 
 ## Responsibility
 
-Recipe setup provisions the aggregate root plus authoring DataVersion 1.
-The contained project setup then establishes the evidence and credential
-workspace before workflow evidence is created. The normal browser path owns the
-operator project name, source mode, initial source-file intake or Odoo-source
-connection, registration, unpublished Recipe deletion, and the data-version
-overview. File-source destination configuration is deliberately deferred to
-the Odoo-data stage.
+Recipe setup creates the `Recipe` aggregate root and Authoring DataVersion 1.
+It also creates a contained workspace for that DataVersion before any workflow
+evidence exists. The normal browser path records the operator's project name
+and source mode. It then accepts the initial source files or verifies the
+Odoo-source connection, registers the workspace, presents the DataVersion
+overview, and allows deletion while the Recipe remains unpublished. A
+file-source workspace configures its Odoo destination later in **Odoo data**.
 
 It does not inspect business rows, capture an Odoo schema, or authorize an
 Odoo read or write merely because connection details are stored.
@@ -30,13 +30,13 @@ operator label; `Recipe` remains the domain aggregate root.
 
 `projects.py` routes operator-project creation through
 `RecipeAuthoringService` and the contained workspace through `ProjectService`.
-The first form asks only for name and source mode. File content is accepted in
-one or more uploads through the bounded intake service and stored under
-generated identifiers; **Use these files and continue** registers that
-workspace. For Odoo source mode, `target.py` performs a purpose-specific
-read-only connection check and registers before schema discovery. The former
-details, governance, and confirmation pages are compatibility surfaces, not the
-normal setup sequence.
+The first form asks only for the project name and source mode. For file mode,
+the bounded intake service accepts one or more uploads and stores them under
+generated identifiers. Choosing **Use these files and continue** then
+registers the workspace. For Odoo source mode, `target.py` performs a
+purpose-specific read-only connection check and registers the workspace before
+schema discovery. The former details, governance, and confirmation pages remain
+compatibility surfaces; they are not part of the normal setup sequence.
 
 For a registered file workspace, `target.py` is reached later from Odoo data to
 configure the Local or Remote destination. `OdooConnectionTestService`
@@ -44,27 +44,31 @@ identifies the exact Odoo 19 database and verifies the relevant read identity
 without repeating model or field discovery; schema capture remains the next
 stage.
 
-Registered Authoring workspaces may also store explicit custom parameter
-declarations through `RecipeAuthoringService`. The project-local,
-content-hashed declaration set is separate from every Test or Production value
-set. Publication converts stable names such as `warehouse` to logical IDs such
-as `parameter:warehouse`; file Recipes also receive the built-in export as-of
-date. Declarations support string, date, integer, and decimal values and are
-limited to controls/provenance use sites. Application rejects values whose
-logical IDs are absent from the selected immutable revision.
+Registered Authoring workspaces can store explicit custom parameter
+declarations through `RecipeAuthoringService`. Impodo hashes this project-local
+declaration set independently from the values supplied by any Test or
+Production DataVersion. During publication, Impodo converts a stable name such
+as `warehouse` into a logical ID such as `parameter:warehouse`. A file-based
+Recipe also receives the built-in export as-of date. Declarations can use
+string, date, integer, or decimal values, and only control or provenance sites
+may consume them. Application rejects a value when the selected immutable
+revision does not declare its logical ID.
 
 For a published revision, the Recipe routes delegate Test and Production
-DataVersion creation, focused compatibility review, and application to
-`RecipeApplicationService`. Test creation pins the current revision. Production
-creation requires the current cutover candidate and pins its exact qualified
-revision even when a newer revision exists. Both create clean file workspaces
-and first collect fresh source plus parameter/control input. Their remote Odoo
-destination is configured later in Odoo data; accepted application then binds
-only non-secret live target and credential-generation evidence, rebuilds
-supported source preparation and governance, scans current categorical
-domains, and saves a normal `MappingWorkingDraft`. Manager-authored quality
-rules are staged for that exact mapping hash; `QualityService` regenerates
-automatic rules after the mapping is confirmed.
+DataVersion creation, compatibility review, and application to
+`RecipeApplicationService`. Creating a Test DataVersion pins the current
+published revision. Creating a Production DataVersion requires the current
+cutover candidate and pins that candidate's exact qualified revision, even
+when the Recipe has a newer revision.
+
+Both actions create clean file workspaces. The data manager must supply fresh
+source data, parameter values, and control values. The remote Odoo destination
+is configured later in **Odoo data**. When application succeeds, Impodo binds
+only non-secret live target and credential-generation evidence. It rebuilds
+supported source preparation and governance, scans the current categorical
+domains, and saves a normal `MappingWorkingDraft`. Impodo stages
+manager-authored quality rules against that exact mapping hash.
+`QualityService` regenerates automatic rules after mapping confirmation.
 
 After the existing Test preparation, comparison, load, and read-back stages,
 `RecipeQualificationService` derives readiness from those exact current
@@ -80,13 +84,14 @@ explicitly Production and requires a fresh read credential and live probe. The
 existing load boundary separately probes the current write credential against
 the exact Production target, Odoo context, write scope, and execution snapshot.
 
-Registration validates the mode-specific source boundary, advances the
-workspace to `REGISTERED`, increments its optimistic revision, writes canonical
-registration evidence, and records an actor-bound audit event. File mode needs
-at least one source file but no destination. Odoo source mode needs exact
-connection identity and a successful browser check. The workflow then enters
-source inspection/capture directly and delegates stage status to
-`build_project_navigation`.
+Registration validates the requirements for the selected source mode. If they
+pass, Impodo moves the workspace to `REGISTERED`, increments its optimistic
+revision, writes canonical registration evidence, and records an actor-bound
+audit event. File mode requires at least one source file but does not require a
+destination. Odoo source mode requires an exact connection identity and a
+successful browser check. The workflow then enters the appropriate source
+inspection or capture path. `build_project_navigation` derives the stage
+status.
 
 ## Code references
 

@@ -32,15 +32,17 @@ under the Windows user profile.
 
 The following are **not** required for the GitHub ZIP route:
 
-- Git, unless the repository was cloned and will be updated with Git;
-- virtual-environment activation;
-- Node.js;
-- the DuckDB command-line tool;
-- PostgreSQL tools;
-- a local Odoo installation when a remote Odoo target will be used;
-- a fixed inbound firewall port; or
-- administrator rights, unless the organization's Python or endpoint policy
-  requires them.
+- Git is not required unless the repository was cloned and will be updated
+  with Git.
+- Virtual-environment activation is not required.
+- Node.js is not required.
+- The DuckDB command-line tool is not required.
+- PostgreSQL tools are not required.
+- A local Odoo installation is not required when the project uses a remote
+  Odoo target.
+- A fixed inbound firewall port is not required.
+- Administrator rights are not required unless the organization's Python or
+  endpoint policy requires them.
 
 ## Step 1 — Extract the GitHub download
 
@@ -75,9 +77,9 @@ was cloned instead, use the clone's root folder for the same steps below.
 Obtain the 64-bit Python 3.12 installer from the organization's software
 catalogue or another approved source. During installation, include:
 
-- the Python launcher for Windows;
-- `pip`; and
-- `venv`.
+- Include the Python launcher for Windows.
+- Include `pip`.
+- Include `venv`.
 
 Adding `python.exe` to `PATH` is optional because this guide uses the Windows
 `py` launcher explicitly.
@@ -142,11 +144,11 @@ where.exe python
 
 The checks must show:
 
-- `Get-Command python` resolves to the approved Python installation, normally
-  a path ending in `Python312\python.exe`;
-- `python --version` begins with `Python 3.12`;
-- the architecture check prints the same approved executable followed by
-  `64`; and
+- `Get-Command python` must resolve to the approved Python installation,
+  normally a path ending in `Python312\python.exe`.
+- `python --version` must begin with `Python 3.12`.
+- The architecture check must print the same approved executable followed by
+  `64`.
 - `where.exe python` may list more than one executable, but the approved
   `Python312\python.exe` must appear before any
   `Microsoft\WindowsApps\python.exe` entry.
@@ -230,10 +232,11 @@ Run:
 
 This command:
 
-- reads `pyproject.toml` from the current folder;
-- downloads the required Python packages from the configured package source;
-- installs them only inside `.venv`; and
-- creates the Windows launcher `.\.venv\Scripts\impodo.exe`.
+- It reads `pyproject.toml` from the current folder.
+- It downloads the required Python packages from the configured package
+  source.
+- It installs the packages only inside `.venv`.
+- It creates the Windows launcher `.\.venv\Scripts\impodo.exe`.
 
 The `-e` option means editable installation. The installed launcher uses the
 source code in this downloaded folder after Impodo is restarted. It does not
@@ -255,8 +258,8 @@ Test-Path -LiteralPath .\.venv\Scripts\impodo.exe
 The expected results are:
 
 - `pip show` displays the Impodo package and the downloaded source folder as
-  its editable project location;
-- `pip check` reports `No broken requirements found`; and
+  its editable project location.
+- `pip check` reports `No broken requirements found`.
 - `Test-Path` returns `True`.
 
 Do not continue if `pip check` reports a dependency conflict.
@@ -302,10 +305,10 @@ environment.
 
 Before using project data, verify:
 
-- the browser address begins with `http://127.0.0.1:`;
-- the port number is allowed to change on every start;
-- the Impodo project page loads without an authentication error;
-- the PowerShell window shows no project-root or dependency error; and
+- The browser address begins with `http://127.0.0.1:`.
+- The port number can change on every start.
+- The Impodo project page loads without an authentication error.
+- The PowerShell window shows no project-root or dependency error.
 - `%LOCALAPPDATA%\Impodo\projects` exists after the first launch.
 
 Use a sanitized test project for the first end-to-end check. A successful
@@ -336,11 +339,11 @@ needs an approved Odoo 19 target.
 
 For a remote target, obtain through the approved process:
 
-- the HTTPS Odoo base URL;
-- the database name;
-- a dedicated least-privilege Odoo identity;
-- the required read or disposable-target load API key; and
-- approved DNS, proxy, VPN, routing, and TLS certificate access.
+- Obtain the HTTPS Odoo base URL.
+- Obtain the database name.
+- Provision a dedicated, least-privilege Odoo identity.
+- Provision the required read or disposable-target load API key.
+- Confirm approved DNS, proxy, VPN, routing, and TLS certificate access.
 
 Never place an API key in a project file, mapping, screenshot, support ticket,
 shared command, or Git checkout. Impodo stores governed credentials in memory

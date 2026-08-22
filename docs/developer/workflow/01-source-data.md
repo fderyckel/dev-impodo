@@ -39,22 +39,23 @@ full preparation expands them over the frozen source.
 
 ## Contract invariants
 
-File intake accepts only bounded CSV and XLSX content. Inspection records
-format, structure, formulas/errors, type suggestions, and bounded samples;
-formulas are inventoried but never executed. Leading-zero digit strings remain
-text. Blank or duplicate headers block confirmation, while other warnings need
-explicit acknowledgement.
+File intake accepts only bounded CSV and XLSX content. Inspection records the
+file format, structure, formulas and errors, type suggestions, and bounded
+samples. It inventories formulas but never executes them. Digit strings with
+leading zeros remain text. Blank or duplicate headers block confirmation,
+while other warnings require explicit acknowledgement.
 
 Freeze assigns stable dataset and column identities and publishes every chosen
 table as an immutable tagged Parquet snapshot with source-row lineage. The
 selection and all snapshot pointers advance in one transaction. Mapping preview
 and preparation read the verified snapshot rather than reopening CSV or XLSX.
 
-An Odoo capture selection is append-only, identity-bound, and saving it performs
-no target request. The current policy permits at most 50 closed scalar fields
-and 10,000 rows, with 500-row keyset pages. The live reader accepts only a
-service-generated request and exposes no raw domain, arbitrary context, generic
-method, or caller-selected field path.
+An Odoo capture selection is append-only and bound to the current target
+identity. Saving the selection does not contact Odoo. Current policy permits
+at most 50 closed scalar fields and 10,000 rows, which the reader fetches in
+500-row keyset pages. The live reader accepts only service-generated requests.
+It exposes no raw domain, arbitrary context, generic method, or caller-selected
+field path.
 
 ## Code references
 
