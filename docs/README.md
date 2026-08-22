@@ -16,8 +16,9 @@ or **MAY** rule, the normative rule wins.
 
 ## Workflow terminology
 
-**Recipe setup** creates the Recipe and authoring DataVersion workspace before
-the six registered data-version stages:
+**Project setup** creates the Project, Authoring DataVersion, run, and
+workspace before the six workspace stages. A Recipe is optional reusable
+meaning published after eligible authoring work:
 
 1. **Source data**
 2. **Odoo data**
@@ -72,10 +73,10 @@ applies those rules when documentation is created or rewritten.
   Recipes, Project-owned data packages, and integrated multi-Recipe cutover
   are the current product-delivery focus.
 - [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-  — accepted target architecture and active plan. Phases M0 through M3 are
-  complete: the Project-first browser now supports one-off work and optional
-  Recipe publication without compatibility shells, aliases, or old storage
-  readers. Phase M4 is next.
+  — accepted target architecture and active plan. Phases M0 through M4 are
+  complete: the Project-first browser now supports one-off work, optional
+  Recipe publication, and integrated Test planning with isolated Recipe
+  applications. Phase M5 is next.
 - [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
   — completed architecture-only contracts and executable fixtures for Project
   ownership, optional and multiple Recipes, Project-owned data packages,
@@ -93,6 +94,9 @@ applies those rules when documentation is created or rewritten.
 - [Migration Projects Phase M3 Project authoring](plans/migration-projects-phase-m3-project-authoring.md)
   — Project-native creation, one-off authoring, immutable file and Odoo source
   acceptance, and optional atomic Recipe revision publication.
+- [Migration Projects Phase M4 multi-Recipe Test runs](plans/migration-projects-phase-m4-multi-recipe-runs.md)
+  — one Project-owned Test run, unioned Odoo requirements, isolated Recipe
+  applications, collision checks, and bounded integrated progress.
 - [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
   — approved design for separating Odoo choices from source values, preserving
   fixed choice mappings, and adding a governed multi-column rule provider for

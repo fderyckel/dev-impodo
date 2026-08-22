@@ -67,9 +67,11 @@ A Recipe saves logical source shapes, transformations, mappings, relationships,
 Odoo requirements, and reusable checks. It does not save source rows, server
 addresses, API keys, numeric Odoo record IDs, approvals, or load results.
 
-Applying several Recipes in one integrated run is not available in M3. That is
-the next implementation phase. Do not use the removed Recipe-first Test or
-Production workflow as a substitute.
+When several saved Recipes must be checked together, start an
+[integrated Test run](guides/integrated-test-runs.md) from the Project
+overview. This uses an already accepted Test DataVersion and creates one
+isolated application workspace per Recipe. It does not yet execute or qualify
+the integrated rollout plan.
 
 ## What Complete means
 

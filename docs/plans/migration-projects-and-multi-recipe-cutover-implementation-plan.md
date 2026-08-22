@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted target architecture and active implementation plan from
-2026-08-22. Phases M0 through M3 are complete; Phase M4 is next.
+2026-08-22. Phases M0 through M4 are complete; Phase M5 is next.
 
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target architecture. It supersedes ADR-012 and ADR-013 for
@@ -13,10 +13,9 @@ credential-separation, evidence, and fail-closed execution boundaries where
 this plan does not explicitly replace them.
 
 Current contracts, architecture pages, user documentation, and screenshots
-continue to describe the implemented Recipe-first browser until the
-corresponding implementation gate in this plan passes. This plan must not be
-used to claim that a planned Project, multi-Recipe run, or CutoverPlan is
-available.
+describe the implemented Project-first browser through M4. This plan must not
+be used to claim that an integrated qualified CutoverPlan or Production run is
+available before its later implementation gate passes.
 
 This plan replaces the completed
 [Recipe-first test-to-production plan](reusable-recipes-and-data-versions-implementation-plan.md)
@@ -722,7 +721,8 @@ one Recipe without changing the Project or DataVersion identity.
 
 ### Phase M4 - Apply several Recipes in one MigrationRun
 
-**Status:** Planned.
+**Status:** Complete on 2026-08-22. See the
+[M4 implementation record](migration-projects-phase-m4-multi-recipe-runs.md).
 
 - Implement run-level TargetBinding and unioned Odoo requirements planning.
 - Create one application workspace per selected RecipeRevision.

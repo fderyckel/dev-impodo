@@ -56,8 +56,9 @@ version. A published Recipe retains the reusable source shape and logical
 table and column bindings, not the source records.
 
 Every later DataVersion must therefore start clean and accept its complete
-replacement package again. Applying several Recipes to later DataVersions is
-part of the next implementation phase and is not available in M3.
+replacement package again. An integrated Test run can select different
+logical datasets from one already accepted Test DataVersion for several
+Recipes; it still never reuses the Authoring rows as current Test evidence.
 
 ## What to check
 

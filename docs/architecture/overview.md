@@ -23,12 +23,14 @@ target credentials, approvals, or cutover decision.
 
 ```text
 MigrationProject
-|-- DataVersion 1
+|-- DataVersion 1..many
 |   `-- complete immutable source package
-|-- MigrationRun 1
-|   `-- MigrationWorkspace 1
-|       |-- bounded DataVersion dataset references
-|       `-- mapping, preparation, comparison, and execution evidence
+|-- MigrationRun 1..many
+|   |-- one TargetBinding and unioned requirement plan
+|   `-- RecipeApplication 0..many
+|       `-- one isolated MigrationWorkspace
+|           |-- bounded DataVersion dataset references
+|           `-- fresh mapping and current application evidence
 `-- zero, one, or several Recipes
     `-- immutable RecipeRevision lineage
 ```
@@ -95,10 +97,24 @@ The authoring workspace retains the six data-manager stages:
 6. **Load into Odoo** requires explicit confirmation, records each write, and
    reconciles the committed result.
 
-Completing these stages does not require Recipe publication. Applying several
-Recipes in one run, integrated cutover planning, Test qualification, and
-Production application belong to Phase M4 and later. M3 deliberately does not
-restore the superseded Recipe-owned Test or Production browser lifecycle.
+Completing these stages does not require Recipe publication. M4 can plan one
+integrated Test run over several exact Recipe revisions and create fresh,
+isolated application drafts. Execution, integrated CutoverPlan qualification,
+rollout selection, and Production application remain later phases. The
+Project-owned flow does not restore the superseded Recipe-owned lifecycle.
+
+## Integrated Test run boundary
+
+One accepted Test DataVersion supplies the complete source package. The run
+planner selects only each Recipe's logical datasets, validates the dependency
+graph and conservative field-level write ownership, and provisions one
+workspace per application. The run captures one filtered Odoo 19 schema and
+one filtered supporting-reference bundle for the union of requirements.
+
+Run-aware adapters expose only an application's required slice to the existing
+mapping services and reject per-application target recapture. Integrated
+status and issues are registry projections, so the run page does not open one
+workspace database or call Odoo per Recipe.
 
 ## Persistence layout
 
@@ -112,15 +128,17 @@ restore the superseded Recipe-owned Test or Production browser lifecycle.
 <root>/projects/<project_id>/workspaces/<workspace_id>/project.duckdb
 ```
 
-The registry stores bounded Project, DataVersion, run, workspace, Recipe, and
-operation projections. The DataVersion database stores the source package.
-The small workspace database stores exact source references. `project.duckdb`
-is the contained current mapping engine state; its historical filename is not
-a Project aggregate identity.
+The registry stores bounded Project, DataVersion, run target and requirement,
+Recipe application, workspace, Recipe, issue, and operation projections. The
+DataVersion database stores the source package. The small workspace database
+stores exact source references. `project.duckdb` is the contained current
+mapping engine state; its historical filename is not a Project aggregate
+identity.
 
-Impodo opens only the exact M2/M3 storage generations. Recipe-first storage is
-rejected without mutation and requires the reviewed development reset. There
-is no upgrade, adoption, backfill, alias, or dual-write path.
+Impodo opens only the exact M4 registry generation and unchanged exact M2
+DataVersion/workspace-store generations. Earlier development or Recipe-first
+storage is rejected without mutation and requires the reviewed development
+reset. There is no upgrade, adoption, backfill, alias, or dual-write path.
 
 ## Odoo and performance boundaries
 
@@ -129,10 +147,12 @@ create, write, unlink, import, execute SQL, or call arbitrary model methods.
 The separate writer acts only after exact schema-bound evidence and explicit
 confirmation.
 
-Project overview queries are bounded registry reads. They do not open one
-workspace database per Project, DataVersion, run, Recipe, or list row. Odoo
-readers batch fields and records per model, comparison builds reusable indexes,
-and no workflow may introduce one Odoo or repository call per source row.
+Project and run list projections are bounded registry reads. The overview
+currently opens only its one Authoring workspace when computing Recipe
+publication readiness; it does not open a workspace per Project, DataVersion,
+run, Recipe, or list row. Odoo readers batch fields and records per model,
+comparison builds reusable indexes, and no workflow may introduce one Odoo or
+repository call per source row.
 
 ## Main implementation boundaries
 
@@ -144,6 +164,8 @@ and no workflow may introduce one Odoo or repository call per source row.
 | DataVersion source ownership | `data_version_sources.py`, `application/workspace_data_version_source_service.py` |
 | Mapping read projection | `application/workspace_source_projection.py` |
 | Optional Recipe publication | `project_recipes.py`, `application/project_recipe_publication_service.py`, `adapters/duckdb/project_recipe_repository.py` |
+| Integrated Test planning | `migration_run_planning.py`, `application/migration_run_planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
+| Fresh Recipe application | `application/project_recipe_application_compiler.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |
 | Browser composition | `web/app.py`, `web/routers/migration_projects.py`, `web/routers/workspace_setup.py` |
 
 ## Related documentation
@@ -152,4 +174,5 @@ and no workflow may introduce one Odoo or repository call per source row.
 - [Recipe publication contract](../developer/contracts/recipe-lifecycle.md)
 - [Evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
 - [Python code map](python-code-map.md)
-- [M3 implementation record](../plans/migration-projects-phase-m3-project-authoring.md)
+- [Integrated run lifecycle](../developer/contracts/integrated-run-lifecycle.md)
+- [M4 implementation record](../plans/migration-projects-phase-m4-multi-recipe-runs.md)

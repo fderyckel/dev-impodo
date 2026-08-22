@@ -9,7 +9,7 @@ import duckdb
 from ....migration_foundation import MigrationStorageCompatibilityError
 
 
-MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m2"
+MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m4"
 MIGRATION_REGISTRY_VERSION = 1
 
 
@@ -96,6 +96,34 @@ EXPECTED_REGISTRY_COLUMNS = {
         "content_hash",
         "created_at",
     ),
+    "migration_run_requirement_plan": (
+        "migration_run_id",
+        "project_id",
+        "data_version_id",
+        "target_binding_id",
+        "contract_version",
+        "selected_revisions_json",
+        "dependencies_json",
+        "model_requirements_json",
+        "reference_requirements_json",
+        "application_order_json",
+        "content_hash",
+        "created_at",
+    ),
+    "migration_run_target_schema": (
+        "migration_run_id",
+        "target_binding_id",
+        "requirement_plan_hash",
+        "schema_hash",
+        "schema_json",
+        "captured_at",
+    ),
+    "migration_run_reference_bundle": (
+        "migration_run_id",
+        "target_binding_id",
+        "bundle_hash",
+        "bundle_json",
+    ),
     "recipe_identity": ("recipe_id",),
     "recipe": (
         "recipe_id",
@@ -129,13 +157,39 @@ EXPECTED_REGISTRY_COLUMNS = {
         "workspace_id",
         "recipe_id",
         "recipe_revision",
+        "recipe_semantic_hash",
         "target_binding_id",
         "physical_binding_hash",
         "parameter_values_hash",
         "status",
+        "issue_hash",
+        "mapping_id",
+        "mapping_content_hash",
         "evidence_hash",
         "created_at",
         "updated_at",
+    ),
+    "recipe_application_issue": (
+        "application_id",
+        "ordinal",
+        "code",
+        "level",
+        "message",
+        "recovery_action",
+        "recipe_ids_json",
+        "content_hash",
+    ),
+    "recipe_application_requirement": (
+        "application_id",
+        "model",
+        "fields_json",
+        "content_hash",
+    ),
+    "recipe_application_reference_requirement": (
+        "application_id",
+        "name",
+        "reference_hash",
+        "content_hash",
     ),
     "recipe_qualification": (
         "qualification_id",
@@ -247,7 +301,7 @@ def ensure_migration_registry_schema(
     connection: duckdb.DuckDBPyConnection,
     database_path: Path,
 ) -> None:
-    """Create an empty M2 registry or reject every other schema exactly."""
+    """Create an empty M4 registry or reject every other schema exactly."""
 
     tables = _tables(connection)
     if not tables:
@@ -405,7 +459,7 @@ def _initialize_migration_registry(
                 target_binding_id VARCHAR PRIMARY KEY,
                 project_id VARCHAR NOT NULL REFERENCES
                     migration_project_identity(project_id),
-                migration_run_id VARCHAR NOT NULL REFERENCES
+                migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
                     migration_run_identity(migration_run_id),
                 environment VARCHAR NOT NULL,
                 connection_target_hash VARCHAR NOT NULL,
@@ -418,6 +472,45 @@ def _initialize_migration_registry(
                 reference_snapshot_hashes_json VARCHAR NOT NULL,
                 content_hash VARCHAR NOT NULL,
                 created_at VARCHAR NOT NULL
+            );
+
+            CREATE TABLE migration_run_requirement_plan (
+                migration_run_id VARCHAR PRIMARY KEY REFERENCES
+                    migration_run_identity(migration_run_id),
+                project_id VARCHAR NOT NULL REFERENCES
+                    migration_project_identity(project_id),
+                data_version_id VARCHAR NOT NULL REFERENCES
+                    data_version_identity(data_version_id),
+                target_binding_id VARCHAR NOT NULL REFERENCES
+                    target_binding(target_binding_id),
+                contract_version INTEGER NOT NULL CHECK (contract_version = 1),
+                selected_revisions_json VARCHAR NOT NULL,
+                dependencies_json VARCHAR NOT NULL,
+                model_requirements_json VARCHAR NOT NULL,
+                reference_requirements_json VARCHAR NOT NULL,
+                application_order_json VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL
+            );
+
+            CREATE TABLE migration_run_target_schema (
+                migration_run_id VARCHAR PRIMARY KEY REFERENCES
+                    migration_run_identity(migration_run_id),
+                target_binding_id VARCHAR NOT NULL REFERENCES
+                    target_binding(target_binding_id),
+                requirement_plan_hash VARCHAR NOT NULL,
+                schema_hash VARCHAR NOT NULL,
+                schema_json VARCHAR NOT NULL,
+                captured_at VARCHAR NOT NULL
+            );
+
+            CREATE TABLE migration_run_reference_bundle (
+                migration_run_id VARCHAR PRIMARY KEY REFERENCES
+                    migration_run_identity(migration_run_id),
+                target_binding_id VARCHAR NOT NULL REFERENCES
+                    target_binding(target_binding_id),
+                bundle_hash VARCHAR NOT NULL,
+                bundle_json VARCHAR NOT NULL
             );
 
             CREATE TABLE recipe_identity (
@@ -473,16 +566,54 @@ def _initialize_migration_registry(
                     migration_workspace_identity(workspace_id),
                 recipe_id VARCHAR NOT NULL,
                 recipe_revision INTEGER NOT NULL,
+                recipe_semantic_hash VARCHAR NOT NULL,
                 target_binding_id VARCHAR NOT NULL REFERENCES
                     target_binding(target_binding_id),
                 physical_binding_hash VARCHAR NOT NULL,
                 parameter_values_hash VARCHAR NOT NULL,
                 status VARCHAR NOT NULL,
+                issue_hash VARCHAR NOT NULL,
+                mapping_id VARCHAR,
+                mapping_content_hash VARCHAR,
                 evidence_hash VARCHAR NOT NULL,
                 created_at VARCHAR NOT NULL,
                 updated_at VARCHAR NOT NULL,
+                UNIQUE (migration_run_id, recipe_id),
                 FOREIGN KEY (recipe_id, recipe_revision)
                     REFERENCES recipe_revision(recipe_id, version)
+            );
+
+            CREATE TABLE recipe_application_issue (
+                application_id VARCHAR NOT NULL REFERENCES
+                    recipe_application_identity(application_id),
+                ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
+                code VARCHAR NOT NULL,
+                level VARCHAR NOT NULL CHECK (
+                    level IN ('BLOCKER', 'REVIEW', 'INFORMATION')
+                ),
+                message VARCHAR NOT NULL,
+                recovery_action VARCHAR NOT NULL,
+                recipe_ids_json VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                PRIMARY KEY (application_id, ordinal)
+            );
+
+            CREATE TABLE recipe_application_requirement (
+                application_id VARCHAR NOT NULL REFERENCES
+                    recipe_application_identity(application_id),
+                model VARCHAR NOT NULL,
+                fields_json VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                PRIMARY KEY (application_id, model)
+            );
+
+            CREATE TABLE recipe_application_reference_requirement (
+                application_id VARCHAR NOT NULL REFERENCES
+                    recipe_application_identity(application_id),
+                name VARCHAR NOT NULL,
+                reference_hash VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                PRIMARY KEY (application_id, name)
             );
 
             CREATE TABLE recipe_qualification (

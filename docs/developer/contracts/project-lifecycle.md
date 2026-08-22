@@ -79,21 +79,25 @@ registry and do not issue per-row repository or Odoo calls.
 
 ## Current boundary
 
-M3 supports Project-native authoring, one-off completion, and optional Recipe
-publication. Phase M4 owns multi-Recipe application inside a run. No current
-browser path treats a Recipe as the Project or gives a Recipe ownership of a
-DataVersion.
+M4 supports Project-native authoring, one-off completion, optional Recipe
+publication, and integrated Test planning over several exact Recipe revisions.
+Each Recipe application has an isolated workspace while the run owns shared
+target evidence. No current browser path treats a Recipe as the Project or
+gives a Recipe ownership of a DataVersion. Execution and integrated
+qualification remain later phases.
 
 ## Verification
 
 - `tests/test_migration_project_phase_m1_foundation.py`
 - `tests/test_migration_project_phase_m2_source_packages.py`
 - `tests/test_migration_project_phase_m3_project_authoring.py`
+- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
 - `tests/test_preparation_jobs.py`
 
 ## Related documentation
 
 - [Recipe publication contract](recipe-lifecycle.md)
 - [Evidence lifecycle](evidence-lifecycle.md)
+- [Integrated Test run lifecycle](integrated-run-lifecycle.md)
 - [Project setup implementation](../workflow/00-project-setup.md)
 - [Architecture overview](../../architecture/overview.md)

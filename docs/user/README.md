@@ -22,12 +22,13 @@ categories, and bills of materials, use the
 - [Install Impodo on Windows](installation/windows.md)
 - [Connect to Odoo on this computer](guides/local-odoo.md)
 - [Prepare related tables](guides/related-tables.md)
+- [Plan an integrated multi-Recipe Test run](guides/integrated-test-runs.md)
 
 The user pages explain what to do, what to check, and what completion means.
 Implementation details are kept in the paired developer pages.
 
 Stage screenshots use isolated fictional workspaces and contain no operational
-or customer data. Recipe-first setup screenshots were removed when the M3
-Project overview replaced that browser lifecycle.
+or customer data. Recipe-first setup screenshots were removed when the
+Project-first browser replaced that lifecycle.
 
 ![The current empty Projects list makes one-off Project work the starting point and keeps Recipe reuse optional.](../images/user/01-project-list.png)

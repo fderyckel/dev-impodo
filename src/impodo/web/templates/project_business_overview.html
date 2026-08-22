@@ -21,6 +21,38 @@
     </section>
   {% endif %}
 
+  {% if recipes %}
+    <section class="next-action-card">
+      <div>
+        <p class="eyebrow">Integrated Test</p>
+        <h2>Apply selected Recipes together</h2>
+        <p>Choose exact Recipe revisions for one accepted Test data version. Impodo checks their dependency order and overlapping Odoo writes before it creates separate application workspaces.</p>
+      </div>
+      <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/new">Plan integrated Test</a>
+    </section>
+  {% endif %}
+
+  {% set test_runs = runs|selectattr('purpose.value', 'equalto', 'TEST')|list %}
+  {% if test_runs %}
+    <section class="overview-stage-list" aria-labelledby="test-runs-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Shared applications</p><h2 id="test-runs-title">Integrated Test runs</h2></div>
+      </div>
+      <ol class="overview-stages">
+        {% for run in test_runs %}
+          <li class="overview-stage {% if run.state.value == 'READY' %}complete{% else %}current{% endif %}">
+            <div class="overview-stage-number">{{ run.run_number }}</div>
+            <div class="overview-stage-copy">
+              <h3>{{ run.label }}</h3>
+              <p>{{ run.state.value|title }} · One run-level Odoo target</p>
+              <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Test run</a>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+  {% endif %}
+
   <section class="overview-stage-list">
     <div class="section-heading">
       <div><p class="eyebrow">Source packages</p><h2>Data versions</h2></div>

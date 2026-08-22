@@ -19,8 +19,8 @@ creates an empty Recipe shell.
 ## Eligibility
 
 Only an open Authoring workspace over a frozen Authoring DataVersion and an
-Authoring run can publish reusable meaning in M3. A future application
-workspace cannot publish Recipe meaning. The compiler requires current immutable source
+Authoring run can publish reusable meaning. An application workspace cannot
+publish Recipe meaning. The compiler requires current immutable source
 references, a submitted mapping, matching schema governance, current quality
 rules, and any referenced preparation, parameter, control, or standard-key
 contracts.
@@ -68,20 +68,24 @@ specific revision verifies both the protected artifact hash and logical
 payload hash before returning the envelope. List rendering must not open a
 workspace, protected payload, or Odoo connection per Recipe row.
 
-## Current boundary
+## Current application boundary
 
-M3 publishes reusable meaning but does not yet apply several Recipe revisions
-inside one MigrationRun. Phase M4 will introduce Project-owned
-RecipeApplications and integrated requirement planning. It must not restore
-Recipe-owned DataVersions or the superseded `/recipes` Project shell.
+M4 applies several exact Recipe revisions inside one Project-owned Test
+MigrationRun. Each receives a separate RecipeApplication and workspace while
+the run owns unioned target requirements and target evidence. Application
+creates fresh current evidence and cannot publish a Recipe successor. It does
+not restore Recipe-owned DataVersions or the superseded `/recipes` Project
+shell.
 
 ## Verification
 
 - `tests/test_migration_project_phase_m3_project_authoring.py`
+- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
 - `tests/test_recipe_representative_shapes.py`
 
 ## Related documentation
 
 - [Project lifecycle contract](project-lifecycle.md)
 - [Evidence lifecycle](evidence-lifecycle.md)
+- [Integrated Test run lifecycle](integrated-run-lifecycle.md)
 - [Architecture overview](../../architecture/overview.md)

@@ -187,4 +187,3 @@ def _render_project_overview(
         error=error,
         status_code=status_code,
     )
-

@@ -45,6 +45,16 @@ current immutable workspace evidence
 -> immutable Project-scoped RecipeRevision
 ```
 
+Integrated Test application then creates a separate current branch for each
+selected revision:
+
+```text
+accepted Test DataVersion + exact Recipe revisions
+-> one MigrationRun with shared target and requirement evidence
+-> isolated RecipeApplications and MigrationWorkspaces
+-> fresh mapping and focused current-data issues
+```
+
 The contained mapping-engine chain is:
 
 ```text
@@ -61,8 +71,9 @@ The chains meet through exact Project, DataVersion, workspace, mapping, and
 Recipe revision hashes; no stage infers linkage from display names. Recipe
 publication does not move or copy the DataVersion evidence into the Recipe.
 
-Project-owned multi-Recipe applications, qualification, and CutoverPlans belong
-to Phase M4 and later. They are not an active evidence chain in M3.
+Project-owned multi-Recipe application planning is current in M4. Execution,
+qualification, and CutoverPlans remain later evidence chains and cannot be
+inferred from an M4 `READY` application.
 
 ## Binding rules
 
@@ -169,6 +180,7 @@ call, metadata lookup, or database query is permitted inside a source-row loop.
 ## Related documentation
 
 - [Recipe and data-version lifecycle](recipe-lifecycle.md)
+- [Integrated Test run lifecycle](integrated-run-lifecycle.md)
 - [Source data](../workflow/01-source-data.md)
 - [Odoo data](../workflow/02-odoo-data.md)
 - [Match data](../workflow/03-match-data.md)

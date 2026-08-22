@@ -47,6 +47,12 @@ from ..application.recipe_authoring_service import RecipeAuthoringService
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
+from ..application.migration_run_planning_service import (
+    MigrationRunPlanningService,
+)
+from ..application.project_recipe_application_compiler import (
+    ProjectRecipeApplicationCompiler,
+)
 from ..application.project_recipe_publication_service import (
     ProjectRecipePublicationService,
 )
@@ -84,6 +90,15 @@ from ..adapters.duckdb.migration_workspace_state_repository import (
     MigrationWorkspaceStateRepository,
 )
 from ..adapters.duckdb.project_recipe_repository import ProjectRecipeRepository
+from ..adapters.duckdb.migration_run_planning_repository import (
+    MigrationRunPlanningRepository,
+)
+from ..adapters.duckdb.run_aware_schema_repository import (
+    RunAwareSchemaRepository,
+)
+from ..adapters.duckdb.run_aware_advanced_coverage_repository import (
+    RunAwareAdvancedCoverageRepository,
+)
 from ..adapters.data_version_artifact_store import DataVersionAwareArtifactStore
 from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from ..adapters.duckdb.mapping_repository import MappingRepository
@@ -96,6 +111,9 @@ from ..adapters.duckdb.preflight_repository import PreflightRepository
 from ..adapters.duckdb.execution_repository import ExecutionRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from ..adapters.duckdb.recipe_authoring_repository import RecipeAuthoringRepository
+from ..adapters.duckdb.recipe_application_repository import (
+    RecipeApplicationRepository,
+)
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
 from ..adapters.duckdb.source_repository import SourceRepository
@@ -164,6 +182,7 @@ from .routers.normalization import build_normalization_router
 from .routers.preflight import build_preflight_router
 from .routers.execution import build_execution_router
 from .routers.preparation import build_preparation_router
+from .routers.integrated_runs import build_integrated_runs_router
 from .routers.migration_projects import build_migration_projects_router
 from .routers.workspace_setup import build_workspace_setup_router
 from .routers.quality import build_quality_router
@@ -238,7 +257,14 @@ def create_local_app(
     recipe_authoring_repository = RecipeAuthoringRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
     source_repository = SourceRepository(database, derived_entity_repository)
-    schema_repository = SchemaRepository(database)
+    local_schema_repository = SchemaRepository(database)
+    run_planning_repository = MigrationRunPlanningRepository(
+        foundation_repository
+    )
+    schema_repository = RunAwareSchemaRepository(
+        local_schema_repository,
+        run_planning_repository,
+    )
     mapping_repository = MappingRepository(database)
     supporting_lookup_repository = SupportingLookupRepository(database)
     mapping_field_catalog_repository = MappingFieldCatalogRepository(database)
@@ -247,7 +273,11 @@ def create_local_app(
         database,
         resolved_artifacts,
     )
-    advanced_coverage_repository = AdvancedCoverageRepository(database)
+    local_advanced_coverage_repository = AdvancedCoverageRepository(database)
+    advanced_coverage_repository = RunAwareAdvancedCoverageRepository(
+        local_advanced_coverage_repository,
+        run_planning_repository,
+    )
     quality_repository = QualityRepository(database, project_repository)
     normalization_repository = NormalizationRepository(
         database,
@@ -374,6 +404,30 @@ def create_local_app(
         categorical_coverage=categorical_coverage,
         transformation_impacts=transformation_impact_repository,
     )
+    project_recipe_application_compiler = ProjectRecipeApplicationCompiler(
+        sources=WorkspaceMappingSourceProjection(foundation_repository),
+        schemas=schema_repository,
+        schema_workspace=schema_workspace,
+        references=advanced_coverage_repository,
+        preparation=derived_entity_repository,
+        mappings=mapping_workspace,
+        categorical=categorical_coverage,
+        application_state=RecipeApplicationRepository(database),
+    )
+    run_planning = MigrationRunPlanningService(
+        projects=migration_projects,
+        data_versions=data_versions,
+        recipes=project_recipes,
+        repository=run_planning_repository,
+        source_packages=source_packages,
+        source_projections=WorkspaceSourceProjectionService(
+            foundation_repository,
+            resolved_authorization,
+        ),
+        workspace_states=projects,
+        compiler=project_recipe_application_compiler,
+        authorization=resolved_authorization,
+    )
     quality = QualityService(
         mapping_repository,
         source_repository,
@@ -482,6 +536,7 @@ def create_local_app(
         project_authoring=project_authoring,
         project_recipes=project_recipes,
         recipe_publication=recipe_publication,
+        run_planning=run_planning,
         data_version_source_projection=data_version_source_projection,
         projects=projects,
         intake=SourceIntakeService(projects, resolved_artifacts),
@@ -623,6 +678,7 @@ def create_local_app(
     for router in (
         build_lifecycle_router(context),
         build_migration_projects_router(context),
+        build_integrated_runs_router(context),
         build_workspace_setup_router(context),
         build_target_router(context),
         build_sources_router(context),

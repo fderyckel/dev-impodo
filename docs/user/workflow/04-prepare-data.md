@@ -34,8 +34,9 @@ source, schema, key, or transformation decision is still changing.
 
 A Recipe reuses confirmed preparation rules, not a prepared snapshot. Every
 DataVersion must run preparation again from its own frozen source and current
-mapping confirmation. M3 currently exposes the Authoring workspace; later
-Recipe applications belong to the next phase.
+mapping confirmation. M4 creates a separate fresh workspace and mapping draft
+for each Recipe in an integrated Test plan; earlier prepared rows are not
+copied into it.
 
 This fresh run is mandatory even when the replacement files look identical.
 Preparation, quality findings, duplicate decisions, normalization approval,

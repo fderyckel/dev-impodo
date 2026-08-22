@@ -33,6 +33,9 @@ from ..application.reconciliation_service import ReconciliationService
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
+from ..application.migration_run_planning_service import (
+    MigrationRunPlanningService,
+)
 from ..application.project_recipe_publication_service import (
     ProjectRecipePublicationService,
 )
@@ -129,6 +132,7 @@ class WebContext:
     project_authoring: MigrationProjectAuthoringService
     project_recipes: ProjectRecipeService
     recipe_publication: ProjectRecipePublicationService
+    run_planning: MigrationRunPlanningService
     data_version_source_projection: WorkspaceDataVersionSourceService
     projects: ProjectService
     intake: SourceIntakeService

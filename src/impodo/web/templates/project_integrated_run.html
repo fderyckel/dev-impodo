@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ bundle.run.label }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ project.display_name }} · Integrated Test</p>
+      <h1>{{ bundle.run.label }}</h1>
+      <p>{{ progress.total_applications }} isolated Recipe application{% if progress.total_applications != 1 %}s{% endif %} use one accepted data version and one reviewed Odoo target.</p>
+    </div>
+    <span class="status {% if bundle.run.state.value == 'READY' %}registered{% else %}draft{% endif %}">{{ bundle.run.state.value|title }}</span>
+  </div>
+
+  <section class="form-card" aria-labelledby="run-context-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Shared run evidence</p>
+        <h2 id="run-context-title">One source delivery and one Odoo target</h2>
+      </div>
+    </div>
+    <dl class="summary-list">
+      <div><dt>Target database</dt><dd>{{ target_schema.database }}</dd></div>
+      <div><dt>Odoo version</dt><dd>{{ target_schema.odoo_version }}</dd></div>
+      <div><dt>Required models</dt><dd>{{ bundle.requirement_plan.model_requirements|length }}</dd></div>
+      <div><dt>Application workspaces</dt><dd>{{ progress.total_applications }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="overview-stage-list" aria-labelledby="application-order-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Validated order</p>
+        <h2 id="application-order-title">Recipe applications</h2>
+        <p>An application keeps its own mapping and evidence. A completed application never shares mutable state with the next one.</p>
+      </div>
+    </div>
+    <ol class="overview-stages">
+      {% for application in applications %}
+        {% set recipe = recipes[application.recipe_id] %}
+        {% set application_issues = issues[application.application_id] %}
+        <li class="overview-stage {% if application.status.value == 'READY' %}complete{% else %}current{% endif %}">
+          <div class="overview-stage-number">{{ loop.index }}</div>
+          <div class="overview-stage-copy">
+            <h3>{{ recipe.display_name }} · Recipe v{{ application.recipe_revision }}</h3>
+            <p>{{ application.status.value|replace('_', ' ')|title }} · Separate application workspace</p>
+            {% if application_issues %}
+              <div class="notice">
+                <strong>{{ application_issues[0].message }}</strong>
+                <p>{{ application_issues[0].recovery_action }}</p>
+              </div>
+            {% endif %}
+            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open application workspace</a>
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  <section class="form-card" aria-labelledby="requirements-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Shared Odoo review</p>
+        <h2 id="requirements-title">Unioned requirements</h2>
+      </div>
+    </div>
+    <ul>
+      {% for requirement in bundle.requirement_plan.model_requirements %}
+        <li><strong>{{ requirement.model }}</strong>: {{ requirement.fields|join(', ') }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <div class="actions">
+    <a class="button secondary" href="/projects/{{ project.project_id }}">Back to Project</a>
+  </div>
+{% endblock %}

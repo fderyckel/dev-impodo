@@ -403,15 +403,16 @@ architecture is defined by ADR-014 and the active implementation plan below.
 ## ADR-014 — Migration projects coordinate reusable Recipes and cutover plans
 
 **Status:** Accepted on 2026-08-22; implementation in progress. Phases M0
-through M3 are complete, and Phase M4 is next.
+through M4 are complete, and Phase M5 is next.
 
 **Supersedes:** ADR-012 and ADR-013 for aggregate ownership, DataVersion
 ownership, and cutover coordination.
 
-**Current implementation note:** Phase M3 passed on 2026-08-22. The browser
+**Current implementation note:** Phase M4 passed on 2026-08-22. The browser
 and active persistence path now use Project roots, Project-owned DataVersion
-source packages, runs, workspaces, and optional Project-scoped Recipes. Phase
-M4 owns multi-Recipe application and integrated run planning.
+source packages, runs, workspaces, optional Project-scoped Recipes, and
+integrated Test planning with isolated Recipe applications. Phase M5 owns
+integrated CutoverPlan qualification.
 
 **Decision:** `MigrationProject` is Impodo's operator-facing business identity
 and Project-level governance root. A Project owns its DataVersion,

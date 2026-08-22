@@ -1,7 +1,7 @@
 {
   "recipe_contract_version": 2,
-  "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
-  "payload_hash": "sha256:09729b7e6ddf62a85420018d66efb4ec8116dd0676fe86c86f75b3d6415c82d6",
+  "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
+  "payload_hash": "sha256:40f919c19cdc573875a44d46d1774716ee07f3454abb10012b889cbe320c2c62",
   "recipe": {
     "contract_versions": {
       "control_definitions": 1,
@@ -113,7 +113,10 @@
               "provider": {
                 "kind": "REFERENCE_LOOKUP",
                 "source_column_ids": ["column:customers.customer_type"],
-                "logical_reference_id": "reference:customer_type"
+                "logical_reference_id": "reference:customer_type",
+                "value_field": "target_value",
+                "on_blank": "block",
+                "on_unknown": "block"
               },
               "categorical_policy": "EXACT_TARGET_VALUE",
               "compare": true,
@@ -153,7 +156,8 @@
                 "kind": "SOURCE",
                 "source_column_ids": ["column:customers.open_balance"]
               },
-              "transform": {"kind": "DECIMAL", "trim": true},
+              "value_type": "decimal",
+              "transform": {"trim": true},
               "categorical_policy": null,
               "compare": true,
               "required": false
@@ -167,7 +171,14 @@
               "source_column_ids": ["column:customers.country_alias"],
               "target_model": "res.country",
               "target_key_fields": ["code"],
+              "target_key_mappings": [
+                {
+                  "source_column_id": "column:customers.country_alias",
+                  "target_field": "code"
+                }
+              ],
               "target_scope_fields": [],
+              "target_scope_mappings": [],
               "categorical_policy": "EXPLICIT_KEY_MATCH",
               "value_matches": [
                 {"source_value": "BEL", "target_value": "BE"},
@@ -314,15 +325,20 @@
     "quality": {
       "regenerate_mapping_and_schema_rules": true,
       "rules": [
-        {
-          "logical_rule_id": "quality:customers.open_balance_nonnegative",
-          "origin": "MANAGER_AUTHORED",
-          "kind": "DECIMAL_MINIMUM",
-          "dataset_id": "dataset:customers",
-          "column_ids": ["column:customers.open_balance"],
-          "parameters": {"minimum": "0.00"},
-          "severity": "BLOCK"
-        }
+          {
+            "logical_rule_id": "quality:customers.open_balance_nonnegative",
+            "origin": "SCOPE_APPROVED",
+            "kind": "METRIC_BOUNDARY",
+            "dataset_id": "dataset:customers",
+            "field_ids": ["field:customers.open_balance"],
+            "name": "Open customer balance is not negative",
+            "explanation": "Negative opening customer balances require review before migration.",
+            "owner_role": "DATA_MANAGER",
+            "parameters": {"metric": "minimum", "minimum": "0.00"},
+            "severity": "BLOCK",
+            "review_by_days": null,
+            "evidence_display": "masked"
+          }
       ]
     },
     "reference_dependencies": {

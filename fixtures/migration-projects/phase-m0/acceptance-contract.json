@@ -161,7 +161,7 @@
           "version": 1,
           "parent_version": null,
           "recipe_contract_version": 2,
-          "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+          "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
           "logical_dataset_ids": [
             "dataset:customers"
           ],
@@ -342,7 +342,7 @@
       "workspace_id": "40000000-0000-4000-8000-000000000003",
       "recipe_id": "50000000-0000-4000-8000-000000000001",
       "recipe_revision": 1,
-      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
       "target_binding_id": "90000000-0000-4000-8000-000000000002",
       "physical_binding_hash": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
       "evidence_hash": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
@@ -370,7 +370,7 @@
       "workspace_id": "40000000-0000-4000-8000-000000000005",
       "recipe_id": "50000000-0000-4000-8000-000000000001",
       "recipe_revision": 1,
-      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
       "target_binding_id": "90000000-0000-4000-8000-000000000003",
       "physical_binding_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "evidence_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -402,7 +402,7 @@
           {
             "recipe_id": "50000000-0000-4000-8000-000000000001",
             "recipe_revision": 1,
-            "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5"
+            "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559"
           },
           {
             "recipe_id": "50000000-0000-4000-8000-000000000002",
@@ -477,7 +477,7 @@
       {
         "recipe_id": "50000000-0000-4000-8000-000000000001",
         "recipe_revision": 1,
-        "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5"
+        "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559"
       },
       {
         "recipe_id": "50000000-0000-4000-8000-000000000002",

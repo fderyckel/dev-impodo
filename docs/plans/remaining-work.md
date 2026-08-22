@@ -17,8 +17,8 @@ read-back path. Mapping contract v11, validation-bound categorical coverage,
 split reusable control definitions/DataVersion expectations, legacy upgrade
 review, and the shared application-layer source scan are implemented.
 
-Recipe Phases R0 through R7 are complete: the implemented Recipe-first
-aggregate, DataVersion, TargetBinding, qualification, cutover,
+Recipe Phases R0 through R7 are complete historical evidence for the removed
+Recipe-first aggregate, DataVersion, TargetBinding, qualification, cutover,
 credential-rotation, intent, recovery, and bound contracts have deterministic
 fixtures and executable tests. The Recipe root, independent Recipe/DataVersion lineage,
 protected persistence, migration ledgers, recovery intents, workspace seals,
@@ -55,10 +55,11 @@ and made the [Migration projects and multi-Recipe cutover implementation
 plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) the
 active product-delivery focus.
 
-The current browser now uses `MigrationProject` as the business root, lets a
-Project exist without a Recipe, and makes DataVersion the owner of the complete
-source package. Phase M4 must apply several Project-scoped Recipes through one
-MigrationRun before integrated qualification and cutover planning continue.
+The current browser uses `MigrationProject` as the business root, lets a
+Project exist without a Recipe, makes DataVersion the owner of the complete
+source package, and applies several exact Project-scoped Recipe revisions
+through one planned Test MigrationRun. Phase M5 must qualify one exact
+integrated CutoverPlan before rollout work continues.
 
 The implementation must retain the current portable Recipe compiler, fresh
 Test and Production evidence, credential separation, Odoo 19 boundaries,
@@ -71,7 +72,7 @@ No deferred product track becomes current while this plan is active. Narrow
 maintenance, security, data-loss, regression, and performance fixes required
 to preserve the current workflow remain in scope.
 
-**Phase status, 2026-08-22:** Phases M0 through M3 are complete. The [Phase M0
+**Phase status, 2026-08-22:** Phases M0 through M4 are complete. The [Phase M0
 contracts](migration-projects-phase-m0-contracts.md) freeze the target
 ownership and integrated-plan rules. The [Phase M1 persistence
 foundation](migration-projects-phase-m1-foundation.md) implements the clean
@@ -82,8 +83,11 @@ foundation](migration-projects-phase-m2-source-packages.md) adds immutable
 DataVersion source packages, bounded workspace dataset projections, and the
 mapping-source adapter without copying source state. The [Phase M3
 implementation](migration-projects-phase-m3-project-authoring.md) composes the
-Project-first browser, one-off authoring, and optional Recipe publication.
-Phase M4 is next.
+Project-first browser, one-off authoring, and optional Recipe publication. The
+[Phase M4 implementation](migration-projects-phase-m4-multi-recipe-runs.md)
+adds one run-owned target and union requirement plan, isolated Recipe
+applications, dependency and write-collision validation, fresh mapping drafts,
+and bounded integrated status. Phase M5 is next.
 
 ## Completed product priority — Recipe test-to-production reuse
 
@@ -121,7 +125,8 @@ The Recipe work owned the following sequence. Steps 1 through 9 completed on
 
 On 2026-08-22, product ownership selected the Migration Project and
 multi-Recipe cutover correction above as the next priority. Phases M0 through
-M3 now implement Project-first authoring and optional Recipe publication. The
+M4 now implement Project-first authoring, optional Recipe publication, and
+integrated Test planning. The
 completed Recipe-first work remains historical implementation evidence, not
 the active architecture.
 

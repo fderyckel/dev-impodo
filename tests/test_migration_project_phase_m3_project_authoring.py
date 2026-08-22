@@ -362,6 +362,8 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
         listing = self.client.get("/projects")
         self.assertEqual(listing.status_code, 200)
         self.assertIn("No data projects yet", listing.text)
+        self.assertIn("New project", listing.text)
+        self.assertNotIn("Create Recipe", listing.text)
         form = self.client.get("/projects/new")
         self.assertEqual(form.status_code, 200)
         request_id = re.search(
@@ -408,6 +410,43 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
         )
         self.assertEqual(self.client.get("/recipes").status_code, 404)
         self.assertEqual(self.client.get("/recipes/new").status_code, 404)
+
+    def test_project_list_survives_a_clean_application_restart(self) -> None:
+        context = self.app.state.context
+        created = context.project_authoring.create(
+            actor=context.actor,
+            display_name="Restart-safe Project",
+            source_mode="FILE",
+            creation_request_id=str(uuid4()),
+        )
+        self.client.close()
+        restarted_app = create_local_app(
+            self.root,
+            launch_token="m3-restart-launch",
+            session_secret="m3-restart-session",
+            secret_store=MemorySecretStore(),
+            preparation_jobs_enabled=False,
+            odoo_capture_jobs_enabled=False,
+        )
+        self.app = restarted_app
+        self.client = TestClient(restarted_app)
+        launched = self.client.get(
+            "/launch?token=m3-restart-launch",
+            follow_redirects=False,
+        )
+        self.assertEqual(launched.status_code, 303)
+
+        listing = self.client.get("/projects")
+
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn("Restart-safe Project", listing.text)
+        self.assertEqual(
+            restarted_app.state.context.migration_projects.get(
+                created.project.project_id,
+                actor=restarted_app.state.context.actor,
+            ).project_id,
+            created.project.project_id,
+        )
 
     def test_file_acceptance_freezes_data_version_and_projects_references(self) -> None:
         context = self.app.state.context

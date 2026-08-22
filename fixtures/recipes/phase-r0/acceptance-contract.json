@@ -40,7 +40,7 @@
     {
       "version": 3,
       "parent_version": 2,
-      "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
       "payload_hash": "sha256:09729b7e6ddf62a85420018d66efb4ec8116dd0676fe86c86f75b3d6415c82d6",
       "state": "CURRENT"
     }
@@ -201,7 +201,7 @@
       "application_id": "44444444-4444-4444-8444-444444444444",
       "recipe_id": "11111111-1111-4111-8111-111111111111",
       "recipe_revision": 3,
-      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
       "data_version_id": "22222222-2222-4222-8222-222222222222",
       "workspace_project_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "source_artifact_hash": "sha256:f3b81a2e2a453ad8b662856b20736bcba04cd941f39c62bfdce02fdd67c6a629",
@@ -216,14 +216,14 @@
       "comparison_hash": "sha256:6565656565656565656565656565656565656565656565656565656565656565",
       "status": "APPLIED",
       "created_at": "2026-08-19T09:20:00+02:00",
-      "content_hash": "sha256:02a3266ccdfed50a142416b031a5ca5fec2f00e745f4257bbec21eaa9e3d19be"
+      "content_hash": "sha256:b80df749316359e4398a9d6cac3acff4a85a3fbce328aac8261b7095926048aa"
     },
     {
       "contract_version": 1,
       "application_id": "55555555-5555-4555-8555-555555555555",
       "recipe_id": "11111111-1111-4111-8111-111111111111",
       "recipe_revision": 3,
-      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
       "data_version_id": "33333333-3333-4333-8333-333333333333",
       "workspace_project_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       "source_artifact_hash": "sha256:8918995c887d59ad5cc2823f8193e97837658b0e886c3476767eedf85a08e786",
@@ -238,14 +238,14 @@
       "comparison_hash": "sha256:7575757575757575757575757575757575757575757575757575757575757575",
       "status": "APPLIED",
       "created_at": "2026-08-31T06:15:00+02:00",
-      "content_hash": "sha256:bd85e0a5ca2f3defb3fbd259e4f85336b1ddc9e80e8d2b456d3b013e5c6a060d"
+      "content_hash": "sha256:4a642012d33dde6319e24edfa354400af04c37ba887c40950936959b819e7068"
     },
     {
       "contract_version": 1,
       "application_id": "66666666-6666-4666-8666-666666666666",
       "recipe_id": "11111111-1111-4111-8111-111111111111",
       "recipe_revision": 3,
-      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
       "data_version_id": "33333333-3333-4333-8333-333333333333",
       "workspace_project_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       "source_artifact_hash": "sha256:8918995c887d59ad5cc2823f8193e97837658b0e886c3476767eedf85a08e786",
@@ -260,7 +260,7 @@
       "comparison_hash": "sha256:7979797979797979797979797979797979797979797979797979797979797979",
       "status": "APPLIED",
       "created_at": "2026-08-31T06:35:00+02:00",
-      "content_hash": "sha256:e6547b90b361389a1a1fb9e9b917d83a8d988aaaa8787f21689ea6e7fb45bd6d"
+      "content_hash": "sha256:2209ce11f0d0046c603a0b1331b14e43b81251657b90f0c0c6803282f244acb9"
     }
   ],
   "application_readiness": [
@@ -282,10 +282,10 @@
     "qualification_id": "77777777-7777-4777-8777-777777777777",
     "recipe_id": "11111111-1111-4111-8111-111111111111",
     "recipe_revision": 3,
-    "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+    "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
     "environment": "TEST",
     "application_id": "44444444-4444-4444-8444-444444444444",
-    "application_evidence_hash": "sha256:02a3266ccdfed50a142416b031a5ca5fec2f00e745f4257bbec21eaa9e3d19be",
+    "application_evidence_hash": "sha256:b80df749316359e4398a9d6cac3acff4a85a3fbce328aac8261b7095926048aa",
     "target_binding_id": "91111111-1111-4111-8111-111111111111",
     "target_binding_hash": "sha256:2e376657556dcfd0450f9f37bd428fcae01c39b2ea271c682667f0b992944b63",
     "preparation_hash": "sha256:8181818181818181818181818181818181818181818181818181818181818181",
@@ -299,20 +299,20 @@
     "outcome": {"created": 3, "updated": 0, "unchanged": 0, "failed": 0},
     "qualified_by": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
     "qualified_at": "2026-08-19T10:00:00+02:00",
-    "content_hash": "sha256:e569be87e53d63540c778c99a39bc7c1422841792f6b38c5ad82ff03924746e4"
+    "content_hash": "sha256:db05d5c6a3697b179c83c88d0a34df38a7c818a190d1e383a1fa1a64245dc999"
   },
   "cutover_candidate": {
     "contract_version": 1,
     "cutover_candidate_id": "88888888-8888-4888-8888-888888888888",
     "recipe_id": "11111111-1111-4111-8111-111111111111",
     "recipe_revision": 3,
-    "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+    "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
     "qualification_id": "77777777-7777-4777-8777-777777777777",
-    "qualification_evidence_hash": "sha256:e569be87e53d63540c778c99a39bc7c1422841792f6b38c5ad82ff03924746e4",
+    "qualification_evidence_hash": "sha256:db05d5c6a3697b179c83c88d0a34df38a7c818a190d1e383a1fa1a64245dc999",
     "expected_recipe_optimistic_revision": 6,
     "selected_by": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
     "selected_at": "2026-08-19T10:05:00+02:00",
-    "content_hash": "sha256:ac8aa02b65bb766c5d468e7b6498e706d4119af7c17a879542106de12f9c3baf"
+    "content_hash": "sha256:e9cb844fc2454d329d91a6cc4191cefb40859b8121d67aed9dbc1926b8fa5c57"
   },
   "credential_rotation": {
     "contract_version": 1,
@@ -324,12 +324,12 @@
     "new_target_binding_id": "93333333-3333-4333-8333-333333333333",
     "new_target_binding_hash": "sha256:a79da238114b8d268195605cd63eb592635824ff963787bf84bf5aa6bd632a9d",
     "invalidated_application_id": "55555555-5555-4555-8555-555555555555",
-    "preserved_recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+    "preserved_recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
     "preserved_source_selection_hash": "sha256:7171717171717171717171717171717171717171717171717171717171717171",
     "invalidated_evidence": ["COMPARISON", "LOAD_READINESS"],
     "recovery_actions": ["REPROBE_TARGET", "REFRESH_TARGET_EVIDENCE", "RECOMPARE"],
     "rotated_at": "2026-08-31T06:20:00+02:00",
-    "content_hash": "sha256:3ccb77690a2b1a7ca7f5b649615f3a596a68a3d18481456bac428ca6a8705f86"
+    "content_hash": "sha256:acba101669fc388b0843e4dea732dce6775b4921bea18573765dbcbc2e51ec99"
   },
   "production_rollout_sequence": [
     "LATEST_DATA_VERSION_SEALED",

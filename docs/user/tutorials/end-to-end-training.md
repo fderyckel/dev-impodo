@@ -129,9 +129,10 @@ publish them as a Recipe revision. Recipe publication does not move the
 DataVersion, source files, Odoo credentials, comparison, approval, or load
 evidence into the Recipe.
 
-Applying one or several published Recipe revisions to replacement rollout data
-is not available in M3. That Project-owned run workflow is the next
-implementation phase.
+Applying one or several published Recipe revisions to an already accepted Test
+DataVersion is available from **Plan integrated Test**. It creates fresh,
+isolated application drafts. Execution, qualification, rollout selection, and
+Production application are not part of that current M4 planning flow.
 
 ## 2. Check and confirm the source files
 

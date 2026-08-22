@@ -240,11 +240,14 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.assertTrue(
             (protected_root / publication.manifest.provenance_storage_key).is_file()
         )
-        self.assertFalse(
-            (
-                self.database.project_directory(self.project.project_id)
-                / "protected"
-            ).exists()
+        self.assertEqual(
+            tuple(
+                (
+                    self.database.project_directory(self.project.project_id)
+                    / "protected"
+                ).rglob("*.iprv")
+            ),
+            (),
         )
 
     def test_pinned_capture_prepares_offline_without_portable_ids(self) -> None:

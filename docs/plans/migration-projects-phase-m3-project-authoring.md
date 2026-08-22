@@ -8,8 +8,9 @@ status: complete
 
 ## Status
 
-Completed on 2026-08-22. M3 switches the current browser and local composition
-to the Project-first architecture accepted in ADR-014. Phase M4 is next.
+Completed on 2026-08-22. M3 switched the browser and local composition to the
+Project-first architecture accepted in ADR-014. M4 subsequently added
+integrated multi-Recipe Test planning.
 
 ## Implemented outcome
 

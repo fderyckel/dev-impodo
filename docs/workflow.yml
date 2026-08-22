@@ -98,6 +98,30 @@ stages:
     references:
       - docs/user/guides/related-tables.md
 
+  - id: integrated-test
+    order: 7
+    label: Integrated multi-Recipe Test run
+    navigation: false
+    user_doc: docs/user/guides/integrated-test-runs.md
+    developer_doc: docs/developer/workflow/07-integrated-test-runs.md
+    router_modules:
+      - src/impodo/web/routers/integrated_runs.py
+    templates:
+      - src/impodo/web/templates/project_test_run_new.html
+      - src/impodo/web/templates/project_integrated_run.html
+    code_references:
+      - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService
+      - src/impodo/application/project_recipe_application_compiler.py::ProjectRecipeApplicationCompiler
+      - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository
+      - src/impodo/adapters/duckdb/run_aware_schema_repository.py::RunAwareSchemaRepository
+      - src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py::RunAwareAdvancedCoverageRepository
+    tests:
+      - tests/test_migration_project_phase_m4_multi_recipe_runs.py
+    contracts:
+      - docs/developer/contracts/integrated-run-lifecycle.md
+      - docs/developer/contracts/project-lifecycle.md
+      - docs/developer/contracts/evidence-lifecycle.md
+
   - id: odoo
     order: 2
     label: Odoo data

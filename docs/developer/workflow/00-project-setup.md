@@ -16,7 +16,8 @@ ever publishing reusable rules.
 ## Entry conditions
 
 The operator has an authenticated local session and can create Projects. The
-new storage root must match the exact M2/M3 generations; rejected Recipe-first
+new storage root must match the exact M4 registry and M2 isolated-store
+generations; rejected Recipe-first
 storage requires the reviewed development reset rather than an upgrade.
 
 ## Implementation flow
@@ -123,5 +124,6 @@ preparation, comparison, and Odoo access remain batched rather than per row.
 
 - [User setup guide](../../user/getting-started.md)
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
+- [Integrated multi-Recipe Test runs](07-integrated-test-runs.md)
 - [Recipe publication contract](../contracts/recipe-lifecycle.md)
 - [Source data implementation](01-source-data.md)

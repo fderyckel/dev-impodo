@@ -39,6 +39,38 @@ with exactly one target match.
 A relation whose natural target identity is obtained from another dataset in
 the same source package.
 
+**Migration Project**  
+The business and governance root for one migration effort. It owns
+DataVersion, run, workspace, Recipe-membership, and future CutoverPlan
+lineages; it can exist with no Recipe.
+
+**DataVersion**  
+One immutable, complete Project source package. It can contain several files
+and logical datasets used by different Recipe applications.
+
+**Recipe**  
+A Project-scoped reusable identity whose revisions save portable source,
+transformation, mapping, target-requirement, and reusable-check meaning. It
+does not own source rows, a target, credentials, approvals, or execution.
+
+**Recipe application**  
+One use of one exact Recipe revision within a MigrationRun. It owns fresh
+current mapping evidence in one isolated workspace.
+
+**MigrationRun**  
+One coordinated Authoring, Test, or Production use of one DataVersion and one
+target. A multi-Recipe run owns the shared target binding, union requirement
+plan, application order, and integrated status.
+
+**MigrationWorkspace**  
+An isolated technical working area that references selected DataVersion
+datasets and contains current mapping and operational evidence. It is not the
+Migration Project.
+
+**TargetBinding**  
+Non-secret run evidence identifying one exact Odoo target, purpose, version,
+and credential generation. It never contains the credential itself.
+
 **Natural identity**  
 An ordered tuple of stable business values used to identify a record without
 a target-database-specific ID.

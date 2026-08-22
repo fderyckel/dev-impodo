@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Plan integrated Test &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ project.display_name }}</p>
+      <h1>Plan an integrated Test run</h1>
+      <p>Select the exact Recipe revisions that should use one accepted Test data version and one reviewed Odoo target.</p>
+    </div>
+  </div>
+
+  {% if not data_versions %}
+    <section class="notice" aria-labelledby="test-data-required">
+      <h2 id="test-data-required">An accepted Test data version is required</h2>
+      <p>Create and accept the complete Test delivery before planning applications. Impodo will not treat the Authoring sample as Test evidence.</p>
+    </section>
+  {% elif not recipes %}
+    <section class="notice" aria-labelledby="recipes-required">
+      <h2 id="recipes-required">Save at least one Recipe first</h2>
+      <p>Finish the reusable mapping work in an Authoring workspace, then save it as a Recipe.</p>
+    </section>
+  {% elif not target_workspaces %}
+    <section class="notice" aria-labelledby="target-required">
+      <h2 id="target-required">Reviewed Odoo evidence is required</h2>
+      <p>Capture Odoo 19 fields in an Authoring workspace before starting the integrated Test run.</p>
+    </section>
+  {% else %}
+    <form method="post" action="/projects/{{ project.project_id }}/test-runs/new" class="form-card">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="operation_id" value="{{ operation_id }}">
+      <input type="hidden" name="expected_project_revision" value="{{ project.optimistic_revision }}">
+      <label>
+        Run name
+        <input name="label" value="{{ label }}" required maxlength="200">
+      </label>
+
+      <label>
+        Accepted Test data version
+        <select name="data_version_id" required>
+          {% for version in data_versions %}
+            <option value="{{ version.data_version_id }}" {% if version.data_version_id == selected_data_version_id %}selected{% endif %}>{{ version.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Reviewed Odoo evidence from
+        <select name="target_workspace_id" required>
+          {% for workspace in target_workspaces %}
+            <option value="{{ workspace.workspace_id }}" {% if workspace.workspace_id == selected_target_workspace_id %}selected{% endif %}>{{ workspace.display_name }}</option>
+          {% endfor %}
+        </select>
+        <span class="hint">Choose the workspace where the Odoo 19 fields and supporting lists were reviewed.</span>
+      </label>
+
+      <fieldset>
+        <legend>Recipe revisions</legend>
+        <p>Each selected Recipe receives a separate workspace. The published revision remains unchanged.</p>
+        {% for recipe in recipes %}
+          {% set value = recipe.recipe_id ~ ':' ~ recipe.current_recipe_revision %}
+          <label class="checkbox-row">
+            <input
+              type="checkbox"
+              name="recipe_revision"
+              value="{{ value }}"
+              {% if not selected_values or value in selected_values %}checked{% endif %}
+            >
+            <span><strong>{{ recipe.display_name }}</strong> &middot; Recipe v{{ recipe.current_recipe_revision }}<br>{{ recipe.business_purpose }}</span>
+          </label>
+        {% endfor %}
+      </fieldset>
+
+      {% if recipes|length > 1 %}
+        <fieldset>
+          <legend>Required order</legend>
+          <p>Select an order only when one Recipe must finish and reconcile before another begins.</p>
+          {% for before in recipes %}
+            {% for after in recipes %}
+              {% if before.recipe_id != after.recipe_id %}
+                {% set edge = before.recipe_id ~ '>' ~ after.recipe_id %}
+                <label class="checkbox-row">
+                  <input
+                    type="checkbox"
+                    name="dependency"
+                    value="{{ edge }}"
+                    {% if edge in dependency_values %}checked{% endif %}
+                  >
+                  <span>{{ before.display_name }} before {{ after.display_name }}</span>
+                </label>
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+        </fieldset>
+      {% endif %}
+
+      <div class="notice">
+        <strong>One shared Odoo review</strong>
+        <p>Impodo will validate the union of required Odoo models and fields once. Reordering cannot resolve overlapping writes.</p>
+      </div>
+      <div class="actions">
+        <button class="button primary" type="submit">Start integrated Test</button>
+        <a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

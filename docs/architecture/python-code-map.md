@@ -25,6 +25,8 @@ the historical `project.duckdb` filename or `WorkspaceState` type name.
 | Supply mapping source contracts | `WorkspaceMappingSourceProjection` | bounded workspace source projection |
 | Compile reusable meaning | `RecipeAuthoringService.compile_workspace` | reads current workspace evidence only |
 | Publish optional Recipes | `ProjectRecipePublicationService` | `ProjectRecipeRepository`, protected Recipe store |
+| Plan an integrated Test run | `MigrationRunPlanningService` | `MigrationRunPlanningRepository`, Project run routes |
+| Materialize a fresh Recipe application | `ProjectRecipeApplicationCompiler` | one isolated workspace and run-aware target projections |
 
 `web/app.py` composes these boundaries. It does not compose the superseded
 Recipe-root list, creation, deletion, Test-application, Production-application,
@@ -77,6 +79,24 @@ No source row or source artifact is copied into the clean workspace store.
 Publication records origin provenance. It never updates DataVersion ownership,
 Project identity, workspace identity, run identity, or cutover authority.
 
+## Integrated Test run trace
+
+1. The Project route resolves one accepted Test DataVersion, exact Recipe
+   revisions, explicit dependencies, and one reviewed Authoring target.
+2. `MigrationRunPlanningService.review_test_run` validates each revision once,
+   rejects cycles and overlapping writable fields, and creates a canonical
+   union requirement plan.
+3. One run-owned schema projection and supporting-reference bundle are
+   filtered to that union; there is no Odoo capture per Recipe.
+4. `MigrationRunPlanningRepository.provision_integrated_run` creates the run,
+   target binding, applications, and distinct workspaces in one restart-safe
+   operation.
+5. `ProjectRecipeApplicationCompiler` selects each application's DataVersion
+   datasets and builds fresh mapping evidence through the existing mapping
+   service.
+6. The run page reads status and issues through bounded registry queries and
+   does not open every workspace.
+
 ## Existing workspace workflow
 
 | Stage | Main application service | Browser route prefix |
@@ -95,11 +115,12 @@ functions. Its value is a MigrationWorkspace ID. New code should use
 
 ## Query and Odoo performance
 
-`MigrationFoundationRepository.list_projects` and Project overview lists read
-bounded registry projections. Do not open each DataVersion or workspace store
-inside a list loop. Mapping, preparation, and comparison may stream or batch
-rows, but they must not issue one repository or Odoo request per row, field, or
-relationship.
+`MigrationFoundationRepository.list_projects`, run history, integrated
+progress, and application issues use bounded registry projections. The
+Project overview's single Recipe-publication readiness check may open its one
+Authoring workspace; it must not grow into one workspace open per list row.
+Mapping, preparation, and comparison may stream or batch rows, but they must
+not issue one repository or Odoo request per row, field, or relationship.
 
 Odoo adapters expose closed Odoo 19 operations. Search and schema reads are
 batched by model, target keys are indexed once, and write authority remains
@@ -111,5 +132,6 @@ separate from read capability.
 - `tests/test_migration_project_phase_m1_foundation.py`
 - `tests/test_migration_project_phase_m2_source_packages.py`
 - `tests/test_migration_project_phase_m3_project_authoring.py`
+- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
 - `tests/test_recipe_representative_shapes.py`
 - `tests/test_preparation_jobs.py`
