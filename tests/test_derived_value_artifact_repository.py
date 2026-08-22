@@ -27,7 +27,7 @@ from impodo.domain.staging.preparation_session import (
     PreparationSessionStatus,
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactReport
-from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
 from impodo.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
@@ -61,7 +61,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         self.database = DuckDbDatabase(self.temporary.name)
         self.projects = ProjectRepository(self.database)
         self.repository = PreparationSessionRepository(self.database)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Derived artifact repository",
             source_system="CSV",

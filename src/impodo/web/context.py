@@ -61,30 +61,30 @@ from ..models import OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
 from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
 from ..odoo_scope import OdooApiScope
-from ..projects import MigrationProject, ProjectService
+from ..projects import WorkspaceState, ProjectService
 from ..application.odoo_connection_service import OdooConnectionTestService
 from ..secrets import SecretStore
 from .remote_connection import RemoteConnectionStatusService
 
-ConnectionTester = Callable[[MigrationProject, str], TargetFingerprint]
+ConnectionTester = Callable[[WorkspaceState, str], TargetFingerprint]
 
 ReadIdentityProbe = Callable[
-    [MigrationProject, str, tuple[str, ...]],
+    [WorkspaceState, str, tuple[str, ...]],
     OdooReadIdentity,
 ]
 
 WriteIdentityProbe = Callable[
-    [MigrationProject, str, OdooApiScope],
+    [WorkspaceState, str, OdooApiScope],
     OdooWriteIdentity,
 ]
 
-SchemaReader = Callable[[MigrationProject, str], MetadataSnapshot]
+SchemaReader = Callable[[WorkspaceState, str], MetadataSnapshot]
 
-ModelCatalogReader = Callable[[MigrationProject, str], RecordSnapshot]
+ModelCatalogReader = Callable[[WorkspaceState, str], RecordSnapshot]
 
 BrowserReadinessReader = Callable[
     [
-        MigrationProject,
+        WorkspaceState,
         tuple[MetadataRequest, ...],
         tuple[RecordRequest, ...],
     ],
@@ -92,12 +92,12 @@ BrowserReadinessReader = Callable[
 ]
 
 OdooWriteExecutorFactory = Callable[
-    [MigrationProject, str, OdooApiScope], OdooWriteExecutor
+    [WorkspaceState, str, OdooApiScope], OdooWriteExecutor
 ]
 OdooReadbackReaderFactory = Callable[
-    [MigrationProject, str, OdooApiScope], OdooReadbackReader
+    [WorkspaceState, str, OdooApiScope], OdooReadbackReader
 ]
-OdooSourceCaptureFactory = Callable[[MigrationProject, str], OdooSourceCapturePort]
+OdooSourceCaptureFactory = Callable[[WorkspaceState, str], OdooSourceCapturePort]
 
 
 @dataclass(slots=True)

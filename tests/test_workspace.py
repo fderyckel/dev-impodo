@@ -50,7 +50,7 @@ from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectStatus,
     SourceMode,
@@ -105,7 +105,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             sha256="a" * 64,
             received_at=now,
         )
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Customer migration",
             source_system="CSV",

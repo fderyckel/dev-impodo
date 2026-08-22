@@ -37,18 +37,18 @@ from ..odoo_writer import (
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
-from ..projects import MigrationProject, OdooConnectionMode, SourceMode
+from ..projects import WorkspaceState, OdooConnectionMode, SourceMode
 from ..workspace_errors import WorkspaceError
 from .preflight_service import PreflightService
 
 
 DEFAULT_CREATE_BATCH_ROWS = 10
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
-ReadCredentialBindingProvider = Callable[[MigrationProject], str]
+ReadCredentialBindingProvider = Callable[[WorkspaceState], str]
 
 
 class ExecutionProjectRepository(Protocol):
-    def get(self, project_id: str) -> MigrationProject: ...
+    def get(self, project_id: str) -> WorkspaceState: ...
 
 
 class ExecutionJournalRepository(Protocol):
@@ -564,7 +564,7 @@ class ExecutionService:
 
     @staticmethod
     def _validate_execution_scope(
-        project: MigrationProject,
+        project: WorkspaceState,
         preview: ExecutionPreview,
         executor: OdooWriteExecutor,
     ) -> None:
@@ -1222,7 +1222,7 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
 
 
 def _execution_snapshot_error(
-    project: MigrationProject,
+    project: WorkspaceState,
     snapshot: ExecutionSnapshot,
 ) -> str:
     """Explain an execution-shape problem before the user can press Load."""
@@ -1448,7 +1448,7 @@ def _execution_snapshot_error(
 
 
 def _read_credential_snapshot_error(
-    project: MigrationProject,
+    project: WorkspaceState,
     snapshot: ExecutionSnapshot,
     *,
     current_read_credential_binding: str | None,

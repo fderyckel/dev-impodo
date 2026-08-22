@@ -29,7 +29,7 @@ from ..domain.schema.governance import (
 from ..models import OdooReadIdentity, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectStatus,
     SourceMode,
@@ -54,7 +54,7 @@ _CONTENT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 class SchemaProjectReader(Protocol):
     """Read the registered project and configured target identity."""
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         """Return registration, target identity, and permitted-model scope."""
         ...
 
@@ -501,7 +501,7 @@ class SchemaWorkspaceService:
         project_id: str,
         *,
         actor: Actor,
-    ) -> tuple[MigrationProject, set[str]]:
+    ) -> tuple[WorkspaceState, set[str]]:
         self.authorization.require(
             actor,
             Capability.SCHEMA_DISCOVER,
@@ -532,7 +532,7 @@ class SchemaWorkspaceService:
 
     def _schema_models_from_snapshot(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         permitted: set[str],
         snapshot: MetadataSnapshot,
         *,
@@ -624,7 +624,7 @@ class SchemaWorkspaceService:
 
     def _store_catalog(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         models: tuple[SchemaModel, ...],
         connection_mode: str,
@@ -770,7 +770,7 @@ class SchemaWorkspaceService:
         return governance
 
 
-def _target_identity_hash(project: MigrationProject) -> str:
+def _target_identity_hash(project: WorkspaceState) -> str:
     return target_identity_hash(
         connection_mode=(
             project.odoo_connection_mode.value
@@ -788,7 +788,7 @@ def _validate_read_credential_binding_hash(value: str) -> None:
 
 
 def _validate_read_identity(
-    project: MigrationProject,
+    project: WorkspaceState,
     identity: OdooReadIdentity | None,
     *,
     required_models: tuple[str, ...],

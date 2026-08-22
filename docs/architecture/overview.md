@@ -11,14 +11,15 @@ those boundaries.
 Impodo currently runs as a local browser application. It helps a data manager
 govern source data and perform a bounded migration to Odoo 19.
 
-This page describes the implemented Recipe-first composition. Product
+This page describes the current Recipe-first browser composition. Product
 ownership accepted a replacement Project and multi-Recipe architecture in
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans).
-That target remains planned in the [Migration projects and multi-Recipe
-cutover implementation
-plan](../plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md);
-the browser behavior below does not change until its implementation gates
-pass.
+Phases M0 through M2 of the [Migration projects and multi-Recipe cutover
+implementation
+plan](../plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
+have established the clean Project, DataVersion source-package, run, and
+workspace foundation. Phase M3 owns the browser cutover. The browser behavior
+below remains current until that gate passes.
 
 For uploaded files, the supported `FILE` workflow accepts CSV and XLSX data,
 maps and prepares it, compares it with Odoo without writing, and creates an
@@ -103,8 +104,9 @@ operation:
 1. The `Recipe` owns the reusable migration identity and revision history.
 2. Authoring `DataVersion` 1 provides the first editable data package and
    lifecycle context.
-3. A contained `MigrationProject` workspace stores that DataVersion's source,
-   target, mapping, credentials, evidence, and audit state.
+3. A contained workspace, represented in the current code by `WorkspaceState`,
+   stores that DataVersion's source, target, mapping, credentials, evidence,
+   and audit state.
 
 Each object has its own identifier. A workspace identifier must not be used as
 a Recipe or DataVersion identifier. Current creation writes the exact Recipe,

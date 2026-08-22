@@ -17,7 +17,7 @@ from impodo.models import (
     TargetFingerprint,
     target_identity_hash,
 )
-from impodo.projects import MigrationProject, OdooConnectionMode
+from impodo.projects import WorkspaceState, OdooConnectionMode
 from impodo.planner import PreflightRequirementPlan, ReferenceReadRequirement
 from impodo.secrets import MemorySecretStore
 from impodo.web.target_credentials import (
@@ -37,7 +37,7 @@ HASH = "sha256:" + "1" * 64
 class RemoteReadinessCredentialTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = MemorySecretStore()
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id="project-1",
             name="Production customers",
             source_system="CSV",

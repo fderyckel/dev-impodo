@@ -44,7 +44,7 @@ from ..models import (
     canonical_json_bytes,
 )
 from ..planner import PreflightRequirementPlan
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..source_snapshot_io import load_source_snapshot_table, validate_snapshot_for_dataset
 from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SourceSelection
 from ..workspace_errors import WorkspaceError
@@ -78,7 +78,7 @@ class OdooComparisonPublication:
 
 def build_odoo_comparison_publication(
     *,
-    project: MigrationProject,
+    project: WorkspaceState,
     frozen: FrozenPreflightInput,
     selection: SourceSelection,
     source_snapshots: tuple[SourceSnapshot, ...],
@@ -380,7 +380,7 @@ def _origin_for_record(
 
 
 def _validate_live_binding(
-    project: MigrationProject,
+    project: WorkspaceState,
     binding: OdooSourceBinding,
     metadata: MetadataSnapshot,
     records: RecordSnapshot,
@@ -639,7 +639,7 @@ def _readiness_row(
 
 
 def _report(
-    project: MigrationProject,
+    project: WorkspaceState,
     frozen: FrozenPreflightInput,
     run_id: str,
     model: str,

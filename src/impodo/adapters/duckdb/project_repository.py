@@ -19,7 +19,7 @@ import duckdb
 
 from ...access import Actor
 from ...projects import (
-    MigrationProject,
+    WorkspaceState,
     ProjectConflictError,
     ProjectCreationReplayError,
     ProjectError,
@@ -47,7 +47,7 @@ class ProjectRepository(DuckDbRegistryRepository):
 
     def create(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         recipe_id: str,
         data_version_id: str,
@@ -84,14 +84,14 @@ class ProjectRepository(DuckDbRegistryRepository):
             creation_request_hash=creation_request_hash,
         )
 
-    def create_unlinked(self, project: MigrationProject, *, actor: Actor) -> None:
+    def create_unlinked(self, project: WorkspaceState, *, actor: Actor) -> None:
         """Create a contained workspace before DataVersion adoption."""
 
         self._create_workspace(project, actor=actor)
 
     def _create_workspace(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         actor: Actor,
         recipe_id: str | None = None,
@@ -170,12 +170,12 @@ class ProjectRepository(DuckDbRegistryRepository):
         if project_dir.is_dir():
             shutil.rmtree(project_dir)
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         """Load one complete project aggregate from its contained database."""
 
         return self._get_project(project_id)
 
-    def _get_project(self, project_id: str) -> MigrationProject:
+    def _get_project(self, project_id: str) -> WorkspaceState:
         resolution = self._recipe_workspace_resolution(project_id)
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
@@ -329,7 +329,7 @@ class ProjectRepository(DuckDbRegistryRepository):
 
     def save(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         expected_revision: int,
         event_type: str,
@@ -423,7 +423,7 @@ class ProjectRepository(DuckDbRegistryRepository):
 
     def add_source_file(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -550,7 +550,7 @@ class ProjectRepository(DuckDbRegistryRepository):
             )
     def remove_source_file(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -621,7 +621,7 @@ class ProjectRepository(DuckDbRegistryRepository):
 
     def update_schema_scope(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         expected_revision: int,
         actor: Actor,
@@ -683,7 +683,7 @@ class ProjectRepository(DuckDbRegistryRepository):
 
     def _update_registry(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         recipe_id: str | None = None,
         data_version_id: str | None = None,
@@ -882,7 +882,7 @@ class ProjectRepository(DuckDbRegistryRepository):
                 continue
             self.discard_unlinked(project_id)
 
-    def _get_project_unresolved(self, project_id: str) -> MigrationProject:
+    def _get_project_unresolved(self, project_id: str) -> WorkspaceState:
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -908,7 +908,7 @@ class ProjectRepository(DuckDbRegistryRepository):
     def _insert_initial_recipe_workspace(
         connection: duckdb.DuckDBPyConnection,
         *,
-        project: MigrationProject,
+        project: WorkspaceState,
         recipe_id: str,
         data_version_id: str,
         creation_request_id: str | None,
@@ -1026,7 +1026,7 @@ class ProjectRepository(DuckDbRegistryRepository):
     def _insert_project(
         self,
         connection: duckdb.DuckDBPyConnection,
-        project: MigrationProject,
+        project: WorkspaceState,
     ) -> None:
         connection.execute(
             f"INSERT INTO project VALUES ({', '.join('?' for _ in range(26))})",
@@ -1035,7 +1035,7 @@ class ProjectRepository(DuckDbRegistryRepository):
     def _update_project(
         self,
         connection: duckdb.DuckDBPyConnection,
-        project: MigrationProject,
+        project: WorkspaceState,
     ) -> None:
         connection.execute(
             """
@@ -1069,7 +1069,7 @@ class ProjectRepository(DuckDbRegistryRepository):
             """,
             _project_values(project)[1:] + [project.project_id],
         )
-    def _write_registration_manifest(self, project: MigrationProject) -> Path:
+    def _write_registration_manifest(self, project: WorkspaceState) -> Path:
         payload = {
             "contract_version": 4,
             "project": {

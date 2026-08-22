@@ -11,11 +11,11 @@ from ..models import OdooWriteIdentity
 from ..odoo_scope import OdooApiScope
 from ..odoo_writer import Json2WriteExecutor, OdooWriteExecutor
 from ..odoo_readback import Json2ReadbackReader, OdooReadbackReader
-from ..projects import MigrationProject, ProjectError
+from ..projects import WorkspaceState, ProjectError
 
 
 def _probe_write_identity(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
     scope: OdooApiScope,
 ) -> OdooWriteIdentity:
@@ -41,7 +41,7 @@ def _probe_write_identity(
 
 
 def _write_executor(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
     scope: OdooApiScope,
 ) -> OdooWriteExecutor:
@@ -62,7 +62,7 @@ def _write_executor(
 
 
 def _readback_reader(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
     scope: OdooApiScope,
 ) -> OdooReadbackReader:

@@ -18,7 +18,7 @@ from ..domain.recipe_qualifications import (
     RecipeQualificationRecord,
 )
 from ..models import assert_no_numeric_odoo_ids
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..recipes import (
     DataVersion,
     DataVersionPurpose,
@@ -223,7 +223,7 @@ class RecipeService:
 
     def synchronize_unpublished_setup(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         actor: Actor,
     ) -> Recipe:

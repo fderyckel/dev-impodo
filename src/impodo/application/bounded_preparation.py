@@ -60,7 +60,7 @@ from ..domain.staging.transformation_impact import (
 )
 from ..inspection import SourceFileCatalog
 from ..models import Issue, PreparedRecord, canonical_json_bytes
-from ..projects import MigrationProject, SourceFile
+from ..projects import WorkspaceState, SourceFile
 from ..source import (
     CompiledPreparedRowTransformer,
     SourceLoadError,
@@ -167,7 +167,7 @@ def direct_preparation_row_limit(
 
 
 def prepare_bounded_direct_session(
-    project: MigrationProject,
+    project: WorkspaceState,
     definition: MappingDefinition,
     mapping_version: int,
     physical_selection: SourceSelection,
@@ -696,7 +696,7 @@ def _canonical_session_row(
 
 
 def _prepared_snapshot_for_program(
-    project: MigrationProject,
+    project: WorkspaceState,
     source_snapshot: SourceSnapshot,
     program: ColumnarTransformationProgram,
     artifacts: ArtifactStore,
@@ -803,7 +803,7 @@ def _cleanup_prepared_snapshot_orphans(
 
 @contextmanager
 def _open_preparation_source(
-    project: MigrationProject,
+    project: WorkspaceState,
     selection: SourceSelection,
     dataset: SourceDataset,
     source_file: SourceFile | None,

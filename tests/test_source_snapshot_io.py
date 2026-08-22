@@ -44,7 +44,7 @@ from impodo.inspection import (
     SourceTableCatalog,
 )
 from impodo.models import canonical_json_bytes
-from impodo.projects import MigrationProject, ProjectStatus, SourceFile
+from impodo.projects import WorkspaceState, ProjectStatus, SourceFile
 from impodo.staging_contracts import StagingDisposition
 from impodo.source_snapshot_io import (
     SourceSnapshotPublisher,
@@ -830,9 +830,9 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
     def _registered_csv(
         self,
         content: bytes,
-    ) -> tuple[MigrationProject, SourceFile, SourceFileCatalog]:
+    ) -> tuple[WorkspaceState, SourceFile, SourceFileCatalog]:
         now = datetime.now(timezone.utc)
-        project = MigrationProject(
+        project = WorkspaceState(
             project_id=str(uuid4()),
             name="Snapshot ingestion",
             source_system="CSV",
@@ -937,7 +937,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         workbook.save(content)
         workbook.close()
         now = datetime.now(timezone.utc)
-        project = MigrationProject(
+        project = WorkspaceState(
             project_id=str(uuid4()),
             name="XLSX snapshot ingestion",
             source_system="XLSX",
@@ -1058,7 +1058,7 @@ def _column(ordinal: int, name: str, row_count: int) -> SourceColumnProfile:
 
 
 def _selection_for(
-    project: MigrationProject,
+    project: WorkspaceState,
     source_file: SourceFile,
     catalog: SourceFileCatalog,
 ):

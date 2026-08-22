@@ -13,7 +13,7 @@ from impodo.local_odoo_reader import (
 )
 from impodo.local_stack import LocalStackProfile
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
 )
 
@@ -33,7 +33,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         for path in (self.config, self.python, self.odoo_bin):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch()
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id="project-1",
             name="Local metadata",
             source_system="CSV",
@@ -191,7 +191,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertIn("env.cr.rollback()", script)
 
     def test_profile_must_match_the_exact_local_target(self) -> None:
-        mismatched = MigrationProject(
+        mismatched = WorkspaceState(
             project_id="project-1",
             name="Wrong target",
             source_system="CSV",

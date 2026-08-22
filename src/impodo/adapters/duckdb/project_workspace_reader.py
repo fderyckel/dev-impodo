@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...preparation_jobs import PreparationWorkspace
 from ...projects import (
-    MigrationProject,
+    WorkspaceState,
     ProjectError,
     ProjectNotFoundError,
 )
@@ -30,7 +30,7 @@ class ProjectWorkspaceReader(DuckDbRepository):
         super().__init__(database)
         self._workspace = workspace
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")

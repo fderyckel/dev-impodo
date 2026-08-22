@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import replace
 import unittest
 
-from impodo.projects import MigrationProject, ProjectStatus
+from impodo.projects import WorkspaceState, ProjectStatus
 from impodo.recipes import RecipeDraftIssue, RecipeDraftRecoveryStep
 from impodo.web.presenters.recipe import build_recipe_draft_recovery_view
 
 
 class RecipeDraftRecoveryPresenterTests(unittest.TestCase):
     @staticmethod
-    def _project() -> MigrationProject:
-        return MigrationProject(
+    def _project() -> WorkspaceState:
+        return WorkspaceState(
             project_id="project-1",
             name="Customer migration",
             source_system="CSV export",

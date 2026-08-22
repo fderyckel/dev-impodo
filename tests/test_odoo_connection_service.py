@@ -8,7 +8,7 @@ from impodo.application.odoo_connection_service import (
 )
 from impodo.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectError,
     SourceMode,
@@ -17,7 +17,7 @@ from impodo.projects import (
 
 class OdooConnectionTestServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id="3a9127fa-8db4-47f9-9883-55f9fd4432e7",
             name="Odoo source",
             source_system="Odoo",

@@ -1,7 +1,7 @@
 """Define Recipe aggregate, DataVersion lineage, and recovery contracts.
 
 Recipe is the reusable business identity. Each DataVersion owns one existing
-contained ``MigrationProject`` workspace. The types here deliberately contain
+contained ``WorkspaceState`` workspace. The types here deliberately contain
 no DuckDB, filesystem, web, or Odoo transport behavior.
 """
 

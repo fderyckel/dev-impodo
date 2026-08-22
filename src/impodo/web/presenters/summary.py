@@ -26,7 +26,7 @@ from ...domain.staging.scale import (
     browser_evaluation_scale,
 )
 from ...local_stack import LocalStackError, LocalStackStatus
-from ...projects import MigrationProject, OdooConnectionMode, SourceMode
+from ...projects import WorkspaceState, OdooConnectionMode, SourceMode
 from ...reporting import WORKBOOK_NAME
 from ...workspace_errors import WorkspaceError
 from ..constants import (
@@ -48,7 +48,7 @@ from .comparison_recovery import comparison_recovery_view
 def _render_target(
     request: Request,
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     *,
     error: str | None = None,
     status_code: int = 200,
@@ -515,7 +515,7 @@ def _render_summary(
 
 
 def _local_stack_matches_project(
-    project: MigrationProject,
+    project: WorkspaceState,
     status: LocalStackStatus,
 ) -> bool:
     """Return whether the selected local profile targets this exact project."""
@@ -611,7 +611,7 @@ def _summary_page_size(value: str | None) -> int:
 
 def _require_local_stack_access(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> None:
     try:
         context.authorization.require(
@@ -635,7 +635,7 @@ def _require_local_stack_access(
 
 def _require_local_stack_start(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> None:
     _require_local_stack_access(context, project)
     try:
@@ -653,7 +653,7 @@ def _require_local_stack_start(
 
 def _require_local_stack_stop(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> None:
     _require_local_stack_access(context, project)
     try:

@@ -55,8 +55,8 @@ and made the [Migration projects and multi-Recipe cutover implementation
 plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) the
 active product-delivery focus.
 
-The current Recipe-first implementation remains the runtime until the
-replacement plan passes its clean-root gate. The accepted target makes
+The current Recipe-first implementation remains the runtime until Phase M3
+switches browser creation and composition. The accepted target makes
 `MigrationProject` the business root, lets a Project exist without a Recipe,
 makes DataVersion a Project-owned complete source package, supports several
 Project-scoped Recipes, and qualifies their exact revisions together through
@@ -73,14 +73,18 @@ No deferred product track becomes current while this plan is active. Narrow
 maintenance, security, data-loss, regression, and performance fixes required
 to preserve the current workflow remain in scope.
 
-**Phase status, 2026-08-22:** Phases M0 and M1 are complete. The [Phase M0
+**Phase status, 2026-08-22:** Phases M0 through M2 are complete. The [Phase M0
 contracts](migration-projects-phase-m0-contracts.md) freeze the target
 ownership and integrated-plan rules. The [Phase M1 persistence
 foundation](migration-projects-phase-m1-foundation.md) implements the clean
 Project, DataVersion, run, and workspace roots, exact new stores, bounded
 registry projection, compatibility rejection, and recoverable development
-reset. The current browser still uses the Recipe-first composition. Phase M2
-is next and will separate source-package storage from application workspaces.
+reset. The [Phase M2 source-package
+foundation](migration-projects-phase-m2-source-packages.md) adds immutable
+DataVersion source packages, bounded workspace dataset projections, and the
+mapping-source adapter without copying source state. The current browser still
+uses the Recipe-first composition. Phase M3 is next and will switch Project
+creation and optional Recipe publication.
 
 ## Completed product priority — Recipe test-to-production reuse
 

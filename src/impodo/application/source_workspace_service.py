@@ -40,7 +40,7 @@ from ..inspection import (
     SourceInspectionError,
     SourceTableCatalog,
 )
-from ..projects import MigrationProject, ProjectStatus, SourceMode
+from ..projects import WorkspaceState, ProjectStatus, SourceMode
 from ..source import SourceLoadError
 from ..source_snapshot_io import (
     SourceSnapshotPublisher,
@@ -61,7 +61,7 @@ _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 class ProjectReader(Protocol):
     """Read the project lifecycle needed before dataset freezing."""
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         """Return the project whose registration gates dataset freezing."""
         ...
 

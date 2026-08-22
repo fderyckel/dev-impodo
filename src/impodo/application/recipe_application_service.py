@@ -76,7 +76,7 @@ from ..domain.structural import (
 from ..domain.serialization import content_hash
 from ..models import target_identity_hash
 from ..projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectService,
 )
@@ -105,7 +105,7 @@ from .schema_workspace_service import SchemaWorkspaceService
 
 
 class RecipeApplicationProjectReader(Protocol):
-    def get(self, project_id: str) -> MigrationProject: ...
+    def get(self, project_id: str) -> WorkspaceState: ...
 
 
 class RecipeApplicationSourceRepository(Protocol):
@@ -154,7 +154,7 @@ class RecipeApplicationReview:
     recipe_id: str
     recipe_revision: int
     data_version: DataVersion
-    project: MigrationProject
+    project: WorkspaceState
     recipe_semantic_hash: str
     state: RecipeApplicationState
     issues: tuple[RecipeApplicationIssue, ...]
@@ -233,7 +233,7 @@ class RecipeApplicationService:
         label: str,
         parameter_values: Mapping[str, str],
         actor: Actor,
-    ) -> tuple[DataVersion, MigrationProject]:
+    ) -> tuple[DataVersion, WorkspaceState]:
         """Provision a clean Test workspace without copying target evidence."""
 
         return self._start_data_version(
@@ -257,7 +257,7 @@ class RecipeApplicationService:
         parameter_values: Mapping[str, str],
         control_values: Mapping[str, str],
         actor: Actor,
-    ) -> tuple[DataVersion, MigrationProject]:
+    ) -> tuple[DataVersion, WorkspaceState]:
         """Provision a clean Production workspace from the selected candidate."""
 
         return self._start_data_version(
@@ -282,7 +282,7 @@ class RecipeApplicationService:
         purpose: DataVersionPurpose,
         expected_cutover_candidate_id: str | None,
         actor: Actor,
-    ) -> tuple[DataVersion, MigrationProject]:
+    ) -> tuple[DataVersion, WorkspaceState]:
         """Create an evidence-empty application workspace for one exact revision."""
 
         self.authorization.require(actor, Capability.RECIPE_APPLY)

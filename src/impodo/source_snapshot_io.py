@@ -40,7 +40,7 @@ from .domain.source_snapshot import (
 )
 from .domain.source_binding import require_file_source
 from .inspection import SourceFileCatalog, SourceTableCatalog
-from .projects import MigrationProject, SourceFile
+from .projects import WorkspaceState, SourceFile
 from .source import (
     SelectedSourceBatchStream,
     SourceLoadError,
@@ -252,7 +252,7 @@ class SourceSnapshotPublisher:
 
     def publish(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         selection: SourceSelection,
         dataset: SourceDataset,
         catalog: SourceFileCatalog,
@@ -685,7 +685,7 @@ def _hash_bytes(digest, value: bytes) -> None:
 
 
 def _validate_snapshot_bindings(
-    project: MigrationProject,
+    project: WorkspaceState,
     selection: SourceSelection,
     dataset: SourceDataset,
     catalog: SourceFileCatalog,

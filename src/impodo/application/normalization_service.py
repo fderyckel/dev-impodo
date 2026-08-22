@@ -20,7 +20,7 @@ from ..normalization import (
     StoredNormalizationEvaluation,
     evaluate_normalization,
 )
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..quality import QualityRun, QualityRunSummary, StoredQualityRun
 from ..staging import StagingRunSummary
 from ..staging_contracts import CanonicalStagingRun
@@ -175,7 +175,7 @@ class NormalizationService:
 
     def evaluate_and_publish(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         revision: MappingRevision,
         selection: SourceSelection,
         canonical_run: CanonicalStagingRun | StoredCanonicalStagingRun,

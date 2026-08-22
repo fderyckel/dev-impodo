@@ -20,7 +20,7 @@ from ...intake import SourceIntakeError
 from ...local_stack import LocalStackError
 from ...projects import (
     DataClassification,
-    MigrationProject,
+    WorkspaceState,
     ProjectConflictError,
     ProjectError,
     ProjectRegistrationError,
@@ -1045,7 +1045,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
 
 
 def _blocked_setup_redirect(
-    project: MigrationProject,
+    project: WorkspaceState,
     requested_step: ProjectSetupStep,
 ) -> RedirectResponse | None:
     destination = blocking_setup_url(project, requested_step)

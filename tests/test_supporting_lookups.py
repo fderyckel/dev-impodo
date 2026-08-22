@@ -15,7 +15,7 @@ from impodo.adapters.duckdb.supporting_lookup_repository import (
 )
 from impodo.application.supporting_lookup_service import SupportingLookupService
 from impodo.models import target_identity_hash
-from impodo.projects import MigrationProject, OdooConnectionMode
+from impodo.projects import WorkspaceState, OdooConnectionMode
 from impodo.supporting_lookups import SupportingLookupChoice
 
 
@@ -34,7 +34,7 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
             CapabilityAuthorizationPolicy(),
         )
         self.now = datetime(2026, 8, 21, tzinfo=timezone.utc)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Country lookup",
             source_system="CSV",

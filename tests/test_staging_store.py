@@ -15,7 +15,7 @@ from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.models import BusinessReference, LogicalReference
-from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
 from impodo.staging import StagingRunStatus
 from impodo.staging_contracts import (
     CanonicalControlTotal,
@@ -50,7 +50,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.projects = ProjectRepository(database)
         self.repository = StagingRepository(database)
         now = datetime.now(timezone.utc)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Prepared contacts",
             source_system="CSV",

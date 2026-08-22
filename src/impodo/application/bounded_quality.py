@@ -15,7 +15,7 @@ import json
 from typing import overload
 
 from ..domain.staging.preparation_session import StoredCanonicalStagingRun
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..quality import (
     MANDATORY_QUALITY_FAMILIES,
     QualityError,
@@ -396,7 +396,7 @@ class _DirectEligibleRowIds(AbstractSet[str]):
 
 def build_bounded_quality_run(
     *,
-    project: MigrationProject,
+    project: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
@@ -760,7 +760,7 @@ def build_bounded_quality_run(
 
 def _build_indexed_quality_run(
     *,
-    project: MigrationProject,
+    project: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     ruleset: QualityRuleSet,
     published_staging_content_hash: str,
@@ -1119,7 +1119,7 @@ def _build_indexed_quality_run(
 
 def _attach_relationship_findings(
     *,
-    project: MigrationProject,
+    project: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     rules_by_family: Mapping[tuple[str, QualityRuleFamily], object],
     issue_map: dict[str, QualityIssue],

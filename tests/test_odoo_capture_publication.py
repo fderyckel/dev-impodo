@@ -55,7 +55,7 @@ from impodo.models import (
     TargetFingerprint,
 )
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectStatus,
     SourceMode,
@@ -577,8 +577,8 @@ class _Session:
         return self._accounting
 
 
-def _project(now: datetime) -> MigrationProject:
-    return MigrationProject(
+def _project(now: datetime) -> WorkspaceState:
+    return WorkspaceState(
         project_id=str(uuid4()),
         name="Odoo contacts",
         source_system="Odoo",

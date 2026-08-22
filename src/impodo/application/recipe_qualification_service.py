@@ -27,7 +27,7 @@ from ..domain.recipe_qualifications import (
 )
 from ..domain.reconciliation import ReconciliationRun, ReconciliationRunStatus
 from ..domain.serialization import content_hash
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..quality import QualityRunSummary
 from ..recipes import DataVersion, DataVersionPurpose, Recipe
 from ..staging import StagingRunSummary
@@ -88,7 +88,7 @@ class RecipeQualificationReview:
 
     recipe: Recipe
     data_version: DataVersion | None
-    project: MigrationProject | None
+    project: WorkspaceState | None
     state: RecipeQualificationState
     issues: tuple[RecipeQualificationIssue, ...]
     expected_outcomes: QualificationExpectedOutcomes | None
@@ -699,7 +699,7 @@ class RecipeQualificationService:
     def _review(
         recipe: Recipe,
         data_version: DataVersion | None,
-        project: MigrationProject | None,
+        project: WorkspaceState | None,
         state: RecipeQualificationState,
         issues: list[RecipeQualificationIssue] | tuple[RecipeQualificationIssue, ...],
         *,

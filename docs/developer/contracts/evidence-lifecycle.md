@@ -42,7 +42,7 @@ Recipe + current Authoring DataVersion workspace
 The contained workspace chain inside each DataVersion is:
 
 ```text
-registered MigrationProject workspace
+registered `WorkspaceState`
 -> current source catalogue and confirmation
 -> frozen source selection and snapshots
 -> current target schema and governed business keys

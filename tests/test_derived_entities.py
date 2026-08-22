@@ -39,7 +39,7 @@ from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
-from impodo.projects import MigrationProject, ProjectStatus
+from impodo.projects import WorkspaceState, ProjectStatus
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -483,7 +483,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
         self.derived_entities = DerivedEntityRepository(database)
         self.sources = SourceRepository(database, self.derived_entities)
         now = datetime.now(timezone.utc)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Product migration",
             source_system="Legacy ERP",

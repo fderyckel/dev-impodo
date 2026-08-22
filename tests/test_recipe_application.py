@@ -33,7 +33,7 @@ from impodo.domain.recipe_applications import (
 from impodo.domain.mapping.validation.evidence import MappingValidationIssue
 from impodo.models import target_identity_hash
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectService,
     ProjectStatus,
@@ -291,7 +291,7 @@ def _service_fixture(
         else field
         for field in base_model.fields
     )
-    project = MigrationProject(
+    project = WorkspaceState(
         project_id=authoring_facade.data_version.workspace_project_id,
         name="Customer rehearsal",
         source_system="CSV export",

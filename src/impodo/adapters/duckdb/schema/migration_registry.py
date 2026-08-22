@@ -9,7 +9,7 @@ import duckdb
 from ....migration_foundation import MigrationStorageCompatibilityError
 
 
-MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m1"
+MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m2"
 MIGRATION_REGISTRY_VERSION = 1
 
 
@@ -215,7 +215,7 @@ EXPECTED_REGISTRY_COLUMNS = {
         "owner_id",
         "kind",
         "request_hash",
-        "expected_project_revision",
+        "expected_revision",
         "state",
         "stage",
         "detail_json",
@@ -247,7 +247,7 @@ def ensure_migration_registry_schema(
     connection: duckdb.DuckDBPyConnection,
     database_path: Path,
 ) -> None:
-    """Create an empty M1 registry or reject every other schema exactly."""
+    """Create an empty M2 registry or reject every other schema exactly."""
 
     tables = _tables(connection)
     if not tables:
@@ -609,7 +609,7 @@ def _initialize_migration_registry(
                 owner_id VARCHAR NOT NULL,
                 kind VARCHAR NOT NULL,
                 request_hash VARCHAR NOT NULL,
-                expected_project_revision INTEGER,
+                expected_revision INTEGER,
                 state VARCHAR NOT NULL CHECK (
                     state IN ('PENDING', 'COMMITTED', 'FAILED')
                 ),

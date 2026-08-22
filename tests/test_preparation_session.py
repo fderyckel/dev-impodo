@@ -32,7 +32,7 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
 )
 from impodo.models import LogicalReference, PreparedRecord, canonical_json_bytes
-from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityRuleFamily,
@@ -66,7 +66,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         self.projects = ProjectRepository(database)
         self.repository = PreparationSessionRepository(database)
         now = datetime.now(timezone.utc)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Bounded preparation",
             source_system="CSV",

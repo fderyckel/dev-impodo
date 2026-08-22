@@ -20,13 +20,13 @@ from ..domain.odoo_source_capture import (
     require_not_cancelled,
 )
 from ..models import FieldMetadata, OdooReadIdentity, ProtectedOdooReadContext
-from ..projects import MigrationProject, ProjectStatus, SourceMode
+from ..projects import WorkspaceState, ProjectStatus, SourceMode
 from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SchemaOrigin
 from ..workspace_errors import WorkspaceError
 
 
 class OdooCaptureProjectReader(Protocol):
-    def get(self, project_id: str) -> MigrationProject: ...
+    def get(self, project_id: str) -> WorkspaceState: ...
 
 
 class OdooCaptureSelectionReader(Protocol):

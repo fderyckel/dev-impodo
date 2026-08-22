@@ -42,7 +42,7 @@ from impodo.domain.staging.preparation_session import (
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactReport
 from impodo.models import LogicalReference, PreparedRecord, canonical_json_bytes
-from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.projects import OdooConnectionMode, ProjectStatus, WorkspaceState
 from impodo.quality import QualityDisposition, default_quality_ruleset, evaluate_quality
 from impodo.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
@@ -389,14 +389,14 @@ def _run_child(
         }
 
 
-def _project(products: int, bom_lines: int) -> MigrationProject:
+def _project(products: int, bom_lines: int) -> WorkspaceState:
     project_id = str(
         uuid5(
             NAMESPACE_URL,
             f"impodo:relationship-benchmark:{products}:{bom_lines}",
         )
     )
-    return MigrationProject(
+    return WorkspaceState(
         project_id=project_id,
         name="Sanitized relationship benchmark",
         source_system="CSV",

@@ -81,7 +81,7 @@ from impodo.staging_contracts import (
     StagingDatasetRole,
     StagingReconciliation,
 )
-from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -861,7 +861,7 @@ class StructuralPreparationTests(unittest.TestCase):
 
 class AdvancedQualityTests(unittest.TestCase):
     def test_approved_code_and_metric_rules_are_deterministic_and_non_mutating(self) -> None:
-        project = MigrationProject(
+        project = WorkspaceState(
             project_id="project-1",
             name="Advanced checks",
             source_system="CSV",
@@ -1303,7 +1303,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         self.staging = StagingRepository(self.database)
         self.repository = AdvancedCoverageRepository(self.database)
         self.quality = QualityRepository(self.database, self.projects)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Advanced partner preparation",
             source_system="CSV",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ...projects import (
-    MigrationProject,
+    WorkspaceState,
     ProjectSetupRequirement,
     ProjectSetupStep,
     SourceMode,
@@ -60,7 +60,7 @@ _TEMPLATE_STEPS = {
 
 
 def project_setup_step_order(
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> tuple[ProjectSetupStep, ...]:
     """Return the setup sequence for the draft's selected source mode."""
 
@@ -72,7 +72,7 @@ def project_setup_step_order(
 
 
 def build_project_setup_view(
-    project: MigrationProject,
+    project: WorkspaceState,
     template_name: str,
 ) -> ProjectSetupView:
     """Build one request-scoped setup view from the current project only."""
@@ -141,7 +141,7 @@ def build_project_setup_view(
 
 
 def blocking_setup_url(
-    project: MigrationProject,
+    project: WorkspaceState,
     requested_step: ProjectSetupStep,
 ) -> str | None:
     """Return the earliest incomplete page before ``requested_step``."""

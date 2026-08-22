@@ -18,7 +18,7 @@ from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ...projects import MigrationProject, ProjectError
+from ...projects import WorkspaceState, ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_contracts import OdooSchemaCatalog, SchemaOrigin
 from ...workspace_errors import WorkspaceError
@@ -50,7 +50,7 @@ from ..target_credentials import (
 
 async def _capture_selected_schema(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> OdooSchemaCatalog:
     """Load and persist field details for the saved Odoo model choices."""
 

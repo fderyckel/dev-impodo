@@ -21,7 +21,7 @@ from ...models import (
     Decision,
     PreflightResult,
 )
-from ...projects import MigrationProject
+from ...projects import WorkspaceState
 from ...quality import QualityRunSummary
 from ...normalization import NormalizationRunSummary
 from ...staging import StagingRunSummary
@@ -262,7 +262,7 @@ def _require_dataclass_fields(
 
 def _readiness_report(
     run_id: str,
-    project: MigrationProject,
+    project: WorkspaceState,
     revision: MappingRevision,
     result: PreflightResult,
     dataset_labels: Mapping[str, str],

@@ -402,17 +402,20 @@ architecture is defined by ADR-014 and the active implementation plan below.
 
 ## ADR-014 — Migration projects coordinate reusable Recipes and cutover plans
 
-**Status:** Accepted on 2026-08-22; implementation planned.
+**Status:** Accepted on 2026-08-22; implementation in progress. Phases M0
+through M2 are complete, and Phase M3 owns the browser cutover.
 
 **Supersedes:** ADR-012 and ADR-013 for aggregate ownership, DataVersion
 ownership, and cutover coordination.
 
-**Current implementation note:** The browser and persistence layer remain
-Recipe-first until the
+**Current implementation note:** The browser and its active persistence path
+remain Recipe-first until the
 [Migration projects and multi-Recipe cutover implementation
 plan](../plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-passes its corresponding gates. Current contracts continue to describe the
-runtime during that transition.
+passes the Phase M3 gate. The separate clean foundation now owns Project roots,
+DataVersion source packages, runs, and bounded workspace source projections.
+Current browser contracts continue to describe the runtime during that
+transition.
 
 **Decision:** `MigrationProject` is Impodo's operator-facing business identity
 and Project-level governance root. A Project owns its DataVersion,
@@ -496,9 +499,10 @@ execution.
 - Cross-Project Recipe sharing is outside the first release. A future sharing
   feature must create a reviewed Project-scoped copy with lineage instead of a
   mutable cross-Project aggregate.
-- The existing internal `MigrationProject` workspace is renamed to
-  `MigrationWorkspace`; no completed implementation may use **project** for
-  both the business root and an internal workspace.
+- The existing internal `MigrationProject` workspace class is renamed to
+  `WorkspaceState`. The clean target root is `MigrationWorkspace`; no completed
+  implementation may use **project** for both the business root and an
+  internal workspace.
 - Because the product is in development, the implementation uses new exact
   schema generations. Old Recipe-first storage fails closed and requires an
   explicit developer reset. Runtime backfill, dual writes, Project shells,

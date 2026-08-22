@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Callable
 
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from ..projects import MigrationProject, OdooConnectionMode, ProjectError
+from ..projects import WorkspaceState, OdooConnectionMode, ProjectError
 
 
 class OdooConnectionPurpose(StrEnum):
@@ -34,7 +34,7 @@ class OdooConnectionIdentity:
     identity_hash: str
 
     @classmethod
-    def from_project(cls, project: MigrationProject) -> "OdooConnectionIdentity":
+    def from_project(cls, project: WorkspaceState) -> "OdooConnectionIdentity":
         if project.odoo_connection_mode is None:
             raise ProjectError("Choose Local Odoo or Remote Odoo")
         return cls(
@@ -59,9 +59,9 @@ class OdooConnectionTestResult:
     read_identity: OdooReadIdentity
 
 
-ConnectionFingerprintProbe = Callable[[MigrationProject, str], TargetFingerprint]
+ConnectionFingerprintProbe = Callable[[WorkspaceState, str], TargetFingerprint]
 ConnectionReadIdentityProbe = Callable[
-    [MigrationProject, str, tuple[str, ...]],
+    [WorkspaceState, str, tuple[str, ...]],
     OdooReadIdentity,
 ]
 
@@ -79,7 +79,7 @@ class OdooConnectionTestService:
 
     def test_read(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         api_key: str,
         *,
         purpose: OdooConnectionPurpose,

@@ -1,8 +1,8 @@
 """Shared contracts for the clean Migration Project persistence foundation.
 
 This module contains validation and failure types used by the Project,
-DataVersion, MigrationRun, and MigrationWorkspace roots introduced in Phase
-M1. It has no database or web dependency.
+DataVersion, MigrationRun, and MigrationWorkspace roots introduced from Phase
+M1 onward. It has no database or web dependency.
 """
 
 from __future__ import annotations
@@ -56,8 +56,10 @@ class MigrationStorageCompatibilityError(MigrationFoundationError):
 class MigrationOperationKind(StrEnum):
     PROJECT_CREATE = "PROJECT_CREATE"
     DATA_VERSION_CREATE = "DATA_VERSION_CREATE"
+    DATA_VERSION_FREEZE = "DATA_VERSION_FREEZE"
     MIGRATION_RUN_CREATE = "MIGRATION_RUN_CREATE"
     MIGRATION_WORKSPACE_CREATE = "MIGRATION_WORKSPACE_CREATE"
+    WORKSPACE_SOURCE_PROJECT = "WORKSPACE_SOURCE_PROJECT"
 
 
 class MigrationOperationState(StrEnum):
@@ -79,7 +81,7 @@ class MigrationOperationIntent:
     owner_id: str
     kind: MigrationOperationKind
     request_hash: str
-    expected_project_revision: int | None
+    expected_revision: int | None
     state: MigrationOperationState
     stage: str
     detail: Mapping[str, object]
@@ -98,10 +100,10 @@ class MigrationOperationIntent:
         require_hash(self.request_hash, "request_hash")
         object.__setattr__(self, "kind", MigrationOperationKind(self.kind))
         object.__setattr__(self, "state", MigrationOperationState(self.state))
-        if self.expected_project_revision is not None:
+        if self.expected_revision is not None:
             require_revision(
-                self.expected_project_revision,
-                "expected_project_revision",
+                self.expected_revision,
+                "expected_revision",
             )
         required_text(self.owner_kind, "owner_kind", maximum=80)
         required_text(self.stage, "stage", maximum=80)

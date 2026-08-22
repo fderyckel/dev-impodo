@@ -1,4 +1,4 @@
-"""Create the exact isolated MigrationWorkspace store generation for M1."""
+"""Create the exact isolated MigrationWorkspace store generation for M2."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ....migration_foundation import MigrationStorageCompatibilityError
 from ....migration_workspaces import MigrationWorkspace
 
 
-MIGRATION_WORKSPACE_GENERATION = "impodo-migration-workspace-2026-08-m1"
+MIGRATION_WORKSPACE_GENERATION = "impodo-migration-workspace-2026-08-m2"
 MIGRATION_WORKSPACE_VERSION = 1
 EXPECTED_WORKSPACE_STORE_COLUMNS = {
     "schema_version": ("singleton_id", "generation", "version"),
@@ -22,6 +22,17 @@ EXPECTED_WORKSPACE_STORE_COLUMNS = {
         "migration_run_id",
         "recipe_application_id",
         "created_at",
+    ),
+    "workspace_source_projection": (
+        "singleton_id",
+        "projection_id",
+        "package_hash",
+        "created_at",
+        "created_by",
+    ),
+    "workspace_source_dataset": (
+        "dataset_id",
+        "snapshot_hash",
     ),
 }
 
@@ -50,6 +61,17 @@ def initialize_migration_workspace_store(
             migration_run_id VARCHAR NOT NULL,
             recipe_application_id VARCHAR,
             created_at VARCHAR NOT NULL
+        );
+        CREATE TABLE workspace_source_projection (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            projection_id VARCHAR NOT NULL UNIQUE,
+            package_hash VARCHAR NOT NULL,
+            created_at VARCHAR NOT NULL,
+            created_by VARCHAR NOT NULL
+        );
+        CREATE TABLE workspace_source_dataset (
+            dataset_id VARCHAR PRIMARY KEY,
+            snapshot_hash VARCHAR NOT NULL
         );
         """
     )

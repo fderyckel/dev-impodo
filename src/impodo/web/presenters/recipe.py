@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...projects import MigrationProject, ProjectStatus
+from ...projects import WorkspaceState, ProjectStatus
 from ...recipes import RecipeDraftIssue, RecipeDraftRecoveryStep
 
 
@@ -30,7 +30,7 @@ _PROJECT_RECOVERY = {
 
 def build_recipe_draft_recovery_view(
     recipe_id: str,
-    project: MigrationProject | None,
+    project: WorkspaceState | None,
     issue: RecipeDraftIssue,
 ) -> RecipeDraftRecoveryView:
     """Resolve the compiler-owned recovery step to an existing page."""

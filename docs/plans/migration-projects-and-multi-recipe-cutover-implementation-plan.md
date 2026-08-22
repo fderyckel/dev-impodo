@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted target architecture and active implementation plan from
-2026-08-22. Phases M0 and M1 are complete; Phase M2 is next.
+2026-08-22. Phases M0 through M2 are complete; Phase M3 is next.
 
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target architecture. It supersedes ADR-012 and ADR-013 for
@@ -684,7 +684,10 @@ identifier confusion, old-storage rejection, and recoverable reset.
 
 ### Phase M2 - Separate source packages from application workspaces
 
-**Status:** Planned.
+**Status:** Completed on 2026-08-22. See the [Phase M2 source-package
+foundation](migration-projects-phase-m2-source-packages.md). The clean services
+and stores exist but are not composed into the current browser; Phase M3 owns
+that cutover.
 
 - Move source intake, catalogues, table selection, and source snapshots to the
   DataVersion boundary.
@@ -695,7 +698,12 @@ identifier confusion, old-storage rejection, and recoverable reset.
 - Preserve hash-bound invalidation and preparation semantics.
 
 **Gate:** two workspaces can consume different logical datasets from the same
-DataVersion without copying mutable state or sharing current pointers.
+DataVersion without copying mutable state or sharing current pointers. The M2
+suite passes ten tests covering exact schemas, incremental file intake, file
+and Odoo package origins,
+canonical package identity,
+freeze immutability, bounded projections, authorization, optimistic
+concurrency, fault recovery, and non-mutating M1-storage rejection.
 
 ### Phase M3 - Switch Project creation and optional Recipe publication
 

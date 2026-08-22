@@ -4,17 +4,17 @@ kind: contract
 status: current
 ---
 
-# Contained project lifecycle contract
+# Contained workspace lifecycle contract
 
 ## Scope
 
-One `MigrationProject` provides the contained workspace for one DataVersion in
-a Recipe. It stores that DataVersion's evidence, credentials, authorization
-state, and files. Setup selects exactly one source mode: governed files
-(`FILE`) or existing records in one configured Odoo database (`ODOO`). Impodo
-does not create a separate workspace for each Odoo model. The browser label
-**project** refers to the owning Recipe; this contract uses **workspace** when
-it means `MigrationProject`.
+One contained workspace provides the working state for one DataVersion in a
+Recipe. The current code represents that state as `WorkspaceState`. It stores
+the DataVersion's evidence, credentials, authorization state, and files. Setup
+selects exactly one source mode: governed files (`FILE`) or existing records
+in one configured Odoo database (`ODOO`). Impodo does not create a separate
+workspace for each Odoo model. The browser label **project** refers to the
+owning Recipe; this contract uses **workspace** for the contained state.
 
 The browser is the normal authoring interface. Stored manifests, hashes, audit
 events, and DuckDB records are machine evidence and must not be edited directly.

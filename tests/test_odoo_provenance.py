@@ -51,7 +51,7 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotSchema,
 )
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectStatus,
     SourceMode,
@@ -97,7 +97,7 @@ class OdooProvenanceTests(unittest.TestCase):
             CapabilityAuthorizationPolicy(),
         )
         self.now = datetime.now(timezone.utc)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=str(uuid4()),
             name="Odoo contacts",
             source_system="Odoo",

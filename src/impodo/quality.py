@@ -18,7 +18,7 @@ import json
 from typing import AbstractSet, Any, Iterable, Mapping, Sequence
 
 from .models import LogicalReference, canonical_json_bytes, portable_value
-from .projects import MigrationProject
+from .projects import WorkspaceState
 from .domain.resolution import EffectiveDataset
 from .domain.coverage import ReferenceBundle
 from .staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun, StagingDisposition
@@ -1016,7 +1016,7 @@ def manager_quality_rule(
     )
 
 
-def retention_context_hash(project: MigrationProject) -> str:
+def retention_context_hash(project: WorkspaceState) -> str:
     """Hash project ownership, retention, and classification policy inputs."""
 
     return _hash(
@@ -1032,7 +1032,7 @@ def retention_context_hash(project: MigrationProject) -> str:
 
 def evaluate_quality(
     *,
-    project: MigrationProject,
+    project: WorkspaceState,
     staging: CanonicalStagingRun,
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
@@ -1515,7 +1515,7 @@ def evaluate_quality(
 
 
 def _quality_issue(
-    project: MigrationProject,
+    project: WorkspaceState,
     rule: QualityRule,
     row: CanonicalRow,
     reason_code: str,
@@ -1544,7 +1544,7 @@ def _quality_issue(
 
 
 def _setup_issue(
-    project: MigrationProject,
+    project: WorkspaceState,
     dataset: str,
     family: QualityRuleFamily,
     reason_code: str,
@@ -1852,7 +1852,7 @@ def _quartile(values: list[Decimal], fraction: Decimal) -> Decimal:
 
 
 def _run_quality_issue(
-    project: MigrationProject,
+    project: WorkspaceState,
     rule: QualityRule,
     reason_code: str,
     message: str,
@@ -1895,7 +1895,7 @@ def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
     return tuple(found)
 
 
-def _owner_label(project: MigrationProject, role: QualityOwnerRole) -> str:
+def _owner_label(project: WorkspaceState, role: QualityOwnerRole) -> str:
     if role is QualityOwnerRole.FUNCTIONAL_OWNER:
         return project.functional_owner or "Functional owner"
     return project.data_manager or "Data manager"

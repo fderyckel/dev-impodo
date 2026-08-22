@@ -44,7 +44,7 @@ from ...value_rules import (
     TextTransformStep,
 )
 from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
-from ...projects import MigrationProject, ProjectStatus
+from ...projects import WorkspaceState, ProjectStatus
 from ...reference_keys import standard_reference_key
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
@@ -1279,7 +1279,7 @@ def _business_key_id(
 def _draft_or_redirect(
     context: WebContext,
     project_id: str,
-) -> MigrationProject | RedirectResponse:
+) -> WorkspaceState | RedirectResponse:
     project = context.queries.get(project_id)
     if project.status is not ProjectStatus.DRAFT:
         return RedirectResponse(

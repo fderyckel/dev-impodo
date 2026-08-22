@@ -40,7 +40,7 @@ from .models import (
     UniqueConstraintMetadata,
     target_identity_hash,
 )
-from .projects import MigrationProject, OdooConnectionMode
+from .projects import WorkspaceState, OdooConnectionMode
 
 
 _OUTPUT_MARKER = "__IMPODO_LOCAL_ODOO_JSON__"
@@ -111,7 +111,7 @@ class LocalOdooMetadataReader:
 
     def get_target_fingerprint(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         profile: LocalStackProfile,
     ) -> TargetFingerprint:
         """Read only target identity/version evidence for the selected local stack."""
@@ -121,7 +121,7 @@ class LocalOdooMetadataReader:
 
     def get_model_catalog(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         profile: LocalStackProfile,
     ) -> RecordSnapshot:
         """Read the bounded persistent ``ir.model`` catalogue for Stage C."""
@@ -174,7 +174,7 @@ class LocalOdooMetadataReader:
 
     def get_model_metadata(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         profile: LocalStackProfile,
         models: Sequence[str],
     ) -> MetadataSnapshot:
@@ -251,7 +251,7 @@ class LocalOdooMetadataReader:
 
     def get_preflight_snapshots(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         profile: LocalStackProfile,
         metadata_requests: Sequence[MetadataRequest],
         record_requests: Sequence[RecordRequest],
@@ -412,7 +412,7 @@ class LocalOdooMetadataReader:
 
     def _invoke(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         profile: LocalStackProfile,
         script: str,
     ) -> Mapping[str, Any]:
@@ -476,7 +476,7 @@ class LocalOdooMetadataReader:
 
     @staticmethod
     def _fingerprint(
-        project: MigrationProject,
+        project: WorkspaceState,
         payload: Mapping[str, Any],
     ) -> TargetFingerprint:
         database = str(payload.get("database") or "")
@@ -507,7 +507,7 @@ class LocalOdooMetadataReader:
 
 
 def _validate_local_binding(
-    project: MigrationProject,
+    project: WorkspaceState,
     profile: LocalStackProfile,
 ) -> None:
     if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:

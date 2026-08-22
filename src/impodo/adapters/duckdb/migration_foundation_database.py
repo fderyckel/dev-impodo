@@ -1,4 +1,4 @@
-"""Hardened DuckDB and filesystem boundary for the clean M1 stores."""
+"""Hardened DuckDB and filesystem boundary for clean Project stores."""
 
 from __future__ import annotations
 

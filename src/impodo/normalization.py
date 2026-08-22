@@ -29,7 +29,7 @@ from .domain.mapping.contracts import (
 )
 from .domain.serialization import CanonicalJsonObjectHasher
 from .models import canonical_json_bytes
-from .projects import DataClassification, MigrationProject
+from .projects import DataClassification, WorkspaceState
 from .quality import (
     QualityOutcomePolicy,
     QualityRun,
@@ -793,7 +793,7 @@ class NormalizationReviewPage:
 
 def evaluate_normalization(
     *,
-    project: MigrationProject,
+    project: WorkspaceState,
     staging: CanonicalStagingRun | StoredCanonicalStagingRun,
     quality: QualityRun | StoredQualityRun,
     mappings: Mapping[str, DatasetMapping],

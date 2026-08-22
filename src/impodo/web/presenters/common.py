@@ -6,7 +6,7 @@ import re
 
 from fastapi import Request
 
-from ...projects import MigrationProject, ProjectStatus
+from ...projects import WorkspaceState, ProjectStatus
 from ..context import WebContext
 from .navigation import build_project_navigation
 from .setup import build_project_setup_view
@@ -34,7 +34,7 @@ def _render(
             current_path=request.url.path,
         )
     if (
-        isinstance(project, MigrationProject)
+        isinstance(project, WorkspaceState)
         and project.status is ProjectStatus.DRAFT
     ):
         setup_view = build_project_setup_view(project, template_name)

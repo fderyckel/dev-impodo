@@ -113,15 +113,15 @@ status.
 ## Evidence and state
 
 The durable aggregate root is `Recipe`; `DataVersion` owns one contained
-`MigrationProject`. Registration binds the workspace source mode, mode-specific
-source setup, and revision. Target identity is later DataVersion evidence for
-file mode and initial source evidence for Odoo mode. RecipeDraft projects
-current Authoring evidence without copying it. Publication compiles portable
-meaning only after the current mapping, governance, quality, source, and
-parameter-declaration evidence pass eligibility. Parameter declarations are
-Recipe meaning; confirmed parameter and control values are DataVersion
-evidence. Test and Production DataVersions cannot publish new Recipe meaning.
-Credentials stay outside Recipe semantics.
+workspace whose current state is represented by `WorkspaceState`. Registration
+binds the workspace source mode, mode-specific source setup, and revision.
+Target identity is later DataVersion evidence for file mode and initial source
+evidence for Odoo mode. RecipeDraft projects current Authoring evidence without
+copying it. Publication compiles portable meaning only after the current
+mapping, governance, quality, source, and parameter-declaration evidence pass
+eligibility. Parameter declarations are Recipe meaning; confirmed parameter
+and control values are DataVersion evidence. Test and Production DataVersions
+cannot publish new Recipe meaning. Credentials stay outside Recipe semantics.
 
 ## Completion and navigation
 

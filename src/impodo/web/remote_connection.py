@@ -18,7 +18,7 @@ from ..application.odoo_read_failures import (
 )
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..application.odoo_connection_service import OdooConnectionPurpose
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 
 
 class RemoteConnectionLevel(str, Enum):
@@ -138,7 +138,7 @@ class RemoteConnectionStatusService:
 
     def get(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
     ) -> RemoteConnectionStatus:
         """Return a status only when it belongs to the project's exact target."""
@@ -169,7 +169,7 @@ class RemoteConnectionStatusService:
 
     def mark_checked(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         fingerprint: TargetFingerprint,
         identity: OdooReadIdentity,
         purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
@@ -267,7 +267,7 @@ class RemoteConnectionStatusService:
 
     def mark_error(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         error: Exception,
         purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
     ) -> RemoteConnectionStatus:
@@ -384,7 +384,7 @@ class RemoteConnectionStatusService:
         return status
 
 
-def _project_target_hash(project: MigrationProject) -> str:
+def _project_target_hash(project: WorkspaceState) -> str:
     mode = (
         project.odoo_connection_mode.value
         if project.odoo_connection_mode is not None

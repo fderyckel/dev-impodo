@@ -172,34 +172,39 @@ Errors are grouped by where recovery belongs:
 | Connector, artifact, secret, local-stack errors | A contained infrastructure boundary could not complete safely | The route owning that boundary catches its typed error and avoids exposing response bodies, credentials, raw filesystem capability, or arbitrary process controls. |
 | Unexpected exceptions | Programming/infrastructure faults outside an expected recovery contract | They propagate; repositories/unit-of-work roll back and artifact-compensation blocks prevent partial publication. |
 
-## Migration Project M1 foundation
+## Migration Project M1-M2 foundation
 
-Phase M1 adds the clean Migration Project persistence foundation beside the
-current browser composition. No browser route calls it yet. Use the current
-Stage A journey below when tracing an operator action; use this section when
-continuing the architecture cutover in Phase M2.
+Phases M1 and M2 add the clean Migration Project persistence and source-package
+foundation beside the current browser composition. No browser route calls it
+yet. Use the current Stage A journey below when tracing an operator action;
+use this section when continuing the browser cutover in Phase M3.
 
 | Responsibility | Domain and port | Local adapter |
 | --- | --- | --- |
 | Business migration root and bounded list | [`migration_projects.py`](../../src/impodo/migration_projects.py) | [`migration_foundation_repository.py`](../../src/impodo/adapters/duckdb/migration_foundation_repository.py) |
 | Project-owned source-package identity | [`data_versions.py`](../../src/impodo/data_versions.py) | The foundation repository plus the exact DataVersion store |
+| DataVersion-owned source intake, package, and freeze | [`data_version_sources.py`](../../src/impodo/data_version_sources.py) | `DataVersionSourceIntakeService`, `DataVersionSourcePackageService`, the governed artifact port, and the M2 DataVersion source tables |
 | Authoring, Test, or Production run identity | [`migration_runs.py`](../../src/impodo/migration_runs.py) | The foundation repository and registry projection |
 | Isolated mapping and execution workspace | [`migration_workspaces.py`](../../src/impodo/migration_workspaces.py) | The foundation repository plus the exact workspace store |
+| Bounded read-only workspace source projection | `WorkspaceSourceProjectionService` in [`data_version_sources.py`](../../src/impodo/data_version_sources.py) | The foundation repository resolves immutable DataVersion dataset references without copying source state |
+| Mapping source view over one projection | [`workspace_source_projection.py`](../../src/impodo/application/workspace_source_projection.py) | `WorkspaceMappingSourceProjection` satisfies the existing mapping source port without a second mapping engine |
 | Shared validation, conflicts, and operation intents | [`migration_foundation.py`](../../src/impodo/migration_foundation.py) | [`migration_foundation_database.py`](../../src/impodo/adapters/duckdb/migration_foundation_database.py) and the exact schema modules |
 | Recoverable development cutover | [`development_reset.py`](../../src/impodo/development_reset.py) | [`reset-development-storage.py`](../../scripts/reset-development-storage.py) |
 
 The new adapter owns a separate exact registry generation. Project list reads
 one registry query and opens no child store. Create commands reserve
 actor-bound, hash-bound operation intents and advance optimistic Project state
-when they add a DataVersion, run, or workspace. The database verifies exact
-DataVersion and workspace linkage before returning mutable state. Older
-Recipe-first databases fail closed and require the explicit, confirmed,
-developer-only quarantine procedure.
+when they add a DataVersion, run, or workspace. Source-package acceptance and
+workspace projection use the same actor-bound, hash-bound recovery rule. The
+database verifies exact DataVersion and workspace linkage before returning
+mutable state. Older Recipe-first and M1 databases fail closed and require the
+explicit, confirmed, developer-only quarantine procedure.
 
 The [Phase M1 persistence
-foundation](../plans/migration-projects-phase-m1-foundation.md) records the
-implemented schema generations, storage layout, recovery behavior, and focused
-gate. It does not make the target workflow available in the browser.
+foundation](../plans/migration-projects-phase-m1-foundation.md) and [Phase M2
+source-package foundation](../plans/migration-projects-phase-m2-source-packages.md)
+record the implemented generations, storage layout, recovery behavior, and
+focused gates. They do not make the target workflow available in the browser.
 
 ## Stage A–D class and evidence families
 
@@ -209,7 +214,7 @@ when that pointer is invalidated or advanced.
 
 | Stage | Main object family | Owner and organization |
 | --- | --- | --- |
-| A — Recipe and workspace | The browser's operator **project** is one `Recipe`; each `DataVersion` owns one contained `MigrationProject` workspace with setup, target, immutable `SourceFile` references, and lifecycle summaries | `RecipeService` and `RecipeRepository` own bounded lineage and cross-store intents; `RecipeAuthoringService` creates and publishes; `RecipeApplicationService` applies Test/Production revisions; `RecipeQualificationService` qualifies and selects cutover; `ProjectService` and DuckDB `ProjectRepository` retain contained workspace transactions, authorization, credentials, and downstream invalidation |
+| A — Recipe and workspace | The browser's operator **project** is one `Recipe`; each `DataVersion` owns one contained workspace represented by `WorkspaceState`, with setup, target, immutable `SourceFile` references, and lifecycle summaries | `RecipeService` and `RecipeRepository` own bounded lineage and cross-store intents; `RecipeAuthoringService` creates and publishes; `RecipeApplicationService` applies Test/Production revisions; `RecipeQualificationService` qualifies and selects cutover; `ProjectService` and DuckDB `ProjectRepository` retain contained workspace transactions, authorization, credentials, and downstream invalidation |
 | B — Source | File origin: `SourceFile` → `SourceFileCatalog` → `SourceConfiguration` → versioned `SourceSelection` + immutable `SourceSnapshot`; Odoo origin: versioned `OdooCaptureSelection` → validated live page stream → immutable `SourceSelection`/`SourceSnapshot` + encrypted protected origin manifest/sidecar | `SourceIntakeService` owns compensated file intake; `SourceInspectionService` owns bounded inspection; `SourceWorkspaceService` owns file freezing and the no-I/O bounded Odoo capture plan; `OdooSourceCaptureService` owns the authorized start/page/end read interval; `OdooCapturePublicationService` owns values/provenance candidate orchestration; `OdooCaptureJobManager` owns the browser progress/cancellation control plane; `OdooProvenanceService` owns protected origin encoding/reading; `OdooProvenanceRepository` promotes all current roots atomically. |
 | C — Schema | `OdooModelCatalog` → permitted-model scope → `OdooSchemaCatalog` → versioned `SchemaGovernance`/`BusinessKeyDefinition` | Closed readers create snapshots; `SchemaWorkspaceService` verifies target identity and meaning; `SchemaRepository` owns current catalogs plus immutable governance revisions |
 | D — Mapping | recoverable `MappingWorkingDraft` → semantic `MappingDefinition` → immutable `MappingRevision` + `MappingValidationResult` → `MappingSubmission` | Mapping contract v11 adds explicit categorical policies and split control definitions/edition expectations. `MappingWorkspaceService` combines pure semantic checks with one-scan-per-dataset `CategoricalCoverageEvidence`; `MappingRepository` owns optimistic draft/current/history pointers. Target relationship existence remains explicitly deferred to preparation. |
@@ -274,7 +279,8 @@ coverage exception rather than independent business operations.
 ### Outcome
 
 **New project** creates a `Recipe`, Authoring DataVersion 1, and a contained
-draft `MigrationProject` workspace with independent IDs. It records only the
+draft workspace, represented by `WorkspaceState`, with independent IDs. It
+records only the
 name and `FILE` or `ODOO` source mode. `FILE` mode stores one or more validated
 files under generated names and can register without an Odoo destination;
 destination setup occurs in Stage C. `ODOO` mode rejects file attachment,
@@ -341,9 +347,9 @@ freezing perform the more specific workspace invalidations described next.
 ### Evidence and tests
 
 ```text
-Recipe + active Authoring DataVersion + draft MigrationProject workspace
+Recipe + active Authoring DataVersion + draft WorkspaceState
 -> optional immutable stored source bytes + SourceFile hashes (FILE only)
--> mode-complete registered MigrationProject workspace
+-> mode-complete registered WorkspaceState
 -> Recipe/DataVersion registry + registration manifest + audit events
 ```
 

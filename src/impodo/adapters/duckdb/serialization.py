@@ -21,7 +21,7 @@ from ...projects import (
     ApprovalStatus,
     DataClassification,
     ExportStatus,
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectStatus,
     SourceMode,
@@ -32,7 +32,7 @@ from ...projects import (
 
 
 
-def _project_values(project: MigrationProject) -> list[object]:
+def _project_values(project: WorkspaceState) -> list[object]:
     """Flatten a validated project into the fixed project-table column order."""
 
     return [
@@ -71,7 +71,7 @@ def _project_values(project: MigrationProject) -> list[object]:
 def _project_from_rows(
     data: dict[str, object],
     source_rows: list[tuple[object, ...]],
-) -> MigrationProject:
+) -> WorkspaceState:
     """Rebuild one project aggregate and its immutable source-file children."""
 
     export_date = str(data["export_date"]) if data["export_date"] else None
@@ -83,7 +83,7 @@ def _project_from_rows(
         if data.get("odoo_connection_mode")
         else None
     )
-    return MigrationProject(
+    return WorkspaceState(
         project_id=str(data["project_id"]),
         name=str(data["name"]),
         source_system=str(data["source_system"]),

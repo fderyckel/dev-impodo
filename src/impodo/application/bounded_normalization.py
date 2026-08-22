@@ -26,7 +26,7 @@ from ..normalization import (
     compile_normalization_review_policy,
     normalization_change_language,
 )
-from ..projects import DataClassification, MigrationProject
+from ..projects import DataClassification, WorkspaceState
 from ..quality import (
     QualityOutcomePolicy,
     StoredQualityRun,
@@ -44,7 +44,7 @@ class _BoundedNormalizationEffects:
     def __init__(
         self,
         *,
-        project: MigrationProject,
+        project: WorkspaceState,
         mapping_hash: str,
         mappings: Mapping[str, DatasetMapping],
         eligible_row_ids: AbstractSet[str],
@@ -237,7 +237,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
 
 def build_bounded_normalization_evaluation(
     *,
-    project: MigrationProject,
+    project: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     quality: StoredQualityRun,
     mappings: Mapping[str, DatasetMapping],

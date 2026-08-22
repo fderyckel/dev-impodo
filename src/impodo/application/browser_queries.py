@@ -26,7 +26,7 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
 )
 from ..inspection import SourceFileCatalog
-from ..projects import MigrationProject, ProjectSummary
+from ..projects import WorkspaceState, ProjectSummary
 from ..quality import QualityReviewPage, QualityRuleSet
 from ..workspace_contracts import (
     MappingWorkingDraft,
@@ -45,7 +45,7 @@ class ProjectQueryRepository(Protocol):
     """Read current project aggregates and lightweight list projections."""
 
     def list(self) -> tuple[ProjectSummary, ...]: ...
-    def get(self, project_id: str) -> MigrationProject: ...
+    def get(self, project_id: str) -> WorkspaceState: ...
     def has_audit_event(self, project_id: str, event_type: str) -> bool: ...
 
 
@@ -184,7 +184,7 @@ class BrowserQueryService:
     def list(self) -> tuple[ProjectSummary, ...]:
         return self._projects.list()
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         return self._projects.get(project_id)
 
     def has_project_audit_event(self, project_id: str, event_type: str) -> bool:

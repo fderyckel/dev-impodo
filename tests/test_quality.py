@@ -31,7 +31,7 @@ from impodo.domain.compiler import compile_profile_document
 from impodo.planner import plan_record_requests
 from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bundle
 from impodo.profile import load_profile
-from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
 from impodo.quality import (
     QualityDisposition,
     QualityOutcomePolicy,
@@ -1477,9 +1477,9 @@ class QualityStoreTests(unittest.TestCase):
 
 
 
-def _project() -> MigrationProject:
+def _project() -> WorkspaceState:
     now = datetime.now(timezone.utc)
-    return MigrationProject(
+    return WorkspaceState(
         project_id=str(uuid4()),
         name="Quality contacts",
         source_system="CSV",

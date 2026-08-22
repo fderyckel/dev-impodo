@@ -42,7 +42,7 @@ from impodo.models import (
     TargetFingerprint,
 )
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectStatus,
     SourceMode,
@@ -362,7 +362,7 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
         self.project_id = "00000000-0000-0000-0000-000000000001"
         self.schema = _schema(self.project_id)
         self.selection = _selection(self.project_id, self.schema)
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id=self.project_id,
             name="Odoo source",
             source_system="Odoo",

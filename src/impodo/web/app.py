@@ -95,7 +95,7 @@ from ..adapters.duckdb.transformation_impact_repository import (
 )
 from ..adapters.protected_recipe_store import ProtectedRecipeStore
 from ..projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectCompatibilityError,
     ProjectNotFoundError,
@@ -338,7 +338,7 @@ def create_local_app(
         odoo_provenance_service,
     )
 
-    def current_read_credential_binding(project: MigrationProject) -> str:
+    def current_read_credential_binding(project: WorkspaceState) -> str:
         if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
             return local_read_credential_binding_hash(project)
         if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:

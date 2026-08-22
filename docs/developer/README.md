@@ -8,7 +8,7 @@ boundaries, and read-versus-write capabilities explicit.
 
 The browser calls the reusable business object a **project**; the domain calls
 that aggregate `Recipe`. Each `DataVersion` owns one internal
-`MigrationProject` workspace. Read the
+workspace, represented in the current browser code by `WorkspaceState`. Read the
 [Recipe lifecycle contract](contracts/recipe-lifecycle.md) before changing
 identity, persistence, application, or qualification behavior.
 
@@ -32,7 +32,7 @@ Contracts contain only cross-stage required behavior. Workflow pages own the
 routes, services, implementation status, performance risks, and focused tests.
 
 - [Recipe and data-version lifecycle](contracts/recipe-lifecycle.md)
-- [Contained project lifecycle](contracts/project-lifecycle.md)
+- [Contained workspace lifecycle](contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](contracts/evidence-lifecycle.md)
 - [Canonical staging](contracts/canonical-staging.md)
 - [Preflight](contracts/preflight.md)

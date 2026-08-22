@@ -1,4 +1,4 @@
-"""Persist the clean M1 Project, DataVersion, run, and workspace roots."""
+"""Persist the clean M1-M2 Project, source, run, and workspace roots."""
 
 from __future__ import annotations
 
@@ -10,8 +10,19 @@ from uuid import uuid4
 import duckdb
 
 from ...access import Actor, ActorIdentity
+from ...data_version_sources import (
+    DataVersionSourcePackage,
+    SourcePackageCatalog,
+    SourcePackageConfiguration,
+    SourcePackageDataset,
+    SourcePackageFile,
+    SourcePackageOrigin,
+    SourcePackageState,
+    WorkspaceSourceProjection,
+)
 from ...data_versions import DataVersion, DataVersionPurpose, DataVersionState
 from ...domain.serialization import canonical_json
+from ...domain.source_binding import source_binding_from_dict
 from ...migration_foundation import (
     FaultInjector,
     MigrationConflictError,
@@ -41,11 +52,12 @@ from ...migration_workspaces import (
     MigrationWorkspace,
     MigrationWorkspaceState,
 )
+from ...workspace_contracts import SourceDatasetColumn
 from .migration_foundation_database import MigrationFoundationDatabase
 
 
 class MigrationFoundationRepository:
-    """Implement every M1 root port over one exact registry generation."""
+    """Implement the M1-M2 root and source ports over exact stores."""
 
     def __init__(self, database: MigrationFoundationDatabase) -> None:
         self.database = database
@@ -71,7 +83,7 @@ class MigrationFoundationRepository:
             owner_id=project.project_id,
             kind=MigrationOperationKind.PROJECT_CREATE,
             request_hash=request_hash,
-            expected_project_revision=None,
+            expected_revision=None,
             detail=detail,
             actor=actor,
         )
@@ -261,7 +273,7 @@ class MigrationFoundationRepository:
             owner_id=data_version.data_version_id,
             kind=MigrationOperationKind.DATA_VERSION_CREATE,
             request_hash=request_hash,
-            expected_project_revision=expected_project_revision,
+            expected_revision=expected_project_revision,
             detail={"data_version": self._data_version_dict(data_version)},
             actor=actor,
         )
@@ -366,6 +378,312 @@ class MigrationFoundationRepository:
                 raise
         return self.get_data_version(data_version.data_version_id)
 
+    def get_source_package(
+        self,
+        data_version_id: str,
+    ) -> DataVersionSourcePackage | None:
+        data_version = self._get_data_version_registry(data_version_id)
+        path = self.database.ensure_data_version_store(data_version)
+        with self.database.connect(path) as connection:
+            state = connection.execute(
+                """
+                SELECT revision, state, origin, package_hash, updated_at,
+                       frozen_at
+                  FROM source_package_state WHERE singleton_id = 1
+                """
+            ).fetchone()
+            if state is None or int(state[0]) == 0:
+                return None
+            files = tuple(
+                SourcePackageFile(
+                    file_id=str(row[0]),
+                    display_name=str(row[1]),
+                    storage_key=str(row[2]),
+                    size_bytes=int(row[3]),
+                    sha256=str(row[4]),
+                    received_at=datetime.fromisoformat(str(row[5])),
+                )
+                for row in connection.execute(
+                    "SELECT * FROM source_package_file ORDER BY file_id"
+                ).fetchall()
+            )
+            catalog_rows = connection.execute(
+                "SELECT * FROM source_package_catalog ORDER BY file_id"
+            ).fetchall()
+            catalogs = tuple(
+                SourcePackageCatalog(
+                    file_id=str(row[0]),
+                    source_sha256=str(row[1]),
+                    payload=self._json_mapping(str(row[3])),
+                )
+                for row in catalog_rows
+            )
+            if any(
+                item.content_hash != str(row[2])
+                for item, row in zip(catalogs, catalog_rows, strict=True)
+            ):
+                raise MigrationConflictError(
+                    "Stored source catalogue hash is inconsistent"
+                )
+            configuration_rows = connection.execute(
+                "SELECT * FROM source_package_configuration ORDER BY file_id"
+            ).fetchall()
+            configurations = tuple(
+                SourcePackageConfiguration(
+                    file_id=str(row[0]),
+                    catalog_hash=str(row[1]),
+                    payload=self._json_mapping(str(row[3])),
+                )
+                for row in configuration_rows
+            )
+            if any(
+                item.content_hash != str(row[2])
+                for item, row in zip(
+                    configurations,
+                    configuration_rows,
+                    strict=True,
+                )
+            ):
+                raise MigrationConflictError(
+                    "Stored source confirmation hash is inconsistent"
+                )
+            datasets = tuple(
+                SourcePackageDataset(
+                    dataset_id=str(row[0]),
+                    display_name=str(row[1]),
+                    source_file_ids=tuple(json.loads(str(row[2]))),
+                    source=source_binding_from_dict(
+                        self._json_mapping(str(row[3]))
+                    ),
+                    row_count=int(row[4]),
+                    columns=self._source_columns(str(row[5])),
+                    schema_hash=str(row[6]),
+                    snapshot_hash=str(row[7]),
+                    snapshot_storage_key=str(row[8]),
+                    manifest=self._json_mapping(str(row[9])),
+                )
+                for row in connection.execute(
+                    "SELECT * FROM source_package_dataset ORDER BY dataset_id"
+                ).fetchall()
+            )
+        package = DataVersionSourcePackage(
+            data_version_id=data_version.data_version_id,
+            project_id=data_version.project_id,
+            revision=int(state[0]),
+            origin=SourcePackageOrigin(str(state[2])),
+            state=SourcePackageState(str(state[1])),
+            files=files,
+            catalogs=catalogs,
+            configurations=configurations,
+            datasets=datasets,
+            updated_at=datetime.fromisoformat(str(state[4])),
+            frozen_at=(
+                datetime.fromisoformat(str(state[5]))
+                if state[5] is not None
+                else None
+            ),
+        )
+        if package.content_hash != str(state[3]):
+            raise MigrationConflictError(
+                "Stored source package hash is inconsistent"
+            )
+        return package
+
+    def data_version_project_id(self, data_version_id: str) -> str:
+        return self._get_data_version_registry(data_version_id).project_id
+
+    def replace_draft_source_package(
+        self,
+        package: DataVersionSourcePackage,
+        *,
+        expected_package_revision: int | None,
+        actor: Actor,
+    ) -> DataVersionSourcePackage:
+        if expected_package_revision is not None:
+            expected_package_revision = require_revision(
+                expected_package_revision,
+                "expected_package_revision",
+            )
+        if package.state is not SourcePackageState.DRAFT:
+            raise MigrationConflictError("Frozen source packages are immutable")
+        data_version = self._get_data_version_registry(package.data_version_id)
+        if (
+            data_version.project_id != package.project_id
+            or data_version.state is not DataVersionState.DRAFT
+        ):
+            raise MigrationConflictError(
+                "Source package does not belong to an editable DataVersion"
+            )
+        path = self.database.ensure_data_version_store(data_version)
+        with self.database.connect(path) as connection:
+            connection.begin()
+            try:
+                current = connection.execute(
+                    "SELECT revision, state FROM source_package_state "
+                    "WHERE singleton_id = 1"
+                ).fetchone()
+                current_revision = int(current[0])
+                required_current = expected_package_revision or 0
+                if (
+                    str(current[1]) != SourcePackageState.DRAFT.value
+                    or current_revision != required_current
+                    or package.revision != current_revision + 1
+                ):
+                    raise MigrationConflictError(
+                        "Source package changed; reload and retry"
+                    )
+                connection.execute("DELETE FROM source_package_configuration")
+                connection.execute("DELETE FROM source_package_catalog")
+                connection.execute("DELETE FROM source_package_file")
+                connection.execute("DELETE FROM source_package_dataset")
+                self._insert_source_package(connection, package)
+                connection.execute(
+                    """
+                    UPDATE source_package_state
+                       SET revision = ?, state = 'DRAFT', origin = ?,
+                           package_hash = ?, updated_at = ?, frozen_at = NULL
+                     WHERE singleton_id = 1
+                    """,
+                    [
+                        package.revision,
+                        package.origin.value,
+                        package.content_hash,
+                        package.updated_at.isoformat(),
+                    ],
+                )
+                self._insert_source_package_event(
+                    connection,
+                    revision=package.revision,
+                    event_type="SOURCE_PACKAGE_DRAFT_REPLACED",
+                    detail={"package_hash": package.content_hash},
+                    actor=actor,
+                    occurred_at=package.updated_at,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        saved = self.get_source_package(package.data_version_id)
+        if saved is None:
+            raise MigrationConflictError("Source package was not persisted")
+        return saved
+
+    def freeze_source_package(
+        self,
+        data_version_id: str,
+        *,
+        expected_data_version_revision: int,
+        expected_package_revision: int,
+        operation_id: str,
+        request_hash: str,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> DataVersionSourcePackage:
+        data_version = self._get_data_version_registry(data_version_id)
+        package = self.get_source_package(data_version_id)
+        if package is None:
+            raise MigrationConflictError("Source package is not assembled")
+        package.require_acceptance_ready()
+        if package.state is SourcePackageState.FROZEN:
+            try:
+                self.get_operation_intent(operation_id)
+            except MigrationNotFoundError as error:
+                raise MigrationConflictError(
+                    "Frozen source packages cannot be accepted again"
+                ) from error
+        frozen_at = utc_now()
+        detail = {
+            "data_version_id": data_version_id,
+            "frozen_at": frozen_at.isoformat(),
+            "package_hash": package.content_hash,
+            "package_revision": expected_package_revision,
+        }
+        intent = self._reserve_intent(
+            operation_id=operation_id,
+            project_id=data_version.project_id,
+            owner_kind="DATA_VERSION",
+            owner_id=data_version_id,
+            kind=MigrationOperationKind.DATA_VERSION_FREEZE,
+            request_hash=request_hash,
+            expected_revision=expected_data_version_revision,
+            detail=detail,
+            actor=actor,
+        )
+        stored = dict(intent.detail)
+        self._fault(fault, "INTENT_RESERVED")
+        self._freeze_source_store(
+            data_version,
+            package_hash=str(stored["package_hash"]),
+            expected_package_revision=int(stored["package_revision"]),
+            frozen_at=datetime.fromisoformat(str(stored["frozen_at"])),
+            actor=actor,
+        )
+        self._fault(fault, "STORE_CREATED")
+        with self.database.connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                row = connection.execute(
+                    """
+                    SELECT state, source_package_hash, optimistic_revision
+                      FROM data_version WHERE data_version_id = ?
+                    """,
+                    [data_version_id],
+                ).fetchone()
+                expected = expected_data_version_revision
+                if row == (DataVersionState.DRAFT.value, None, expected):
+                    connection.execute(
+                        """
+                        UPDATE data_version
+                           SET state = 'FROZEN', source_package_hash = ?,
+                               optimistic_revision = ?, updated_at = ?,
+                               frozen_at = ?
+                         WHERE data_version_id = ?
+                        """,
+                        [
+                            stored["package_hash"],
+                            expected + 1,
+                            stored["frozen_at"],
+                            stored["frozen_at"],
+                            data_version_id,
+                        ],
+                    )
+                    self._insert_event(
+                        connection,
+                        project_id=data_version.project_id,
+                        aggregate_kind="DATA_VERSION",
+                        aggregate_id=data_version_id,
+                        aggregate_revision=expected + 1,
+                        event_type="DATA_VERSION_SOURCE_PACKAGE_FROZEN",
+                        detail={"package_hash": stored["package_hash"]},
+                        actor=actor,
+                        occurred_at=datetime.fromisoformat(
+                            str(stored["frozen_at"])
+                        ),
+                    )
+                elif row != (
+                    DataVersionState.FROZEN.value,
+                    stored["package_hash"],
+                    expected + 1,
+                ):
+                    raise MigrationConflictError(
+                        "DataVersion changed before source acceptance"
+                    )
+                self._commit_intent(
+                    connection,
+                    operation_id,
+                    stage="SOURCE_PACKAGE_FROZEN",
+                    result={"data_version_id": data_version_id},
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self._fault(fault, "REGISTRY_COMMITTED")
+        frozen = self.get_source_package(data_version_id)
+        if frozen is None:
+            raise MigrationConflictError("Frozen source package is missing")
+        return frozen
+
     def next_run_number(self, project_id: str) -> int:
         return self._next_number(project_id, "migration_run", "run_number")
 
@@ -386,7 +704,7 @@ class MigrationFoundationRepository:
             owner_id=run.migration_run_id,
             kind=MigrationOperationKind.MIGRATION_RUN_CREATE,
             request_hash=request_hash,
-            expected_project_revision=expected_project_revision,
+            expected_revision=expected_project_revision,
             detail={"migration_run": self._run_dict(run)},
             actor=actor,
         )
@@ -501,7 +819,7 @@ class MigrationFoundationRepository:
             owner_id=workspace.workspace_id,
             kind=MigrationOperationKind.MIGRATION_WORKSPACE_CREATE,
             request_hash=request_hash,
-            expected_project_revision=expected_project_revision,
+            expected_revision=expected_project_revision,
             detail={"migration_workspace": self._workspace_dict(workspace)},
             actor=actor,
         )
@@ -612,6 +930,218 @@ class MigrationFoundationRepository:
                 raise
         return self.get_migration_workspace(workspace.workspace_id)
 
+    def create_workspace_source_projection(
+        self,
+        workspace_id: str,
+        *,
+        dataset_ids: tuple[str, ...],
+        expected_workspace_revision: int,
+        operation_id: str,
+        request_hash: str,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> WorkspaceSourceProjection:
+        workspace = self.get_migration_workspace(workspace_id)
+        current_projection = self.get_workspace_source_projection(workspace_id)
+        if current_projection is not None:
+            try:
+                self.get_operation_intent(operation_id)
+            except MigrationNotFoundError as error:
+                raise MigrationConflictError(
+                    "MigrationWorkspace already has a source projection"
+                ) from error
+        package = self.get_source_package(workspace.data_version_id)
+        if package is None or package.state is not SourcePackageState.FROZEN:
+            raise MigrationConflictError(
+                "Accept the DataVersion source package before using it"
+            )
+        if package.project_id != workspace.project_id:
+            raise MigrationConflictError(
+                "Workspace and source package belong to different Projects"
+            )
+        requested = set(dataset_ids)
+        available = {item.dataset_id for item in package.datasets}
+        if not requested or not requested.issubset(available):
+            raise MigrationConflictError(
+                "Workspace source selection is outside its DataVersion"
+            )
+        now = utc_now()
+        detail = {
+            "created_at": now.isoformat(),
+            "created_by": actor.identity.display_name,
+            "dataset_ids": list(dataset_ids),
+            "package_hash": package.content_hash,
+            "projection_id": str(uuid4()),
+        }
+        intent = self._reserve_intent(
+            operation_id=operation_id,
+            project_id=workspace.project_id,
+            owner_kind="MIGRATION_WORKSPACE",
+            owner_id=workspace_id,
+            kind=MigrationOperationKind.WORKSPACE_SOURCE_PROJECT,
+            request_hash=request_hash,
+            expected_revision=expected_workspace_revision,
+            detail=detail,
+            actor=actor,
+        )
+        if intent.state is MigrationOperationState.COMMITTED:
+            projection = self.get_workspace_source_projection(workspace_id)
+            if projection is None:
+                raise MigrationConflictError(
+                    "Committed workspace source projection is missing"
+                )
+            return projection
+        stored = dict(intent.detail)
+        self._fault(fault, "INTENT_RESERVED")
+        path = self.database.ensure_workspace_store(workspace)
+        with self.database.connect(path) as connection:
+            connection.begin()
+            try:
+                existing = connection.execute(
+                    """
+                    SELECT projection_id, package_hash
+                      FROM workspace_source_projection
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                expected_projection = (
+                    str(stored["projection_id"]),
+                    str(stored["package_hash"]),
+                )
+                if existing is None:
+                    connection.execute(
+                        "INSERT INTO workspace_source_projection "
+                        "VALUES (1, ?, ?, ?, ?)",
+                        [
+                            stored["projection_id"],
+                            stored["package_hash"],
+                            stored["created_at"],
+                            stored["created_by"],
+                        ],
+                    )
+                    selected = tuple(
+                        package.dataset(str(dataset_id))
+                        for dataset_id in stored["dataset_ids"]
+                    )
+                    connection.executemany(
+                        "INSERT INTO workspace_source_dataset VALUES (?, ?)",
+                        [
+                            [dataset.dataset_id, dataset.snapshot_hash]
+                            for dataset in selected
+                        ],
+                    )
+                elif existing != expected_projection:
+                    raise MigrationConflictError(
+                        "MigrationWorkspace already uses another source projection"
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self._fault(fault, "STORE_CREATED")
+        with self.database.connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                row = connection.execute(
+                    "SELECT optimistic_revision FROM migration_workspace "
+                    "WHERE workspace_id = ?",
+                    [workspace_id],
+                ).fetchone()
+                expected = expected_workspace_revision
+                if row == (expected,):
+                    connection.execute(
+                        """
+                        UPDATE migration_workspace
+                           SET optimistic_revision = ?, updated_at = ?
+                         WHERE workspace_id = ?
+                        """,
+                        [expected + 1, stored["created_at"], workspace_id],
+                    )
+                    self._insert_event(
+                        connection,
+                        project_id=workspace.project_id,
+                        aggregate_kind="MIGRATION_WORKSPACE",
+                        aggregate_id=workspace_id,
+                        aggregate_revision=expected + 1,
+                        event_type="WORKSPACE_SOURCE_PROJECTED",
+                        detail={"package_hash": stored["package_hash"]},
+                        actor=actor,
+                        occurred_at=datetime.fromisoformat(
+                            str(stored["created_at"])
+                        ),
+                    )
+                elif row != (expected + 1,):
+                    raise MigrationConflictError(
+                        "MigrationWorkspace changed before source projection"
+                    )
+                self._commit_intent(
+                    connection,
+                    operation_id,
+                    stage="WORKSPACE_SOURCE_PROJECTED",
+                    result={"projection_id": stored["projection_id"]},
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self._fault(fault, "REGISTRY_COMMITTED")
+        projection = self.get_workspace_source_projection(workspace_id)
+        if projection is None:
+            raise MigrationConflictError(
+                "Workspace source projection was not persisted"
+            )
+        return projection
+
+    def workspace_project_id(self, workspace_id: str) -> str:
+        return self._get_workspace_registry(workspace_id).project_id
+
+    def get_workspace_source_projection(
+        self,
+        workspace_id: str,
+    ) -> WorkspaceSourceProjection | None:
+        workspace = self.get_migration_workspace(workspace_id)
+        path = self.database.ensure_workspace_store(workspace)
+        with self.database.connect(path) as connection:
+            row = connection.execute(
+                """
+                SELECT projection_id, package_hash, created_at, created_by
+                  FROM workspace_source_projection WHERE singleton_id = 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            dataset_rows = connection.execute(
+                "SELECT dataset_id, snapshot_hash "
+                "FROM workspace_source_dataset ORDER BY dataset_id"
+            ).fetchall()
+        package = self.get_source_package(workspace.data_version_id)
+        if (
+            package is None
+            or package.state is not SourcePackageState.FROZEN
+            or package.content_hash != str(row[1])
+        ):
+            raise MigrationConflictError(
+                "Workspace source projection no longer matches its DataVersion"
+            )
+        datasets = tuple(package.dataset(str(item[0])) for item in dataset_rows)
+        if any(
+            dataset.snapshot_hash != str(stored[1])
+            for dataset, stored in zip(datasets, dataset_rows, strict=True)
+        ):
+            raise MigrationConflictError(
+                "Workspace source snapshot reference is inconsistent"
+            )
+        return WorkspaceSourceProjection(
+            projection_id=str(row[0]),
+            workspace_id=workspace.workspace_id,
+            project_id=workspace.project_id,
+            data_version_id=workspace.data_version_id,
+            package_hash=str(row[1]),
+            datasets=datasets,
+            created_at=datetime.fromisoformat(str(row[2])),
+            created_by=str(row[3]),
+        )
+
     def get_operation_intent(self, operation_id: str) -> MigrationOperationIntent:
         operation_id = require_uuid(operation_id, "operation_id")
         with self.database.connect(self.registry_path) as connection:
@@ -642,7 +1172,7 @@ class MigrationFoundationRepository:
                     self._assert_project_revision(
                         connection,
                         data_version.project_id,
-                        intent.expected_project_revision,
+                        intent.expected_revision,
                     )
                     self._assert_identity_available(
                         connection,
@@ -670,7 +1200,7 @@ class MigrationFoundationRepository:
                     next_revision = self._advance_project(
                         connection,
                         data_version.project_id,
-                        intent.expected_project_revision,
+                        intent.expected_revision,
                         data_version.updated_at,
                     )
                     self._insert_event(
@@ -712,7 +1242,7 @@ class MigrationFoundationRepository:
                     self._assert_project_revision(
                         connection,
                         run.project_id,
-                        intent.expected_project_revision,
+                        intent.expected_revision,
                     )
                     self._assert_identity_available(connection, run.migration_run_id)
                     data = connection.execute(
@@ -736,7 +1266,7 @@ class MigrationFoundationRepository:
                     next_revision = self._advance_project(
                         connection,
                         run.project_id,
-                        intent.expected_project_revision,
+                        intent.expected_revision,
                         run.updated_at,
                     )
                     self._insert_event(
@@ -778,7 +1308,7 @@ class MigrationFoundationRepository:
                     self._assert_project_revision(
                         connection,
                         workspace.project_id,
-                        intent.expected_project_revision,
+                        intent.expected_revision,
                     )
                     self._assert_identity_available(connection, workspace.workspace_id)
                     run = connection.execute(
@@ -819,7 +1349,7 @@ class MigrationFoundationRepository:
                     next_revision = self._advance_project(
                         connection,
                         workspace.project_id,
-                        intent.expected_project_revision,
+                        intent.expected_revision,
                         workspace.updated_at,
                     )
                     self._insert_event(
@@ -852,7 +1382,7 @@ class MigrationFoundationRepository:
         owner_id: str,
         kind: MigrationOperationKind,
         request_hash: str,
-        expected_project_revision: int | None,
+        expected_revision: int | None,
         detail: Mapping[str, object],
         actor: Actor,
     ) -> MigrationOperationIntent:
@@ -860,10 +1390,10 @@ class MigrationFoundationRepository:
         project_id = require_uuid(project_id, "project_id")
         owner_id = require_uuid(owner_id, "owner_id")
         request_hash = require_hash(request_hash, "request_hash")
-        if expected_project_revision is not None:
-            expected_project_revision = require_revision(
-                expected_project_revision,
-                "expected_project_revision",
+        if expected_revision is not None:
+            expected_revision = require_revision(
+                expected_revision,
+                "expected_revision",
             )
         with self.database.connect(self.registry_path) as connection:
             rows = self._rows(
@@ -881,8 +1411,8 @@ class MigrationFoundationRepository:
                     or current.owner_kind != owner_kind
                     or current.kind is not kind
                     or current.request_hash != request_hash
-                    or current.expected_project_revision
-                    != expected_project_revision
+                    or current.expected_revision
+                    != expected_revision
                     or current.actor.issuer != actor.identity.issuer
                     or current.actor.subject_id != actor.identity.subject_id
                 ):
@@ -905,7 +1435,7 @@ class MigrationFoundationRepository:
                     owner_id,
                     kind.value,
                     request_hash,
-                    expected_project_revision,
+                    expected_revision,
                     canonical_json(detail),
                     actor.identity.issuer,
                     actor.identity.subject_id,
@@ -1135,6 +1665,210 @@ class MigrationFoundationRepository:
         rows = connection.execute(query, parameters).fetchall()
         columns = [str(item[0]) for item in connection.description]
         return [dict(zip(columns, row, strict=True)) for row in rows]
+
+    @staticmethod
+    def _insert_source_package(
+        connection: duckdb.DuckDBPyConnection,
+        package: DataVersionSourcePackage,
+    ) -> None:
+        if package.files:
+            connection.executemany(
+                "INSERT INTO source_package_file VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    [
+                        item.file_id,
+                        item.display_name,
+                        item.storage_key,
+                        item.size_bytes,
+                        item.sha256,
+                        item.received_at.isoformat(),
+                    ]
+                    for item in package.files
+                ],
+            )
+        if package.catalogs:
+            connection.executemany(
+                "INSERT INTO source_package_catalog VALUES (?, ?, ?, ?)",
+                [
+                    [
+                        item.file_id,
+                        item.source_sha256,
+                        item.content_hash,
+                        canonical_json(item.payload),
+                    ]
+                    for item in package.catalogs
+                ],
+            )
+        if package.configurations:
+            connection.executemany(
+                "INSERT INTO source_package_configuration VALUES (?, ?, ?, ?)",
+                [
+                    [
+                        item.file_id,
+                        item.catalog_hash,
+                        item.content_hash,
+                        canonical_json(item.payload),
+                    ]
+                    for item in package.configurations
+                ],
+            )
+        if package.datasets:
+            connection.executemany(
+                "INSERT INTO source_package_dataset "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    [
+                        item.dataset_id,
+                        item.display_name,
+                        canonical_json(list(item.source_file_ids)),
+                        canonical_json(item.source.to_dict()),
+                        item.row_count,
+                        canonical_json(
+                            [
+                                {
+                                    "candidate_type": column.candidate_type,
+                                    "ordinal": column.ordinal,
+                                    "source_name": column.source_name,
+                                    "stable_key": column.stable_key,
+                                }
+                                for column in item.columns
+                            ]
+                        ),
+                        item.schema_hash,
+                        item.snapshot_hash,
+                        item.snapshot_storage_key,
+                        canonical_json(item.manifest),
+                    ]
+                    for item in package.datasets
+                ],
+            )
+
+    def _freeze_source_store(
+        self,
+        data_version: DataVersion,
+        *,
+        package_hash: str,
+        expected_package_revision: int,
+        frozen_at: datetime,
+        actor: Actor,
+    ) -> None:
+        path = self.database.ensure_data_version_store(data_version)
+        with self.database.connect(path) as connection:
+            connection.begin()
+            try:
+                state = connection.execute(
+                    """
+                    SELECT revision, state, package_hash
+                      FROM source_package_state WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                expected_draft = (
+                    expected_package_revision,
+                    SourcePackageState.DRAFT.value,
+                    package_hash,
+                )
+                expected_frozen = (
+                    expected_package_revision + 1,
+                    SourcePackageState.FROZEN.value,
+                    package_hash,
+                )
+                if state == expected_draft:
+                    connection.execute(
+                        """
+                        UPDATE source_package_state
+                           SET revision = ?, state = 'FROZEN', frozen_at = ?,
+                               updated_at = ?
+                         WHERE singleton_id = 1
+                        """,
+                        [
+                            expected_package_revision + 1,
+                            frozen_at.isoformat(),
+                            frozen_at.isoformat(),
+                        ],
+                    )
+                    connection.execute(
+                        """
+                        UPDATE data_version_identity
+                           SET state = 'FROZEN', source_package_hash = ?
+                         WHERE singleton_id = 1
+                        """,
+                        [package_hash],
+                    )
+                    self._insert_source_package_event(
+                        connection,
+                        revision=expected_package_revision + 1,
+                        event_type="SOURCE_PACKAGE_FROZEN",
+                        detail={"package_hash": package_hash},
+                        actor=actor,
+                        occurred_at=frozen_at,
+                    )
+                elif state != expected_frozen:
+                    raise MigrationConflictError(
+                        "Source package changed before acceptance"
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    @staticmethod
+    def _insert_source_package_event(
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        revision: int,
+        event_type: str,
+        detail: Mapping[str, object],
+        actor: Actor,
+        occurred_at: datetime,
+    ) -> None:
+        connection.execute(
+            "INSERT INTO source_package_event VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                str(uuid4()),
+                revision,
+                event_type,
+                canonical_json(detail),
+                actor.identity.issuer,
+                actor.identity.subject_id,
+                actor.identity.display_name,
+                occurred_at.isoformat(),
+            ],
+        )
+
+    @staticmethod
+    def _json_mapping(value: str) -> Mapping[str, object]:
+        payload = json.loads(value)
+        if not isinstance(payload, dict):
+            raise MigrationConflictError(
+                "Stored source package payload is invalid"
+            )
+        return payload
+
+    @staticmethod
+    def _source_columns(value: str) -> tuple[SourceDatasetColumn, ...]:
+        payload = json.loads(value)
+        if not isinstance(payload, list):
+            raise MigrationConflictError(
+                "Stored source dataset columns are invalid"
+            )
+        if any(not isinstance(item, dict) for item in payload):
+            raise MigrationConflictError(
+                "Stored source dataset columns are invalid"
+            )
+        try:
+            return tuple(
+                SourceDatasetColumn(
+                    ordinal=int(item["ordinal"]),
+                    source_name=str(item["source_name"]),
+                    stable_key=str(item["stable_key"]),
+                    candidate_type=str(item["candidate_type"]),
+                )
+                for item in payload
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise MigrationConflictError(
+                "Stored source dataset columns are invalid"
+            ) from error
 
     @staticmethod
     def _insert_event(
@@ -1442,9 +2176,9 @@ class MigrationFoundationRepository:
             owner_id=str(value["owner_id"]),
             kind=MigrationOperationKind(str(value["kind"])),
             request_hash=str(value["request_hash"]),
-            expected_project_revision=(
-                int(value["expected_project_revision"])
-                if value.get("expected_project_revision") is not None
+            expected_revision=(
+                int(value["expected_revision"])
+                if value.get("expected_revision") is not None
                 else None
             ),
             state=MigrationOperationState(str(value["state"])),

@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
 from ...preparation_jobs import PreparationJob
-from ...projects import MigrationProject, ProjectStatus, SourceMode
+from ...projects import WorkspaceState, ProjectStatus, SourceMode
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 
@@ -125,7 +125,7 @@ _TEMPLATE_LOCATION = {
 
 def build_project_navigation(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     template_name: str,
     *,
     current_path: str = "",
@@ -875,7 +875,7 @@ def build_project_navigation(
 
 
 def _navigation(
-    project: MigrationProject,
+    project: WorkspaceState,
     template_name: str,
     viewed_stage_id: str,
     viewed_page_label: str,

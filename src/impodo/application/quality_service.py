@@ -10,7 +10,7 @@ from ..domain.mapping.artifacts import MappingRevision
 from ..domain.resolution import EffectiveDataset
 from ..domain.staging.preparation_session import StoredCanonicalStagingRun
 from ..domain.coverage import ReferenceBundle
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..quality import (
     QualityError,
     QualityRule,
@@ -219,7 +219,7 @@ class QualityService:
 
     def evaluate_and_publish(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         revision: MappingRevision,
         selection: SourceSelection,
         canonical_run: CanonicalStagingRun | StoredCanonicalStagingRun,

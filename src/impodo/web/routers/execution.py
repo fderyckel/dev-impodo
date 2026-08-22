@@ -21,7 +21,7 @@ from ...connectors import ConnectorError
 from ...odoo_writer import OdooWriteError
 from ...odoo_readback import OdooReadbackError
 from ...models import OdooReadIdentity, OdooWriteIdentity
-from ...projects import MigrationProject, OdooConnectionMode, ProjectError
+from ...projects import WorkspaceState, OdooConnectionMode, ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
@@ -39,7 +39,7 @@ from ..target_credentials import (
 
 async def _probe_remote_write_identity(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     preview: ExecutionPreview,
     api_key: str,
 ) -> OdooWriteIdentity | None:
@@ -67,7 +67,7 @@ async def _probe_remote_write_identity(
 
 async def _probe_current_read_identity(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     preview: ExecutionPreview,
 ) -> tuple[OdooReadIdentity | None, str]:
     """Re-probe the exact comparison credential before any remote write."""

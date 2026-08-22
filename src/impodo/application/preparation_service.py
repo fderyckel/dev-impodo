@@ -47,7 +47,7 @@ from ..inspection import SourceFileCatalog
 from ..domain.mapping.contracts import MappingDefinition
 from ..normalization import NormalizationRunSummary
 from ..preparation_jobs import PreparationPhase
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..source import SourceTable, load_selected_source_table
 from ..source_snapshot_io import (
     load_source_snapshot_table,
@@ -537,7 +537,7 @@ def _verify_odoo_preparation_evidence(
 
 
 def stage_browser_mapping(
-    project: MigrationProject,
+    project: WorkspaceState,
     definition: MappingDefinition,
     physical_selection: SourceSelection,
     effective_selection: SourceSelection,
@@ -583,7 +583,7 @@ def stage_browser_mapping(
 
 
 def _load_browser_source_tables(
-    project: MigrationProject,
+    project: WorkspaceState,
     physical_selection: SourceSelection,
     catalogs: Iterable[SourceFileCatalog],
     artifacts: ArtifactStore,

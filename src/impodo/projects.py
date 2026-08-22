@@ -154,7 +154,7 @@ class ProjectSummary:
 
 
 @dataclass(frozen=True, slots=True)
-class MigrationProject:
+class WorkspaceState:
     """Hold the governed Stage A identity and current lifecycle pointers.
 
     The aggregate is immutable; service operations create a replacement with
@@ -205,7 +205,7 @@ class ProjectRepository(Protocol):
 
     def create(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         recipe_id: str,
         data_version_id: str,
@@ -216,7 +216,7 @@ class ProjectRepository(Protocol):
         """Persist a new Recipe with its first contained authoring workspace."""
         ...
 
-    def create_unlinked(self, project: MigrationProject, *, actor: Actor) -> None:
+    def create_unlinked(self, project: WorkspaceState, *, actor: Actor) -> None:
         """Persist a contained workspace before its reserved DataVersion commits."""
         ...
 
@@ -224,7 +224,7 @@ class ProjectRepository(Protocol):
         """Remove an unlinked workspace whose DataVersion could not commit."""
         ...
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         """Return the complete current aggregate or raise ``ProjectNotFoundError``."""
         ...
 
@@ -238,7 +238,7 @@ class ProjectRepository(Protocol):
 
     def save(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         expected_revision: int,
         event_type: str,
@@ -250,7 +250,7 @@ class ProjectRepository(Protocol):
 
     def add_source_file(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -261,7 +261,7 @@ class ProjectRepository(Protocol):
 
     def remove_source_file(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -272,7 +272,7 @@ class ProjectRepository(Protocol):
 
     def update_schema_scope(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         expected_revision: int,
         actor: Actor,
@@ -335,7 +335,7 @@ class ProjectService:
         source_system: str = "",
         source_mode: str | SourceMode = SourceMode.FILE,
         creation_request_id: str | None = None,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Create and persist a local-first editable migration-project draft.
 
         The browser asks only for the project name and source mode.  The
@@ -369,7 +369,7 @@ class ProjectService:
             else None
         )
         now = _now()
-        project = MigrationProject(
+        project = WorkspaceState(
             project_id=str(uuid4()),
             name=clean_name,
             source_system=clean_source,
@@ -413,7 +413,7 @@ class ProjectService:
         data_classification: str | DataClassification,
         retention_days: int,
         support_access: bool,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Create a complete unlinked workspace for one reserved DataVersion."""
 
         self.authorization.require(actor, Capability.PROJECT_CREATE)
@@ -424,7 +424,7 @@ class ProjectService:
         if not 1 <= retention_days <= 3650:
             raise ProjectError("Retention must be between 1 and 3650 days")
         now = _now()
-        project = MigrationProject(
+        project = WorkspaceState(
             project_id=str(uuid4()),
             name=_required_text(name, "Project name"),
             source_system=_required_text(source_system, "Source system"),
@@ -458,7 +458,7 @@ class ProjectService:
         export_status: str,
         export_date: str,
         description: str,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Validate and save editable source-export identity and description."""
 
         project = self._editable(
@@ -512,7 +512,7 @@ class ProjectService:
         data_classification: str,
         retention_days: int,
         support_access: bool,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Validate and save project ownership, classification, and retention."""
 
         project = self._editable(
@@ -554,7 +554,7 @@ class ProjectService:
         odoo_database: str,
         intended_applications: Sequence[str],
         intended_models: Sequence[str] | None = None,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Replace the draft target identity and application/model context.
 
         Concrete persistence invalidates current schema, mapping, and staging
@@ -597,7 +597,7 @@ class ProjectService:
         expected_revision: int,
         *,
         actor: Actor,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Allow target setup after source registration.
 
         File projects intentionally defer their Odoo destination until the
@@ -628,7 +628,7 @@ class ProjectService:
         actor: Actor,
         expected_revision: int,
         permitted_models: Sequence[str],
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Set the exact Odoo models Stage C may read and map.
 
         This deliberately remains available after project registration. It is
@@ -798,7 +798,7 @@ class ProjectService:
         actor: Actor,
         expected_revision: int,
         source_file: SourceFile,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Attach one source file before the project's tables are frozen."""
 
         project = self._source_files_editable(
@@ -869,7 +869,7 @@ class ProjectService:
         expected_revision: int,
         *,
         actor: Actor,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Allow file-list amendments in draft or before registered table freeze."""
 
         _canonical_project_id(project_id)
@@ -894,7 +894,7 @@ class ProjectService:
         *,
         actor: Actor,
         expected_revision: int,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         """Register a complete draft and close the editable setup boundary.
 
         All problems from :func:`registration_problems` are returned together
@@ -930,7 +930,7 @@ class ProjectService:
         *,
         actor: Actor,
         capability: Capability,
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         _canonical_project_id(project_id)
         self.authorization.require(
             actor,
@@ -949,13 +949,13 @@ class ProjectService:
 
     def _save(
         self,
-        updated: MigrationProject,
-        previous: MigrationProject,
+        updated: WorkspaceState,
+        previous: WorkspaceState,
         event_type: str,
         *,
         actor: Actor,
         detail: str = "",
-    ) -> MigrationProject:
+    ) -> WorkspaceState:
         saved = replace(
             updated,
             revision=previous.revision + 1,
@@ -972,7 +972,7 @@ class ProjectService:
 
 
 def project_setup_requirements(
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> tuple[ProjectSetupRequirement, ...]:
     """Return every unmet setup requirement with one owning browser step."""
 
@@ -1051,7 +1051,7 @@ def project_setup_requirements(
 
 
 def project_setup_requirements_for_step(
-    project: MigrationProject,
+    project: WorkspaceState,
     step: ProjectSetupStep,
 ) -> tuple[ProjectSetupRequirement, ...]:
     """Return only the unmet requirements owned by ``step``."""
@@ -1063,7 +1063,7 @@ def project_setup_requirements_for_step(
     )
 
 
-def registration_problems(project: MigrationProject) -> tuple[str, ...]:
+def registration_problems(project: WorkspaceState) -> tuple[str, ...]:
     """Return every user-actionable reason a draft cannot be registered."""
 
     return tuple(

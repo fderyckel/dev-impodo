@@ -21,7 +21,7 @@ from ..domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..workspace_contracts import MappingWorkingDraft, SourceSelection
 from ..workspace_errors import WorkspaceError
 from .preparation_service import stage_browser_mapping
@@ -30,7 +30,7 @@ from .preparation_service import stage_browser_mapping
 class TransformationImpactProjectRepository(Protocol):
     """Load project context for impact evaluation."""
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         """Return project policy used for protected display and ownership."""
         ...
 
@@ -119,7 +119,7 @@ class TransformationImpactRepository(Protocol):
 class TransformationImpactContext:
     """All hash-bearing inputs required to re-evaluate prepared values."""
 
-    project: MigrationProject
+    project: WorkspaceState
     revision: MappingRevision
     physical_selection: SourceSelection
     effective_selection: SourceSelection

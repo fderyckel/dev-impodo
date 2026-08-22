@@ -15,7 +15,7 @@ from ...business_keys import (
     selectable_business_key_fields,
 )
 from ...derived_entities import DerivedEntityRule
-from ...projects import MigrationProject
+from ...projects import WorkspaceState
 from ...workspace_contracts import (
     OdooModelCatalog,
     OdooModelSummary,
@@ -35,7 +35,7 @@ from .common import _render
 
 
 def _manual_schema_models(
-    project: MigrationProject,
+    project: WorkspaceState,
     form: FormData,
 ) -> tuple[SchemaModel, ...]:
     """Parse the explicitly entered local-development schema contract."""
@@ -294,7 +294,7 @@ def _related_dataset_name_default(source_name: str, suffix: str) -> str:
 
 
 def _schema_model_choices(
-    project: MigrationProject,
+    project: WorkspaceState,
     catalog: OdooModelCatalog | None,
 ) -> tuple[dict[str, object], ...]:
     selected = set(project.intended_models)

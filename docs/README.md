@@ -71,8 +71,8 @@ applies those rules when documentation is created or rewritten.
 - [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
   — accepted target architecture and active plan for replacing the current
   Project-as-Recipe model without retaining compatibility shells, aliases, or
-  old storage readers. Phases M0 and M1 are complete; the browser cutover has
-  not started.
+  old storage readers. Phases M0 through M2 are complete; the browser cutover
+  has not started.
 - [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
   — completed architecture-only contracts and executable fixtures for Project
   ownership, optional and multiple Recipes, Project-owned data packages,
@@ -82,6 +82,11 @@ applies those rules when documentation is created or rewritten.
   generations, bounded projections, restart-safe intents, old-storage
   rejection, and recoverable development reset. These services are not yet
   composed into the browser.
+- [Migration Projects Phase M2 source-package foundation](plans/migration-projects-phase-m2-source-packages.md)
+  — Project-owned DataVersion source packages, immutable acceptance, bounded
+  read-only workspace projections, exact M2 storage, and the internal
+  `WorkspaceState` rename. These services are not yet composed into the
+  browser.
 - [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
   — approved design for separating Odoo choices from source values, preserving
   fixed choice mappings, and adding a governed multi-column rule provider for

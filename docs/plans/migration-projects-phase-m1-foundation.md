@@ -4,6 +4,11 @@
 
 **Status:** Completed foundation phase from 2026-08-22.
 
+Phase M2 superseded the three M1 storage generations with exact M2
+generations. The M1 ownership, recovery, and reset decisions remain in force;
+current generation names are recorded in the [Phase M2 source-package
+foundation](migration-projects-phase-m2-source-packages.md).
+
 This document records Phase M1 of the [Migration projects and multi-Recipe
 cutover implementation
 plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md).
@@ -150,5 +155,6 @@ proves:
   for reset.
 
 The M1 gate passes when these tests and the M0 contract suite pass together.
-Phase M2 may then move source-package ownership and rename the current internal
-workspace without adding an old-schema reader or dual-write path.
+Phase M2 subsequently moved source-package ownership and renamed the current
+internal workspace class without adding an old-schema reader or dual-write
+path.

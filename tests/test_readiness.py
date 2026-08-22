@@ -61,7 +61,7 @@ from impodo.models import (
     target_identity_hash,
 )
 from impodo.projects import (
-    MigrationProject,
+    WorkspaceState,
     OdooConnectionMode,
     ProjectStatus,
     SourceFile,
@@ -1087,7 +1087,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                 ),
             ),
         )
-        project = MigrationProject(
+        project = WorkspaceState(
             project_id=project_id,
             name="BOM migration",
             source_system="Legacy ERP",
@@ -1254,7 +1254,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                 ),
             ),
         )
-        project = MigrationProject(
+        project = WorkspaceState(
             project_id=project_id,
             name="Product migration",
             source_system="Legacy ERP",
@@ -1289,7 +1289,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _snapshots(project: MigrationProject):
+    def _snapshots(project: WorkspaceState):
         fingerprint = TargetFingerprint(
             target_hash=target_identity_hash(
                 connection_mode="LOCAL",
@@ -1338,7 +1338,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         return metadata, records
 
     @staticmethod
-    def _product_snapshots(project: MigrationProject):
+    def _product_snapshots(project: WorkspaceState):
         fingerprint = TargetFingerprint(
             target_hash=target_identity_hash(
                 connection_mode="LOCAL",

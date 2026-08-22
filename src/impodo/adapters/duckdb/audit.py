@@ -16,7 +16,7 @@ from datetime import (
 import duckdb
 
 from ...access import Actor
-from ...projects import MigrationProject
+from ...projects import WorkspaceState
 
 
 
@@ -59,7 +59,7 @@ class AuditMixin:
     def _insert_audit(
         self,
         connection: duckdb.DuckDBPyConnection,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         event_type: str,
         detail: str,

@@ -10,7 +10,9 @@ status: current
 
 The browser calls the reusable migration effort a **project** because that is
 the operator's business concept. In code and durable storage its aggregate
-root is `Recipe`. Do not use `MigrationProject` as a synonym for either term.
+root is `Recipe`. The target architecture reserves `MigrationProject` for the
+genuine business root; it is not a synonym for the current Recipe or its
+contained workspace.
 
 ### Vocabulary
 
@@ -20,12 +22,12 @@ root is `Recipe`. Do not use `MigrationProject` as a synonym for either term.
 | `Recipe` | Reusable business identity, lineage owner, and optimistic aggregate root |
 | `RecipeRevision` | Immutable, portable version of reusable migration meaning |
 | `DataVersion` | One exact Authoring, Test, or Production data package and lifecycle context |
-| `MigrationProject` | Internal contained workspace that stores one DataVersion's source, target, mapping, evidence, credentials, and audit state |
+| `WorkspaceState` | Current internal contained workspace state for one DataVersion's source, target, mapping, evidence, credentials, and audit state |
 | `TargetBinding` | Non-secret proof that one Recipe application was assessed against one exact current Odoo target |
 | `RecipeQualification` | Immutable proof that one exact Recipe revision completed the required Test workflow and expected outcomes |
 | `CutoverCandidate` | Explicit pointer to one exact current qualification; it grants no Production write authority |
 
-Recipe, DataVersion, and workspace project IDs are independent UUID namespaces.
+Recipe, DataVersion, and workspace IDs are independent UUID namespaces.
 Resolution must reject an ID supplied in the wrong namespace.
 
 ## Lifecycle

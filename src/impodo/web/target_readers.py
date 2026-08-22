@@ -34,7 +34,7 @@ from ..domain.schema.governance import BusinessKeyDefinition
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..planner import PreflightRequirementPlan
-from ..projects import MigrationProject, OdooConnectionMode, ProjectError, SourceMode
+from ..projects import WorkspaceState, OdooConnectionMode, ProjectError, SourceMode
 from ..reference_keys import (
     REFERENCE_POLICY_HASH,
     GovernedReferenceRequest,
@@ -82,7 +82,7 @@ class _SupportingLookupAccess:
 
 
 def _target_json2_config(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
 ) -> Json2Config:
     """Build the one archived-inclusive context for target-side reads."""
@@ -100,7 +100,7 @@ def _target_json2_config(
 
 
 def _source_capture_reader(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
 ) -> Json2OdooSourceCapture:
     """Build the one governed JSON-2 business-record capture adapter."""
@@ -118,7 +118,7 @@ def _source_capture_reader(
 
 
 def _test_connection(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
 ) -> TargetFingerprint:
     """Identify the exact database without discovering models or fields."""
@@ -130,7 +130,7 @@ def _test_connection(
 
 
 def _probe_read_identity(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
     models: tuple[str, ...],
 ) -> OdooReadIdentity:
@@ -144,7 +144,7 @@ def _probe_read_identity(
 
 def _selected_local_profile(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> LocalStackProfile | None:
     """Return the session-bound profile only when it matches this target."""
 
@@ -174,7 +174,7 @@ def _selected_local_profile(
     return profile
 
 
-def _missing_schema_reader_message(project: MigrationProject) -> str:
+def _missing_schema_reader_message(project: WorkspaceState) -> str:
     if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
         return (
             "Local mode does not require an API key. Choose and validate "
@@ -183,7 +183,7 @@ def _missing_schema_reader_message(project: MigrationProject) -> str:
     return "No API key is stored for this exact remote Odoo target."
 
 
-def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
+def _read_schema(project: WorkspaceState, api_key: str) -> MetadataSnapshot:
     """Read all fields once per explicitly permitted Odoo model."""
 
     if project.odoo_connection_mode is None:
@@ -205,7 +205,7 @@ def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
 
 
 def _read_model_catalog(
-    project: MigrationProject,
+    project: WorkspaceState,
     api_key: str,
 ) -> RecordSnapshot:
     """Read lightweight persistent-model choices from the exact Odoo target."""
@@ -236,7 +236,7 @@ def _read_model_catalog(
 
 async def _refresh_model_catalog(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
 ) -> OdooModelCatalog:
     """Refresh persistent model choices through the configured read-only target."""
 
@@ -288,7 +288,7 @@ async def _refresh_model_catalog(
 
 def _existing_catalog_model(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     model_name: str,
 ) -> str:
     """Require one model advertised by the current exact Odoo target."""
@@ -426,7 +426,7 @@ def _authorized_supplemental_models(
 
 def _read_readiness_snapshots(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     requirements: PreflightRequirementPlan,
     *,
     verified_read_identity: OdooReadIdentity | None = None,
@@ -555,7 +555,7 @@ def _read_readiness_snapshots(
 
 def _read_pinned_odoo_snapshots(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     requirements: PreflightRequirementPlan,
     *,
     verified_read_identity: OdooReadIdentity | None = None,
@@ -636,7 +636,7 @@ def _source_value_choices(
 
 def _relationship_value_choices(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     schema: OdooSchemaCatalog,
     parent_model: str,
     field: SchemaField,
@@ -832,7 +832,7 @@ def _relationship_value_choices(
 
 def _read_supporting_lookup_snapshots(
     context: WebContext,
-    project: MigrationProject,
+    project: WorkspaceState,
     schema: OdooSchemaCatalog,
     *,
     relation_model: str,

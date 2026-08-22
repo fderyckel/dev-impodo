@@ -1,4 +1,4 @@
-"""Define Project-owned source-package identity for the clean M1 foundation."""
+"""Define the clean Project-owned DataVersion aggregate root."""
 
 from __future__ import annotations
 

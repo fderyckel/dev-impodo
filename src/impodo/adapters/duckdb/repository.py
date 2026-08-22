@@ -7,7 +7,7 @@ from typing import Protocol
 import duckdb
 
 from ...access import Actor
-from ...projects import MigrationProject
+from ...projects import WorkspaceState
 from .database import DuckDbDatabase, DuckDbProjectDatabase
 from .unit_of_work import DuckDbUnitOfWork
 
@@ -15,7 +15,7 @@ from .unit_of_work import DuckDbUnitOfWork
 class ProjectAggregateReader(Protocol):
     """Load project policy and source-file context from one workspace."""
 
-    def get(self, project_id: str) -> MigrationProject: ...
+    def get(self, project_id: str) -> WorkspaceState: ...
 
 
 class DuckDbRepository:

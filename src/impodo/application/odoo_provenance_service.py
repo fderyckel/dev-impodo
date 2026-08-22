@@ -26,7 +26,7 @@ from ..domain.odoo_provenance import (
     OdooOriginBatch,
     OdooProvenanceBinding,
 )
-from ..projects import MigrationProject, ProjectRepository, SourceMode
+from ..projects import WorkspaceState, ProjectRepository, SourceMode
 from ..models import canonical_json_bytes
 from ..secrets import SecretStore, SecretStoreError
 from ..workspace_errors import WorkspaceError
@@ -400,7 +400,7 @@ class OdooProvenanceService:
         return key
 
     @staticmethod
-    def _require_odoo_project(project: MigrationProject) -> None:
+    def _require_odoo_project(project: WorkspaceState) -> None:
         if project.source_mode is not SourceMode.ODOO:
             raise WorkspaceError("Protected Odoo provenance requires an Odoo source")
 

@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 from ..access import Actor
 from ..domain.serialization import content_hash
 from ..models import target_identity_hash
-from ..projects import MigrationProject, ProjectService
+from ..projects import WorkspaceState, ProjectService
 from ..secrets import SecretStore, SecretStoreError
 
 
@@ -123,13 +123,13 @@ class TargetCredentialRemovalReceipt:
     receipt_hash: str
 
 
-def target_read_credential_id(project: MigrationProject) -> str:
+def target_read_credential_id(project: WorkspaceState) -> str:
     """Return the opaque vault ID for read-only Odoo access."""
 
     return _target_credential_id(project, TargetCredentialRole.READ)
 
 
-def target_write_credential_id(project: MigrationProject) -> str:
+def target_write_credential_id(project: WorkspaceState) -> str:
     """Return the opaque vault ID for Odoo write and read-back access."""
 
     return _target_credential_id(project, TargetCredentialRole.WRITE)
@@ -137,7 +137,7 @@ def target_write_credential_id(project: MigrationProject) -> str:
 
 def store_target_credential(
     store: SecretStore,
-    project: MigrationProject,
+    project: WorkspaceState,
     role: TargetCredentialRole,
     secret: str,
     *,
@@ -182,7 +182,7 @@ def store_target_credential(
 
 def get_target_credential(
     store: SecretStore,
-    project: MigrationProject,
+    project: WorkspaceState,
     role: TargetCredentialRole,
 ) -> TargetCredential | None:
     """Load and validate one exact role envelope without cross-role fallback."""
@@ -229,7 +229,7 @@ def get_target_credential(
 
 def get_target_credential_status(
     store: SecretStore,
-    project: MigrationProject,
+    project: WorkspaceState,
     role: TargetCredentialRole,
 ) -> TargetCredentialStatus:
     """Return a safe status even when the operating-system vault is unavailable."""
@@ -255,7 +255,7 @@ def get_target_credential_status(
 
 def audit_stored_target_credential(
     projects: ProjectService,
-    project: MigrationProject,
+    project: WorkspaceState,
     role: TargetCredentialRole,
     credential: TargetCredential,
     *,
@@ -275,7 +275,7 @@ def audit_stored_target_credential(
 
 def delete_target_credentials(
     store: SecretStore,
-    project: MigrationProject,
+    project: WorkspaceState,
     *,
     reason: TargetCredentialRemovalReason,
 ) -> tuple[TargetCredentialRemovalReceipt, ...]:
@@ -298,7 +298,7 @@ def delete_target_credentials(
 
 def delete_target_credential(
     store: SecretStore,
-    project: MigrationProject,
+    project: WorkspaceState,
     role: TargetCredentialRole,
     *,
     reason: TargetCredentialRemovalReason,
@@ -316,7 +316,7 @@ def delete_target_credential(
 
 def _delete_target_credential(
     store: SecretStore,
-    project: MigrationProject,
+    project: WorkspaceState,
     role: TargetCredentialRole,
     *,
     reason: TargetCredentialRemovalReason,
@@ -375,7 +375,7 @@ def _delete_target_credential(
 
 def audit_removed_target_credentials(
     projects: ProjectService,
-    project: MigrationProject,
+    project: WorkspaceState,
     receipts: tuple[TargetCredentialRemovalReceipt, ...],
     *,
     actor: Actor,
@@ -396,7 +396,7 @@ def audit_removed_target_credentials(
         )
 
 
-def local_read_credential_binding_hash(project: MigrationProject) -> str:
+def local_read_credential_binding_hash(project: WorkspaceState) -> str:
     """Bind no-key local metadata evidence without claiming user identity."""
 
     return content_hash(
@@ -409,7 +409,7 @@ def local_read_credential_binding_hash(project: MigrationProject) -> str:
 
 
 def _target_credential_id(
-    project: MigrationProject,
+    project: WorkspaceState,
     role: TargetCredentialRole,
 ) -> str:
     target = "\0".join(
@@ -439,7 +439,7 @@ def _binding_hash(
     )
 
 
-def _target_hash(project: MigrationProject) -> str:
+def _target_hash(project: WorkspaceState) -> str:
     return target_identity_hash(
         connection_mode=_connection_mode(project),
         base_url=project.odoo_base_url,
@@ -447,7 +447,7 @@ def _target_hash(project: MigrationProject) -> str:
     )
 
 
-def _connection_mode(project: MigrationProject) -> str:
+def _connection_mode(project: WorkspaceState) -> str:
     return (
         project.odoo_connection_mode.value
         if project.odoo_connection_mode is not None

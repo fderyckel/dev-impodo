@@ -1,4 +1,4 @@
-"""Create the exact Project-owned DataVersion store generation for M1."""
+"""Create the exact Project-owned DataVersion store generation for M2."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ....data_versions import DataVersion
 from ....migration_foundation import MigrationStorageCompatibilityError
 
 
-DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-08-m1"
+DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-08-m2"
 DATA_VERSION_STORE_VERSION = 1
 EXPECTED_DATA_VERSION_STORE_COLUMNS = {
     "schema_version": ("singleton_id", "generation", "version"),
@@ -22,6 +22,57 @@ EXPECTED_DATA_VERSION_STORE_COLUMNS = {
         "state",
         "source_package_hash",
         "created_at",
+    ),
+    "source_package_state": (
+        "singleton_id",
+        "revision",
+        "state",
+        "origin",
+        "package_hash",
+        "updated_at",
+        "frozen_at",
+    ),
+    "source_package_file": (
+        "file_id",
+        "display_name",
+        "storage_key",
+        "size_bytes",
+        "sha256",
+        "received_at",
+    ),
+    "source_package_catalog": (
+        "file_id",
+        "source_sha256",
+        "catalog_hash",
+        "catalog_json",
+    ),
+    "source_package_configuration": (
+        "file_id",
+        "catalog_hash",
+        "configuration_hash",
+        "configuration_json",
+    ),
+    "source_package_dataset": (
+        "dataset_id",
+        "display_name",
+        "source_file_ids_json",
+        "source_json",
+        "row_count",
+        "columns_json",
+        "schema_hash",
+        "snapshot_hash",
+        "snapshot_storage_key",
+        "manifest_json",
+    ),
+    "source_package_event": (
+        "event_id",
+        "revision",
+        "event_type",
+        "detail_json",
+        "actor_issuer",
+        "actor_subject",
+        "actor_display_name",
+        "occurred_at",
     ),
 }
 
@@ -51,6 +102,57 @@ def initialize_data_version_store(
             source_package_hash VARCHAR,
             created_at VARCHAR NOT NULL
         );
+        CREATE TABLE source_package_state (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            revision INTEGER NOT NULL CHECK (revision >= 0),
+            state VARCHAR NOT NULL CHECK (state IN ('DRAFT', 'FROZEN')),
+            origin VARCHAR CHECK (origin IN ('FILE', 'ODOO')),
+            package_hash VARCHAR,
+            updated_at VARCHAR NOT NULL,
+            frozen_at VARCHAR
+        );
+        CREATE TABLE source_package_file (
+            file_id VARCHAR PRIMARY KEY,
+            display_name VARCHAR NOT NULL,
+            storage_key VARCHAR NOT NULL,
+            size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+            sha256 VARCHAR NOT NULL,
+            received_at VARCHAR NOT NULL
+        );
+        CREATE TABLE source_package_catalog (
+            file_id VARCHAR PRIMARY KEY,
+            source_sha256 VARCHAR NOT NULL,
+            catalog_hash VARCHAR NOT NULL,
+            catalog_json VARCHAR NOT NULL
+        );
+        CREATE TABLE source_package_configuration (
+            file_id VARCHAR PRIMARY KEY,
+            catalog_hash VARCHAR NOT NULL,
+            configuration_hash VARCHAR NOT NULL,
+            configuration_json VARCHAR NOT NULL
+        );
+        CREATE TABLE source_package_dataset (
+            dataset_id VARCHAR PRIMARY KEY,
+            display_name VARCHAR NOT NULL,
+            source_file_ids_json VARCHAR NOT NULL,
+            source_json VARCHAR NOT NULL,
+            row_count BIGINT NOT NULL CHECK (row_count >= 0),
+            columns_json VARCHAR NOT NULL,
+            schema_hash VARCHAR NOT NULL,
+            snapshot_hash VARCHAR NOT NULL,
+            snapshot_storage_key VARCHAR NOT NULL,
+            manifest_json VARCHAR NOT NULL
+        );
+        CREATE TABLE source_package_event (
+            event_id VARCHAR PRIMARY KEY,
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            event_type VARCHAR NOT NULL,
+            detail_json VARCHAR NOT NULL,
+            actor_issuer VARCHAR NOT NULL,
+            actor_subject VARCHAR NOT NULL,
+            actor_display_name VARCHAR NOT NULL,
+            occurred_at VARCHAR NOT NULL
+        );
         """
     )
     connection.execute(
@@ -63,6 +165,10 @@ def initialize_data_version_store(
             data_version.source_package_hash,
             data_version.created_at.isoformat(),
         ],
+    )
+    connection.execute(
+        "INSERT INTO source_package_state VALUES (1, 0, 'DRAFT', NULL, NULL, ?, NULL)",
+        [data_version.created_at.isoformat()],
     )
 
 

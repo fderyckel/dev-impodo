@@ -24,7 +24,7 @@ from ..domain.recipe_parameters import (
     RecipeParameterType,
 )
 from ..domain.serialization import canonical_json, content_hash, portable
-from ..projects import MigrationProject, ProjectService, SourceMode
+from ..projects import WorkspaceState, ProjectService, SourceMode
 from ..quality import QualityRuleSet, QualityRuleSource
 from ..reference_keys import (
     REFERENCE_POLICY_HASH,
@@ -186,7 +186,7 @@ class RecipeAuthoringService:
         source_mode: str | SourceMode,
         creation_request_id: str | None = None,
         actor: Actor,
-    ) -> tuple[Recipe, MigrationProject]:
+    ) -> tuple[Recipe, WorkspaceState]:
         """Provision Recipe, DataVersion 1, and its contained workspace."""
 
         self.authorization.require(actor, Capability.RECIPE_CREATE)
@@ -203,7 +203,7 @@ class RecipeAuthoringService:
 
     def synchronize_setup(
         self,
-        project: MigrationProject,
+        project: WorkspaceState,
         *,
         actor: Actor,
     ) -> Recipe:

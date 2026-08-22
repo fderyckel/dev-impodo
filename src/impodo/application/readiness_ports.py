@@ -25,7 +25,7 @@ from ..normalization import (
     NormalizationRunSummary,
     StoredNormalizationEvaluation,
 )
-from ..projects import MigrationProject
+from ..projects import WorkspaceState
 from ..quality import (
     QualityRuleSet,
     QualityRun,
@@ -63,7 +63,7 @@ from ..models import Issue
 class PreparationProjectRepository(Protocol):
     """Load the project policy and ownership context used during preparation."""
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         """Return the migration project identified by ``project_id``."""
         ...
 
@@ -463,7 +463,7 @@ class PreflightNormalizationRepository(Protocol):
 class PreflightProjectRepository(Protocol):
     """Load target identity and project policy for comparison publication."""
 
-    def get(self, project_id: str) -> MigrationProject:
+    def get(self, project_id: str) -> WorkspaceState:
         """Return the migration project identified by ``project_id``."""
         ...
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from keyring.errors import KeyringError
 
-from impodo.projects import MigrationProject, OdooConnectionMode
+from impodo.projects import WorkspaceState, OdooConnectionMode
 from impodo.secrets import (
     CredentialVault,
     MemorySecretStore,
@@ -33,7 +33,7 @@ from impodo.web.target_credentials import (
 class TargetCredentialTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = MemorySecretStore()
-        self.project = MigrationProject(
+        self.project = WorkspaceState(
             project_id="project-1",
             name="Migration",
             source_system="CSV",
