@@ -4,6 +4,8 @@ schema_version: 1
 # workflow. Contracts and code remain authoritative for behavior.
 shared:
   writing_standard: docs/style-guide.md#plain-semantic-language
+  audience_standard: docs/style-guide.md#data-manager-first-explanations
+  editing_workflow: docs/style-guide.md#documentation-editing-workflow
   skills:
     - .agents/skills/impodo-documentation/SKILL.md
   router_modules:
@@ -17,47 +19,41 @@ shared:
 stages:
   - id: setup
     order: 0
-    label: Recipe and data-version setup
+    label: Project and authoring workspace setup
     navigation: false
     user_doc: docs/user/getting-started.md
     developer_doc: docs/developer/workflow/00-project-setup.md
     router_modules:
-      - src/impodo/web/routers/projects.py
+      - src/impodo/web/routers/migration_projects.py
+      - src/impodo/web/routers/workspace_setup.py
       - src/impodo/web/routers/target.py
     templates:
-      - src/impodo/web/templates/recipe_list.html
-      - src/impodo/web/templates/recipe_new.html
+      - src/impodo/web/templates/project_list.html
+      - src/impodo/web/templates/project_new.html
+      - src/impodo/web/templates/project_business_overview.html
+      - src/impodo/web/templates/project_overview.html
       - src/impodo/web/templates/project_details.html
       - src/impodo/web/templates/project_governance.html
       - src/impodo/web/templates/project_files.html
       - src/impodo/web/templates/project_review.html
       - src/impodo/web/templates/project_target.html
-      - src/impodo/web/templates/project_overview.html
-      - src/impodo/web/templates/recipe_overview.html
-      - src/impodo/web/templates/recipe_test_start.html
-      - src/impodo/web/templates/recipe_production_start.html
-      - src/impodo/web/templates/recipe_application.html
-      - src/impodo/web/templates/recipe_qualification.html
     code_references:
+      - src/impodo/application/migration_project_authoring_service.py::MigrationProjectAuthoringService
+      - src/impodo/migration_projects.py::MigrationProjectService
+      - src/impodo/data_versions.py::DataVersionService
+      - src/impodo/migration_runs.py::MigrationRunService
+      - src/impodo/migration_workspaces.py::MigrationWorkspaceService
+      - src/impodo/application/project_recipe_publication_service.py::ProjectRecipePublicationService
+      - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
       - src/impodo/projects.py::ProjectService
       - src/impodo/projects.py::ProjectService.register
-      - src/impodo/application/recipe_authoring_service.py::RecipeAuthoringService
-      - src/impodo/application/recipe_authoring_service.py::RecipeAuthoringService.publish_current
-      - src/impodo/application/recipe_application_service.py::RecipeApplicationService
-      - src/impodo/application/recipe_application_service.py::RecipeApplicationService.start_test_data_version
-      - src/impodo/application/recipe_application_service.py::RecipeApplicationService.start_production_data_version
-      - src/impodo/application/recipe_qualification_service.py::RecipeQualificationService
-      - src/impodo/application/recipe_qualification_service.py::RecipeQualificationService.qualify
+      - src/impodo/application/recipe_authoring_service.py::RecipeAuthoringService.compile_workspace
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
       - src/impodo/web/presenters/navigation.py::build_project_navigation
     tests:
-      - tests/test_projects.py
+      - tests/test_migration_project_phase_m3_project_authoring.py
       - tests/test_project_security.py
-      - tests/test_web_app.py
-      - tests/test_recipe_authoring.py
-      - tests/test_recipe_application.py
-      - tests/test_recipe_qualification.py
-      - tests/test_recipe_qualification_web.py
+      - tests/test_recipe_representative_shapes.py
       - tests/test_odoo_connection_service.py
     contracts:
       - docs/developer/contracts/recipe-lifecycle.md
@@ -145,7 +141,6 @@ stages:
     code_references:
       - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService
       - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService.submit_current
-      - src/impodo/application/recipe_application_service.py::RecipeApplicationService.apply
       - src/impodo/application/transformation_impact_service.py::TransformationImpactService
       - src/impodo/application/categorical_coverage_service.py::CategoricalCoverageService
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
@@ -160,7 +155,6 @@ stages:
       - tests/test_selection_rules.py
       - tests/test_mapping_impact_presenter.py
       - tests/test_web_app.py
-      - tests/test_recipe_application.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
 

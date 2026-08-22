@@ -70,7 +70,7 @@ The mature matching screen itself is unchanged.
 
 ## Verification
 
-[`tests/test_recipe_authoring.py`](../../tests/test_recipe_authoring.py) proves
+The former `tests/test_recipe_authoring.py` suite proved
 that two physically different workspaces, source files, mapping IDs, schema
 captures, databases, targets, actors, and timestamps compile to the same
 semantic hash when their reusable meaning matches. Changing one reusable field

@@ -44,18 +44,10 @@ before submission. The snapshot identity includes the mapping, source,
 schema, evaluator, and impact-contract versions, so a rule edit or reorder
 retires the prior decisions.
 
-For a published Recipe Test or Production application,
-`RecipeApplicationService.apply` first checks exact current source, target,
-parameter, control, reference, credential-generation, and categorical
-evidence. A compatible application saves an ordinary fresh
-`MappingWorkingDraft`; it does not bypass this screen's validation, impact,
-acknowledgement, or submission flow. The presenter adds only a status banner
-identifying the Recipe-built draft.
-
-Test applies the current published revision. Production applies the exact
-qualified cutover-candidate revision, which may intentionally be older than
-the Recipe's current revision. Neither application can publish new Recipe
-meaning from its contained workspace.
+Optional Recipe publication compiles only an eligible submitted mapping and
+its required portable contracts. It does not change this working draft or move
+its source, schema, impact, preparation, comparison, or execution evidence.
+Project-owned application workspaces and drift assessment belong to Phase M4.
 
 ## Contract invariants
 
@@ -156,7 +148,7 @@ claim those results.
 | Rule-impact facts and fingerprints | [`transformation_impact.py`](../../../src/impodo/domain/staging/transformation_impact.py) |
 | Native rule-impact summary | [`polars_transformation.py`](../../../src/impodo/adapters/polars_transformation.py) |
 | Rule-impact persistence and acknowledgements | [`TransformationImpactRepository`](../../../src/impodo/adapters/duckdb/transformation_impact_repository.py) |
-| Recipe draft compilation | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
+| Optional Recipe compilation | [`RecipeAuthoringService`](../../../src/impodo/application/recipe_authoring_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
 
 ## Evidence and state
@@ -206,7 +198,7 @@ look plausible.
 - [`tests/test_selection_rules.py`](../../../tests/test_selection_rules.py)
 - [`tests/test_mapping_impact_presenter.py`](../../../tests/test_mapping_impact_presenter.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
-- [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)
+- [`tests/test_recipe_representative_shapes.py`](../../../tests/test_recipe_representative_shapes.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, zero-match and overlap acknowledgement, hash binding,

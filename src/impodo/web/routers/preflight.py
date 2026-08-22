@@ -130,7 +130,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.post("/projects/{project_id}/summary/compare")
+    @router.post("/workspaces/{project_id}/summary/compare")
     async def compare_project_data(request: Request, project_id: str):
         """Compare the exact approved rows through a bounded read-only reader."""
 
@@ -224,11 +224,11 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
         _flash(request, "Prepared data compared with Odoo. Nothing was changed.")
         return RedirectResponse(
-            f"/projects/{project_id}/summary",
+            f"/workspaces/{project_id}/summary",
             status_code=303,
         )
 
-    @router.get("/projects/{project_id}/summary/manifest")
+    @router.get("/workspaces/{project_id}/summary/manifest")
     async def download_readiness_manifest(request: Request, project_id: str):
         require_session(request)
         report = context.preflight.current_report(project_id)
@@ -253,7 +253,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    @router.post("/projects/{project_id}/summary/package")
+    @router.post("/workspaces/{project_id}/summary/package")
     async def generate_readiness_package(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -322,11 +322,11 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
         _flash(request, "Review package created.")
         return RedirectResponse(
-            f"/projects/{project_id}/summary",
+            f"/workspaces/{project_id}/summary",
             status_code=303,
         )
 
-    @router.get("/projects/{project_id}/summary/workbook")
+    @router.get("/workspaces/{project_id}/summary/workbook")
     async def download_readiness_workbook(request: Request, project_id: str):
         require_session(request)
         report = context.preflight.current_report(project_id)

@@ -35,7 +35,7 @@
 
   <section class="form-card">
     {% if choices %}
-      <form method="post" action="/projects/{{ project.project_id }}/datasets/freeze">
+      <form method="post" action="/workspaces/{{ project.project_id }}/datasets/freeze">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="file-list">
           {% for choice in choices %}
@@ -58,7 +58,7 @@
           {% endfor %}
         </div>
         <div class="actions">
-          <a class="button secondary" href="/projects/{{ project.project_id }}/sources">Back to sources</a>
+          <a class="button secondary" href="/workspaces/{{ project.project_id }}/sources">Back to sources</a>
           <button class="button primary" type="submit">
             Save table choices
           </button>
@@ -68,7 +68,7 @@
       <div class="empty-state">
         <h2>No confirmed source tables</h2>
         <p>Check and confirm every source file before choosing tables.</p>
-        <a class="button primary" href="/projects/{{ project.project_id }}/sources">Check source files</a>
+        <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Check source files</a>
       </div>
     {% endif %}
   </section>
@@ -78,12 +78,12 @@
       <h2>Tables ready for the next step</h2>
       <p>Your saved selection will stay linked to these exact source files.</p>
       <div class="actions">
-        <a class="button primary" href="/projects/{{ project.project_id }}/schema">Choose Odoo data</a>
+        <a class="button primary" href="/workspaces/{{ project.project_id }}/schema">Choose Odoo data</a>
       </div>
       <details class="technical-evidence optional-workflow">
         <summary>Does one table combine different kinds of information?</summary>
         <p>For example, an order table may contain both the order and its individual lines.</p>
-        <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Separate combined information</a>
+        <a class="button secondary" href="/workspaces/{{ project.project_id }}/derived-entities">Separate combined information</a>
       </details>
       <details class="technical-evidence">
         <summary>Support details</summary>

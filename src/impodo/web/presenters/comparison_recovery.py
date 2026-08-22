@@ -127,7 +127,7 @@ def comparison_recovery_view(
         OdooReadRecoveryKind.USE_KEY_WITH_READ_ACCESS,
     }:
         action_kind = "credential"
-        action_href = f"/projects/{project_id}/summary/compare"
+        action_href = f"/workspaces/{project_id}/summary/compare"
         credential_required = True
         credential_label = (
             "Read-only Odoo API key"
@@ -140,27 +140,27 @@ def comparison_recovery_view(
             else "Replace key and compare"
         )
     elif recovery is OdooReadRecoveryKind.REVIEW_CONNECTION:
-        action_href = f"/projects/{project_id}/target"
+        action_href = f"/workspaces/{project_id}/target"
         action_label = "Review Odoo connection"
     elif recovery is OdooReadRecoveryKind.RETRY_COMPARISON:
         action_kind = "retry"
-        action_href = f"/projects/{project_id}/summary/compare"
+        action_href = f"/workspaces/{project_id}/summary/compare"
         action_label = "Try comparison again"
     elif recovery in {
         OdooReadRecoveryKind.CAPTURE_ODOO_DATA,
         OdooReadRecoveryKind.REFRESH_ODOO_DATA,
     }:
-        action_href = f"/projects/{project_id}/schema"
+        action_href = f"/workspaces/{project_id}/schema"
         action_label = (
             "Capture Odoo data"
             if recovery is OdooReadRecoveryKind.CAPTURE_ODOO_DATA
             else "Refresh Odoo data"
         )
     elif recovery is OdooReadRecoveryKind.REVIEW_FIELD_MATCH:
-        action_href = f"/projects/{project_id}/mapping"
+        action_href = f"/workspaces/{project_id}/mapping"
         action_label = "Review field matches"
     elif recovery is OdooReadRecoveryKind.PREPARE_AGAIN:
-        action_href = f"/projects/{project_id}/prepare"
+        action_href = f"/workspaces/{project_id}/prepare"
         action_label = "Prepare data again"
     elif recovery is OdooReadRecoveryKind.RECONNECT_LOCAL_ODOO:
         action_kind = "local"

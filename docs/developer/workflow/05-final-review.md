@@ -94,11 +94,10 @@ Ambiguous or blocked rows keep the stage in **Needs attention**. File-source
 load requires a ready report. Odoo-source load remains unavailable under the
 current same-database pinned-update policy even when every checked row is safe.
 
-For a Test Recipe application, a ready report is necessary but not sufficient
-for qualification. The exact Test load, read-back, reconciliation, and expected
-outcome confirmation must also complete. Production DataVersions do not inherit
-the Test report or qualification; they compare again against current Production
-evidence.
+The ready report remains owned by this DataVersion and cannot qualify or amend
+a Recipe revision. Applying published rules in another run will require a
+fresh comparison against that run's target; that application workflow belongs
+to Phase M4.
 
 ## Invalidation and recovery
 

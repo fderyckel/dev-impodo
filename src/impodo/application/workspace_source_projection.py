@@ -53,3 +53,11 @@ class WorkspaceMappingSourceProjection:
                 }
             ),
         )
+
+    def get_source_selection(
+        self,
+        workspace_id: str,
+    ) -> SourceSelection | None:
+        """Expose the same immutable projection to compiler source-shape reads."""
+
+        return self.get_mapping_source_selection(workspace_id)

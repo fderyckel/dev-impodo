@@ -19,7 +19,7 @@ def build_quality_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.post("/projects/{project_id}/mapping/quality")
+    @router.post("/workspaces/{project_id}/mapping/quality")
     async def save_project_quality_checks(request: Request, project_id: str):
         """Save guided business checks without exposing the rule contract."""
 

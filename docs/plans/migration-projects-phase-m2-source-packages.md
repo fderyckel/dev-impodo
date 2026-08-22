@@ -14,9 +14,9 @@ architecture boundary, and the [Phase M1
 foundation](migration-projects-phase-m1-foundation.md) defines the clean roots
 and recoverable storage layout that M2 extends.
 
-M2 does not switch browser routes. The current Recipe-first browser continues
-to use its current workspace stores until Phase M3 replaces creation and
-composition. The M2 path does not read or dual-write those stores.
+M2 did not switch browser routes when it completed. Phase M3 now composes this
+foundation into the Project-first browser. The M2 path never read or
+dual-wrote the superseded Recipe-first stores.
 
 ## 1. Implemented outcome
 
@@ -66,8 +66,8 @@ database, or a mutable source-selection pointer.
 `WorkspaceMappingSourceProjection` satisfies the existing mapping source port.
 It converts only the selected immutable dataset contracts into the mapping
 engine's read-only `SourceSelection` view. This is the application seam that
-Phase M3 will compose into the browser; it does not create a second mapping
-engine or persist a compatibility shape.
+Phase M3 now composes it into the browser; the adapter does not create a second
+mapping engine or persist a compatibility shape.
 
 ## 3. Exact M2 persistence
 
@@ -130,7 +130,6 @@ proves:
 - restart-safe acceptance and projection after injected faults; and
 - non-mutating rejection of M1 storage.
 
-The M2 gate passes when this suite, the M0-M1 suites, and current workspace
-regressions pass together. Phase M3 may then switch Project creation and
-browser composition without an old-schema reader, dual-write path, or Recipe
-shell.
+The M2 gate passed with the M0-M1 suites and workspace regressions. Phase M3
+then switched Project creation and browser composition without an old-schema
+reader, dual-write path, or Recipe shell.

@@ -5,8 +5,8 @@
   {% set is_odoo_source = project.source_mode.value == 'ODOO' %}
   {% if project.status.value == 'DRAFT' %}{% include "_steps.html" %}{% endif %}
   <section class="form-card">
-    {% set is_recipe_test = recipe_context and recipe_context.data_version_purpose == 'TEST' %}
-    {% set is_recipe_production = recipe_context and recipe_context.data_version_purpose == 'PRODUCTION' %}
+    {% set is_recipe_test = migration_context and migration_context.data_version_purpose == 'TEST' %}
+    {% set is_recipe_production = migration_context and migration_context.data_version_purpose == 'PRODUCTION' %}
     <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Project source{% else %}Odoo data{% endif %}</p>
     <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% elif is_odoo_source %}Connect the Odoo source{% else %}Connect the Odoo destination{% endif %}</h1>
     {% include "_setup_blockers.html" %}
@@ -29,7 +29,7 @@
         <p>{{ read_credential_status.guidance }}</p>
       </div>
       {% if read_credential_status.available %}
-        <form method="post" action="/projects/{{ project.project_id }}/target/read-credential/delete">
+        <form method="post" action="/workspaces/{{ project.project_id }}/target/read-credential/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit">Forget this key</button>
         </form>
@@ -37,7 +37,7 @@
     </section>
     <form
       method="post"
-      action="/projects/{{ project.project_id }}/target"
+      action="/workspaces/{{ project.project_id }}/target"
       data-target-form
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -172,7 +172,7 @@
         {% endif %}
       </section>
       <div class="actions">
-        <a class="button secondary" href="{% if is_odoo_source %}/recipes{% else %}/projects/{{ project.project_id }}/sources{% endif %}">Back</a>
+        <a class="button secondary" href="{% if is_odoo_source %}/projects/{{ migration_context.project_id }}{% else %}/workspaces/{{ project.project_id }}/sources{% endif %}">Back</a>
         <button
           class="button secondary"
           type="submit"

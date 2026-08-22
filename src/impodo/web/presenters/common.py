@@ -26,7 +26,7 @@ def _render(
         if context.get("support_error") is None:
             context["support_error"] = support_error
     project = context.get("project")
-    if project is not None and "project_navigation" not in context:
+    if isinstance(project, WorkspaceState) and "project_navigation" not in context:
         context["project_navigation"] = build_project_navigation(
             request.app.state.context,
             project,
@@ -48,17 +48,23 @@ def _render(
             context.get("setup_attention_requested")
             or request.query_params.get("blocked") == "1"
         )
-    if project is not None and "recipe_context" not in context:
+    if isinstance(project, WorkspaceState) and "migration_context" not in context:
         application = request.app.state.context
-        resolution = application.recipes.resolve_workspace(
+        workspace = application.migration_workspaces.get(
             project.project_id,
             actor=application.actor,
         )
-        context["recipe_context"] = {
-            "data_version_id": resolution.data_version_id,
-            "data_version_number": resolution.data_version_number,
-            "data_version_purpose": resolution.data_version_purpose.value,
-            "recipe_id": resolution.recipe_id,
+        data_version = application.data_versions.get(
+            workspace.data_version_id,
+            actor=application.actor,
+        )
+        context["migration_context"] = {
+            "project_id": workspace.project_id,
+            "data_version_id": data_version.data_version_id,
+            "data_version_number": data_version.version_number,
+            "data_version_purpose": data_version.purpose.value,
+            "migration_run_id": workspace.migration_run_id,
+            "workspace_id": workspace.workspace_id,
         }
     values = {
         "csrf_token": request.session.get("csrf_token", ""),

@@ -69,17 +69,13 @@ choice blocks confirmation. Impodo never invents a Company Type rule from a
 VAT number, company name, or another source column. The data manager owns that
 classification decision.
 
-### When a published Recipe is applied
+### When reusable rules are ready
 
-For a Test or Production data version, first complete the fresh source and
-Odoo-data steps, then return to the Recipe overview and select **Apply Recipe**.
-Impodo checks current source, target, parameters, control totals, credentials,
-relationships, and categorical values before building a fresh mapping draft.
-
-Review that draft on this screen and confirm it through the normal checks. A
-renamed used column, a new selection value, or a new many2one value needs an
-explicit decision. Applying a Recipe never copies an earlier approval and
-never guesses a categorical or linked-record match.
+Complete and submit the Authoring mapping through the normal checks. Return to
+the Project overview only after its source, schema, mapping, and quality
+evidence is current. If the workspace is eligible, you can save the rules as a
+new Recipe or publish a successor revision. Applying those Recipes to later
+DataVersions belongs to the next implementation phase.
 
 ### When the source is captured from Odoo
 
@@ -93,7 +89,7 @@ is off by default. A field can be approved only when its original value was
 captured and Odoo metadata identifies it as a safe stored, writable scalar.
 Confirming these choices still does not contact or change Odoo.
 
-![Current source and Odoo identity choices inside a fictional Recipe data version.](../../images/user/10-mapping-identity.png)
+![Current source and Odoo identity choices inside a fictional Project workspace.](../../images/user/10-mapping-identity.png)
 
 ![Current field-value and cleanup controls for a fictional Contact mapping.](../../images/user/11-mapping-fields.png)
 
@@ -115,9 +111,9 @@ Confirming these choices still does not contact or change Odoo.
 
 ## What Complete means
 
-The exact checked mapping revision is confirmed for this data version and the
-stage shows **Complete**. A saved or Recipe-built draft alone is not complete.
-In authoring, publication from the Recipe overview is a later, separate action.
+The exact checked mapping revision is confirmed for this DataVersion and the
+stage shows **Complete**. Saving a Recipe is a later, separate action on the
+Project overview and is not required for one-off work.
 
 ## What changes and what does not
 

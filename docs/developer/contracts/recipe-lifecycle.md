@@ -4,167 +4,84 @@ kind: contract
 status: current
 ---
 
-# Recipe and data-version lifecycle contract
+# Optional Recipe publication contract
 
 ## Scope
 
-The browser calls the reusable migration effort a **project** because that is
-the operator's business concept. In code and durable storage its aggregate
-root is `Recipe`. The target architecture reserves `MigrationProject` for the
-genuine business root; it is not a synonym for the current Recipe or its
-contained workspace.
+A `Recipe` is a Project-scoped reusable transformation identity. It owns only
+its immutable `RecipeRevision` lineage. A Recipe does not own its Project,
+DataVersions, runs, workspaces, target bindings, qualifications, or cutover
+selection.
 
-### Vocabulary
+A Project can contain zero, one, or several Recipes. Project creation never
+creates an empty Recipe shell.
 
-| Term | Contract meaning |
-| --- | --- |
-| Operator project | Browser label for one reusable migration effort; it resolves to one `Recipe` |
-| `Recipe` | Reusable business identity, lineage owner, and optimistic aggregate root |
-| `RecipeRevision` | Immutable, portable version of reusable migration meaning |
-| `DataVersion` | One exact Authoring, Test, or Production data package and lifecycle context |
-| `WorkspaceState` | Current internal contained workspace state for one DataVersion's source, target, mapping, evidence, credentials, and audit state |
-| `TargetBinding` | Non-secret proof that one Recipe application was assessed against one exact current Odoo target |
-| `RecipeQualification` | Immutable proof that one exact Recipe revision completed the required Test workflow and expected outcomes |
-| `CutoverCandidate` | Explicit pointer to one exact current qualification; it grants no Production write authority |
+## Eligibility
 
-Recipe, DataVersion, and workspace IDs are independent UUID namespaces.
-Resolution must reject an ID supplied in the wrong namespace.
+Only an open Authoring workspace over a frozen Authoring DataVersion and an
+Authoring run can publish reusable meaning in M3. A future application
+workspace cannot publish Recipe meaning. The compiler requires current immutable source
+references, a submitted mapping, matching schema governance, current quality
+rules, and any referenced preparation, parameter, control, or standard-key
+contracts.
 
-## Lifecycle
+Blocked readiness is a read projection. It does not create a Recipe, duplicate
+mapping state, or mutate current evidence.
 
-**New project** creates the Recipe, Authoring DataVersion 1, and its contained
-workspace as one recoverable operation. The Authoring DataVersion is not pinned
-to a Recipe revision because it is where the next revision is compiled.
+## Portable meaning
 
-A Test DataVersion pins the Recipe's current published immutable revision. A
-Production DataVersion requires a selected cutover candidate and pins that
-candidate's exact qualified revision. It must not substitute a newer current
-revision. Activating a successor DataVersion seals its predecessor in both the
-registry and local workspace; sealed workspaces reject mutation.
+A Recipe revision may contain logical source shapes, mapping and
+transformation rules, relationships, preparation rules, Odoo model and field
+requirements, governed business keys, reusable quality rules, standard
+references, parameter definitions, and controls.
 
-Test and Production workspaces apply reusable meaning but cannot publish new
-Recipe meaning. Any semantic correction starts in an Authoring workspace and
-produces a new immutable Recipe revision.
+It must exclude source rows, file and snapshot identities, current source
+hashes, Project and workspace UUIDs, target endpoint or database, credentials,
+numeric Odoo IDs, actors, approvals, execution journals, read-back, and
+reconciliation evidence. Publication provenance records the physical origin
+separately from semantic meaning.
 
-## Publication boundary
+`domain/recipe_envelope.py` validates the exact envelope, its semantic hash,
+payload hash, portable fields, forbidden keys, and numeric-ID boundary.
 
-`RecipeDraft` is a read-only projection over current Authoring evidence. It
-does not copy or become an alternative mapping, quality, source, schema, or
-preparation draft. Publication requires current, compatible source, submitted
-mapping, schema governance, quality, and any declared reference, preparation,
-parameter, or control evidence.
+## Atomic publication
 
-An exact reviewed standard reference key for the current Odoo major version,
-such as `res.country.code` in Odoo 19, supplies its own narrow field contract.
-The compiler may therefore preserve that relationship meaning without adding
-the related lookup model to the primary schema scope. Any non-standard key,
-write use, version mismatch, or metadata mismatch still requires captured Odoo
-evidence and fails closed. This exception never expands Odoo write authority.
+First publication performs one restart-safe operation:
 
-New publications use target-contract version 2. It records the
-reference-policy hash, the captured parent relationship, and whether the
-supporting meaning came from compatible captured metadata or the reviewed
-standard contract. Recipe application replays that same policy against fresh
-Odoo 19 evidence. Target-contract version 1 remains readable and retains its
-original application rules; Impodo does not rewrite published revisions.
+1. reserve an operation intent owned by the proposed Recipe ID;
+2. store the authenticated immutable envelope;
+3. create the Recipe identity and revision 1 in one registry transaction; and
+4. commit the operation result.
 
-Each blocked `RecipeDraft` issue names the workflow step that owns recovery.
-The web presenter maps that structured step to one existing page and action;
-it does not infer navigation by parsing the issue message or code.
+Successor publication appends the next revision with the Recipe's optimistic
+revision. The same operation identity can resume after a cross-store fault but
+cannot be reused for different meaning. Semantically identical revisions in
+the same Recipe are rejected.
 
-Reusable Recipe meaning may contain:
+Neither first nor successor publication changes Project, DataVersion, run, or
+workspace identity or ownership.
 
-- A Recipe revision may define logical source tables and columns.
-- A Recipe revision may define preparation, mapping, transformation,
-  relationship, and disposition rules.
-- A Recipe revision may require specific Odoo models and fields and define
-  governed business keys.
-- A Recipe revision may contain reusable manager-authored quality rules and
-  reference dependencies.
-- A Recipe revision may define parameters and reusable controls.
+## Read and list boundary
 
-It must exclude:
+Project overview lists Recipes with one bounded registry query. Reading a
+specific revision verifies both the protected artifact hash and logical
+payload hash before returning the envelope. List rendering must not open a
+workspace, protected payload, or Odoo connection per Recipe row.
 
-- A Recipe revision must exclude source rows, source-file IDs, physical dataset
-  or column IDs, and current source hashes.
-- Its semantic meaning must exclude the endpoint, database, target, schema
-  capture, principal, permissions, company, credentials, actor, and timestamp.
-- A Recipe revision must exclude numeric Odoo record IDs and target snapshots.
-- A Recipe revision must exclude approvals, execution journals, read-back, and
-  reconciliation evidence.
+## Current boundary
 
-Physical Authoring hashes, actor, and time may appear only in protected
-publication provenance. Publishing semantic meaning that already exists in the
-same Recipe is rejected rather than creating a duplicate revision.
+M3 publishes reusable meaning but does not yet apply several Recipe revisions
+inside one MigrationRun. Phase M4 will introduce Project-owned
+RecipeApplications and integrated requirement planning. It must not restore
+Recipe-owned DataVersions or the superseded `/recipes` Project shell.
 
-## Application and drift boundary
+## Verification
 
-Test and Production application create clean file-source workspaces. They do
-not clone a previous DuckDB database or copy source, target, mapping,
-preparation, quality, comparison, approval, credential, execution, or
-reconciliation evidence.
-
-Application binds required source tables by logical name and used columns by
-source name. Reordered columns remain compatible, and new unused tables or
-columns are informational. A renamed used column requires an explicit physical
-override that applies only to the current DataVersion.
-
-Missing structure or stale overrides block the current application. Undeclared
-or missing parameters and controls, uncovered categorical values, incompatible
-Odoo fields, missing references, and stale credential generations also block
-that application. None of these conditions mutates the published Recipe.
-
-An accepted application creates a fresh ordinary `MappingWorkingDraft`,
-rebuilds supported preparation and governance, and stages reusable quality
-rules against the fresh mapping hash. The existing Match, Prepare, Final
-review, Load, and reconciliation services remain authoritative; there is no
-parallel Recipe execution engine.
-
-## Qualification and rollout boundary
-
-Qualification is available only from the current Recipe revision's exact
-remote Test application after preparation, quality, comparison, execution,
-read-back, and reconciliation succeed. The data manager must confirm the exact
-expected create, update, unchanged, and verified totals.
-
-Qualification and cutover selection are separate actions. Publishing a later
-revision makes that revision untested and does not transfer an earlier
-qualification. A previously selected candidate continues to identify its exact
-older revision until explicitly replaced.
-
-**Run with latest data** creates a fresh Production DataVersion from the
-selected candidate. Production source, target, read credential, comparison,
-approval, and write credential evidence are established again. The
-`PRODUCTION` purpose describes Recipe lineage and target intent; it does not
-override the current disposable-target execution policy or grant write
-authority.
-
-## Persistence, recovery, and deletion
-
-The registry stores bounded Recipe and DataVersion lineage, application and
-qualification projections, cutover selection, and restart-safe intents. The
-protected Recipe store keeps immutable Recipe and qualification payloads
-encrypted with one vault-backed key per Recipe. Each DataVersion workspace owns
-a separate DuckDB database and its own project artifacts.
-
-Publication, DataVersion creation, qualification, and cutover selection cross
-storage boundaries through recoverable intents. An unpublished Recipe draft
-with one DataVersion may be deleted only after its exact Recipe and workspace
-revisions are validated. Published Recipe deletion is outside the current
-product surface.
-
-## Current support boundary
-
-Reusable Recipe publication and both Test and Production application currently
-require file-based source meaning and a remote Odoo application target.
-Odoo-origin capture, pinned preparation, and same-database comparison use a
-separate governed update path. That path does not become a cross-database
-Recipe application and cannot write back within the current product boundary.
+- `tests/test_migration_project_phase_m3_project_authoring.py`
+- `tests/test_recipe_representative_shapes.py`
 
 ## Related documentation
 
-- [Recipe and data-version setup](../workflow/00-project-setup.md)
-- [Contained project lifecycle](project-lifecycle.md)
-- [Workflow evidence lifecycle](evidence-lifecycle.md)
+- [Project lifecycle contract](project-lifecycle.md)
+- [Evidence lifecycle](evidence-lifecycle.md)
 - [Architecture overview](../../architecture/overview.md)
-- [Security and infrastructure](../../architecture/security-and-infrastructure.md)

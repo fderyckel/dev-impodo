@@ -162,4 +162,4 @@ def blocking_setup_url(
 
 
 def _setup_step_url(project_id: str, step: ProjectSetupStep) -> str:
-    return f"/projects/{project_id}/{step.value}"
+    return f"/workspaces/{project_id}/{step.value}"

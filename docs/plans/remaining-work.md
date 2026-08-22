@@ -55,12 +55,10 @@ and made the [Migration projects and multi-Recipe cutover implementation
 plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) the
 active product-delivery focus.
 
-The current Recipe-first implementation remains the runtime until Phase M3
-switches browser creation and composition. The accepted target makes
-`MigrationProject` the business root, lets a Project exist without a Recipe,
-makes DataVersion a Project-owned complete source package, supports several
-Project-scoped Recipes, and qualifies their exact revisions together through
-one CutoverPlan and MigrationRun.
+The current browser now uses `MigrationProject` as the business root, lets a
+Project exist without a Recipe, and makes DataVersion the owner of the complete
+source package. Phase M4 must apply several Project-scoped Recipes through one
+MigrationRun before integrated qualification and cutover planning continue.
 
 The implementation must retain the current portable Recipe compiler, fresh
 Test and Production evidence, credential separation, Odoo 19 boundaries,
@@ -73,7 +71,7 @@ No deferred product track becomes current while this plan is active. Narrow
 maintenance, security, data-loss, regression, and performance fixes required
 to preserve the current workflow remain in scope.
 
-**Phase status, 2026-08-22:** Phases M0 through M2 are complete. The [Phase M0
+**Phase status, 2026-08-22:** Phases M0 through M3 are complete. The [Phase M0
 contracts](migration-projects-phase-m0-contracts.md) freeze the target
 ownership and integrated-plan rules. The [Phase M1 persistence
 foundation](migration-projects-phase-m1-foundation.md) implements the clean
@@ -82,9 +80,10 @@ registry projection, compatibility rejection, and recoverable development
 reset. The [Phase M2 source-package
 foundation](migration-projects-phase-m2-source-packages.md) adds immutable
 DataVersion source packages, bounded workspace dataset projections, and the
-mapping-source adapter without copying source state. The current browser still
-uses the Recipe-first composition. Phase M3 is next and will switch Project
-creation and optional Recipe publication.
+mapping-source adapter without copying source state. The [Phase M3
+implementation](migration-projects-phase-m3-project-authoring.md) composes the
+Project-first browser, one-off authoring, and optional Recipe publication.
+Phase M4 is next.
 
 ## Completed product priority — Recipe test-to-production reuse
 
@@ -121,9 +120,10 @@ The Recipe work owned the following sequence. Steps 1 through 9 completed on
    within their currently supported limits — completed.
 
 On 2026-08-22, product ownership selected the Migration Project and
-multi-Recipe cutover correction above as the next priority. The completed
-Recipe-first work remains current implementation evidence, not the active
-forward architecture.
+multi-Recipe cutover correction above as the next priority. Phases M0 through
+M3 now implement Project-first authoring and optional Recipe publication. The
+completed Recipe-first work remains historical implementation evidence, not
+the active architecture.
 
 Maintenance, security fixes, data-loss prevention, dependency compatibility,
 and regressions blocking this Recipe path remain in scope. They do not reopen a

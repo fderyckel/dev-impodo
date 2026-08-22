@@ -113,7 +113,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/projects/{project_id}/schema", response_class=HTMLResponse)
+    @router.get("/workspaces/{project_id}/schema", response_class=HTMLResponse)
     async def project_schema(request: Request, project_id: str):
         require_session(request)
         project = context.queries.get(project_id)
@@ -123,12 +123,12 @@ def build_schema_router(context: WebContext) -> APIRouter:
             or not project.odoo_database
         ):
             return RedirectResponse(
-                f"/projects/{project.project_id}/target",
+                f"/workspaces/{project.project_id}/target",
                 status_code=303,
             )
         return _render_schema(request, context, project_id)
 
-    @router.post("/projects/{project_id}/schema/local-config")
+    @router.post("/workspaces/{project_id}/schema/local-config")
     async def select_schema_local_config(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -162,11 +162,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         return RedirectResponse(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/schema/models/refresh")
+    @router.post("/workspaces/{project_id}/schema/models/refresh")
     async def refresh_project_models(request: Request, project_id: str):
         """Refresh persistent model choices from the exact configured target."""
 
@@ -193,12 +193,12 @@ def build_schema_router(context: WebContext) -> APIRouter:
             f"Loaded {len(catalog.models)} available record type(s) from Odoo.",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             status_code=303,
         )
 
     @router.post(
-        "/projects/{project_id}/schema",
+        "/workspaces/{project_id}/schema",
         name="update_project_schema_scope",
     )
     async def update_project_schema_scope(request: Request, project_id: str):
@@ -256,11 +256,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 )
         _flash(request, "Odoo data is ready.")
         return RedirectResponse(
-            f"/projects/{project_id}/schema#odoo-details",
+            f"/workspaces/{project_id}/schema#odoo-details",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/schema/capture")
+    @router.post("/workspaces/{project_id}/schema/capture")
     async def capture_project_schema(request: Request, project_id: str):
         """Capture metadata for the explicitly permitted models only."""
 
@@ -285,11 +285,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
             )
         _flash(request, "Odoo data is ready.")
         return RedirectResponse(
-            f"/projects/{project_id}/schema#odoo-details",
+            f"/workspaces/{project_id}/schema#odoo-details",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/schema/local-draft")
+    @router.post("/workspaces/{project_id}/schema/local-draft")
     async def create_local_schema_draft(request: Request, project_id: str):
         form = await request.form()
         project = context.queries.get(project_id)
@@ -331,11 +331,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/schema/govern")
+    @router.post("/workspaces/{project_id}/schema/govern")
     async def govern_project_schema(request: Request, project_id: str):
         """Confirm business-key definitions against the current schema."""
 
@@ -441,7 +441,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            f"/projects/{project_id}/mapping",
+            f"/workspaces/{project_id}/mapping",
             status_code=303,
         )
 

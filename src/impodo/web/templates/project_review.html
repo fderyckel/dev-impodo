@@ -74,11 +74,11 @@
       Review the details above before continuing.
     </div>
 
-    <form method="post" action="/projects/{{ project.project_id }}/register">
+    <form method="post" action="/workspaces/{{ project.project_id }}/register">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/target">Back</a>
+        <a class="button secondary" href="/workspaces/{{ project.project_id }}/target">Back</a>
         <button class="button primary" type="submit" {% if problems %}disabled{% endif %}>{% if project.source_mode.value == "FILE" %}Confirm files and continue{% else %}Confirm project and continue{% endif %}</button>
       </div>
     </form>

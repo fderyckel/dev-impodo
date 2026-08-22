@@ -8,7 +8,7 @@ status: current
 
 ## Goal
 
-Choose the Odoo 19 record types and fields needed by the current Recipe data
+Choose the Odoo 19 record types and fields needed by the current Project
 version, and confirm how Impodo can identify one existing record.
 
 ## Before you start
@@ -40,7 +40,7 @@ the bounded reference values needed for matching and Final review. It does not
 turn that supporting record type into data that the project will create or
 update.
 
-![Current Odoo record-type selection for a fictional Recipe data version.](../../images/user/08-odoo-models.png)
+![Current Odoo record-type selection for a fictional Project workspace.](../../images/user/08-odoo-models.png)
 
 ![Current confirmed matching rule for finding one existing Odoo Contact.](../../images/user/08b-odoo-business-keys.png)
 
@@ -51,12 +51,10 @@ fields, selection codes, relationships, and matching meaning. It does not keep
 the server address, database, API key, live schema snapshot, or numeric Odoo
 record IDs.
 
-Each Test or Production data version must connect its own target, use a fresh
-read-only key, and capture current Odoo details. **Apply Recipe** blocks when a
-required field is missing, a selection choice is no longer available, the
-target identity changed unexpectedly, or current credentials cannot prove the
-required read scope. Resolve that difference explicitly; do not weaken the
-Recipe or guess a replacement value.
+Each later DataVersion must connect its own target, use a fresh read-only key,
+and capture current Odoo details. Applying Recipes to later DataVersions is not
+available until the multi-Recipe phase. Recipe publication never copies the
+current target evidence.
 
 ## What to check
 

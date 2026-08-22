@@ -11,6 +11,7 @@ from ...application.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobStateError,
 )
+from ...migration_foundation import MigrationFoundationError
 from ...preparation_jobs import PreparationJob, PreparationJobStatus
 from ...preparation_jobs import PreparationWorkspace
 from ...workspace_errors import WorkspaceError
@@ -26,7 +27,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/projects/{project_id}/prepare", response_class=HTMLResponse)
+    @router.get("/workspaces/{project_id}/prepare", response_class=HTMLResponse)
     async def prepare_project_data(request: Request, project_id: str):
         require_session(request)
         active = (
@@ -44,20 +45,20 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         except WorkspaceError as error:
             request.session["summary_error"] = str(error)
             return RedirectResponse(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 status_code=303,
             )
         project = context.queries.get(project_id)
         resolution = context.resolution.current_summary(project_id)
         if resolution is not None and resolution.status != "FROZEN":
             return RedirectResponse(
-                f"/projects/{project_id}/resolution",
+                f"/workspaces/{project_id}/resolution",
                 status_code=303,
             )
         normalization = context.normalization.current_summary(project_id)
         if normalization is not None:
             return RedirectResponse(
-                f"/projects/{project_id}/normalization",
+                f"/workspaces/{project_id}/normalization",
                 status_code=303,
             )
         revision = context.queries.get_mapping_revision(project_id)
@@ -79,7 +80,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
             can_prepare=can_prepare,
         )
 
-    @router.post("/projects/{project_id}/summary/check")
+    @router.post("/workspaces/{project_id}/summary/check")
     async def check_project_data(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -88,7 +89,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         except WorkspaceError as error:
             request.session["summary_error"] = str(error)
             return RedirectResponse(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 status_code=303,
             )
         request.session.pop("summary_error", None)
@@ -96,19 +97,19 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         return RedirectResponse(_progress_url(project_id, job.job_id), status_code=303)
 
     @router.get(
-        "/projects/{project_id}/preparation/{job_id}",
+        "/workspaces/{project_id}/preparation/{job_id}",
         response_class=HTMLResponse,
     )
     async def preparation_progress(request: Request, project_id: str, job_id: str):
         require_session(request)
         return _render_progress(request, _get_job(context, project_id, job_id))
 
-    @router.get("/projects/{project_id}/preparation/{job_id}/status")
+    @router.get("/workspaces/{project_id}/preparation/{job_id}/status")
     async def preparation_status(request: Request, project_id: str, job_id: str):
         require_session(request)
         return JSONResponse(_job_payload(_get_job(context, project_id, job_id)))
 
-    @router.post("/projects/{project_id}/preparation/{job_id}/cancel")
+    @router.post("/workspaces/{project_id}/preparation/{job_id}/cancel")
     async def cancel_preparation(request: Request, project_id: str, job_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -119,7 +120,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         _flash(request, "Impodo will stop safely after the current source batch.")
         return RedirectResponse(_progress_url(project_id, job_id), status_code=303)
 
-    @router.post("/projects/{project_id}/preparation/{job_id}/retry")
+    @router.post("/workspaces/{project_id}/preparation/{job_id}/retry")
     async def retry_preparation(request: Request, project_id: str, job_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -169,21 +170,26 @@ def _preparation_workspace(
     context: WebContext,
     project_id: str,
 ) -> PreparationWorkspace:
-    """Resolve the active Recipe/DataVersion before starting another process."""
+    """Resolve one open workspace and its Project-owned DataVersion."""
 
-    resolution = context.recipes.resolve_workspace(
-        project_id,
-        actor=context.actor,
-    )
     try:
-        return PreparationWorkspace.from_resolution(resolution)
-    except ValueError as error:
-        purpose = resolution.data_version_purpose.value.title()
+        workspace = context.migration_workspaces.get(
+            project_id,
+            actor=context.actor,
+        )
+        data_version = context.data_versions.get(
+            workspace.data_version_id,
+            actor=context.actor,
+        )
+        run = context.migration_runs.get(
+            workspace.migration_run_id,
+            actor=context.actor,
+        )
+        return PreparationWorkspace.from_context(workspace, data_version, run)
+    except MigrationFoundationError as error:
         raise WorkspaceError(
-            f"This is saved history for {purpose} data version "
-            f"{resolution.data_version_number}, so it cannot be prepared again. "
-            "No Odoo records were changed. Open the Recipe overview and continue "
-            "from its current active data version."
+            f"{error}. No Odoo records were changed. Return to the Project "
+            "overview and continue from its current authoring workspace."
         ) from error
 
 
@@ -216,11 +222,13 @@ def _render_progress(
         "project_preparation_progress.html",
         project=project,
         project_navigation=build_preparation_job_navigation(job),
-        recipe_context={
-            "recipe_id": job.workspace.recipe_id,
+        migration_context={
+            "project_id": job.workspace.project_id,
             "data_version_id": job.workspace.data_version_id,
             "data_version_number": job.workspace.data_version_number,
             "data_version_purpose": job.workspace.data_version_purpose.value,
+            "migration_run_id": job.workspace.migration_run_id,
+            "workspace_id": job.workspace.workspace_id,
         },
         job=job,
         job_payload=_job_payload(job),
@@ -233,9 +241,9 @@ def _render_progress(
 def _job_payload(job: PreparationJob) -> dict[str, object]:
     redirect_url = ""
     if job.status is PreparationJobStatus.SUCCEEDED:
-        redirect_url = f"/projects/{job.project_id}/normalization"
+        redirect_url = f"/workspaces/{job.project_id}/normalization"
     elif job.status is PreparationJobStatus.REVIEW_REQUIRED:
-        redirect_url = f"/projects/{job.project_id}/resolution"
+        redirect_url = f"/workspaces/{job.project_id}/resolution"
     return {
         "job_id": job.job_id,
         "status": job.status.value,
@@ -265,4 +273,4 @@ def _manager(context: WebContext):
 
 
 def _progress_url(project_id: str, job_id: str) -> str:
-    return f"/projects/{project_id}/preparation/{job_id}"
+    return f"/workspaces/{project_id}/preparation/{job_id}"

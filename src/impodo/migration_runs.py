@@ -176,6 +176,32 @@ class MigrationRunService:
             fault=fault,
         )
 
+    def get(self, migration_run_id: str, *, actor: Actor) -> MigrationRun:
+        self.authorization.require(actor, Capability.PROJECT_VIEW)
+        run = self.repository.get_migration_run(
+            require_uuid(migration_run_id, "migration_run_id")
+        )
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_VIEW,
+            project_id=run.project_id,
+        )
+        return run
+
+    def list(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[MigrationRun, ...]:
+        project_id = require_uuid(project_id, "project_id")
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_VIEW,
+            project_id=project_id,
+        )
+        return self.repository.list_migration_runs(project_id)
+
     def rename(
         self,
         migration_run_id: str,

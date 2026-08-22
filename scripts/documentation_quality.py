@@ -545,29 +545,35 @@ def validate_repository(
     router_owners = dict(_owned_paths(stages, "router_modules"))
     shared = manifest.get("shared", {})
     if isinstance(shared, dict):
-        writing_standard = shared.get("writing_standard")
-        if not isinstance(writing_standard, str) or not writing_standard:
-            issues.append(
-                DocumentationIssue(
-                    str(manifest_path),
-                    "shared writing_standard must reference the documentation style guide",
+        for key, description in (
+            ("writing_standard", "writing standard"),
+            ("audience_standard", "audience standard"),
+            ("editing_workflow", "editing workflow"),
+        ):
+            standard_reference = shared.get(key)
+            if not isinstance(standard_reference, str) or not standard_reference:
+                issues.append(
+                    DocumentationIssue(
+                        str(manifest_path),
+                        f"shared {key} must reference the documentation style guide",
+                    )
                 )
-            )
-        else:
-            relative, _separator, anchor = writing_standard.partition("#")
+                continue
+            relative, _separator, anchor = standard_reference.partition("#")
             standard_path = repo_root / relative
             if not standard_path.is_file():
                 issues.append(
                     DocumentationIssue(
                         str(manifest_path),
-                        f"missing shared writing standard {writing_standard!r}",
+                        f"missing shared {description} {standard_reference!r}",
                     )
                 )
             elif not anchor or anchor not in _heading_anchors(standard_path):
                 issues.append(
                     DocumentationIssue(
                         str(manifest_path),
-                        f"shared writing standard has no matching heading {writing_standard!r}",
+                        f"shared {description} has no matching heading "
+                        f"{standard_reference!r}",
                     )
                 )
         for path in shared.get("skills", []):

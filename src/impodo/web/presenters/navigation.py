@@ -156,7 +156,7 @@ def build_project_navigation(
             project_name=current_project.name,
             registered=False,
             setup_active=True,
-            setup_href=f"/projects/{current_project.project_id}/{setup_page}",
+            setup_href=f"/workspaces/{current_project.project_id}/{setup_page}",
             overview_href=None,
             overview_active=False,
             current_stage_id="setup",
@@ -217,7 +217,7 @@ def build_project_navigation(
                 number=2,
                 label="Freeze Odoo records",
                 href=(
-                    f"/projects/{current_project.project_id}/sources"
+                    f"/workspaces/{current_project.project_id}/sources"
                     if schema is not None
                     else None
                 ),
@@ -616,7 +616,7 @@ def build_project_navigation(
                         page_id="preparation-progress",
                         label="Preparation progress",
                         href=(
-                            f"/projects/{project_id}/preparation/"
+                            f"/workspaces/{project_id}/preparation/"
                             f"{active_job.job_id}"
                         ),
                         status="current",
@@ -916,8 +916,8 @@ def _navigation(
         project_name=project.name,
         registered=True,
         setup_active=False,
-        setup_href=f"/projects/{project.project_id}/details",
-        overview_href=f"/projects/{project.project_id}/overview",
+        setup_href=f"/workspaces/{project.project_id}/details",
+        overview_href=f"/workspaces/{project.project_id}/overview",
         overview_active=template_name == "project_overview.html",
         current_stage_id=current_stage.stage_id,
         current_stage_label=current_stage.label,
@@ -931,13 +931,13 @@ def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
     """Build Stage-4 navigation entirely from the in-memory job snapshot."""
 
     project_id = job.project_id
-    progress_url = f"/projects/{project_id}/preparation/{job.job_id}"
+    progress_url = f"/workspaces/{project_id}/preparation/{job.job_id}"
     stages = (
         WorkflowStage(
             stage_id="source",
             number=1,
             label="Source data",
-            href=f"/projects/{project_id}/sources",
+            href=f"/workspaces/{project_id}/sources",
             status="complete",
             status_label="Complete",
         ),
@@ -945,7 +945,7 @@ def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
             stage_id="odoo",
             number=2,
             label="Odoo data",
-            href=f"/projects/{project_id}/schema",
+            href=f"/workspaces/{project_id}/schema",
             status="complete",
             status_label="Complete",
         ),
@@ -953,7 +953,7 @@ def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
             stage_id="match",
             number=3,
             label="Match data",
-            href=f"/projects/{project_id}/mapping",
+            href=f"/workspaces/{project_id}/mapping",
             status="complete",
             status_label="Complete",
         ),
@@ -961,14 +961,14 @@ def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
             stage_id="prepare",
             number=4,
             label="Prepare data",
-            href=f"/projects/{project_id}/prepare",
+            href=f"/workspaces/{project_id}/prepare",
             status="current",
             status_label=("In progress" if job.active else "Saved attempt"),
             pages=(
                 WorkflowPage(
                     page_id="prepare",
                     label="Start preparation",
-                    href=f"/projects/{project_id}/prepare",
+                    href=f"/workspaces/{project_id}/prepare",
                 ),
                 WorkflowPage(
                     page_id="preparation-progress",
@@ -988,8 +988,8 @@ def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
         project_name=job.project_name,
         registered=True,
         setup_active=False,
-        setup_href=f"/projects/{project_id}/details",
-        overview_href=f"/projects/{project_id}/overview",
+        setup_href=f"/workspaces/{project_id}/details",
+        overview_href=f"/workspaces/{project_id}/overview",
         overview_active=False,
         current_stage_id="prepare",
         current_stage_label="Prepare data",
@@ -1014,7 +1014,7 @@ def _stage(
         stage_id=stage_id,
         number=number,
         label=label,
-        href=f"/projects/{project_id}{suffix}",
+        href=f"/workspaces/{project_id}{suffix}",
         status=status,
         status_label=status_label,
         pages=pages,
@@ -1042,7 +1042,7 @@ def _page(
     return WorkflowPage(
         page_id=page_id,
         label=label,
-        href=f"/projects/{project_id}{suffix}",
+        href=f"/workspaces/{project_id}{suffix}",
         status=status,
         status_label=status_label,
         optional=optional,

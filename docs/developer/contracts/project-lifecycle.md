@@ -4,118 +4,96 @@ kind: contract
 status: current
 ---
 
-# Contained workspace lifecycle contract
+# Project and workspace lifecycle contract
 
 ## Scope
 
-One contained workspace provides the working state for one DataVersion in a
-Recipe. The current code represents that state as `WorkspaceState`. It stores
-the DataVersion's evidence, credentials, authorization state, and files. Setup
-selects exactly one source mode: governed files (`FILE`) or existing records
-in one configured Odoo database (`ODOO`). Impodo does not create a separate
-workspace for each Odoo model. The browser label **project** refers to the
-owning Recipe; this contract uses **workspace** for the contained state.
+`MigrationProject` is the operator-facing business and governance root. It
+owns DataVersion, MigrationRun, MigrationWorkspace, and Recipe membership
+lineages. A Project can exist and complete one-off work without a Recipe.
 
-The browser is the normal authoring interface. Stored manifests, hashes, audit
-events, and DuckDB records are machine evidence and must not be edited directly.
+`MigrationWorkspace` is the isolated technical work area for one run over one
+DataVersion. The contained mapping engine currently represents its detailed
+state as `WorkspaceState`; that type is not the Project aggregate.
 
-## Lifecycle
+## Creation
 
-The implemented transition is:
+`/projects/new` creates four distinct roots in this order:
 
-```text
-DRAFT --register--> REGISTERED
-```
+1. one Project;
+2. Authoring DataVersion 1 and its draft source package;
+3. Authoring MigrationRun 1; and
+4. one open MigrationWorkspace plus its contained mapping engine.
 
-`CLOSED` is reserved in the domain model but has no browser transition.
+The browser operation and deterministic child operation IDs make this
+coordinator restart safe. A replay with the same request meaning returns the
+existing roots. A replay with different meaning fails closed.
 
-Registration requires the workspace name, stable source-system label, and one
-exact source mode. `FILE` mode also requires at least one governed CSV or XLSX
-file. It does not require an export date, ownership fields, governance fields,
-or an Odoo destination. `ODOO` mode rejects file attachments and requires the
-source connection mode, normalized endpoint, and database. Before registering
-an Odoo-source workspace, the normal browser also requires a successful
-purpose-specific read check.
+Creation does not add a Recipe, contact Odoo, inspect source rows, or grant
+write authority.
 
-Registration fixes the source mode, increments the optimistic revision,
-publishes canonical registration evidence, and records an actor-bound audit
-event. Later stages create their own versioned evidence. A registered file
-workspace may still receive or replace its Odoo destination in the Odoo-data
-stage; that governed change invalidates target-derived evidence rather than
-reopening source setup.
+## Workspace setup
 
-## Source boundary
+The mapping engine setup selects one source mode: uploaded files (`FILE`) or
+existing records in one Odoo database (`ODOO`). The detailed engine moves from
+`DRAFT` to `REGISTERED`; the clean MigrationWorkspace remains `OPEN` while it
+accepts authoring evidence.
 
-Draft file content is size-bounded, validated in an isolated worker, stored
-under generated identifiers, and SHA-256 hashed. It is never edited in place.
+File setup requires at least one governed CSV or XLSX file before
+registration. Odoo-source setup requires an exact connection identity and the
+purpose-specific read check. Registration records actor-bound evidence and
+does not publish a Recipe.
 
-A registered file workspace may add or remove an incorrect source file only
-before the first source-table selection is frozen. Removal is revision checked,
-deletes only that file's catalogue, confirmation, and contained bytes, and
-records an audit event. After source freeze, file changes fail closed.
+## Source ownership
 
-An Odoo-source registration performs no business-record read. Bounded model,
-field, and record selection remains a separately authorized workflow.
+Source bytes, inspection catalogues, accepted parsing choices, logical
+datasets, and immutable snapshot references become one DataVersion source
+package. Freezing that package makes the DataVersion immutable.
 
-## Target and credential boundary
-
-Target identity binds connection mode, normalized endpoint, and database. For
-file sources it is configured after source freeze in the Odoo-data stage. For
-Odoo sources the same identity is established during initial source setup and
-remains both capture origin and pinned-comparison target:
-
-- `LOCAL` permits HTTP only when the target is a literal loopback address.
-- `REMOTE` requires HTTPS and rejects loopback addresses.
-
-Changing mode, endpoint, or database changes the target identity and
-invalidates target-derived schema, mapping, comparison, and execution evidence.
-It never changes reusable Recipe meaning by itself.
-
-An Odoo API key is neither Recipe meaning nor workspace data. Read and write
-credentials use separate role-specific fields and vault entries and never fall
-back to one another.
-Changing the target removes both roles for the old target; deleting the owning
-unpublished Recipe draft removes both roles for its contained workspace.
-Stored evidence may retain only non-secret generation, principal, permission,
-and context bindings.
-
-Registration and connection configuration do not grant Odoo read or write
-capability. Each connector operation requires its own narrow capability and
-must revalidate the current target and credential binding.
+The clean MigrationWorkspace store records only its projection ID, package
+hash, selected dataset IDs, and snapshot hashes. The mapping engine receives a
+read-only `SourceSelection` adapter over those references. It must not copy the
+DataVersion database or source rows.
 
 ## Authority and concurrency
 
-Human-entered owner names are governance metadata, not authorization. Every
-state-changing command receives a verified actor and capability. Optimistic
-revision checks reject stale browser forms rather than overwriting newer state.
+Every command receives a verified actor and capability. Human-entered manager
+or owner names are governance metadata, not authorization. Project,
+DataVersion, run, workspace, and Recipe changes use optimistic revisions and
+reject stale forms.
 
-Audit events retain stable actor issuer and subject identities. Derived status
-summaries are not approvals; an approval must bind an actor to exact immutable
-evidence.
+Credentials stay in role-specific vault entries. They never become Project,
+DataVersion, Recipe, mapping, or approval meaning. Read capability never grants
+write capability.
 
-## Persistence boundary
+## Persistence and performance
 
-The local composition stores Recipe and DataVersion lineage in the registry.
-It uses one application-encrypted protected Recipe store and creates one
-protected directory with a DuckDB database for each DataVersion workspace.
-Domain and application code access artifacts through ports; filesystem paths
-are not domain contract values. Hosted deployments must supply their own
-identity, database, storage, secret, and job adapters.
+The registry lists Projects and their bounded counts without opening one
+workspace database per list row. DataVersion and workspace databases use exact
+schema generations and exact linkage. Storage from the superseded Recipe-first
+generation is rejected without mutation.
 
-Every current workspace registry row has one exact Recipe/DataVersion linkage
-from its creation operation. The current build does not backfill or lazily
-adopt an unlinked standalone workspace. Sealed DataVersion workspaces reject
-mutation. Direct workspace deletion is unsupported; deleting an unpublished
-Recipe draft validates its exact Recipe and workspace revisions before it
-removes the contained workspace.
+Preparation workers receive an exact authorized identity packet and verify the
+workspace and frozen DataVersion stores. They do not open or scan the shared
+registry and do not issue per-row repository or Odoo calls.
 
-Workspace databases outside the exact supported base contract are not opened.
-Checksum-pinned additive Recipe linkage migrations are the only current
-in-place schema migration mechanism.
+## Current boundary
+
+M3 supports Project-native authoring, one-off completion, and optional Recipe
+publication. Phase M4 owns multi-Recipe application inside a run. No current
+browser path treats a Recipe as the Project or gives a Recipe ownership of a
+DataVersion.
+
+## Verification
+
+- `tests/test_migration_project_phase_m1_foundation.py`
+- `tests/test_migration_project_phase_m2_source_packages.py`
+- `tests/test_migration_project_phase_m3_project_authoring.py`
+- `tests/test_preparation_jobs.py`
 
 ## Related documentation
 
-- [Recipe and data-version lifecycle](recipe-lifecycle.md)
-- [Recipe and data-version setup](../workflow/00-project-setup.md)
-- [Source data implementation](../workflow/01-source-data.md)
-- [Security and infrastructure](../../architecture/security-and-infrastructure.md)
+- [Recipe publication contract](recipe-lifecycle.md)
+- [Evidence lifecycle](evidence-lifecycle.md)
+- [Project setup implementation](../workflow/00-project-setup.md)
+- [Architecture overview](../../architecture/overview.md)

@@ -442,6 +442,43 @@ class ProjectService:
         self.repository.create_unlinked(project, actor=actor)
         return project
 
+    def provision_migration_workspace(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        name: str,
+        source_system: str,
+        source_mode: str | SourceMode,
+        data_classification: str | DataClassification,
+        retention_days: int,
+    ) -> WorkspaceState:
+        """Initialize mapping state for an existing clean MigrationWorkspace."""
+
+        self.authorization.require(actor, Capability.MIGRATION_WORKSPACE_CREATE)
+        workspace_id = _canonical_project_id(workspace_id)
+        try:
+            parsed_mode = SourceMode(source_mode)
+            classification = DataClassification(data_classification)
+        except ValueError as error:
+            raise ProjectError("MigrationWorkspace setup values are invalid") from error
+        if not 1 <= retention_days <= 3650:
+            raise ProjectError("Retention must be between 1 and 3650 days")
+        now = _now()
+        workspace = WorkspaceState(
+            project_id=workspace_id,
+            name=_required_text(name, "Workspace name"),
+            source_system=_required_text(source_system, "Source system"),
+            source_mode=parsed_mode,
+            description=f"Authoring workspace for {name.strip()}",
+            data_classification=classification,
+            retention_days=retention_days,
+            created_at=now,
+            updated_at=now,
+        )
+        self.repository.create_unlinked(workspace, actor=actor)
+        return workspace
+
     def discard_unlinked_workspace(self, project_id: str) -> None:
         """Compensate a failed DataVersion operation before Recipe adoption."""
 

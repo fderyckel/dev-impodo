@@ -52,14 +52,14 @@
                   {% elif item.decision == 'KEEP_SEPARATE' %}
                     <span class="status ready">Keep separate</span>
                   {% else %}
-                    <form method="post" action="/projects/{{ project.project_id }}/resolution/candidates/{{ item.candidate_id }}/merge">
+                    <form method="post" action="/workspaces/{{ project.project_id }}/resolution/candidates/{{ item.candidate_id }}/merge">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
                       <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
                       <input name="reason" required maxlength="1000" placeholder="Why are these the same?">
                       <button class="button primary small" type="submit">Merge as one record</button>
                     </form>
-                    <form method="post" action="/projects/{{ project.project_id }}/resolution/candidates/{{ item.candidate_id }}/separate">
+                    <form method="post" action="/workspaces/{{ project.project_id }}/resolution/candidates/{{ item.candidate_id }}/separate">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
                       <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
@@ -106,7 +106,7 @@
                     <span class="status ready">Selected</span>
                   {% else %}
                     {% for row_id, value in item.choices %}
-                      <form method="post" action="/projects/{{ project.project_id }}/resolution/groups/{{ item.group_id }}/fields/{{ item.field }}/select">
+                      <form method="post" action="/workspaces/{{ project.project_id }}/resolution/groups/{{ item.group_id }}/fields/{{ item.field }}/select">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
                         <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
@@ -117,7 +117,7 @@
                       </form>
                     {% endfor %}
                     {% if item.correctable %}
-                      <form method="post" action="/projects/{{ project.project_id }}/resolution/groups/{{ item.group_id }}/fields/{{ item.field }}/correct">
+                      <form method="post" action="/workspaces/{{ project.project_id }}/resolution/groups/{{ item.group_id }}/fields/{{ item.field }}/correct">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
                         <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
@@ -144,7 +144,7 @@
         <h2>Approve the resolved records</h2>
         <p>This freezes the exact effective dataset and continues to data-quality review.</p>
       </div>
-      <form method="post" action="/projects/{{ project.project_id }}/resolution/approve">
+      <form method="post" action="/workspaces/{{ project.project_id }}/resolution/approve">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
         <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
@@ -154,6 +154,6 @@
   {% endif %}
 
   <div class="form-actions split-actions">
-    <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project review</a>
+    <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary">Back to project review</a>
   </div>
 {% endblock %}

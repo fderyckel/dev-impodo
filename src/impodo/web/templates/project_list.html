@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Projects · Impodo{% endblock %}
+{% block body_class %}projects-home{% endblock %}
+{% block content %}
+  <section class="projects-hero">
+    <div>
+      <p class="eyebrow">Your work</p>
+      <h1>Data projects</h1>
+      <p>Keep each migration effort, its source packages, workspaces, and optional reusable Recipes together.</p>
+    </div>
+    <a class="button primary new-project-button" href="/projects/new">New project</a>
+  </section>
+
+  {% if projects %}
+    <section class="project-list" aria-label="Data projects">
+      <div class="project-list-heading" aria-hidden="true">
+        <span>Project name</span><span>Status</span><span>Last updated</span><span>Recipes</span>
+      </div>
+      {% for project in projects %}
+        <a class="project-row" href="/projects/{{ project.project_id }}">
+          <div class="project-identity">
+            <strong>{{ project.display_name }}</strong>
+            <span>{{ project.data_version_count }} data version{% if project.data_version_count != 1 %}s{% endif %} · {{ project.workspace_count }} workspace{% if project.workspace_count != 1 %}s{% endif %}</span>
+          </div>
+          <span class="status {% if project.status.value == 'DRAFT' %}draft{% else %}registered{% endif %}">{{ project.status.value|title }}</span>
+          <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
+          <span>{{ project.recipe_count }}</span>
+        </a>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <h2>No data projects yet</h2>
+      <p>Create a Project first. You can finish one-off work without saving a Recipe.</p>
+      <a class="button primary" href="/projects/new">Create the first project</a>
+    </section>
+  {% endif %}
+{% endblock %}
+

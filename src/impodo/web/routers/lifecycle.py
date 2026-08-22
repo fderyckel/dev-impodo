@@ -22,12 +22,12 @@ def build_lifecycle_router(context: WebContext) -> APIRouter:
         request.session.clear()
         request.session["authenticated"] = True
         request.session["csrf_token"] = secrets.token_urlsafe(32)
-        return RedirectResponse("/recipes", status_code=303)
+        return RedirectResponse("/projects", status_code=303)
 
     @router.get("/")
     async def root(request: Request):
         require_session(request)
-        return RedirectResponse("/recipes", status_code=303)
+        return RedirectResponse("/projects", status_code=303)
 
     @router.post("/quit", response_class=HTMLResponse)
     async def quit_impodo(request: Request):

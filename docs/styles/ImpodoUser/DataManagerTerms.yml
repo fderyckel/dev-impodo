@@ -1,0 +1,10 @@
+extends: existence
+message: "Explain '%s' from the data manager's perspective, or move it to developer documentation."
+level: suggestion
+ignorecase: true
+tokens:
+  - '\bDataVersion (?:source )?package\b'
+  - '\bworkspace projection\b'
+  - '\bcanonical order(?:ing)?\b'
+  - '\boperation identit(?:y|ies)\b'
+  - '\b(?:package|snapshot) hashes?\b'

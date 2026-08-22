@@ -5,7 +5,7 @@
   <div
     class="capture-progress-page"
     data-odoo-capture-job
-    data-status-url="/projects/{{ job.project_id }}/sources/odoo-capture/{{ job.job_id }}/status"
+    data-status-url="/workspaces/{{ job.project_id }}/sources/odoo-capture/{{ job.job_id }}/status"
   >
     <section class="page-heading">
       <div>
@@ -41,7 +41,7 @@
         <h2>The previous frozen version is unchanged</h2>
         <p data-odoo-capture-failure>{{ failure_message }}</p>
       </div>
-      <a class="button primary" href="/projects/{{ job.project_id }}/sources">Review and try again</a>
+      <a class="button primary" href="/workspaces/{{ job.project_id }}/sources">Review and try again</a>
     </section>
 
     <section class="next-action-card review" data-odoo-capture-cancelled {% if job.status.value != 'CANCELLED' %}hidden{% endif %}>
@@ -50,7 +50,7 @@
         <h2>No candidate version was made current</h2>
         <p>The last complete frozen version, if any, remains available.</p>
       </div>
-      <a class="button primary" href="/projects/{{ job.project_id }}/sources">Return to Odoo source</a>
+      <a class="button primary" href="/workspaces/{{ job.project_id }}/sources">Return to Odoo source</a>
     </section>
 
     <section class="next-action-card ready" data-odoo-capture-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
@@ -59,12 +59,12 @@
         <h2>The new frozen version is current</h2>
         <p>The source page will open automatically and can be reopened without Odoo traffic.</p>
       </div>
-      <a class="button primary" data-odoo-capture-continue href="/projects/{{ job.project_id }}/sources#current-capture">View frozen source</a>
+      <a class="button primary" data-odoo-capture-continue href="/workspaces/{{ job.project_id }}/sources#current-capture">View frozen source</a>
     </section>
 
     <div class="capture-progress-actions" data-odoo-capture-active {% if not active %}hidden{% endif %}>
-      <a class="button secondary" href="/recipes">Work on another Recipe</a>
-      <form method="post" action="/projects/{{ job.project_id }}/sources/odoo-capture/{{ job.job_id }}/cancel">
+      <a class="button secondary" href="/projects">Work on another Project</a>
+      <form method="post" action="/workspaces/{{ job.project_id }}/sources/odoo-capture/{{ job.job_id }}/cancel">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button secondary" type="submit" {% if job.cancel_requested %}disabled{% endif %} data-odoo-capture-cancel>
           {% if job.cancel_requested %}Stopping safely…{% else %}Stop capture{% endif %}

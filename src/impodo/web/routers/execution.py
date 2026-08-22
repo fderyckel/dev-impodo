@@ -163,7 +163,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         preview = context.execution.current_preview(project_id)
         if preview is None:
             return RedirectResponse(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 status_code=303,
             )
         if step == "confirm" and preview.current_run is not None:
@@ -226,22 +226,22 @@ def build_execution_router(context: WebContext) -> APIRouter:
             status_code=status_code,
         )
 
-    @router.get("/projects/{project_id}/load")
+    @router.get("/workspaces/{project_id}/load")
     async def load_landing(request: Request, project_id: str):
         require_session(request)
         preview = context.execution.current_preview(project_id)
         if preview is None:
-            destination = f"/projects/{project_id}/summary"
+            destination = f"/workspaces/{project_id}/summary"
         elif preview.current_run is not None:
-            destination = f"/projects/{project_id}/load/outcome"
+            destination = f"/workspaces/{project_id}/load/outcome"
             if request.url.query:
                 destination = f"{destination}?{request.url.query}"
         else:
-            destination = f"/projects/{project_id}/load/review"
+            destination = f"/workspaces/{project_id}/load/review"
         return RedirectResponse(destination, status_code=303)
 
     @router.get(
-        "/projects/{project_id}/load/review",
+        "/workspaces/{project_id}/load/review",
         response_class=HTMLResponse,
     )
     async def review_load(request: Request, project_id: str):
@@ -249,7 +249,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         return render(request, project_id, step="review")
 
     @router.get(
-        "/projects/{project_id}/load/confirm",
+        "/workspaces/{project_id}/load/confirm",
         response_class=HTMLResponse,
     )
     async def confirm_load(request: Request, project_id: str):
@@ -257,12 +257,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
         preview = context.execution.current_preview(project_id)
         if preview is None:
             return RedirectResponse(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 status_code=303,
             )
         if preview.current_run is not None:
             return RedirectResponse(
-                f"/projects/{project_id}/load/outcome",
+                f"/workspaces/{project_id}/load/outcome",
                 status_code=303,
             )
         if not preview.can_load:
@@ -275,13 +275,13 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 ),
             )
             return RedirectResponse(
-                f"/projects/{project_id}/load/review",
+                f"/workspaces/{project_id}/load/review",
                 status_code=303,
             )
         return render(request, project_id, step="confirm")
 
     @router.get(
-        "/projects/{project_id}/load/outcome",
+        "/workspaces/{project_id}/load/outcome",
         response_class=HTMLResponse,
     )
     async def review_outcome(request: Request, project_id: str):
@@ -289,17 +289,17 @@ def build_execution_router(context: WebContext) -> APIRouter:
         preview = context.execution.current_preview(project_id)
         if preview is None:
             return RedirectResponse(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 status_code=303,
             )
         if preview.current_run is None:
             return RedirectResponse(
-                f"/projects/{project_id}/load/review",
+                f"/workspaces/{project_id}/load/review",
                 status_code=303,
             )
         return render(request, project_id, step="outcome")
 
-    @router.post("/projects/{project_id}/load")
+    @router.post("/workspaces/{project_id}/load")
     async def load_into_odoo(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -453,11 +453,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
         else:
             _flash_reconciliation(request, report)
         return RedirectResponse(
-            f"/projects/{project_id}/load/outcome",
+            f"/workspaces/{project_id}/load/outcome",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/load/reconcile")
+    @router.post("/workspaces/{project_id}/load/reconcile")
     async def reconcile_load(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -560,11 +560,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
             )
         _flash_reconciliation(request, report)
         return RedirectResponse(
-            f"/projects/{project_id}/load/outcome",
+            f"/workspaces/{project_id}/load/outcome",
             status_code=303,
         )
 
-    @router.get("/projects/{project_id}/load/fallout.csv")
+    @router.get("/workspaces/{project_id}/load/fallout.csv")
     async def download_fallout(request: Request, project_id: str):
         require_session(request)
         report = context.reconciliation.current(project_id)

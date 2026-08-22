@@ -317,10 +317,6 @@ def _render_mapping(
             active_dataset_index,
             context.queries.get_current_quality_ruleset(project_id),
         )
-    recipe_application = context.recipe_applications.current_draft(
-        project_id,
-        actor=context.actor,
-    )
     return _render(
         request,
         "project_mapping.html",
@@ -351,7 +347,7 @@ def _render_mapping(
         rule_impact_snapshot=rule_impact_snapshot,
         rule_review_ready=rule_review_ready,
         quality_view=quality_view,
-        recipe_application=recipe_application,
+        recipe_application=None,
         error=error,
         status_code=status_code,
     )
@@ -832,7 +828,7 @@ def _mapping_next_step(
             "label": "Continue to Prepare data",
             "available": True,
             "kind": "link",
-            "href": f"/projects/{project_id}/prepare",
+            "href": f"/workspaces/{project_id}/prepare",
             "button_style": "secondary",
             "blockers": (),
             "previous_check_items": (),
@@ -917,7 +913,7 @@ def _mapping_next_step(
                         "before confirming."
                     ),
                     "href": (
-                        f"/projects/{project_id}/mapping/transformation-impact"
+                        f"/workspaces/{project_id}/mapping/transformation-impact"
                     ),
                     "action_label": "Review rule effects",
                 }

@@ -30,10 +30,15 @@ from ..application.odoo_source_capture_service import OdooSourceCapturePort
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
-from ..application.recipe_service import RecipeService
-from ..application.recipe_authoring_service import RecipeAuthoringService
-from ..application.recipe_application_service import RecipeApplicationService
-from ..application.recipe_qualification_service import RecipeQualificationService
+from ..application.migration_project_authoring_service import (
+    MigrationProjectAuthoringService,
+)
+from ..application.project_recipe_publication_service import (
+    ProjectRecipePublicationService,
+)
+from ..application.workspace_data_version_source_service import (
+    WorkspaceDataVersionSourceService,
+)
 from ..application.preparation_service import PreparationService
 from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
@@ -62,6 +67,11 @@ from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
 from ..odoo_scope import OdooApiScope
 from ..projects import WorkspaceState, ProjectService
+from ..data_versions import DataVersionService
+from ..migration_projects import MigrationProjectService
+from ..migration_runs import MigrationRunService
+from ..migration_workspaces import MigrationWorkspaceService
+from ..project_recipes import ProjectRecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
 from ..secrets import SecretStore
 from .remote_connection import RemoteConnectionStatusService
@@ -112,11 +122,15 @@ class WebContext:
     """
 
     queries: BrowserQueryService
+    migration_projects: MigrationProjectService
+    data_versions: DataVersionService
+    migration_runs: MigrationRunService
+    migration_workspaces: MigrationWorkspaceService
+    project_authoring: MigrationProjectAuthoringService
+    project_recipes: ProjectRecipeService
+    recipe_publication: ProjectRecipePublicationService
+    data_version_source_projection: WorkspaceDataVersionSourceService
     projects: ProjectService
-    recipes: RecipeService
-    recipe_authoring: RecipeAuthoringService
-    recipe_applications: RecipeApplicationService
-    recipe_qualifications: RecipeQualificationService
     intake: SourceIntakeService
     inspections: SourceInspectionService
     sources: SourceWorkspaceService

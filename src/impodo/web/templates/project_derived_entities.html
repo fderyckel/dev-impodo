@@ -21,7 +21,7 @@
     <section class="form-card empty-state">
       <h2>Choose your source tables first</h2>
       <p>Save the source tables before separating combined information.</p>
-      <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Choose tables</a>
+      <a class="button primary" href="/workspaces/{{ project.project_id }}/datasets">Choose tables</a>
     </section>
   {% else %}
     <details class="form-card technical-evidence evidence-card">
@@ -105,7 +105,7 @@
           </div>
         {% endif %}
 
-        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/related/save">
+        <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/related/save">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
           <input type="hidden" name="source_dataset_id" value="{{ pending_rule.source_dataset_id }}">
@@ -116,7 +116,7 @@
           <input type="hidden" name="child_key_column_key" value="{{ pending_rule.child_key_column_key }}">
           <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
           <div class="actions">
-            <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Change selections</a>
+            <a class="button secondary" href="/workspaces/{{ project.project_id }}/derived-entities">Change selections</a>
             <button class="button primary" type="submit">Create these separate tables</button>
           </div>
         </form>
@@ -133,7 +133,7 @@
             <h2>{{ rule.parent_dataset_name }} + {{ rule.child_dataset_name }}</h2>
             <p>Generated from <strong>{{ preview.source_dataset_name if preview else rule.source_dataset_id }}</strong>.</p>
           </div>
-          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
+          <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
             <button class="button secondary" type="submit">Remove split</button>
@@ -177,7 +177,7 @@
           {% if source_view.has_split %}
             <div class="notice success">This source already has a reviewed related-table setup. Remove that setup above before replacing it.</div>
           {% else %}
-            <form method="post" action="/projects/{{ project.project_id }}/derived-entities/related/preview">
+            <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/related/preview">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
               <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
@@ -302,7 +302,7 @@
             </div>
           {% endif %}
 
-          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/save">
+          <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/save">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
             <input type="hidden" name="source_binding" value="{{ pending_rule.source_dataset_id }}|{{ pending_rule.source_column_key }}">
@@ -313,7 +313,7 @@
             <input type="hidden" name="parent_separator" value="{{ pending_rule.parent_separator or '' }}">
             <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
             <div class="actions">
-              <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Change selections</a>
+              <a class="button secondary" href="/workspaces/{{ project.project_id }}/derived-entities">Change selections</a>
               <button class="button primary" type="submit">Create this related table</button>
             </div>
           </form>
@@ -330,7 +330,7 @@
               <h2>{{ rule.output_dataset_name }}</h2>
               <p>This list is available when you match data to Odoo.</p>
             </div>
-            <form method="post" action="/projects/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
+            <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
               <button class="button secondary" type="submit">Remove rule</button>
@@ -372,7 +372,7 @@
             <strong>Odoo record types are ready.</strong>
             Choose one of the {{ model_catalog.models|length }} existing record types loaded from this Odoo database.
           </div>
-          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/models/refresh">
+          <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/models/refresh">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="actions">
               <button class="button secondary" type="submit">Refresh Odoo record types</button>
@@ -383,16 +383,16 @@
             <strong>Load the existing Odoo record types first.</strong>
             Impodo will read the available record names from the configured Odoo database so this choice can be checked.
           </div>
-          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/models/refresh">
+          <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/models/refresh">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="actions">
               <button class="button primary" type="submit">Show available Odoo record types</button>
-              <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Review the Odoo connection</a>
+              <a class="button secondary" href="/workspaces/{{ project.project_id }}/schema">Review the Odoo connection</a>
             </div>
           </form>
         {% endif %}
         {% if model_catalog %}
-        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/lookup/preview#lookup-preview">
+        <form method="post" action="/workspaces/{{ project.project_id }}/derived-entities/lookup/preview#lookup-preview">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
           <div class="form-grid">
@@ -451,8 +451,8 @@
     </details>
 
     <div class="actions">
-      <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to tables</a>
-      <a class="button primary" href="/projects/{{ project.project_id }}/schema">Choose Odoo data</a>
+      <a class="button secondary" href="/workspaces/{{ project.project_id }}/datasets">Back to tables</a>
+      <a class="button primary" href="/workspaces/{{ project.project_id }}/schema">Choose Odoo data</a>
     </div>
   {% endif %}
 {% endblock %}

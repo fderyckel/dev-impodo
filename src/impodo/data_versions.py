@@ -199,6 +199,20 @@ class DataVersionService:
         )
         return data_version
 
+    def list(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[DataVersion, ...]:
+        project_id = require_uuid(project_id, "project_id")
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_VIEW,
+            project_id=project_id,
+        )
+        return self.repository.list_data_versions(project_id)
+
     def rename(
         self,
         data_version_id: str,

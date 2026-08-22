@@ -57,12 +57,11 @@ the journal has no unknown outcome and reconciliation verifies the expected
 target state. Navigation reports **Verify outcome** or **Needs attention** when
 the write result is not yet proven.
 
-For a Test Recipe application, successful reconciliation returns to the Recipe
-qualification flow. Qualification publishes separate immutable evidence only
-after the data manager confirms the exact expected totals; selecting that
-qualification as the rollout candidate is another explicit action. A
-Production DataVersion creates its own run and reconciliation evidence and does
-not reuse the Test journal.
+Successful reconciliation remains evidence of this Project-owned DataVersion
+and run. It does not publish or qualify a Recipe. A future application of
+published rules must create its own run, comparison, execution, and
+reconciliation evidence and cannot inherit this write authority. That workflow
+belongs to Phase M4.
 
 ## Invalidation and recovery
 

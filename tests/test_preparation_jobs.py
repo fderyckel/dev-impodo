@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tempfile
+import shutil
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -20,12 +20,12 @@ from impodo.application.preparation_job_service import PreparationJobManager
 from impodo.application.preparation_job_service import _run_preparation_worker
 from impodo.application.preparation_service import PreparationService
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.data_versions import DataVersionPurpose
 from impodo.preparation_jobs import (
     PreparationJobStatus,
     PreparationPhase,
     PreparationWorkspace,
 )
-from impodo.recipes import DataVersionPurpose
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,10 +33,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _workspace() -> PreparationWorkspace:
     return PreparationWorkspace(
-        recipe_id=str(uuid4()),
+        project_id=str(uuid4()),
         data_version_id=str(uuid4()),
         data_version_number=1,
         data_version_purpose=DataVersionPurpose.AUTHORING,
+        migration_run_id=str(uuid4()),
+        workspace_id=str(uuid4()),
     )
 
 
@@ -217,15 +219,20 @@ class _RecordingPreparationJobManager(PreparationJobManager):
 class PreparationJobSchedulingTests(unittest.TestCase):
     def test_manager_does_not_create_a_second_database(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
-            PreparationJobManager(temporary)
-
-            self.assertEqual(tuple(Path(temporary).iterdir()), ())
+        temporary = ROOT / ".tmp" / f"preparation-manager-{uuid4()}"
+        temporary.mkdir()
+        try:
+            PreparationJobManager(str(temporary))
+            self.assertEqual(tuple(temporary.iterdir()), ())
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
 
     def test_local_manager_starts_only_one_memory_heavy_worker(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
-            manager = _RecordingPreparationJobManager(temporary)
+        temporary = ROOT / ".tmp" / f"preparation-scheduling-{uuid4()}"
+        temporary.mkdir()
+        try:
+            manager = _RecordingPreparationJobManager(str(temporary))
             first = manager.enqueue(
                 str(uuid4()),
                 "Products",
@@ -250,6 +257,8 @@ class PreparationJobSchedulingTests(unittest.TestCase):
                 manager._workers.pop(first.job_id)
                 manager._schedule_locked()
             self.assertEqual(manager.started, [first.job_id, second.job_id])
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
 
 
 class PreparationWorkerFailureTests(unittest.TestCase):

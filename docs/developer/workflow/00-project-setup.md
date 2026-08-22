@@ -4,170 +4,124 @@ stage: setup
 status: current
 ---
 
-# Recipe and data-version setup
+# Project and authoring workspace setup
 
 ## Responsibility
 
-Recipe setup creates the `Recipe` aggregate root and Authoring DataVersion 1.
-It also creates a contained workspace for that DataVersion before any workflow
-evidence exists. The normal browser path records the operator's project name
-and source mode. It then accepts the initial source files or verifies the
-Odoo-source connection, registers the workspace, presents the DataVersion
-overview, and allows deletion while the Recipe remains unpublished. A
-file-source workspace configures its Odoo destination later in **Odoo data**.
-
-It does not inspect business rows, capture an Odoo schema, or authorize an
-Odoo read or write merely because connection details are stored.
+Setup creates a real `MigrationProject`, Authoring DataVersion 1, Authoring
+MigrationRun 1, and one open MigrationWorkspace. It creates no Recipe. The
+data manager can continue the normal workflow and complete one-off work without
+ever publishing reusable rules.
 
 ## Entry conditions
 
-The local browser session must be authenticated. **New project** creates the
-Recipe, Authoring DataVersion 1, and a contained workspace in `DRAFT`, with
-revision-checked edits performed by an identified actor. “Project” is the
-operator label; `Recipe` remains the domain aggregate root.
+The operator has an authenticated local session and can create Projects. The
+new storage root must match the exact M2/M3 generations; rejected Recipe-first
+storage requires the reviewed development reset rather than an upgrade.
 
 ## Implementation flow
 
-`projects.py` routes operator-project creation through
-`RecipeAuthoringService` and the contained workspace through `ProjectService`.
-The first form asks only for the project name and source mode. For file mode,
-the bounded intake service accepts one or more uploads and stores them under
-generated identifiers. Choosing **Use these files and continue** then
-registers the workspace. For Odoo source mode, `target.py` performs a
-purpose-specific read-only connection check and registers the workspace before
-schema discovery. The former details, governance, and confirmation pages remain
-compatibility surfaces; they are not part of the normal setup sequence.
+`migration_projects.py` owns `/projects`, `/projects/new`, the Project
+overview, and optional Recipe publication. `workspace_setup.py` opens the
+contained authoring engine under `/workspaces/{workspace_id}` and directs file
+or Odoo-source setup to the existing bounded services.
 
-For a registered file workspace, `target.py` is reached later from Odoo data to
-configure the Local or Remote destination. `OdooConnectionTestService`
-identifies the exact Odoo 19 database and verifies the relevant read identity
-without repeating model or field discovery; schema capture remains the next
-stage.
+The New project form records Project name, migration purpose, source mode, and
+source-system identity. `MigrationProjectAuthoringService` uses one browser
+request ID and deterministic child operation IDs to create or resume each
+root. It initializes `WorkspaceState` only after the clean MigrationWorkspace
+exists.
 
-Registered Authoring workspaces can store explicit custom parameter
-declarations through `RecipeAuthoringService`. Impodo hashes this project-local
-declaration set independently from the values supplied by any Test or
-Production DataVersion. During publication, Impodo converts a stable name such
-as `warehouse` into a logical ID such as `parameter:warehouse`. A file-based
-Recipe also receives the built-in export as-of date. Declarations can use
-string, date, integer, or decimal values, and only control or provenance sites
-may consume them. Application rejects a value when the selected immutable
-revision does not declare its logical ID.
+## Evidence and state
 
-For a published revision, the Recipe routes delegate Test and Production
-DataVersion creation, compatibility review, and application to
-`RecipeApplicationService`. Creating a Test DataVersion pins the current
-published revision. Creating a Production DataVersion requires the current
-cutover candidate and pins that candidate's exact qualified revision, even
-when the Recipe has a newer revision.
+The registry owns Project, DataVersion, run, workspace, Recipe, and operation
+projections. The DataVersion store owns the canonical source package. The
+workspace store owns its exact selected dataset references, while the
+contained mapping engine keeps current authoring evidence.
 
-Both actions create clean file workspaces. The data manager must supply fresh
-source data, parameter values, and control values. The remote Odoo destination
-is configured later in **Odoo data**. When application succeeds, Impodo binds
-only non-secret live target and credential-generation evidence. It rebuilds
-supported source preparation and governance, scans the current categorical
-domains, and saves a normal `MappingWorkingDraft`. Impodo stages
-manager-authored quality rules against that exact mapping hash.
-`QualityService` regenerates automatic rules after mapping confirmation.
+## Source acceptance
 
-After the existing Test preparation, comparison, load, and read-back stages,
-`RecipeQualificationService` derives readiness from those exact current
-artifacts. The Recipe page requires explicit expected-outcome confirmation to
-publish protected qualification evidence, then a separate action to select
-that exact qualification as the rollout candidate. A later Recipe revision is
-untested and cannot inherit the earlier status.
+`SourceIntakeService` receives a workspace ID, while
+`DataVersionAwareArtifactStore` resolves the workspace's DataVersion and stores
+the source artifact under that owner. Existing inspection and source services
+collect the current authoring choices. When the data manager freezes tables,
+`WorkspaceDataVersionSourceService` creates the canonical package, freezes the
+DataVersion, and writes the workspace's bounded dataset projection.
 
-**Run with latest data** creates the Production DataVersion without copying
-Test source, target, mapping, preparation, quality, comparison, approval,
-execution, reconciliation, or credential evidence. Its TargetBinding is
-explicitly Production and requires a fresh read credential and live probe. The
-existing load boundary separately probes the current write credential against
-the exact Production target, Odoo context, write scope, and execution snapshot.
+`MappingWorkspaceService` and the Recipe compiler consume
+`WorkspaceMappingSourceProjection`. They do not read a mutable workspace source
+pointer as ownership and do not copy source files or rows.
 
-Registration validates the requirements for the selected source mode. If they
-pass, Impodo moves the workspace to `REGISTERED`, increments its optimistic
-revision, writes canonical registration evidence, and records an actor-bound
-audit event. File mode requires at least one source file but does not require a
-destination. Odoo source mode requires an exact connection identity and a
-successful browser check. The workflow then enters the appropriate source
-inspection or capture path. `build_project_navigation` derives the stage
-status.
+For an Odoo source, the background capture publishes its immutable values and
+protected origin sidecar under the same DataVersion artifact owner. The job is
+successful only after `WorkspaceDataVersionSourceService` freezes the complete
+Odoo package and materializes the workspace references.
+
+## Optional publication
+
+The Project overview asks `ProjectRecipePublicationService` for one readiness
+projection. When eligible, the data manager can save a new Recipe or publish a
+successor revision. `ProjectRecipeRepository` stores the protected payload and
+registry revision through a recoverable operation. It leaves all Project and
+DataVersion identities unchanged.
+
+## Background preparation
+
+The browser captures Project, DataVersion, run, and workspace identities before
+spawning a preparation worker. The worker opens the fixed workspace engine,
+verifies `workspace.duckdb` and the frozen `data-version.duckdb`, and routes
+source artifacts to the DataVersion. It never opens the registry or loads a
+Recipe-root linkage.
+
+## Completion and navigation
+
+Creation completes when all four roots and the contained mapping engine exist.
+The Project overview then opens the workspace under
+`/workspaces/{workspace_id}`. Recipe publication is optional and does not gate
+the six authoring stages.
+
+## Invalidation and recovery
+
+The creation request ID resumes the same bounded operation after interruption.
+Reusing it for different Project meaning fails closed. Source acceptance is
+immutable; replacement evidence requires a new DataVersion workflow rather
+than editing the accepted package.
+
+## Odoo 19 and performance
+
+Project list and overview use bounded registry projections. Do not add a
+workspace-store or protected-payload read inside a list loop. Connection checks
+remain purpose-specific and do not perform model discovery. Mapping,
+preparation, comparison, and Odoo access remain batched rather than per row.
 
 ## Code references
 
 | Role | Code |
 | --- | --- |
-| Recipe creation and publication | [`RecipeAuthoringService`](../../../src/impodo/application/recipe_authoring_service.py) |
-| Authoring parameter contracts | [`recipe_parameters.py`](../../../src/impodo/domain/recipe_parameters.py) |
-| Authoring parameter persistence | [`RecipeAuthoringRepository`](../../../src/impodo/adapters/duckdb/recipe_authoring_repository.py) |
-| Recipe Test and Production application | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
-| Recipe Test qualification | [`RecipeQualificationService`](../../../src/impodo/application/recipe_qualification_service.py) |
-| Application contracts | [`recipe_applications.py`](../../../src/impodo/domain/recipe_applications.py) |
-| Contained project lifecycle | [`ProjectService`](../../../src/impodo/projects.py) |
-| Registration command | `ProjectService.register` in [`projects.py`](../../../src/impodo/projects.py) |
-| Browser routes | [`projects.py`](../../../src/impodo/web/routers/projects.py) |
-| Target routes | [`target.py`](../../../src/impodo/web/routers/target.py) |
-| Purpose-specific connection check | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
-| Stage projection | `build_project_navigation` in [`navigation.py`](../../../src/impodo/web/presenters/navigation.py) |
-
-## Evidence and state
-
-The durable aggregate root is `Recipe`; `DataVersion` owns one contained
-workspace whose current state is represented by `WorkspaceState`. Registration
-binds the workspace source mode, mode-specific source setup, and revision.
-Target identity is later DataVersion evidence for file mode and initial source
-evidence for Odoo mode. RecipeDraft projects current Authoring evidence without
-copying it. Publication compiles portable meaning only after the current
-mapping, governance, quality, source, and parameter-declaration evidence pass
-eligibility. Parameter declarations are Recipe meaning; confirmed parameter
-and control values are DataVersion evidence. Test and Production DataVersions
-cannot publish new Recipe meaning. Credentials stay outside Recipe semantics.
-
-## Completion and navigation
-
-An unregistered workspace keeps all six workflow stages locked. File setup
-continues directly to Source data; Odoo-source setup continues to schema
-capture because eligible schema defines the bounded capture. A registered
-DataVersion obtains an overview and follows the appropriate source path.
-Navigation is a bounded read projection and must not mutate state or contact
-Odoo.
-
-## Invalidation and recovery
-
-All setup commands require the expected workspace revision. A stale form fails
-closed and must be reloaded. Registered file workspaces may add or remove a
-file only until the first source selection exists; later correction requires a
-new DataVersion. Changing the file workspace's later Odoo destination
-invalidates its target-derived evidence. Unpublished deletion goes through the
-Recipe aggregate with exact Recipe and workspace revisions, not direct
-filesystem removal.
-
-## Odoo 19 and performance
-
-Connection checking is not schema discovery and is not write authorization.
-Keep readiness probes bounded and purpose-specific; model and field capture
-belongs to Odoo data and must not be repeated during a connection check. The
-overview and navigation must use request-scoped projections; do not introduce
-per-stage or per-dataset repository reads in a loop.
+| Project-native routes | [`migration_projects.py`](../../../src/impodo/web/routers/migration_projects.py) |
+| Workspace setup routes | [`workspace_setup.py`](../../../src/impodo/web/routers/workspace_setup.py) |
+| Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
+| Clean roots | [`MigrationProjectService`](../../../src/impodo/migration_projects.py), [`DataVersionService`](../../../src/impodo/data_versions.py), [`MigrationRunService`](../../../src/impodo/migration_runs.py), [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) |
+| Contained engine | [`ProjectService`](../../../src/impodo/projects.py) and `ProjectService.register` |
+| Source ownership cutover | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
+| Optional compilation and publication | [`RecipeAuthoringService.compile_workspace`](../../../src/impodo/application/recipe_authoring_service.py), [`ProjectRecipePublicationService`](../../../src/impodo/application/project_recipe_publication_service.py) |
+| Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
+| Navigation | [`build_project_navigation`](../../../src/impodo/web/presenters/navigation.py) |
+| Browser composition | [`app.py`](../../../src/impodo/web/app.py) |
 
 ## Verification
 
-- [`tests/test_projects.py`](../../../tests/test_projects.py)
+- [`tests/test_migration_project_phase_m3_project_authoring.py`](../../../tests/test_migration_project_phase_m3_project_authoring.py)
 - [`tests/test_project_security.py`](../../../tests/test_project_security.py)
-- [`tests/test_recipe_authoring.py`](../../../tests/test_recipe_authoring.py)
-- [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)
-- [`tests/test_recipe_qualification.py`](../../../tests/test_recipe_qualification.py)
-- [`tests/test_recipe_qualification_web.py`](../../../tests/test_recipe_qualification_web.py)
 - [`tests/test_odoo_connection_service.py`](../../../tests/test_odoo_connection_service.py)
+- [`tests/test_odoo_capture_jobs.py`](../../../tests/test_odoo_capture_jobs.py)
+- [`tests/test_odoo_capture_publication.py`](../../../tests/test_odoo_capture_publication.py)
+- [`tests/test_preparation_jobs.py`](../../../tests/test_preparation_jobs.py)
 - [`tests/test_recipe_representative_shapes.py`](../../../tests/test_recipe_representative_shapes.py)
-- [`tests/test_web_app.py`](../../../tests/test_web_app.py)
-
-Verify optimistic revisions, registration readiness, contained file paths,
-audit behavior, route security, both source modes, and locked-stage rendering.
 
 ## Related documentation
 
-- [User guide: Recipe setup](../../user/getting-started.md)
-- [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
+- [User setup guide](../../user/getting-started.md)
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
-- [Architecture overview](../../architecture/overview.md)
+- [Recipe publication contract](../contracts/recipe-lifecycle.md)
+- [Source data implementation](01-source-data.md)

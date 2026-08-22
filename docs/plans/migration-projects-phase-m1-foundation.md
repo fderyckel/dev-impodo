@@ -17,10 +17,10 @@ governs the ownership model, and the [Phase M0
 contracts](migration-projects-phase-m0-contracts.md) remain the executable
 architecture boundary.
 
-Phase M1 supplies clean domain roots, repository ports, exact DuckDB schema
-generations, and a development reset path. The local browser does not compose
-these services yet. Its current Recipe-first workflow and user documentation
-remain accurate until the later browser cutover phases pass.
+Phase M1 supplied clean domain roots, repository ports, exact DuckDB schema
+generations, and a development reset path. Phase M3 now composes these roots
+through Project-native browser routes. Statements below about the M1-only
+composition boundary are historical.
 
 ## 1. Implemented outcome
 

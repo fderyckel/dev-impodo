@@ -6,7 +6,7 @@ from dataclasses import replace
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-import tempfile
+import shutil
 import unittest
 from uuid import uuid4
 
@@ -116,8 +116,9 @@ def _crash_at(expected_stage: str):
 class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.database = MigrationFoundationDatabase(self.temporary.name)
+        self.root = ROOT / ".tmp" / f"m2-source-packages-{uuid4()}"
+        self.root.mkdir()
+        self.database = MigrationFoundationDatabase(self.root)
         self.repository = MigrationFoundationRepository(self.database)
         authorization = CapabilityAuthorizationPolicy()
         self.projects = MigrationProjectService(self.repository, authorization)
@@ -150,7 +151,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        self.temporary.cleanup()
+        shutil.rmtree(self.root, ignore_errors=True)
 
     def _package(self, *, revision: int = 1) -> DataVersionSourcePackage:
         received_at = utc_now()
@@ -564,7 +565,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
             self.data_version.data_version_id,
         )
         self.assertEqual(
-            list(Path(self.temporary.name).rglob("data-version.duckdb")),
+            list(self.root.rglob("data-version.duckdb")),
             [data_path],
         )
 
@@ -753,7 +754,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
             )
 
     def test_m1_storage_is_rejected_instead_of_upgraded(self) -> None:
-        old_root = Path(self.temporary.name) / "old-m1"
+        old_root = self.root / "old-m1"
         old_root.mkdir()
         registry = old_root / "registry.duckdb"
         with duckdb.connect(str(registry)) as connection:

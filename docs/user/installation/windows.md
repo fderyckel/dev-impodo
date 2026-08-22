@@ -240,14 +240,14 @@ installer.
 
 ## Confirm the first start
 
-The browser address should begin with `http://127.0.0.1:` and show the Recipes
-page below. This means the installation succeeded. Select **Create the first
-Recipe** when you are ready to begin.
+The browser address should begin with `http://127.0.0.1:` and show the
+**Projects** page. This means the installation succeeded. Select **New
+project** when you are ready to begin.
 
 Impodo stores project data under `%LOCALAPPDATA%\Impodo\projects` by default.
 Do not move, rename, or delete active project folders outside Impodo.
 
-![The empty Recipes page shown after a fresh authenticated start, with Create the first Recipe as the next action.](../../images/user/01-recipe-list.png)
+![The current empty Projects page after a fresh authenticated start, with New project as the next action.](../../images/user/01-project-list.png)
 
 If the browser does not open, keep the PowerShell window open and give its
 exact error to the person supporting the installation. Do not disable

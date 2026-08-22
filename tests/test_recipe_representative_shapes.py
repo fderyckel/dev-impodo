@@ -7,7 +7,7 @@ import json
 import unittest
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.access import LOCAL_ACTOR
 from impodo.application.recipe_authoring_service import RecipeAuthoringService
 from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.derived_entities import DerivedEntityPlan, RelatedDatasetRule
@@ -47,7 +47,7 @@ from impodo.workspace_contracts import (
     SourceSelection,
 )
 
-from tests.test_recipe_authoring import _Evidence, _RecipeFacade, _file_binding
+from tests.recipe_compiler_helpers import Evidence, file_binding
 
 
 def _field(
@@ -75,7 +75,7 @@ def _dataset(
     return SourceDataset(
         dataset_id=f"physical-{name.casefold().replace(' ', '-')}-{uuid4()}",
         name=name,
-        source=_file_binding(marker),
+        source=file_binding(marker),
         row_count=3,
         columns=tuple(
             SourceDatasetColumn(index, source_name, stable_key, candidate_type)
@@ -204,7 +204,7 @@ def _publish(
         created_at=now,
         sealed_at=None,
     )
-    evidence = _Evidence(
+    evidence = Evidence(
         selection=mapping_selection,
         base_selection=base_selection,
         revision=revision,
@@ -215,29 +215,20 @@ def _publish(
         preparation=preparation,
         parameter_definitions=RecipeParameterDefinitions(parameters),
     )
-    facade = _RecipeFacade(recipe, data_version)
     service = RecipeAuthoringService(
-        facade,
-        None,
         evidence,
         evidence,
         evidence,
         evidence,
         evidence,
         evidence,
-        CapabilityAuthorizationPolicy(),
         evidence,
     )
 
-    draft = service.draft(recipe_id, actor=LOCAL_ACTOR)
-    if not draft.can_publish:
-        raise AssertionError(draft.issues)
-    service.publish_current(
-        recipe_id,
-        expected_recipe_revision=recipe.optimistic_revision,
-        actor=LOCAL_ACTOR,
-    )
-    return json.loads(facade.envelope)["recipe"]
+    compiled, issues = service.compile_workspace(project_id)
+    if compiled is None:
+        raise AssertionError(issues)
+    return compiled.recipe
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):

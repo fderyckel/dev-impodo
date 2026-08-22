@@ -43,7 +43,7 @@
       <form
         method="post"
         enctype="multipart/form-data"
-        action="/projects/{{ project.project_id }}/sources/files"
+        action="/workspaces/{{ project.project_id }}/sources/files"
         class="source-file-upload-form"
       >
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -56,10 +56,10 @@
         <button class="button secondary" type="submit">Add file</button>
       </form>
     {% endif %}
-    <form method="post" action="/projects/{{ project.project_id }}/sources/inspect" data-source-review-form>
+    <form method="post" action="/workspaces/{{ project.project_id }}/sources/inspect" data-source-review-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
+        <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary">Back to review</a>
         <button class="button primary" type="submit">
           {% if catalogs %}Check files again{% else %}Check source files{% endif %}
         </button>
@@ -88,7 +88,7 @@
         </span>
       </div>
 
-      <form method="post" action="/projects/{{ project.project_id }}/sources/{{ catalog.file_id }}/configure" data-source-review-form>
+      <form method="post" action="/workspaces/{{ project.project_id }}/sources/{{ catalog.file_id }}/configure" data-source-review-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if catalog.format == "CSV" %}
           <details class="technical-details" {% if catalog.warnings %}open{% endif %}>
@@ -320,7 +320,7 @@
       <h2>Your source data is confirmed</h2>
       <p>Every source file is ready for table selection.</p>
       <div class="actions">
-        <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Choose tables</a>
+        <a class="button primary" href="/workspaces/{{ project.project_id }}/datasets">Choose tables</a>
       </div>
     </section>
   {% endif %}

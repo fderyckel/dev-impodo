@@ -32,7 +32,7 @@
       {% include "_source_file_remove_dialog.html" %}
     {% endif %}
 
-    <form method="post" enctype="multipart/form-data" action="/projects/{{ project.project_id }}/files">
+    <form method="post" enctype="multipart/form-data" action="/workspaces/{{ project.project_id }}/files">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
       <label>
@@ -45,11 +45,11 @@
       </div>
     </form>
     {% if project.source_files %}
-      <form method="post" action="/projects/{{ project.project_id }}/register">
+      <form method="post" action="/workspaces/{{ project.project_id }}/register">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ project.revision }}">
         <div class="actions">
-          <a class="button secondary" href="/recipes">Save and exit</a>
+          <a class="button secondary" href="/projects/{{ migration_context.project_id }}">Save and exit</a>
           <button class="button primary" type="submit">Use these files and continue</button>
         </div>
       </form>

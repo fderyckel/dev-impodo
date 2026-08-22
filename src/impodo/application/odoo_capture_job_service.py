@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from threading import Condition, Event, RLock, Thread
@@ -18,7 +19,10 @@ from ..odoo_capture_jobs import (
     OdooCaptureProgress,
     odoo_capture_progress_percent,
 )
-from .odoo_capture_publication_service import OdooCapturePublicationService
+from .odoo_capture_publication_service import (
+    OdooCapturePublication,
+    OdooCapturePublicationService,
+)
 from .odoo_source_capture_service import OdooSourceCapturePort
 
 
@@ -33,8 +37,17 @@ class OdooCaptureJobStateError(ValueError):
 class OdooCaptureJobManager:
     """Keep control-plane state in memory and serialize heavy capture work."""
 
-    def __init__(self, publication: OdooCapturePublicationService) -> None:
+    def __init__(
+        self,
+        publication: OdooCapturePublicationService,
+        *,
+        accept_publication: Callable[
+            [str, OdooCapturePublication, Actor], None
+        ]
+        | None = None,
+    ) -> None:
         self._publication = publication
+        self._accept_publication = accept_publication
         self._lock = RLock()
         self._condition = Condition(self._lock)
         self._jobs: dict[str, OdooCaptureJob] = {}
@@ -169,6 +182,8 @@ class OdooCaptureJobManager:
                     cancellation=cancellation.is_set,
                     progress=lambda value: self._update_progress(job_id, value),
                 )
+                if self._accept_publication is not None:
+                    self._accept_publication(project_id, publication, actor)
             except OdooSourceCaptureCancelled:
                 with self._lock:
                     self._finish_cancelled(job_id)

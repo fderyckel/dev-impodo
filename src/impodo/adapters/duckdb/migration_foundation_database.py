@@ -55,7 +55,13 @@ class MigrationFoundationDatabase:
         allowed = {".impodo-development-reset"}
         if registry_exists:
             allowed.update(
-                {"projects", "registry.duckdb", "registry.duckdb.wal"}
+                {
+                    ".recipes-protected",
+                    "artifacts",
+                    "projects",
+                    "registry.duckdb",
+                    "registry.duckdb.wal",
+                }
             )
         unexpected = [
             entry for entry in self.root.iterdir() if entry.name not in allowed
@@ -65,7 +71,13 @@ class MigrationFoundationDatabase:
             for entry in self.root.iterdir()
             if (
                 (
-                    entry.name in {"projects", ".impodo-development-reset"}
+                    entry.name
+                    in {
+                        ".recipes-protected",
+                        ".impodo-development-reset",
+                        "artifacts",
+                        "projects",
+                    }
                     and not entry.is_dir()
                 )
                 or (

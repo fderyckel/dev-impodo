@@ -7,7 +7,7 @@
     <p class="eyebrow">Project setup · People</p>
     <h1>Who is responsible for this project?</h1>
     {% include "_setup_blockers.html" %}
-    <form method="post" action="/projects/{{ project.project_id }}/governance">
+    <form method="post" action="/workspaces/{{ project.project_id }}/governance">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
       <div class="form-grid">
@@ -45,7 +45,7 @@
         Allow approved support staff to help with this local project.
       </label>
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/details">Back</a>
+        <a class="button secondary" href="/workspaces/{{ project.project_id }}/details">Back</a>
         <button class="button primary" type="submit">Save and continue</button>
       </div>
     </form>

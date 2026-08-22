@@ -28,7 +28,7 @@
           <span class="visually-hidden">Open navigation</span>
         </button>
         <div class="brand-lockup">
-          <a class="brand" href="/recipes">IMPODO</a>
+          <a class="brand" href="/projects">IMPODO</a>
           <span class="brand-tagline">Prepare clean data for Odoo</span>
         </div>
       </div>
@@ -57,7 +57,7 @@
         <nav class="sidebar-nav" aria-label="Impodo workflow">
           <a
             class="sidebar-link{% if not navigation %} active{% endif %}"
-            href="/recipes"
+            href="/projects"
             title="All projects"
             {% if not navigation %}aria-current="page"{% endif %}
           >
@@ -67,13 +67,13 @@
 
           {% if navigation %}
             <div class="sidebar-project-context">
-              <span class="sidebar-project-label">Current Recipe</span>
-              {% if recipe_context is defined %}
+              <span class="sidebar-project-label">Current Project</span>
+              {% if migration_context is defined %}
                 <a
                   class="sidebar-current-recipe-link"
-                  href="/recipes/{{ recipe_context.recipe_id }}"
-                  aria-label="Open Recipe overview: {{ navigation.project_name }}"
-                  {% if request.url.path == '/recipes/' ~ recipe_context.recipe_id %}aria-current="page"{% endif %}
+                  href="/projects/{{ migration_context.project_id }}"
+                  aria-label="Open Project overview: {{ navigation.project_name }}"
+                  {% if request.url.path == '/projects/' ~ migration_context.project_id %}aria-current="page"{% endif %}
                 >
                   <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
                 </a>
@@ -166,11 +166,11 @@
           {% else %}
             <a
               class="sidebar-link"
-              href="/recipes/new"
-              title="Create Recipe"
+              href="/projects/new"
+              title="New project"
             >
               {{ app_icon("plus-circle") }}
-              <span class="nav-label">Create Recipe</span>
+              <span class="nav-label">New project</span>
             </a>
           {% endif %}
         </nav>
@@ -186,12 +186,12 @@
         <div class="page-shell">
           {% if navigation and navigation.registered %}
             <nav class="project-breadcrumb" aria-label="Current location">
-              <a href="/recipes">Projects</a>
+              <a href="/projects">Projects</a>
               <span aria-hidden="true">/</span>
-              {% if recipe_context is defined %}
-                <a href="/recipes/{{ recipe_context.recipe_id }}">{{ navigation.project_name }}</a>
+              {% if migration_context is defined %}
+                <a href="/projects/{{ migration_context.project_id }}">{{ navigation.project_name }}</a>
                 <span aria-hidden="true">/</span>
-                <a href="{{ navigation.overview_href }}">Data version {{ recipe_context.data_version_number }}</a>
+                <a href="{{ navigation.overview_href }}">Data version {{ migration_context.data_version_number }}</a>
               {% else %}
                 <a href="{{ navigation.overview_href }}">{{ navigation.project_name }}</a>
               {% endif %}

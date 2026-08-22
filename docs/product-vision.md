@@ -577,8 +577,9 @@ flowchart TB
     Reconcile --> Store
 ```
 
-The current repository implements the Recipe root, authoring DataVersion
-workspace, portable immutable Recipe publication, and the bounded browser path
+The current repository implements `MigrationProject` as the business root,
+Project-owned Authoring DataVersions and runs, contained workspaces, optional
+portable Recipe publication, and the bounded browser path
 from Stage A through Stage K: data-version registration; governed CSV/XLSX intake; target-schema
 governance; mapping and derived-dataset authoring; exact choice matching;
 durable canonical staging; quality, quarantine, and normalization review;
@@ -593,13 +594,15 @@ functional mapping-approval lifecycle; optional clean-package certification;
 production loading; a target-side gateway; or hosted multi-user
 infrastructure.
 
-Product ownership has accepted a replacement architecture in which
-`MigrationProject` becomes the business root, DataVersion becomes a
-Project-owned complete source package, and several Project-scoped Recipes can
-participate in one qualified CutoverPlan. This target is not implemented. The
+Product ownership has accepted an architecture in which `MigrationProject` is
+the business root, DataVersion owns a complete Project source package, and
+several Project-scoped Recipes can participate in one qualified CutoverPlan.
+Phases M0 through M3 implement the Project root, source ownership, one-off
+authoring, and optional Recipe publication. Integrated multi-Recipe runs and
+CutoverPlans are not implemented yet. The
 [Migration projects and multi-Recipe cutover implementation
 plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-defines the clean cutover from the current Recipe-first composition.
+defines the remaining delivery phases.
 
 ## 8. Delivery roadmap
 
@@ -608,7 +611,7 @@ describe the wider product progression. Product ownership has made the
 [Migration projects and multi-Recipe cutover
 plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
 the active product-delivery track. The completed Recipe-first plan remains
-historical evidence for the current implementation. Scale expansion, general
+historical implementation evidence only. Scale expansion, general
 certification, general production hardening, Odoo-source guarded updates,
 gateway, and hosted work remain deferred under the [authoritative
 remaining-work roadmap](plans/remaining-work.md).

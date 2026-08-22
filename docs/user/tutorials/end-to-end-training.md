@@ -111,8 +111,6 @@ not ask for the Odoo destination yet; connect it when the workflow reaches
 **Odoo data**. The files are registered, but the individual tables are not yet
 frozen.
 
-![Current data-version overview showing all six data-manager stages in one fictional migration.](../../images/user/03-project-overview.png)
-
 The six stages are the data manager's main route:
 
 1. Source data
@@ -125,13 +123,15 @@ The six stages are the data manager's main route:
 Use the next action shown on the overview. Avoid jumping ahead through sidebar
 links when an earlier stage still needs attention.
 
-For the first authoring data version, complete these stages and publish the
-Recipe from its overview. To rehearse the published rules later, select
-**Test on Odoo**, create a clean Test data version, and repeat only the source
-and Odoo evidence capture with representative replacement data and the current
-Test API key. **Apply Recipe** then shows structural, value-choice, target, or
-credential differences and opens the same Match data screen with a fresh
-mapping draft. The original API key and prior target evidence are never reused.
+You can complete all six stages as one-off Project work. If these
+transformation rules will be useful again, return to the Project overview and
+publish them as a Recipe revision. Recipe publication does not move the
+DataVersion, source files, Odoo credentials, comparison, approval, or load
+evidence into the Recipe.
+
+Applying one or several published Recipe revisions to replacement rollout data
+is not available in M3. That Project-owned run workflow is the next
+implementation phase.
 
 ## 2. Check and confirm the source files
 

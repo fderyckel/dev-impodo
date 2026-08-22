@@ -56,7 +56,7 @@
         <h2 id="resolution-next-title">Review possible duplicates</h2>
         <p>Confirm whether similar records are the same, then choose any conflicting values to keep.</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/resolution">Review possible duplicates</a>
+      <a class="button primary" href="/workspaces/{{ project.project_id }}/resolution">Review possible duplicates</a>
     </section>
   {% elif normalization and not readiness %}
     <section class="next-action-card {% if normalization.frozen %}ready{% else %}review{% endif %}" id="compare-with-odoo" aria-labelledby="normalization-next-title">
@@ -80,15 +80,15 @@
           {% elif comparison_recovery_needed %}
             <a class="button primary" href="#comparison-recovery">Resolve Odoo check</a>
           {% else %}
-            <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
+            <form method="post" action="/workspaces/{{ project.project_id }}/summary/compare" data-preflight-compare>
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button primary" type="submit">Compare with Odoo</button>
               <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
             </form>
           {% endif %}
-          <a class="button secondary" href="/projects/{{ project.project_id }}/normalization">View approved data</a>
+          <a class="button secondary" href="/workspaces/{{ project.project_id }}/normalization">View approved data</a>
         {% else %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/normalization">Review prepared data</a>
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/normalization">Review prepared data</a>
         {% endif %}
       </div>
     </section>
@@ -131,7 +131,7 @@
             <span class="muted">Records {{ quality_review_row_start }}-{{ quality_review_row_end }} of {{ quality_review_page.matching_count }}</span>
           {% endif %}
           {% if quality_status or quality_dataset %}
-            <a class="button secondary small" href="/projects/{{ project.project_id }}/summary#quality-rows">Clear filter</a>
+            <a class="button secondary small" href="/workspaces/{{ project.project_id }}/summary#quality-rows">Clear filter</a>
           {% endif %}
         </div>
       </div>
@@ -252,7 +252,7 @@
         {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
           <a class="button primary" href="?quality_status=review#quality-rows">Review findings</a>
         {% elif odoo_source and readiness.blocked_count %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/sources">Refresh Odoo records</a>
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Refresh Odoo records</a>
         {% elif readiness.blocked_count %}
           <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>
         {% elif staging and staging.failed_control_total_count %}
@@ -262,36 +262,36 @@
         {% elif odoo_source %}
           <a class="button primary" href="#readiness-rows">Review checked records</a>
         {% elif load_preview and (load_preview.can_load or load_preview.current_run) %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/load">{% if load_preview.current_run %}View load outcome{% else %}Preview Odoo load{% endif %}</a>
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/load">{% if load_preview.current_run %}View load outcome{% else %}Preview Odoo load{% endif %}</a>
           {% if review_workbook_ready %}
-            <a class="button secondary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
-            <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+            <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary/workbook">Download review workbook</a>
+            <form method="post" action="/workspaces/{{ project.project_id }}/summary/package">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button secondary" type="submit">Recreate review workbook</button>
             </form>
           {% elif load_preview.can_load %}
-            <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+            <form method="post" action="/workspaces/{{ project.project_id }}/summary/package">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button secondary" type="submit">Create review workbook</button>
             </form>
           {% endif %}
         {% elif load_preview and load_preview.scope_error %}
           {% if load_preview.credential_refresh_required %}
-            <a class="button primary" href="/projects/{{ project.project_id }}/schema">Refresh Odoo data</a>
+            <a class="button primary" href="/workspaces/{{ project.project_id }}/schema">Refresh Odoo data</a>
           {% else %}
-            <a class="button primary" href="/projects/{{ project.project_id }}/load">Review load availability</a>
+            <a class="button primary" href="/workspaces/{{ project.project_id }}/load">Review load availability</a>
           {% endif %}
           {% if review_workbook_ready %}
-            <a class="button secondary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
+            <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary/workbook">Download review workbook</a>
           {% endif %}
         {% elif review_workbook_ready %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
-          <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/summary/workbook">Download review workbook</a>
+          <form method="post" action="/workspaces/{{ project.project_id }}/summary/package">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button secondary" type="submit">Recreate review workbook</button>
           </form>
         {% else %}
-          <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+          <form method="post" action="/workspaces/{{ project.project_id }}/summary/package">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button primary" type="submit">Create review workbook</button>
           </form>
@@ -302,7 +302,7 @@
         {% elif comparison_recovery_needed %}
           <a class="button secondary" href="#comparison-recovery">Resolve Odoo check</a>
         {% else %}
-          <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
+          <form method="post" action="/workspaces/{{ project.project_id }}/summary/compare" data-preflight-compare>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button secondary" type="submit">Compare with Odoo again</button>
             <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
@@ -467,7 +467,7 @@
             Rows {{ readiness_row_start }}-{{ readiness_row_end }} of {{ readiness_row_total }}
           </span>
           {% if status_filter or dataset_filter %}
-            <a class="button secondary small" href="/projects/{{ project.project_id }}/summary#readiness-rows">Clear filter</a>
+            <a class="button secondary small" href="/workspaces/{{ project.project_id }}/summary#readiness-rows">Clear filter</a>
           {% endif %}
         </div>
       </div>
@@ -529,7 +529,7 @@
 
     <details class="technical-details">
       <summary>Support details</summary>
-      <p>This check is read-only. Odoo remains unchanged. <a href="/projects/{{ project.project_id }}/summary/manifest">Download the support file</a></p>
+      <p>This check is read-only. Odoo remains unchanged. <a href="/workspaces/{{ project.project_id }}/summary/manifest">Download the support file</a></p>
     </details>
 
     {% if load_preview and (load_preview.can_load or load_preview.current_run) %}
@@ -550,15 +550,15 @@
           {% endif %}
         </div>
         <div class="next-action-buttons">
-          <a class="button primary" href="/projects/{{ project.project_id }}/load">{% if load_preview.current_run %}View verification result{% else %}Continue to Load into Odoo{% endif %}</a>
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/load">{% if load_preview.current_run %}View verification result{% else %}Continue to Load into Odoo{% endif %}</a>
           {% if review_workbook_ready %}
-            <a class="button secondary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
-            <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+            <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary/workbook">Download review workbook</a>
+            <form method="post" action="/workspaces/{{ project.project_id }}/summary/package">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button secondary" type="submit">Recreate review workbook</button>
             </form>
           {% else %}
-            <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+            <form method="post" action="/workspaces/{{ project.project_id }}/summary/package">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button secondary" type="submit">Create review workbook</button>
             </form>
@@ -568,7 +568,7 @@
           {% elif comparison_recovery_needed %}
             <a class="button secondary" href="#comparison-recovery">Resolve Odoo check</a>
           {% else %}
-            <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
+            <form method="post" action="/workspaces/{{ project.project_id }}/summary/compare" data-preflight-compare>
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button secondary" type="submit">Compare with Odoo again</button>
               <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
@@ -603,9 +603,9 @@
       </div>
       <div class="next-action-buttons">
         {% if quality and quality.blocked_count %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Review data checks</a>
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/mapping">Review data checks</a>
         {% else %}
-          <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+          <form method="post" action="/workspaces/{{ project.project_id }}/summary/check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button primary" type="submit">Prepare data for review</button>
           </form>
@@ -625,12 +625,12 @@
         {% if evaluation_scale and not evaluation_scale.supported %}
           <h2>Reduce the source size before preparing</h2>
           <p>This project has {{ "{:,}".format(evaluation_scale.physical_rows) }} source rows. {{ preparation_limit_message }}</p>
-          <a class="button primary" href="/projects/{{ project.project_id }}/sources">Review source tables</a>
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Review source tables</a>
           <small>No data was changed.</small>
         {% else %}
           <h2>Prepare all source rows for review</h2>
           <p>Impodo will apply your confirmed field rules and data checks to {% if evaluation_scale %}{{ "{:,}".format(evaluation_scale.physical_rows) }} {% endif %}source rows.</p>
-          <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+          <form method="post" action="/workspaces/{{ project.project_id }}/summary/check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button primary" type="submit">Prepare and review data</button>
           </form>
@@ -644,7 +644,7 @@
       <div class="empty-state">
         <h2>Finish your field matches first</h2>
         <p>Confirm the field matches you want Impodo to apply to every source row.</p>
-        <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Continue field matching</a>
+        <a class="button primary" href="/workspaces/{{ project.project_id }}/mapping">Continue field matching</a>
       </div>
     </section>
 
@@ -659,8 +659,8 @@
         <div><dt>Files</dt><dd>{{ project.source_files|length }}</dd></div>
       </dl>
       <div class="actions">
-        <a class="button secondary" href="/recipes">All projects</a>
-        <a class="button primary" href="/projects/{{ project.project_id }}/sources">Check source data</a>
+        <a class="button secondary" href="/projects">All projects</a>
+        <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Check source data</a>
       </div>
     </section>
   {% endif %}

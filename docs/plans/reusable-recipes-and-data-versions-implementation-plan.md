@@ -6,8 +6,9 @@
 Superseded as forward-looking architecture authority by ADR-014 and the
 [Migration projects and multi-Recipe cutover implementation
 plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) on
-2026-08-22. The current code continues to implement this Recipe-first slice
-until the replacement plan passes its clean-root gate.
+2026-08-22. Phase M3 removed this Recipe-first browser ownership. The body is a
+point-in-time implementation record, not a description of current routes or
+aggregate ownership.
 
 Phases R0 through R7, including the R4.5 clean-root consolidation, completed on
 2026-08-19. The active contracts are in the
@@ -1002,7 +1003,7 @@ produces a new immutable revision.
 **Evidence:** the
 [Phase R2 implementation report](../reports/reusable-recipes-phase-r2-authoring-2026-08-19.md)
 and focused
-[`test_recipe_authoring`](../../tests/test_recipe_authoring.py) suite cover
+the former `test_recipe_authoring` suite covered
 Recipe-native creation, contained workspace routing, readiness projection,
 portable compilation, exact envelope validation, identity-independent hashes,
 semantic-change hashes, publication, and revision history.

@@ -19,7 +19,7 @@
       <p class="eyebrow">Local preview</p>
       <h2>Prepare the comparison</h2>
       <p>Impodo will apply your confirmed preparation choices locally and show changed values in groups of up to 100. It will not contact or change Odoo.</p>
-      <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/prepare" data-transformation-impact-prepare>
+      <form method="post" action="/workspaces/{{ project.project_id }}/mapping/transformation-impact/prepare" data-transformation-impact-prepare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button primary" type="submit" data-transformation-impact-button>Prepare preview</button>
       </form>
@@ -98,7 +98,7 @@
                     <span class="status ready">Reviewed</span>
                   {% else %}
                     {% for acknowledgement in item.acknowledgements %}
-                      <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/acknowledge">
+                      <form method="post" action="/workspaces/{{ project.project_id }}/mapping/transformation-impact/acknowledge">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="rule_fingerprint" value="{{ acknowledgement.fingerprint }}">
                         <button class="button primary" type="submit">{{ acknowledgement.label }}</button>
@@ -121,7 +121,7 @@
           <p class="muted">Across {{ snapshot.affected_row_count }} source row{{ "s" if snapshot.affected_row_count != 1 else "" }}.</p>
         </div>
         <div class="actions">
-          <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact.csv">
+          <form method="post" action="/workspaces/{{ project.project_id }}/mapping/transformation-impact.csv">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="dataset" value="{{ filters.dataset }}">
             <input type="hidden" name="outcome" value="{{ filters.outcome }}">
@@ -129,14 +129,14 @@
             <input type="hidden" name="q" value="{{ filters.query }}">
             <button class="button secondary" type="submit">Download matching rows (.csv)</button>
           </form>
-          <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact.csv">
+          <form method="post" action="/workspaces/{{ project.project_id }}/mapping/transformation-impact.csv">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button primary" type="submit">Download all affected rows (.csv)</button>
           </form>
         </div>
       </div>
 
-      <form class="impact-tools" method="get" action="/projects/{{ project.project_id }}/mapping/transformation-impact">
+      <form class="impact-tools" method="get" action="/workspaces/{{ project.project_id }}/mapping/transformation-impact">
         <label>
           Table
           <select name="dataset">
@@ -172,7 +172,7 @@
         </label>
         <div class="actions impact-filter-actions">
           <button class="button primary" type="submit">Apply filters</button>
-          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Clear</a>
+          <a class="button secondary" href="/workspaces/{{ project.project_id }}/mapping/transformation-impact">Clear</a>
         </div>
       </form>
 
@@ -248,7 +248,7 @@
   {% endif %}
 
   <div class="actions">
-    <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Back to matches</a>
-    {% if report %}<a class="button primary" href="/projects/{{ project.project_id }}/mapping">Continue matching review</a>{% endif %}
+    <a class="button secondary" href="/workspaces/{{ project.project_id }}/mapping">Back to matches</a>
+    {% if report %}<a class="button primary" href="/workspaces/{{ project.project_id }}/mapping">Continue matching review</a>{% endif %}
   </div>
 {% endblock %}

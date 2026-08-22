@@ -292,6 +292,30 @@ class MigrationFoundationRepository:
         )
         return self.get_data_version(stored.data_version_id)
 
+    def resume_data_version_creation(
+        self,
+        operation_id: str,
+        *,
+        actor: Actor,
+    ) -> DataVersion:
+        """Resume one reserved create without exposing adapter serialization."""
+
+        intent = self._pending_create_intent(
+            operation_id,
+            MigrationOperationKind.DATA_VERSION_CREATE,
+            "DATA_VERSION",
+        )
+        if intent.state is MigrationOperationState.COMMITTED:
+            return self.get_data_version(intent.owner_id)
+        stored = self._data_version_from_dict(dict(intent.detail["data_version"]))
+        return self.create_data_version(
+            stored,
+            expected_project_revision=int(intent.expected_revision or 0),
+            operation_id=intent.operation_id,
+            request_hash=intent.request_hash,
+            actor=actor,
+        )
+
     def get_data_version(self, data_version_id: str) -> DataVersion:
         data_version = self._get_data_version_registry(data_version_id)
         self.database.ensure_data_version_store(data_version)
@@ -721,6 +745,28 @@ class MigrationFoundationRepository:
         )
         return self.get_migration_run(stored.migration_run_id)
 
+    def resume_migration_run_creation(
+        self,
+        operation_id: str,
+        *,
+        actor: Actor,
+    ) -> MigrationRun:
+        intent = self._pending_create_intent(
+            operation_id,
+            MigrationOperationKind.MIGRATION_RUN_CREATE,
+            "MIGRATION_RUN",
+        )
+        if intent.state is MigrationOperationState.COMMITTED:
+            return self.get_migration_run(intent.owner_id)
+        stored = self._run_from_dict(dict(intent.detail["migration_run"]))
+        return self.create_migration_run(
+            stored,
+            expected_project_revision=int(intent.expected_revision or 0),
+            operation_id=intent.operation_id,
+            request_hash=intent.request_hash,
+            actor=actor,
+        )
+
     def get_migration_run(self, migration_run_id: str) -> MigrationRun:
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
         with self.database.connect(self.registry_path) as connection:
@@ -840,6 +886,30 @@ class MigrationFoundationRepository:
         )
         return self.get_migration_workspace(stored.workspace_id)
 
+    def resume_migration_workspace_creation(
+        self,
+        operation_id: str,
+        *,
+        actor: Actor,
+    ) -> MigrationWorkspace:
+        intent = self._pending_create_intent(
+            operation_id,
+            MigrationOperationKind.MIGRATION_WORKSPACE_CREATE,
+            "MIGRATION_WORKSPACE",
+        )
+        if intent.state is MigrationOperationState.COMMITTED:
+            return self.get_migration_workspace(intent.owner_id)
+        stored = self._workspace_from_dict(
+            dict(intent.detail["migration_workspace"])
+        )
+        return self.create_migration_workspace(
+            stored,
+            expected_project_revision=int(intent.expected_revision or 0),
+            operation_id=intent.operation_id,
+            request_hash=intent.request_hash,
+            actor=actor,
+        )
+
     def get_migration_workspace(self, workspace_id: str) -> MigrationWorkspace:
         workspace = self._get_workspace_registry(workspace_id)
         self.database.ensure_workspace_store(workspace)
@@ -873,6 +943,23 @@ class MigrationFoundationRepository:
                 "SELECT * FROM migration_workspace WHERE migration_run_id = ? "
                 "ORDER BY created_at, workspace_id",
                 [migration_run_id],
+            )
+        return tuple(self._workspace_from_row(row) for row in rows)
+
+    def list_project_migration_workspaces(
+        self,
+        project_id: str,
+    ) -> tuple[MigrationWorkspace, ...]:
+        """Return one bounded Project workspace projection without N+1 reads."""
+
+        project_id = require_uuid(project_id, "project_id")
+        with self.database.connect(self.registry_path) as connection:
+            self._require_project(connection, project_id)
+            rows = self._rows(
+                connection,
+                "SELECT * FROM migration_workspace WHERE project_id = ? "
+                "ORDER BY created_at, workspace_id",
+                [project_id],
             )
         return tuple(self._workspace_from_row(row) for row in rows)
 
@@ -1153,6 +1240,22 @@ class MigrationFoundationRepository:
         if not rows:
             raise MigrationNotFoundError("Operation intent not found")
         return self._intent_from_row(rows[0])
+
+    def _pending_create_intent(
+        self,
+        operation_id: str,
+        expected_kind: MigrationOperationKind,
+        expected_owner_kind: str,
+    ) -> MigrationOperationIntent:
+        intent = self.get_operation_intent(operation_id)
+        if (
+            intent.kind is not expected_kind
+            or intent.owner_kind != expected_owner_kind
+        ):
+            raise MigrationOperationReplayError(
+                "Operation identity does not belong to this creation command"
+            )
+        return intent
 
     def _insert_data_version_if_needed(
         self,

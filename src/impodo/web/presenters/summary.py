@@ -567,7 +567,7 @@ def _summary_rows_url(
     if page_size != DEFAULT_SUMMARY_ROWS_PER_PAGE:
         params["page_size"] = str(page_size)
     query = urlencode(params)
-    base = f"/projects/{project_id}/summary"
+    base = f"/workspaces/{project_id}/summary"
     url = f"{base}?{query}" if query else base
     return f"{url}#readiness-rows"
 
@@ -590,7 +590,7 @@ def _quality_summary_url(
     if page_size != DEFAULT_SUMMARY_ROWS_PER_PAGE:
         params["quality_page_size"] = str(page_size)
     query = urlencode(params)
-    base = f"/projects/{project_id}/summary"
+    base = f"/workspaces/{project_id}/summary"
     url = f"{base}?{query}" if query else base
     return f"{url}#quality-rows"
 

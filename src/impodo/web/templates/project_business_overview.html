@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}{{ project.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading project-overview-heading">
+    <div>
+      <p class="eyebrow">Data project</p>
+      <h1>{{ project.display_name }}</h1>
+      <p>{{ project.migration_purpose }}</p>
+    </div>
+    <span class="status {% if project.status.value == 'DRAFT' %}draft{% else %}registered{% endif %}">{{ project.status.value|title }}</span>
+  </div>
+
+  {% if authoring_workspace %}
+    <section class="next-action-card current">
+      <div>
+        <p class="eyebrow">Authoring workspace</p>
+        <h2>Continue preparing and matching the sample data</h2>
+        <p>This workspace belongs to DataVersion {{ authoring_data_version.version_number }}. You may complete this as one-off work without publishing a Recipe.</p>
+      </div>
+      <a class="button primary" href="/workspaces/{{ authoring_workspace.workspace_id }}/overview">Open workspace</a>
+    </section>
+  {% endif %}
+
+  <section class="overview-stage-list">
+    <div class="section-heading">
+      <div><p class="eyebrow">Source packages</p><h2>Data versions</h2></div>
+    </div>
+    <ol class="overview-stages">
+      {% for version in data_versions %}
+        <li class="overview-stage {% if version.state.value == 'FROZEN' %}complete{% else %}current{% endif %}">
+          <div class="overview-stage-number">{{ version.version_number }}</div>
+          <div class="overview-stage-copy"><h3>{{ version.label }}</h3><p>{{ version.purpose.value|title }} · {{ version.state.value|title }}</p></div>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  <section class="form-card" aria-labelledby="project-recipes-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Optional reuse</p>
+        <h2 id="project-recipes-title">Recipes</h2>
+        <p>A Recipe saves reusable transformation rules. It does not own this Project, its data package, or its workspace.</p>
+      </div>
+    </div>
+    {% if recipes %}
+      <ol class="overview-stages">
+        {% for recipe in recipes %}
+          <li class="overview-stage complete">
+            <div class="overview-stage-number">{{ recipe.current_recipe_revision }}</div>
+            <div class="overview-stage-copy">
+              <h3>{{ recipe.display_name }}</h3>
+              <p>{{ recipe.business_purpose }} · Recipe v{{ recipe.current_recipe_revision }}</p>
+              {% if recipe_draft and recipe_draft.can_publish %}
+                <form method="post" action="/projects/{{ project.project_id }}/recipes">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">
+                  <input type="hidden" name="data_version_id" value="{{ authoring_data_version.data_version_id }}">
+                  <input type="hidden" name="workspace_id" value="{{ authoring_workspace.workspace_id }}">
+                  <input type="hidden" name="recipe_id" value="{{ recipe.recipe_id }}">
+                  <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
+                  <input type="hidden" name="display_name" value="{{ recipe.display_name }}">
+                  <input type="hidden" name="business_purpose" value="{{ recipe.business_purpose }}">
+                  <button class="button secondary" type="submit">Publish new revision</button>
+                </form>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p>No Recipe has been saved. The Project and workspace remain fully usable.</p>
+    {% endif %}
+
+    {% if recipe_draft and recipe_draft.can_publish %}
+      <form method="post" action="/projects/{{ project.project_id }}/recipes">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">
+        <input type="hidden" name="data_version_id" value="{{ authoring_data_version.data_version_id }}">
+        <input type="hidden" name="workspace_id" value="{{ authoring_workspace.workspace_id }}">
+        <input type="hidden" name="recipe_id" value="">
+        <input type="hidden" name="expected_recipe_revision" value="">
+        <label>Recipe name<input name="display_name" required maxlength="200"></label>
+        <label>Reusable purpose<textarea name="business_purpose" required maxlength="2000"></textarea></label>
+        <div class="actions"><button class="button primary" type="submit">Save as a new Recipe</button></div>
+      </form>
+    {% elif recipe_draft and recipe_draft.issues %}
+      <div class="notice">
+        <strong>Reusable rules are not ready yet.</strong>
+        <p>{{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

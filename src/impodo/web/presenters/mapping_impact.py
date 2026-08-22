@@ -243,7 +243,7 @@ def _transformation_impact_url(
     query = urlencode(
         {name: value for name, value in parameters.items() if value}
     )
-    base = f"/projects/{project_id}/mapping/transformation-impact"
+    base = f"/workspaces/{project_id}/mapping/transformation-impact"
     return f"{base}?{query}" if query else base
 
 
@@ -277,7 +277,7 @@ def _mapping_return_url(
         else:
             params[name] = str(value)
     query = urlencode(params)
-    base = f"/projects/{project_id}/mapping"
+    base = f"/workspaces/{project_id}/mapping"
     return f"{base}?{query}" if query else base
 
 

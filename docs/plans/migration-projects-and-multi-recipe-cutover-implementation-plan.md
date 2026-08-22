@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted target architecture and active implementation plan from
-2026-08-22. Phases M0 through M2 are complete; Phase M3 is next.
+2026-08-22. Phases M0 through M3 are complete; Phase M4 is next.
 
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target architecture. It supersedes ADR-012 and ADR-013 for
@@ -685,9 +685,8 @@ identifier confusion, old-storage rejection, and recoverable reset.
 ### Phase M2 - Separate source packages from application workspaces
 
 **Status:** Completed on 2026-08-22. See the [Phase M2 source-package
-foundation](migration-projects-phase-m2-source-packages.md). The clean services
-and stores exist but are not composed into the current browser; Phase M3 owns
-that cutover.
+foundation](migration-projects-phase-m2-source-packages.md). Phase M3 now
+composes these services and stores into the current browser.
 
 - Move source intake, catalogues, table selection, and source snapshots to the
   DataVersion boundary.
@@ -707,7 +706,8 @@ concurrency, fault recovery, and non-mutating M1-storage rejection.
 
 ### Phase M3 - Switch Project creation and optional Recipe publication
 
-**Status:** Planned.
+**Status:** Completed on 2026-08-22. See the [Phase M3 implementation
+record](migration-projects-phase-m3-project-authoring.md).
 
 - Replace `/recipes` and `/recipes/new` with Project-native routes.
 - Create the first Authoring DataVersion, run, and workspace without a Recipe.

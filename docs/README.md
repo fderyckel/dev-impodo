@@ -34,7 +34,10 @@ browser navigation labels.
 The machine-readable [workflow registry](workflow.yml) owns documentation,
 route, template, code-symbol, contract, and focused-test coverage for each
 stage. The [documentation style guide](style-guide.md) defines the audience and
-voice rules. The project-local
+voice rules, including the
+[data-manager-first explanation standard](style-guide.md#data-manager-first-explanations)
+and the [two-pass editing workflow](style-guide.md#documentation-editing-workflow).
+The project-local
 [Impodo documentation skill](../.agents/skills/impodo-documentation/SKILL.md)
 applies those rules when documentation is created or rewritten.
 
@@ -58,7 +61,7 @@ applies those rules when documentation is created or rewritten.
 ## Process models
 
 - [Current Impodo BPMN models](bpmn/README.md) — BPMN 2.0 overview and detailed
-  diagrams for Recipe/data-version setup and all six implemented browser responsibilities,
+  diagrams for Project/workspace setup and all six implemented browser responsibilities,
   including the current file-source, Odoo-source, and disposable-target
   boundaries.
 
@@ -69,10 +72,10 @@ applies those rules when documentation is created or rewritten.
   Recipes, Project-owned data packages, and integrated multi-Recipe cutover
   are the current product-delivery focus.
 - [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-  — accepted target architecture and active plan for replacing the current
-  Project-as-Recipe model without retaining compatibility shells, aliases, or
-  old storage readers. Phases M0 through M2 are complete; the browser cutover
-  has not started.
+  — accepted target architecture and active plan. Phases M0 through M3 are
+  complete: the Project-first browser now supports one-off work and optional
+  Recipe publication without compatibility shells, aliases, or old storage
+  readers. Phase M4 is next.
 - [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
   — completed architecture-only contracts and executable fixtures for Project
   ownership, optional and multiple Recipes, Project-owned data packages,
@@ -80,13 +83,16 @@ applies those rules when documentation is created or rewritten.
 - [Migration Projects Phase M1 persistence foundation](plans/migration-projects-phase-m1-foundation.md)
   — clean Project, DataVersion, run, and workspace roots, exact new DuckDB
   generations, bounded projections, restart-safe intents, old-storage
-  rejection, and recoverable development reset. These services are not yet
-  composed into the browser.
+  rejection, and recoverable development reset. M3 now composes these roots
+  into the Project-first browser.
 - [Migration Projects Phase M2 source-package foundation](plans/migration-projects-phase-m2-source-packages.md)
   — Project-owned DataVersion source packages, immutable acceptance, bounded
   read-only workspace projections, exact M2 storage, and the internal
-  `WorkspaceState` rename. These services are not yet composed into the
-  browser.
+  `WorkspaceState` rename. M3 now composes these packages and projections into
+  file and Odoo authoring workspaces.
+- [Migration Projects Phase M3 Project authoring](plans/migration-projects-phase-m3-project-authoring.md)
+  — Project-native creation, one-off authoring, immutable file and Odoo source
+  acceptance, and optional atomic Recipe revision publication.
 - [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
   — approved design for separating Odoo choices from source values, preserving
   fixed choice mappings, and adding a governed multi-column rule provider for
@@ -100,13 +106,11 @@ applies those rules when documentation is created or rewritten.
   for reducing transformation CPU and memory, extending bounded preparation to
   related Products and BOMs, and retaining governed audit evidence.
 - [Reusable recipes and data versions implementation plan](plans/reusable-recipes-and-data-versions-implementation-plan.md)
-  — completed historical plan for the currently implemented Recipe-first
-  vertical slice. ADR-014 and the Migration Project plan supersede it as
-  forward-looking architecture authority.
+  — completed historical implementation record for the removed Recipe-first
+  vertical slice. ADR-014 and the Migration Project plan supersede it.
 - [Recipe-first Phase R0 contracts](plans/reusable-recipes-phase-r0-contracts.md)
-  — historical frozen contracts for the currently implemented Recipe-first
-  slice. Current runtime contracts remain authoritative until each replacement
-  implementation gate passes.
+  — historical frozen contracts for the removed Recipe-first slice. Current
+  Project and Recipe publication contracts are authoritative.
 - [Recipe-first Phase R1 implementation report](reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
   — completed Recipe/DataVersion registry lineage, protected payload storage,
   workspace linkage and sealing, compatibility resolution, and deterministic
@@ -166,7 +170,15 @@ documentation tree.
 
 For workflow changes, update the paired user and developer stage pages and the
 workflow registry. Also update the owning module/class/method docstrings and
-the [Python code map](architecture/python-code-map.md). Run:
+the [Python code map](architecture/python-code-map.md).
+
+For each conceptual rewrite, first review whether a data manager can understand
+the goal, objects, lifecycle, practical effect, and next action. Then perform a
+separate precision pass for exact labels, current status, safeguards, evidence
+boundaries, links, symbols, and tests. Do not make the user page carry technical
+inventory that belongs in its paired developer page.
+
+Run:
 
 ```console
 python scripts/documentation_quality.py --check --report
@@ -179,6 +191,7 @@ The workflow and module checks are blocking. The public-symbol list and Vale
 style rules are advisory and require semantic review rather than percentage or
 readability-score targets. Run `vale docs` to check every documentation lane.
 Vale accepts Impodo and Odoo terminology, but it asks writers to explain
-implementation terms before using them in user documentation. Treat each Vale
-alert as a review prompt: correct unclear prose, preserve exact example data and
-identifiers, and improve the rule when it produces a repeatable false positive.
+implementation terms and internal data-model terms before using them in user
+documentation. Treat each Vale alert as a review prompt: correct unclear prose,
+preserve exact example data and identifiers, and improve the rule when it
+produces a repeatable false positive.

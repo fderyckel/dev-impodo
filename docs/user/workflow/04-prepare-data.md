@@ -28,14 +28,14 @@ source, schema, key, or transformation decision is still changing.
    decisions when they are present.
 7. Approve the resolved prepared data only when no required decision remains.
 
-![Current prepared-data review inside a fictional Recipe data version.](../../images/user/15-prepared-data-review.png)
+![Current prepared-data review inside a fictional Project workspace.](../../images/user/15-prepared-data-review.png)
 
 ## How Recipes reuse this work
 
 A Recipe reuses confirmed preparation rules, not a prepared snapshot. Every
-authoring, Test, and Production data version runs preparation again from its
-own frozen source and current mapping confirmation. Parameter values and
-control totals also belong to that data version and are checked again.
+DataVersion must run preparation again from its own frozen source and current
+mapping confirmation. M3 currently exposes the Authoring workspace; later
+Recipe applications belong to the next phase.
 
 This fresh run is mandatory even when the replacement files look identical.
 Preparation, quality findings, duplicate decisions, normalization approval,
@@ -73,9 +73,8 @@ may be retried only after its recorded outcome is understood.
 ## What makes this work stale
 
 Any change to source evidence, Odoo schema, business keys, mapping revision,
-Recipe application, parameters, controls, or required resolution invalidates
-the prepared result. Run preparation again instead of modifying stored
-artifacts.
+parameters, controls, or required resolution invalidates the prepared result.
+Run preparation again instead of modifying stored artifacts.
 
 ## Next stage
 

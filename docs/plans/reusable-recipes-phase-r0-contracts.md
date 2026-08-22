@@ -6,8 +6,8 @@
 target architecture authority by ADR-014 and the
 [Migration projects and multi-Recipe cutover implementation
 plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) on
-2026-08-22. Current runtime contracts remain authoritative until the
-replacement implementation gates pass.
+2026-08-22. Phase M3 has now replaced the Recipe-first browser ownership; the
+current Project and Recipe publication contracts are authoritative.
 
 This document freezes Phase R0 of the
 [Recipe-first test-to-production implementation

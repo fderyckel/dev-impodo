@@ -8,16 +8,15 @@ status: current
 
 ## Goal
 
-Explicitly load the exact reviewed plan for the current Recipe data version
+Explicitly load the exact reviewed plan for the current Project DataVersion
 into its approved Odoo 19 target, then verify the recorded outcome.
 
 ## Before you start
 
-The current final review must be **Ready**. Confirm the data-version purpose,
+The current final review must be **Ready**. Confirm the DataVersion purpose,
 target, exact write totals, dependency order, writable fields, and required API
-key. A Test data version is a rehearsal. A Production data version must come
-from the exact qualified Recipe revision selected for rollout and still needs
-fresh Production approval and credentials.
+key. This key authorizes only the reviewed target operation; it does not grant
+authority to another Project, DataVersion, or future rollout.
 
 ## Steps in Impodo
 
@@ -36,17 +35,16 @@ fresh Production approval and credentials.
 
 ![Current Confirm and load screen with the separate write-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
 
-## How Recipes use the verified outcome
+## How Recipe publication relates to the verified outcome
 
-Loading does not change or republish the Recipe. For a Test data version, a
-successful load is not enough: complete **Verify result**, then return to the
-Recipe overview to qualify the exact tested revision. Selecting that
-qualification as the rollout candidate is another explicit action.
+Loading does not create, change, or publish a Recipe. If you publish the
+workspace's reusable rules, the resulting Recipe revision still does not own
+this execution or its read-back evidence.
 
-Production starts as a clean data version from that selected candidate. It
-does not inherit Test files, server settings, credentials, comparison,
-approval, execution, or read-back evidence. Production loading is authorized
-only by the exact fresh Production review and its separate current write key.
+Applying published rules to replacement rollout data belongs to the next
+implementation phase. That future run must start with a new DataVersion and
+must not inherit this run's files, server settings, credentials, comparison,
+approval, execution, or read-back evidence.
 
 ## What to check
 
@@ -66,8 +64,8 @@ alone is not completion evidence.
 ## What changes and what does not
 
 This is the workflow stage that can create or update Odoo records. It does not
-provide whole-migration rollback, qualify a Recipe by itself, or carry Test
-write authority into Production. Unchanged and blocked rows are not written.
+provide whole-migration rollback, publish a Recipe, or carry write authority
+into another run. Unchanged and blocked rows are not written.
 
 ## Needs attention
 
@@ -78,17 +76,17 @@ any, were applied.
 
 ## What makes this work stale
 
-A new source, schema, mapping, Recipe application, parameter, control,
+A new source, schema, mapping, reusable-rule, parameter, control,
 preparation, comparison, target fingerprint, credential generation, or
 dependency order invalidates the execution preview. Return to the earliest
 changed stage and regenerate the evidence for this data version.
 
 ## Next stage
 
-For Test, complete read-back, then qualify and select the exact Recipe revision
-from its overview. For Production, keep the execution journal, reconciliation
-result, and approved review package with the rollout record. Resolve any
-fallout before considering the data version complete.
+Keep the execution journal, reconciliation result, and approved review package
+with the Project record. Resolve any fallout before considering the
+DataVersion complete. You may separately publish the reusable transformation
+rules from the Project overview; that action does not change this load record.
 
 ## Related documentation
 

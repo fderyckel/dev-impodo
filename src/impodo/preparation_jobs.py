@@ -6,12 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from .recipes import (
-    DataVersionPurpose,
-    DataVersionState,
-    WorkspaceResolution,
-    require_uuid,
-)
+from .data_versions import DataVersion, DataVersionPurpose, DataVersionState
+from .migration_foundation import MigrationFoundationError, require_uuid
+from .migration_runs import MigrationRun
+from .migration_workspaces import MigrationWorkspace, MigrationWorkspaceState
 
 
 class PreparationJobStatus(StrEnum):
@@ -63,16 +61,20 @@ PHASE_LABELS: dict[PreparationPhase, str] = {
 
 @dataclass(frozen=True, slots=True)
 class PreparationWorkspace:
-    """Registry-authorized Recipe/DataVersion identity captured before spawn."""
+    """Project-owned identities authorized before a worker is spawned."""
 
-    recipe_id: str
+    project_id: str
     data_version_id: str
     data_version_number: int
     data_version_purpose: DataVersionPurpose
+    migration_run_id: str
+    workspace_id: str
 
     def __post_init__(self) -> None:
-        require_uuid(self.recipe_id, "recipe_id")
+        require_uuid(self.project_id, "project_id")
         require_uuid(self.data_version_id, "data_version_id")
+        require_uuid(self.migration_run_id, "migration_run_id")
+        require_uuid(self.workspace_id, "workspace_id")
         if self.data_version_number < 1:
             raise ValueError("Data version number is invalid")
         object.__setattr__(
@@ -82,19 +84,39 @@ class PreparationWorkspace:
         )
 
     @classmethod
-    def from_resolution(
+    def from_context(
         cls,
-        resolution: WorkspaceResolution,
+        workspace: MigrationWorkspace,
+        data_version: DataVersion,
+        run: MigrationRun,
     ) -> "PreparationWorkspace":
-        """Capture only an active workspace after registry authorization."""
+        """Capture one open workspace over one accepted DataVersion."""
 
-        if resolution.data_version_state is not DataVersionState.ACTIVE:
-            raise ValueError("Only the active data version can be prepared")
+        if workspace.state is not MigrationWorkspaceState.OPEN:
+            raise MigrationFoundationError(
+                "Only an open MigrationWorkspace can be prepared"
+            )
+        if data_version.state is not DataVersionState.FROZEN:
+            raise MigrationFoundationError(
+                "Freeze the source datasets before preparing data"
+            )
+        if (
+            workspace.project_id != data_version.project_id
+            or workspace.project_id != run.project_id
+            or workspace.data_version_id != data_version.data_version_id
+            or run.data_version_id != data_version.data_version_id
+            or workspace.migration_run_id != run.migration_run_id
+        ):
+            raise MigrationFoundationError(
+                "The Project, DataVersion, run, and workspace do not match"
+            )
         return cls(
-            recipe_id=resolution.recipe_id,
-            data_version_id=resolution.data_version_id,
-            data_version_number=resolution.data_version_number,
-            data_version_purpose=resolution.data_version_purpose,
+            project_id=workspace.project_id,
+            data_version_id=data_version.data_version_id,
+            data_version_number=data_version.version_number,
+            data_version_purpose=data_version.purpose,
+            migration_run_id=run.migration_run_id,
+            workspace_id=workspace.workspace_id,
         )
 
 

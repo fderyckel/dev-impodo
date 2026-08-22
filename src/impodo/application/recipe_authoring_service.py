@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 import re
 from typing import Mapping, Protocol
 import unicodedata
 
-from ..access import Actor, AuthorizationPolicy, Capability
+from ..access import Actor
 from ..derived_entities import DerivedEntityPlan
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
@@ -18,13 +17,11 @@ from ..domain.mapping.contracts import (
 )
 from ..domain.schema.governance import BusinessKeyStatus, SchemaGovernance
 from ..domain.recipe_parameters import (
-    RecipeParameterDefinition,
     RecipeParameterDefinitionError,
     RecipeParameterDefinitions,
-    RecipeParameterType,
 )
 from ..domain.serialization import canonical_json, content_hash, portable
-from ..projects import WorkspaceState, ProjectService, SourceMode
+from ..domain.recipe_envelope import validate_recipe_envelope
 from ..quality import QualityRuleSet, QualityRuleSource
 from ..reference_keys import (
     REFERENCE_POLICY_HASH,
@@ -37,18 +34,12 @@ from ..reference_keys import (
     captured_reference_field_contracts,
 )
 from ..recipes import (
-    DataVersionPurpose,
-    Recipe,
     RecipeConflictError,
-    RecipeDraft,
     RecipeDraftIssue,
     RecipeDraftRecoveryStep,
-    RecipeDraftState,
-    RecipeIntent,
     RecipeIntegrityError,
 )
 from ..workspace_contracts import OdooSchemaCatalog, SourceDataset, SourceSelection
-from .recipe_service import FaultInjector, RecipeService
 
 
 _RECIPE_MAPPING_CONTRACT_VERSIONS = frozenset({11, 12})
@@ -152,305 +143,33 @@ class _RecipeDraftBlocked(Exception):
 
 
 class RecipeAuthoringService:
-    """Create Recipe workspaces and publish exact current authoring evidence."""
+    """Compile one eligible workspace into portable Recipe meaning."""
 
     def __init__(
         self,
-        recipes: RecipeService,
-        projects: ProjectService,
         sources: RecipeAuthoringSourceRepository,
         mappings: RecipeAuthoringMappingRepository,
         schemas: RecipeAuthoringSchemaRepository,
         quality: RecipeAuthoringQualityRepository,
         preparation: RecipeAuthoringPreparationRepository,
         references: RecipeAuthoringReferenceRepository,
-        authorization: AuthorizationPolicy,
         parameters: RecipeAuthoringParameterRepository | None = None,
     ) -> None:
-        self.recipes = recipes
-        self.projects = projects
         self.sources = sources
         self.mappings = mappings
         self.schemas = schemas
         self.quality = quality
         self.preparation = preparation
         self.references = references
-        self.authorization = authorization
         self.parameters = parameters
 
-    def create(
+    def compile_workspace(
         self,
-        *,
-        name: str,
-        source_system: str,
-        source_mode: str | SourceMode,
-        creation_request_id: str | None = None,
-        actor: Actor,
-    ) -> tuple[Recipe, WorkspaceState]:
-        """Provision Recipe, DataVersion 1, and its contained workspace."""
+        workspace_id: str,
+    ) -> tuple[CompiledRecipeDefinition | None, tuple[RecipeDraftIssue, ...]]:
+        """Compile one workspace without requiring or creating a Recipe shell."""
 
-        self.authorization.require(actor, Capability.RECIPE_CREATE)
-        project = self.projects.create_project(
-            actor=actor,
-            name=name,
-            source_system=source_system,
-            source_mode=source_mode,
-            creation_request_id=creation_request_id,
-        )
-        workspace = self.recipes.resolve_workspace(project.project_id, actor=actor)
-        recipe = self.recipes.get(workspace.recipe_id, actor=actor)
-        return recipe, project
-
-    def synchronize_setup(
-        self,
-        project: WorkspaceState,
-        *,
-        actor: Actor,
-    ) -> Recipe:
-        """Synchronize editable authoring setup into the Recipe root."""
-
-        return self.recipes.synchronize_unpublished_setup(project, actor=actor)
-
-    def parameter_definitions(
-        self,
-        recipe_id: str,
-        *,
-        actor: Actor,
-    ) -> tuple[RecipeParameterDefinition, ...]:
-        """Return custom declarations for the current Authoring DataVersion."""
-
-        project_id = self._authoring_workspace(recipe_id, actor=actor)
-        if self.parameters is None:
-            return ()
-        return self.parameters.get_parameter_definitions(project_id).definitions
-
-    def save_parameter_definition(
-        self,
-        recipe_id: str,
-        *,
-        name: str,
-        label: str,
-        value_type: str | RecipeParameterType,
-        required: bool,
-        actor: Actor,
-    ) -> RecipeParameterDefinitions:
-        """Add or replace one reusable application parameter declaration."""
-
-        self.authorization.require(actor, Capability.RECIPE_PUBLISH)
-        if self.parameters is None:
-            raise RecipeConflictError(
-                "Recipe parameter authoring is not available in this workspace"
-            )
-        project_id = self._authoring_workspace(recipe_id, actor=actor)
-        definition = RecipeParameterDefinition(
-            name=name,
-            label=label,
-            value_type=RecipeParameterType(value_type),
-            required=required,
-        )
-        current = self.parameters.get_parameter_definitions(project_id)
-        updated = RecipeParameterDefinitions(
-            definitions=tuple(
-                item for item in current.definitions if item.name != definition.name
-            )
-            + (definition,)
-        )
-        self.parameters.save_parameter_definitions(
-            project_id,
-            updated,
-            actor=actor,
-        )
-        return updated
-
-    def remove_parameter_definition(
-        self,
-        recipe_id: str,
-        *,
-        name: str,
-        actor: Actor,
-    ) -> RecipeParameterDefinitions:
-        """Remove one custom declaration from the unpublished Recipe meaning."""
-
-        self.authorization.require(actor, Capability.RECIPE_PUBLISH)
-        if self.parameters is None:
-            raise RecipeConflictError(
-                "Recipe parameter authoring is not available in this workspace"
-            )
-        project_id = self._authoring_workspace(recipe_id, actor=actor)
-        current = self.parameters.get_parameter_definitions(project_id)
-        updated = RecipeParameterDefinitions(
-            definitions=tuple(item for item in current.definitions if item.name != name)
-        )
-        if updated == current:
-            raise RecipeConflictError("Recipe parameter no longer exists")
-        self.parameters.save_parameter_definitions(
-            project_id,
-            updated,
-            actor=actor,
-        )
-        return updated
-
-    def _authoring_workspace(self, recipe_id: str, *, actor: Actor) -> str:
-        recipe = self.recipes.get(recipe_id, actor=actor)
-        current = next(
-            (
-                item
-                for item in self.recipes.data_versions(recipe_id, actor=actor)
-                if item.data_version_id == recipe.current_data_version_id
-            ),
-            None,
-        )
-        if current is None or current.purpose is not DataVersionPurpose.AUTHORING:
-            raise RecipeConflictError(
-                "Application parameters can only be changed in an Authoring data version"
-            )
-        if current.state.value != "ACTIVE":
-            raise RecipeConflictError(
-                "Published Recipe parameter definitions cannot be changed"
-            )
-        self.authorization.require(
-            actor,
-            Capability.PROJECT_VIEW,
-            project_id=current.workspace_project_id,
-        )
-        return current.workspace_project_id
-
-    def draft(self, recipe_id: str, *, actor: Actor) -> RecipeDraft:
-        """Return publication readiness without creating mutable Recipe state."""
-
-        recipe = self.recipes.get(recipe_id, actor=actor)
-        data_versions = self.recipes.data_versions(recipe_id, actor=actor)
-        current = next(
-            (
-                item
-                for item in data_versions
-                if item.data_version_id == recipe.current_data_version_id
-            ),
-            None,
-        )
-        if current is None:
-            issue = RecipeDraftIssue(
-                "CURRENT_DATA_VERSION_MISSING",
-                "This Recipe has no current data version.",
-                "Create or resume a data version before publishing.",
-                RecipeDraftRecoveryStep.RECIPE_OVERVIEW,
-            )
-            return self._blocked(recipe, "", "", (issue,))
-        if current.purpose is not DataVersionPurpose.AUTHORING:
-            issue = RecipeDraftIssue(
-                "CURRENT_DATA_VERSION_NOT_AUTHORING",
-                "The current data version applies published Recipe meaning.",
-                "Open its application flow instead of publishing it as new meaning.",
-                RecipeDraftRecoveryStep.RECIPE_APPLICATION,
-            )
-            return self._blocked(
-                recipe,
-                current.data_version_id,
-                current.workspace_project_id,
-                (issue,),
-            )
-        self.authorization.require(
-            actor,
-            Capability.PROJECT_VIEW,
-            project_id=current.workspace_project_id,
-        )
-        compiled, issues = self._compile(current.workspace_project_id)
-        if compiled is None:
-            return self._blocked(
-                recipe,
-                current.data_version_id,
-                current.workspace_project_id,
-                issues,
-            )
-        return RecipeDraft(
-            recipe_id=recipe.recipe_id,
-            data_version_id=current.data_version_id,
-            workspace_project_id=current.workspace_project_id,
-            state=RecipeDraftState.READY,
-            expected_recipe_revision=recipe.optimistic_revision,
-            next_recipe_revision=(recipe.current_recipe_revision or 0) + 1,
-            semantic_hash=compiled.semantic_hash,
-            source_selection_hash=compiled.source_selection_hash,
-            mapping_content_hash=compiled.mapping_content_hash,
-            schema_hash=compiled.schema_hash,
-            quality_ruleset_hash=compiled.quality_ruleset_hash,
-            issues=(),
-        )
-
-    def publish_current(
-        self,
-        recipe_id: str,
-        *,
-        expected_recipe_revision: int,
-        actor: Actor,
-        operation_id: str | None = None,
-        fault: FaultInjector | None = None,
-    ) -> RecipeIntent:
-        """Compile and publish the current workspace as one immutable revision."""
-
-        self.authorization.require(actor, Capability.RECIPE_PUBLISH)
-        recipe = self.recipes.get(recipe_id, actor=actor)
-        if recipe.optimistic_revision != expected_recipe_revision:
-            raise RecipeConflictError("Recipe changed; reload before publishing")
-        data_versions = self.recipes.data_versions(recipe_id, actor=actor)
-        current = next(
-            (
-                item
-                for item in data_versions
-                if item.data_version_id == recipe.current_data_version_id
-            ),
-            None,
-        )
-        if current is None:
-            raise RecipeConflictError("Create a data version before publishing")
-        if current.purpose is not DataVersionPurpose.AUTHORING:
-            raise RecipeConflictError(
-                "Only an Authoring data version can publish reusable Recipe meaning"
-            )
-        self.authorization.require(
-            actor,
-            Capability.PROJECT_VIEW,
-            project_id=current.workspace_project_id,
-        )
-        compiled, issues = self._compile(current.workspace_project_id)
-        if compiled is None:
-            first = issues[0]
-            raise RecipeConflictError(f"{first.message} {first.recovery_action}")
-        next_version = (recipe.current_recipe_revision or 0) + 1
-        compiled_at = datetime.now(timezone.utc).isoformat()
-        envelope: dict[str, object] = {
-            "recipe_contract_version": 2,
-            "semantic_hash": compiled.semantic_hash,
-            "recipe": compiled.recipe,
-            "compatibility_hints": compiled.compatibility_hints,
-            "provenance": {
-                "compiled_at": compiled_at,
-                "mapping_content_hash": compiled.mapping_content_hash,
-                "mapping_id": compiled.mapping_id,
-                "mapping_version": compiled.mapping_version,
-                "origin_data_version_id": current.data_version_id,
-                "publisher": {
-                    "display_name": actor.identity.display_name,
-                    "issuer": actor.identity.issuer,
-                    "subject_id": actor.identity.subject_id,
-                },
-                "quality_ruleset_hash": compiled.quality_ruleset_hash,
-                "recipe_id": recipe.recipe_id,
-                "recipe_revision": next_version,
-                "schema_hash": compiled.schema_hash,
-                "source_selection_hash": compiled.source_selection_hash,
-                "workspace_project_id": current.workspace_project_id,
-            },
-        }
-        envelope["payload_hash"] = content_hash(envelope)
-        return self.recipes.publish_revision(
-            recipe.recipe_id,
-            expected_recipe_revision=expected_recipe_revision,
-            envelope_bytes=canonical_json(envelope).encode("utf-8"),
-            actor=actor,
-            operation_id=operation_id,
-            fault=fault,
-        )
+        return self._compile(workspace_id)
 
     def _compile(
         self,
@@ -607,7 +326,7 @@ class RecipeAuthoringService:
             "provenance": {},
         }
         envelope["payload_hash"] = content_hash(envelope)
-        RecipeService._validated_envelope(canonical_json(envelope).encode("utf-8"))
+        validate_recipe_envelope(canonical_json(envelope).encode("utf-8"))
 
     def _definition(
         self,
@@ -1699,24 +1418,6 @@ class RecipeAuthoringService:
             recovery_step,
             support_reference,
         )
-
-    @staticmethod
-    def _blocked(recipe, data_version_id, workspace_project_id, issues):
-        return RecipeDraft(
-            recipe_id=recipe.recipe_id,
-            data_version_id=data_version_id,
-            workspace_project_id=workspace_project_id,
-            state=RecipeDraftState.BLOCKED,
-            expected_recipe_revision=recipe.optimistic_revision,
-            next_recipe_revision=(recipe.current_recipe_revision or 0) + 1,
-            semantic_hash=None,
-            source_selection_hash=None,
-            mapping_content_hash=None,
-            schema_hash=None,
-            quality_ruleset_hash=None,
-            issues=issues,
-        )
-
 
 def _token(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).casefold().strip()

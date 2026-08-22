@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tempfile
+import shutil
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -71,8 +71,9 @@ def _crash_at(expected_stage: str):
 class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.database = MigrationFoundationDatabase(self.temporary.name)
+        self.root = ROOT / ".tmp" / f"m1-foundation-{uuid4()}"
+        self.root.mkdir()
+        self.database = MigrationFoundationDatabase(self.root)
         self.repository = MigrationFoundationRepository(self.database)
         authorization = CapabilityAuthorizationPolicy()
         self.projects = MigrationProjectService(self.repository, authorization)
@@ -84,7 +85,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        self.temporary.cleanup()
+        shutil.rmtree(self.root, ignore_errors=True)
 
     def _project(self, *, operation_id: str | None = None):
         return self.projects.create(
@@ -604,11 +605,11 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
 class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.root = Path(self.temporary.name)
+        self.root = ROOT / ".tmp" / f"m1-reset-{uuid4()}"
+        self.root.mkdir()
 
     def tearDown(self) -> None:
-        self.temporary.cleanup()
+        shutil.rmtree(self.root, ignore_errors=True)
 
     def test_recipe_first_registry_is_rejected_and_never_mutated(self) -> None:
         registry = self.root / "registry.duckdb"

@@ -1,835 +1,115 @@
+---
+audience: developer
+kind: reference
+status: current
+---
+
 # Python code map
 
-## Purpose
+## Read this first
 
-Use this map when entering `src/impodo/` from a browser action, CLI command,
-Python module, class, or method. It identifies where orchestration starts, which
-layer owns each decision, what evidence is produced, and what to open next.
+Impodo separates the Project business root from the technical workspace and
+from optional reusable Recipes. Begin with the actor action you are tracing,
+then follow the service to its exact repository. Do not infer ownership from
+the historical `project.duckdb` filename or `WorkspaceState` type name.
 
-This is a navigation aid. The
-[developer contracts](../developer/README.md#normative-contracts) remain
-normative, and the
-[remaining-work plan](../plans/remaining-work.md) records unfinished delivery
-work without duplicating the current implementation boundary.
+## Project-first composition
 
-**Documentation rollout:** the advisory DOC-0 inventory is active; the DOC-1
-navigation spine covers all six current journeys; and DOC-2 through DOC-5 now
-deepen Stages A–H plus their cross-cutting security/persistence boundaries.
-
-## Read the layers from left to right
-
-```mermaid
-flowchart LR
-    UI["Browser route or CLI"] --> Application["Application service"]
-    Application --> Domain["Domain contracts and pure evaluation"]
-    Application --> Ports["Repository and reader ports"]
-    Ports --> Adapters["DuckDB, artifacts, source files, Odoo reads"]
-    Domain --> Evidence["Immutable or versioned evidence"]
-    Adapters --> Evidence
-```
-
-| Layer | Answers | Main locations |
+| Responsibility | Domain or application boundary | Persistence or browser boundary |
 | --- | --- | --- |
-| Browser and CLI | What did the user ask Impodo to do? | [`web/routers/`](../../src/impodo/web/routers), [`web/app.py`](../../src/impodo/web/app.py), [`cli.py`](../../src/impodo/cli.py) |
-| Application | In what order must use cases run, and what prerequisites apply? | [`application/`](../../src/impodo/application), plus the older root-level services |
-| Domain | What do mappings, rows, issues, identities, relationships, decisions, and hashes mean? | [`domain/`](../../src/impodo/domain), [`models.py`](../../src/impodo/models.py), [`quality.py`](../../src/impodo/quality.py), [`normalization.py`](../../src/impodo/normalization.py), [`staging_contracts.py`](../../src/impodo/staging_contracts.py) |
-| Ports | What must persistence or an external reader guarantee? | [`application/readiness_ports.py`](../../src/impodo/application/readiness_ports.py) and focused protocols beside services |
-| Adapters | How are durable records, files, credentials, and bounded Odoo reads implemented? | [`adapters/duckdb/`](../../src/impodo/adapters/duckdb), [`artifacts.py`](../../src/impodo/artifacts.py), [`connectors.py`](../../src/impodo/connectors.py), [`local_odoo_reader.py`](../../src/impodo/local_odoo_reader.py) |
-| Composition root | Which concrete implementations are connected for the local product? | [`web/app.py`](../../src/impodo/web/app.py), [`preparation_worker.py`](../../src/impodo/preparation_worker.py), [`web/context.py`](../../src/impodo/web/context.py) |
+| List and read Projects | `migration_projects.py` | `MigrationFoundationRepository`, `/projects` |
+| Create a Project and first Authoring context | `MigrationProjectAuthoringService` | `migration_projects.py` router |
+| Own a complete source package | `DataVersion`, `DataVersionSourcePackage` | `data-version.duckdb` and DataVersion artifact directory |
+| Coordinate one target use | `MigrationRun` | registry `migration_run` projection |
+| Isolate current working evidence | `MigrationWorkspace` plus current workspace services | `workspace.duckdb`, contained `project.duckdb`, `/workspaces/{workspace_id}` |
+| Supply mapping source contracts | `WorkspaceMappingSourceProjection` | bounded workspace source projection |
+| Compile reusable meaning | `RecipeAuthoringService.compile_workspace` | reads current workspace evidence only |
+| Publish optional Recipes | `ProjectRecipePublicationService` | `ProjectRecipeRepository`, protected Recipe store |
 
-Imports often cross several of these locations. Follow responsibility rather
-than file depth: routes translate HTTP, services order the use case, domain
-code defines meaning, and adapters own I/O.
+`web/app.py` composes these boundaries. It does not compose the superseded
+Recipe-root list, creation, deletion, Test-application, Production-application,
+or qualification services.
 
-## Documentation inventory
+## Creation trace
 
-Run the advisory inventory from the repository root:
+1. `web/routers/migration_projects.py` validates the `/projects/new` form.
+2. `MigrationProjectAuthoringService.create` creates a `MigrationProject`.
+3. It creates Authoring `DataVersion` 1 and an empty draft source package.
+4. It creates Authoring `MigrationRun` 1 and one open `MigrationWorkspace`.
+5. `ProjectService.provision_migration_workspace` initializes the existing
+   mapping engine under that exact workspace ID.
+6. Deterministic child operation IDs let the coordinator resume after a fault
+   without creating duplicate roots.
 
-```console
-python scripts/code_documentation_inventory.py
-python scripts/code_documentation_inventory.py --missing
-python scripts/code_documentation_inventory.py --check
-```
+The four identities are distinct and no Recipe row is created.
 
-The first form summarizes coverage by package area. The second identifies
-public symbols that need review. Missing text is not automatically a defect:
-the documentation standard permits recorded exceptions for obvious accessors,
-passive data carriers, and framework callbacks. The inventory is intended to
-prioritize semantic gaps in services, ports, repositories, and domain
-operations rather than reward repetitive docstrings.
+## Source acceptance trace
 
-``--check`` is the normal regression gate: it fails only when a package module
-lacks its orientation docstring. ``tests/test_code_documentation.py`` exercises
-the same rule during unit-test discovery and verifies deterministic advisory
-output. Public-symbol gaps stay non-blocking until obvious accessors, passive
-carriers, framework callbacks, and other intentional exceptions have a reviewed
-baseline.
+1. `SourceIntakeService` receives source bytes for a workspace.
+2. `DataVersionAwareArtifactStore` resolves the workspace's DataVersion and
+   stores source bytes under that DataVersion ID.
+3. Existing inspection and source services record current authoring choices in
+   the contained mapping engine.
+4. `WorkspaceDataVersionSourceService` converts the accepted file, catalogue,
+   confirmation, dataset, and snapshot contracts into one canonical
+   `DataVersionSourcePackage`.
+5. `DataVersionSourcePackageService.freeze` freezes both the package and
+   DataVersion identity.
+6. `WorkspaceSourceProjectionService` writes only selected dataset IDs and
+   snapshot hashes to `workspace.duckdb`.
+7. `WorkspaceMappingSourceProjection` supplies those immutable contracts to
+   the mapping editor and Recipe compiler.
 
-## Migration-stage orientation
+No source row or source artifact is copied into the clean workspace store.
 
-Product Stages A–K describe one DataVersion workspace lifecycle. The Recipe
-lifecycle wraps those stages with publication, Test application,
-qualification/cutover selection, and fresh Production application. Delivery
-phases describe when capabilities were built; they are not runtime states.
+## Recipe publication trace
 
-| Stage | Current boundary | First code to open |
+1. The Project overview asks `ProjectRecipePublicationService.draft` whether
+   the authoring workspace is eligible.
+2. `RecipeAuthoringService` compiles portable semantic meaning and validates
+   the exact envelope contract in `domain/recipe_envelope.py`.
+3. `ProjectRecipeRepository` reserves an owner-specific operation intent.
+4. It writes the authenticated payload to the protected Recipe store.
+5. One registry transaction creates the Recipe identity and revision 1, or
+   appends a successor revision with optimistic concurrency.
+6. Replay resumes from the stored intent and returns the one committed result.
+
+Publication records origin provenance. It never updates DataVersion ownership,
+Project identity, workspace identity, run identity, or cutover authority.
+
+## Existing workspace workflow
+
+| Stage | Main application service | Browser route prefix |
 | --- | --- | --- |
-| A — Create the Recipe/DataVersion and register its workspace | Implemented; browser label is **project** | [`application/recipe_authoring_service.py`](../../src/impodo/application/recipe_authoring_service.py), [`projects.py`](../../src/impodo/projects.py), then [`web/routers/projects.py`](../../src/impodo/web/routers/projects.py) |
-| B — Inspect source files | Implemented | [`intake.py`](../../src/impodo/intake.py), [`inspection.py`](../../src/impodo/inspection.py), and [`application/source_workspace_service.py`](../../src/impodo/application/source_workspace_service.py) |
-| C — Connect Odoo and discover its governed schema | Implemented as purpose-specific connection checking plus read-only capture and governance | [`application/odoo_connection_service.py`](../../src/impodo/application/odoo_connection_service.py), [`application/schema_workspace_service.py`](../../src/impodo/application/schema_workspace_service.py), then [`domain/schema/`](../../src/impodo/domain/schema) |
-| D — Build and approve the mapping | Implemented through validated submission evidence; this is not import approval | [`application/mapping_workspace_service.py`](../../src/impodo/application/mapping_workspace_service.py), then [`domain/mapping/`](../../src/impodo/domain/mapping) and [`domain/compiler/`](../../src/impodo/domain/compiler) |
-| E — Normalize and validate | Implemented for the bounded browser workflow, including scoped advanced checks | [`application/preparation_service.py`](../../src/impodo/application/preparation_service.py), then [`domain/staging/evaluator.py`](../../src/impodo/domain/staging/evaluator.py), [`domain/coverage.py`](../../src/impodo/domain/coverage.py), [`quality.py`](../../src/impodo/quality.py), and [`normalization.py`](../../src/impodo/normalization.py) |
-| F — Store canonical staging data | Implemented with immutable canonical and effective rows plus current-run pointers | [`staging_contracts.py`](../../src/impodo/staging_contracts.py), [`domain/resolution.py`](../../src/impodo/domain/resolution.py), then [`adapters/duckdb/staging_repository.py`](../../src/impodo/adapters/duckdb/staging_repository.py) and [`adapters/duckdb/advanced_coverage_repository.py`](../../src/impodo/adapters/duckdb/advanced_coverage_repository.py) |
-| G — Resolve relationships | Implemented across mapping validation, structural preparation, exact references, reviewed duplicate resolution, and preflight lookup resolution | [`domain/mapping/validation/`](../../src/impodo/domain/mapping/validation), [`domain/structural.py`](../../src/impodo/domain/structural.py), [`application/resolution_service.py`](../../src/impodo/application/resolution_service.py), and [`engine.py`](../../src/impodo/engine.py) |
-| H — Read-only target preflight | Implemented from approved durable rows and for strict CLI profiles | [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py), [`domain/preflight/frozen_input.py`](../../src/impodo/domain/preflight/frozen_input.py), [`planner.py`](../../src/impodo/planner.py), and [`engine.py`](../../src/impodo/engine.py) |
-| I — Freeze exact practical execution input | Implemented automatically after browser preflight; no extra certification or approval lifecycle | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py), emitted and revalidated by [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py) |
-| J — Controlled Odoo execution | Implemented for schema-bound previews on a disposable local or remote target; comparison readers remain read-only | [`application/execution_service.py`](../../src/impodo/application/execution_service.py), [`odoo_scope.py`](../../src/impodo/odoo_scope.py), [`odoo_writer.py`](../../src/impodo/odoo_writer.py), and [`web/routers/execution.py`](../../src/impodo/web/routers/execution.py) |
-| K — Reconcile after writes | Implemented for the schema-bound disposable-target path | [`application/reconciliation_service.py`](../../src/impodo/application/reconciliation_service.py), [`odoo_readback.py`](../../src/impodo/odoo_readback.py), and [`adapters/duckdb/reconciliation_repository.py`](../../src/impodo/adapters/duckdb/reconciliation_repository.py) |
-
-## Local browser composition
-
-[`create_local_app`](../../src/impodo/web/app.py) is the local composition
-root. It constructs one concrete repository per persistence responsibility,
-injects them into application services, stores those services in
-[`WebContext`](../../src/impodo/web/context.py), and gives the same context to
-every router.
-
-Spawned preparation is the deliberate exception. The browser process resolves
-the active Recipe/DataVersion and captures that identity in the job before
-spawn. [`create_preparation_worker`](../../src/impodo/preparation_worker.py)
-then composes only project-scoped repositories; its project reader verifies the
-captured identity against the immutable project linkage and has no Recipe
-registry capability. Progress pages render their project, Recipe, and workflow
-context from the job snapshot, so polling cannot contend with either DuckDB
-writer.
-
-`WebContext` is dependency wiring, not a domain aggregate. When starting from
-a route such as `context.preparation.prepare(...)`, open the declared type of
-`preparation` to find the use case. When starting from a service dependency
-such as `self.staging`, open the matching protocol in
-[`application/readiness_ports.py`](../../src/impodo/application/readiness_ports.py),
-then the DuckDB implementation assembled in `create_local_app`.
-
-## Cross-cutting ownership and dependency direction
-
-Cross-cutting code owns one guarantee and is called from several stages. It
-must not absorb workflow decisions from the services or domain:
-
-```mermaid
-flowchart LR
-    Composition["web/app.py composition root"] --> Web["web routes and presenters"]
-    WorkerComposition["preparation_worker.py project-only root"] --> Application
-    WorkerComposition --> Adapters
-    Composition --> Application["application services"]
-    Composition --> Adapters["DuckDB, artifact, secret, and reader adapters"]
-    Web --> Application
-    Application --> Domain["domain contracts and operations"]
-    Application --> Ports["service-facing protocols"]
-    Adapters -. "implement" .-> Ports
-    Adapters --> Domain
-    Readers["closed local/remote Odoo reads"] --> Snapshots["snapshot contracts"]
-    Application --> Snapshots
-```
-
-The intended direction is from delivery/orchestration toward domain contracts.
-Domain modules do not construct FastAPI routes, DuckDB repositories, secret
-stores, or Odoo transports. Concrete wiring belongs only in the local browser
-root or the narrower project-only preparation-worker root.
-
-| Guarantee | Owner | How it connects to workflow code |
-| --- | --- | --- |
-| Command authorization and audit identity | [`access.py`](../../src/impodo/access.py) | Routes provide an `Actor`; application services call `AuthorizationPolicy.require` before governed access; repositories write stable issuer/subject identity in the same transaction as state changes. `PROJECT_ADMIN` is the explicit capability override. |
-| Browser request security | [`web/security.py`](../../src/impodo/web/security.py) | Middleware constrains host, forwarding headers, unsafe-request origin, request size, and response headers. Route helpers independently require the launch-token session and CSRF token. This does not replace application authorization. |
-| Project-root containment | [`project_security.py`](../../src/impodo/project_security.py) | Startup secures the root before database/artifact construction. Production policy rejects unsafe Windows locations/links and enforces protected DACLs, or owner-only POSIX permissions. |
-| Source/report artifacts | [`artifacts.py`](../../src/impodo/artifacts.py) | `ArtifactStore` offers generated, project/run-contained operations rather than arbitrary path writes. Streaming is size-bounded; validation happens before atomic replacement; compensation removes unpublished files. |
-| Target credentials | [`secrets.py`](../../src/impodo/secrets.py) | Routes retrieve credentials by opaque ID only at the target-reader boundary. Secrets stay in session memory and optionally the OS vault; they never enter Recipe or project/domain/repository evidence. Test credentials are never copied to Production. |
-| Protected Odoo provenance | [`application/odoo_provenance_service.py`](../../src/impodo/application/odoo_provenance_service.py), [`domain/odoo_provenance.py`](../../src/impodo/domain/odoo_provenance.py), [`adapters/protected_odoo_provenance.py`](../../src/impodo/adapters/protected_odoo_provenance.py), and [`adapters/duckdb/odoo_provenance_repository.py`](../../src/impodo/adapters/duckdb/odoo_provenance_repository.py) | The service authorizes access and isolates the project key in the OS vault; the codec carries page-sized typed origins under AES-256-GCM; DuckDB stores strict manifest history/current pointers and enforces quota, retention, invalidation, and contained private files. No portable contract receives a numeric Odoo ID. |
-| Recipe lineage and protected payloads | [`recipes.py`](../../src/impodo/recipes.py), [`application/recipe_service.py`](../../src/impodo/application/recipe_service.py), [`adapters/duckdb/recipe_repository.py`](../../src/impodo/adapters/duckdb/recipe_repository.py), and [`adapters/protected_recipe_store.py`](../../src/impodo/adapters/protected_recipe_store.py) | Recipe and DataVersion IDs remain independent from workspace IDs. Registry queries provide bounded lineage without opening project databases. Immutable Recipe and qualification payloads are AES-256-GCM protected with one vault-backed key per Recipe; publication, DataVersion creation, qualification, cutover, and deletion enumeration cross storage boundaries through recoverable intents. |
-| Recipe authoring compiler | [`application/recipe_authoring_service.py`](../../src/impodo/application/recipe_authoring_service.py), [`domain/recipe_parameters.py`](../../src/impodo/domain/recipe_parameters.py), and [`adapters/duckdb/recipe_authoring_repository.py`](../../src/impodo/adapters/duckdb/recipe_authoring_repository.py) | **New project** provisions Recipe plus Authoring DataVersion 1 and a contained workspace. `RecipeDraft` reads the exact current submitted mapping, effective/base source shapes, governance, schema, quality, references, preparation, parameter declarations, and controls; it strips workspace/target identities, emits one exact version-2 envelope, applies the protected publication validator, and delegates immutable publication to `RecipeService`. Custom typed declarations are content-hashed authoring evidence; their current values remain separate DataVersion evidence. |
-| Recipe Test/Production application | [`domain/recipe_applications.py`](../../src/impodo/domain/recipe_applications.py), [`application/recipe_application_service.py`](../../src/impodo/application/recipe_application_service.py), and [`adapters/duckdb/recipe_application_repository.py`](../../src/impodo/adapters/duckdb/recipe_application_repository.py) | A published current revision provisions a clean Test DataVersion; a selected qualification provisions a clean Production DataVersion pinned to its exact revision. Exact source names and explicit physical overrides bind same-ish data; current live Odoo and credential-generation evidence creates a non-secret `TargetBinding`; focused compatibility and categorical checks either persist blocked evidence or rebuild preparation/governance and save a fresh mapping draft. Reusable manager quality rules are staged for that exact mapping hash and automatic rules regenerate after mapping confirmation. |
-| Recipe qualification and cutover | [`domain/recipe_qualifications.py`](../../src/impodo/domain/recipe_qualifications.py) and [`application/recipe_qualification_service.py`](../../src/impodo/application/recipe_qualification_service.py) | Qualification binds one exact current Recipe revision to its remote Test application, preparation, quality, comparison, execution, read-back, reconciliation, and operator-confirmed outcomes. Cutover selection is a separate exact pointer and grants no credential or Production write authority. A later revision is untested and cannot inherit the earlier qualification. |
-| Odoo connection purpose | [`application/odoo_connection_service.py`](../../src/impodo/application/odoo_connection_service.py) and [`web/remote_connection.py`](../../src/impodo/web/remote_connection.py) | Source-read and destination-read checks retain separate session status. A check identifies the exact Odoo 19 database and read principal through a bounded probe; it does not discover models/fields or grant write authority. Schema capture remains an explicit later operation. |
-| Live Odoo source capture | [`application/odoo_source_capture_service.py`](../../src/impodo/application/odoo_source_capture_service.py), [`domain/odoo_source_capture.py`](../../src/impodo/domain/odoo_source_capture.py), and [`adapters/odoo_source_capture.py`](../../src/impodo/adapters/odoo_source_capture.py) | The planner admits only explicit Tier-1 schema fields and structured filters. The service verifies current evidence and target identity at both ends; the adapter applies transport byte caps, high-water keyset paging, typed page adaptation, cancellation, and safe errors. The page loop performs no hashing or full-snapshot materialization. |
-| Odoo capture publication | [`application/odoo_capture_publication_service.py`](../../src/impodo/application/odoo_capture_publication_service.py), [`application/odoo_capture_job_service.py`](../../src/impodo/application/odoo_capture_job_service.py), [`source_snapshot_io.py`](../../src/impodo/source_snapshot_io.py), and [`adapters/duckdb/odoo_provenance_repository.py`](../../src/impodo/adapters/duckdb/odoo_provenance_repository.py) | The publication service preflights disk, sends each typed page directly to the tagged Parquet writer and narrow origin encoder, and contacts no target after capture completes. The writer encodes cells once and updates the logical root from those encoded columns; exact artifact hashing remains at publication/materialization boundaries. The repository promotes source selection, source snapshot, and provenance roots in one short transaction and performs restart/failure cleanup without replacing the previous valid pointers. The session-scoped job manager serializes browser captures, reuses page/byte counters for progress, and cancels through the reader checkpoint without storing values or credentials. |
-| Idempotent work | [`jobs.py`](../../src/impodo/jobs.py) | `JobRequest` binds actor/project/input hash to an idempotency key. The local dispatcher is synchronous but preserves queued/running/succeeded/failed transitions and future hosted-queue semantics. |
-| Local Odoo lifecycle | [`local_stack.py`](../../src/impodo/local_stack.py) | The service keeps session-only status and exact process ownership. It reads an allowlisted non-secret config subset and may stop/restart only services this Impodo process started; external services are probed but never adopted. |
-| Database boundary | [`adapters/duckdb/database.py`](../../src/impodo/adapters/duckdb/database.py) and [`unit_of_work.py`](../../src/impodo/adapters/duckdb/unit_of_work.py) | One hardened connection factory disables extensions and defaults external access off. The prepared-projection adapter opens external access only on short-lived internal connections whose Parquet path came from SHA-256-verified artifact materialization; SQL and paths are never supplied by a request. Per-project UUID containment, schema preparation, explicit begin/commit/rollback, and shared unit-of-work scopes sit below all concrete repositories. |
-| Native preparation data plane | [`adapters/polars_transformation.py`](../../src/impodo/adapters/polars_transformation.py), [`application/bounded_preparation.py`](../../src/impodo/application/bounded_preparation.py), and [`adapters/duckdb/native_prepared_projection.py`](../../src/impodo/adapters/duckdb/native_prepared_projection.py) | Polars writes immutable transformed values plus a verified prepared ordinal. DuckDB projects clean native datasets into narrow identity, lineage, relationship, impact, control-total, and canonical-index relations set-wise. The complete bounded semantic projector remains the whole-dataset oracle for unsupported value/issue shapes; the native route never falls back per row. |
-| Registry and workspace schemas | [`adapters/duckdb/schema/registry.py`](../../src/impodo/adapters/duckdb/schema/registry.py), [`adapters/duckdb/schema/project.py`](../../src/impodo/adapters/duckdb/schema/project.py), and [`adapters/duckdb/schema/recipe_workspace.py`](../../src/impodo/adapters/duckdb/schema/recipe_workspace.py) | Current creation writes an exact Recipe/DataVersion/workspace linkage from the first operation. The workspace database requires the exact base generation and version 1; checksum-pinned additive migrations add linkage, seal, authoring parameter declarations, application input/draft/evidence, TargetBinding, and mapping-bound quality-seed tables without a general compatibility reader or lazy adoption path. |
-| Evidence invalidation | [`adapters/duckdb/invalidation.py`](../../src/impodo/adapters/duckdb/invalidation.py) | Upstream writes retire dependent lifecycle state and remove only `current` pointers in the caller's transaction. Immutable historical evidence remains. The cascade follows staging/effective dataset → quality → normalization → preflight. |
-| Serialization and hashing | [`models.py`](../../src/impodo/models.py), [`domain/serialization.py`](../../src/impodo/domain/serialization.py), and DuckDB [`serialization.py`](../../src/impodo/adapters/duckdb/serialization.py) | Portable values and canonical JSON make content identities deterministic. Repository serializers adapt fixed row shapes without redefining domain semantics; numeric Odoo IDs remain forbidden from portable artifacts. |
-| Audit | [`adapters/duckdb/audit.py`](../../src/impodo/adapters/duckdb/audit.py) | Audit rows are appended inside the state-changing transaction, so a mutation and its actor evidence either commit or roll back together. |
-
-### Error ownership and translation
-
-Errors are grouped by where recovery belongs:
-
-| Error family | Meaning | Translation point |
-| --- | --- | --- |
-| Domain/value `ValueError` subclasses | An immutable contract or pure operation received invalid evidence | Application services normally translate workflow-relevant cases; CLI `main` maps expected profile/value failures to stable exit codes. |
-| `ProjectError` / `WorkspaceError` | A user-correctable lifecycle, stale-current, optimistic-concurrency, or governed-workspace problem | Browser routes catch these around one action and re-render the owning page with plain-language guidance. |
-| `ReadinessError` | Preparation/preflight cannot safely progress, often before Odoo contact | Preparation/preflight routes return actionable review feedback; it is not treated as an unexpected server error. |
-| Connector, artifact, secret, local-stack errors | A contained infrastructure boundary could not complete safely | The route owning that boundary catches its typed error and avoids exposing response bodies, credentials, raw filesystem capability, or arbitrary process controls. |
-| Unexpected exceptions | Programming/infrastructure faults outside an expected recovery contract | They propagate; repositories/unit-of-work roll back and artifact-compensation blocks prevent partial publication. |
-
-## Migration Project M1-M2 foundation
-
-Phases M1 and M2 add the clean Migration Project persistence and source-package
-foundation beside the current browser composition. No browser route calls it
-yet. Use the current Stage A journey below when tracing an operator action;
-use this section when continuing the browser cutover in Phase M3.
-
-| Responsibility | Domain and port | Local adapter |
-| --- | --- | --- |
-| Business migration root and bounded list | [`migration_projects.py`](../../src/impodo/migration_projects.py) | [`migration_foundation_repository.py`](../../src/impodo/adapters/duckdb/migration_foundation_repository.py) |
-| Project-owned source-package identity | [`data_versions.py`](../../src/impodo/data_versions.py) | The foundation repository plus the exact DataVersion store |
-| DataVersion-owned source intake, package, and freeze | [`data_version_sources.py`](../../src/impodo/data_version_sources.py) | `DataVersionSourceIntakeService`, `DataVersionSourcePackageService`, the governed artifact port, and the M2 DataVersion source tables |
-| Authoring, Test, or Production run identity | [`migration_runs.py`](../../src/impodo/migration_runs.py) | The foundation repository and registry projection |
-| Isolated mapping and execution workspace | [`migration_workspaces.py`](../../src/impodo/migration_workspaces.py) | The foundation repository plus the exact workspace store |
-| Bounded read-only workspace source projection | `WorkspaceSourceProjectionService` in [`data_version_sources.py`](../../src/impodo/data_version_sources.py) | The foundation repository resolves immutable DataVersion dataset references without copying source state |
-| Mapping source view over one projection | [`workspace_source_projection.py`](../../src/impodo/application/workspace_source_projection.py) | `WorkspaceMappingSourceProjection` satisfies the existing mapping source port without a second mapping engine |
-| Shared validation, conflicts, and operation intents | [`migration_foundation.py`](../../src/impodo/migration_foundation.py) | [`migration_foundation_database.py`](../../src/impodo/adapters/duckdb/migration_foundation_database.py) and the exact schema modules |
-| Recoverable development cutover | [`development_reset.py`](../../src/impodo/development_reset.py) | [`reset-development-storage.py`](../../scripts/reset-development-storage.py) |
-
-The new adapter owns a separate exact registry generation. Project list reads
-one registry query and opens no child store. Create commands reserve
-actor-bound, hash-bound operation intents and advance optimistic Project state
-when they add a DataVersion, run, or workspace. Source-package acceptance and
-workspace projection use the same actor-bound, hash-bound recovery rule. The
-database verifies exact DataVersion and workspace linkage before returning
-mutable state. Older Recipe-first and M1 databases fail closed and require the
-explicit, confirmed, developer-only quarantine procedure.
-
-The [Phase M1 persistence
-foundation](../plans/migration-projects-phase-m1-foundation.md) and [Phase M2
-source-package foundation](../plans/migration-projects-phase-m2-source-packages.md)
-record the implemented generations, storage layout, recovery behavior, and
-focused gates. They do not make the target workflow available in the browser.
-
-## Stage A–D class and evidence families
-
-The early workflow is easier to navigate as four evidence chains. A `current`
-pointer selects active evidence; immutable/versioned objects remain history
-when that pointer is invalidated or advanced.
-
-| Stage | Main object family | Owner and organization |
-| --- | --- | --- |
-| A — Recipe and workspace | The browser's operator **project** is one `Recipe`; each `DataVersion` owns one contained workspace represented by `WorkspaceState`, with setup, target, immutable `SourceFile` references, and lifecycle summaries | `RecipeService` and `RecipeRepository` own bounded lineage and cross-store intents; `RecipeAuthoringService` creates and publishes; `RecipeApplicationService` applies Test/Production revisions; `RecipeQualificationService` qualifies and selects cutover; `ProjectService` and DuckDB `ProjectRepository` retain contained workspace transactions, authorization, credentials, and downstream invalidation |
-| B — Source | File origin: `SourceFile` → `SourceFileCatalog` → `SourceConfiguration` → versioned `SourceSelection` + immutable `SourceSnapshot`; Odoo origin: versioned `OdooCaptureSelection` → validated live page stream → immutable `SourceSelection`/`SourceSnapshot` + encrypted protected origin manifest/sidecar | `SourceIntakeService` owns compensated file intake; `SourceInspectionService` owns bounded inspection; `SourceWorkspaceService` owns file freezing and the no-I/O bounded Odoo capture plan; `OdooSourceCaptureService` owns the authorized start/page/end read interval; `OdooCapturePublicationService` owns values/provenance candidate orchestration; `OdooCaptureJobManager` owns the browser progress/cancellation control plane; `OdooProvenanceService` owns protected origin encoding/reading; `OdooProvenanceRepository` promotes all current roots atomically. |
-| C — Schema | `OdooModelCatalog` → permitted-model scope → `OdooSchemaCatalog` → versioned `SchemaGovernance`/`BusinessKeyDefinition` | Closed readers create snapshots; `SchemaWorkspaceService` verifies target identity and meaning; `SchemaRepository` owns current catalogs plus immutable governance revisions |
-| D — Mapping | recoverable `MappingWorkingDraft` → semantic `MappingDefinition` → immutable `MappingRevision` + `MappingValidationResult` → `MappingSubmission` | Mapping contract v11 adds explicit categorical policies and split control definitions/edition expectations. `MappingWorkspaceService` combines pure semantic checks with one-scan-per-dataset `CategoricalCoverageEvidence`; `MappingRepository` owns optimistic draft/current/history pointers. Target relationship existence remains explicitly deferred to preparation. |
-
-The columnar preparation track publishes immutable physical source evidence in
-[`domain/source_snapshot.py`](../../src/impodo/domain/source_snapshot.py): a
-mapping-independent schema, lossless tagged source scalars, logical/artifact
-hash binding, and application-constructed content-addressed paths.
-[`source_snapshot_io.py`](../../src/impodo/source_snapshot_io.py) retains the
-strict CSV/XLSX reader as the file-ingestion oracle and accepts typed Odoo
-column pages through the same candidate writer. It writes cell-bounded Parquet
-fragments, compacts and validates them with streaming Polars execution, and
-provides the temporary bounded `SourceRow` adapter. Source freezing publishes
-the file first and then advances the selection and per-dataset snapshot
-pointers together in DuckDB; Odoo capture publication advances the same generic
-pointers with its protected manifest in one transaction. Preview and
-preparation read the verified snapshot; they do not reopen registered CSV/XLSX
-bytes or contact Odoo.
-
-[`domain/compiler/columnar_transformation.py`](../../src/impodo/domain/compiler/columnar_transformation.py)
-now compiles each direct browser mapping into a backend-neutral, hashable
-`ColumnarTransformationProgram` or deterministic whole-dataset Python-fallback
-reasons. Its complete capability matrix and ordered program contain no Polars
-types or expressions.
-[`adapters/polars_transformation.py`](../../src/impodo/adapters/polars_transformation.py)
-compiles supported programs into streaming native expressions, projects only
-required snapshot columns, and writes a mapping-bound immutable prepared
-Parquet snapshot. Its manifest binds the exact source snapshot, mapping,
-schema, transformation program, row count, physical schema, and Parquet bytes;
-DuckDB owns historical manifests, session bindings, and the current pointer.
-The pointer advances only after canonical publication succeeds. The adapter
-then reads the prepared values in bounded batches, constructs trusted typed
-records without generic scalar reparsing, and emits sparse issue and impact
-evidence. `columnar_runtime.py` caps the default Polars pool at one measured
-worker thread while respecting an explicit `POLARS_MAX_THREADS` override.
-Supported direct programs require this exact snapshot path and cannot fall
-through to Python. Unsupported semantics still use the Python oracle for the
-complete dataset, and both routes share the same canonical publication helper
-and evidence contracts.
-
-The important port-to-adapter connections are:
-
-| Service-facing port | Local implementation | Used by |
-| --- | --- | --- |
-| `projects.ProjectRepository` | `adapters.duckdb.project_repository.ProjectRepository` | `ProjectService` |
-| `recipes.RecipeRepository` | `adapters.duckdb.recipe_repository.RecipeRepository` plus `adapters.protected_recipe_store.ProtectedRecipeStore` | `RecipeService` |
-| `RecipeApplicationStateRepository` | `adapters.duckdb.recipe_application_repository.RecipeApplicationRepository` | `RecipeApplicationService` and mapping-bound `QualityService` seed reads |
-| `ArtifactStore` | `LocalArtifactStore` | source intake/inspection, contained immutable source/prepared Parquet publication/materialization, and preflight report projections |
-| `SourceCatalogRepository` and `SourceWorkspaceRepository` | `adapters.duckdb.source_repository.SourceRepository` | `SourceInspectionService`, `SourceWorkspaceService` |
-| `OdooProvenanceStore` | `adapters.duckdb.odoo_provenance_repository.OdooProvenanceRepository` plus the AES-GCM typed codec | `OdooProvenanceService` |
-| `DerivedEntityRepository` | `adapters.duckdb.derived_entity_repository.DerivedEntityRepository` | `DerivedEntityWorkspaceService` |
-| `SchemaWorkspaceRepository` | `adapters.duckdb.schema_repository.SchemaRepository` | `SchemaWorkspaceService` |
-| `MappingWorkspaceRepository` | `adapters.duckdb.mapping_repository.MappingRepository` | `MappingWorkspaceService` |
-
-The protocols describe semantic guarantees and keep services independent of
-DuckDB. `BrowserQueryService` is intentionally different: its small methods
-are transparent read-only forwarders used by presenters and are a documented
-coverage exception rather than independent business operations.
-
-## Journey 1 — Create an operator project and register its workspace (Stage A)
-
-### Outcome
-
-**New project** creates a `Recipe`, Authoring DataVersion 1, and a contained
-draft workspace, represented by `WorkspaceState`, with independent IDs. It
-records only the
-name and `FILE` or `ODOO` source mode. `FILE` mode stores one or more validated
-files under generated names and can register without an Odoo destination;
-destination setup occurs in Stage C. `ODOO` mode rejects file attachment,
-checks the exact read-only source connection, and needs no export date or
-placeholder file. The former details, governance, target, and confirmation
-wizard is retained only as a compatibility surface.
-
-```mermaid
-sequenceDiagram
-    participant Route as "projects router"
-    participant Authoring as "RecipeAuthoringService"
-    participant Project as "ProjectService"
-    participant Intake as "SourceIntakeService"
-    participant Artifacts as "ArtifactStore"
-    participant Registry as "Recipe/Project repositories"
-
-    Route->>Authoring: create(name, source mode)
-    Authoring->>Project: create_project(...)
-    Project->>Registry: create Recipe + DataVersion 1 + workspace
-    opt FILE source mode
-        Route->>Intake: accept(upload(s), expected revisions)
-        Intake->>Artifacts: validate, hash, and store immutable bytes
-        Intake->>Project: add_source_file(...)
-        Project->>Registry: add immutable source-file evidence
-    else ODOO source mode
-        Route->>Project: save checked source connection
-    end
-    Route->>Project: register(...)
-    Project->>Registry: save PROJECT_REGISTERED
-```
-
-### Navigation chain
-
-1. [`build_projects_router`](../../src/impodo/web/routers/projects.py) owns the
-   operator-project list, creation, file setup, registration, Recipe overview,
-   publication, Test/Production creation, application, qualification, and
-   cutover actions.
-2. [`RecipeAuthoringService.create`](../../src/impodo/application/recipe_authoring_service.py)
-   provisions Recipe, Authoring DataVersion 1, and workspace through the
-   current project creation transaction.
-3. [`ProjectService`](../../src/impodo/projects.py) owns authorization,
-   optimistic revision checks, editable-versus-registered lifecycle rules, and
-   field validation. `registration_problems` returns every missing
-   mode-specific source fact instead of failing on the first one.
-4. For `FILE` workspaces,
-   [`SourceIntakeService.accept`](../../src/impodo/intake.py) validates the
-   display name and format, streams the upload through isolated validation,
-   hashes/stores it, and registers immutable `SourceFile` evidence. If project
-   persistence fails, it deletes the newly stored artifact.
-5. Odoo source setup uses the shared target route with source-read purpose. A
-   file workspace uses the same route later with destination-read purpose.
-   Connection checking identifies the database but does not repeat schema
-   discovery.
-6. `RecipeRepository` keeps bounded aggregate lineage; the contained
-   [`ProjectRepository`](../../src/impodo/adapters/duckdb/project_repository.py)
-   keeps one workspace database/directory. Writes use expected revisions,
-   append audit evidence, and refresh the registration manifest.
-
-Changing a registered file workspace's later destination removes current
-schema governance and mapping pointers and invalidates canonical staging.
-Adding source files invalidates canonical staging; Stage B reinspection and
-freezing perform the more specific workspace invalidations described next.
-
-### Evidence and tests
-
-```text
-Recipe + active Authoring DataVersion + draft WorkspaceState
--> optional immutable stored source bytes + SourceFile hashes (FILE only)
--> mode-complete registered WorkspaceState
--> Recipe/DataVersion registry + registration manifest + audit events
-```
-
-Start verification in
-[`tests/test_projects.py`](../../tests/test_projects.py) and the
-`ProjectSetupWizardTests` section of
-[`tests/test_web_app.py`](../../tests/test_web_app.py).
-
-## Journey 2 — Inspect, confirm, and freeze datasets (Stage B)
-
-### Outcome
-
-Impodo inspects every registered CSV/XLSX in an isolated worker, records
-hash-bound catalogs, requires explicit table/warning confirmation, and freezes
-stable logical dataset/column identities for mapping. Registered source bytes
-are never edited.
-
-```mermaid
-sequenceDiagram
-    participant Route as "sources router"
-    participant Inspect as "SourceInspectionService"
-    participant Worker as "isolated source worker"
-    participant Source as "SourceWorkspaceService"
-    participant Repo as "SourceRepository"
-
-    Route->>Inspect: inspect_project / inspect_file
-    Inspect->>Worker: inspect immutable artifact
-    Worker-->>Inspect: SourceFileCatalog
-    Inspect->>Repo: save hash-bound catalog evidence
-    Route->>Source: confirm_source(...)
-    Source->>Repo: save SourceConfiguration
-    Route->>Source: freeze_selection(dataset names)
-    Source->>Repo: save versioned SourceSelection
-```
-
-### Navigation chain
-
-1. [`build_sources_router`](../../src/impodo/web/routers/sources.py) exposes the
-   inspect, per-file configuration/confirmation, and dataset-freeze actions.
-2. [`SourceInspectionService`](../../src/impodo/inspection.py) materializes
-   registered artifacts and delegates parsing to the isolated source worker.
-   The pure `inspect_source_file` implementation verifies bytes against the
-   registered size/hash before reading their structure.
-3. [`SourceWorkspaceService.confirm_source`](../../src/impodo/application/source_workspace_service.py)
-   binds selected tables and acknowledged warnings to the exact catalog hash.
-4. [`SourceWorkspaceService.freeze_selection`](../../src/impodo/application/source_workspace_service.py)
-   requires every registered file to be confirmed and creates stable dataset
-   and column keys plus a new content-hashed `SourceSelection` version.
-5. [`SourceRepository`](../../src/impodo/adapters/duckdb/source_repository.py)
-   persists catalogs, confirmations, and the current frozen selection.
-
-Reinspection invalidates confirmations, the frozen selection, active derived
-plan/mapping, and canonical staging. Reconfirmation invalidates the frozen
-selection, active mapping, and staging. Refreezing invalidates the active
-derived plan/mapping and staging. Historical immutable downstream revisions
-remain history but are no longer current.
-
-### Evidence and tests
-
-```text
-registered source bytes
--> SourceFileCatalog per file
--> SourceConfiguration per confirmed file
--> versioned, content-hashed SourceSelection
-```
-
-Start verification in
-[`tests/test_inspection.py`](../../tests/test_inspection.py),
-[`tests/test_workspace.py`](../../tests/test_workspace.py), and the source
-workflow sections of [`tests/test_web_app.py`](../../tests/test_web_app.py).
-
-## Journey 3 — Capture and govern the Odoo schema (Stage C)
-
-### Outcome
-
-Impodo discovers available persistent Odoo models, records an explicit model
-allowlist, captures only those models through a closed read-only reader, and
-confirms natural/business keys against the exact captured schema. An
-acknowledged local manual draft can support experiments but cannot support
-mapping submission.
-
-```mermaid
-sequenceDiagram
-    participant Route as "schema router"
-    participant Reader as "closed Odoo metadata reader"
-    participant Project as "ProjectService"
-    participant Schema as "SchemaWorkspaceService"
-    participant Repo as "SchemaRepository"
-
-    Route->>Reader: read persistent model catalogue
-    Route->>Schema: discover_models(snapshot)
-    Schema->>Repo: save OdooModelCatalog
-    Route->>Project: update_schema_scope(permitted models)
-    Project->>Repo: replace allowlist and invalidate dependents
-    Route->>Reader: read fields for permitted models only
-    Route->>Schema: capture(metadata snapshot)
-    Schema->>Repo: save OdooSchemaCatalog
-    Route->>Schema: govern(business keys)
-    Schema->>Repo: append SchemaGovernance revision
-```
-
-### Navigation chain
-
-1. [`build_schema_router`](../../src/impodo/web/routers/schema.py) chooses the
-   configured local or remote reader, manages the explicit model scope, and
-   translates captured values into service calls.
-2. [`ProjectService.update_schema_scope`](../../src/impodo/projects.py) owns the
-   exact Stage C model allowlist. A changed scope removes current schema,
-   governance, mapping, and staging evidence.
-3. [`SchemaWorkspaceService.discover_models`](../../src/impodo/application/schema_workspace_service.py)
-   filters a complete target-bound `ir.model` snapshot into persistent model
-   choices.
-4. [`SchemaWorkspaceService.capture`](../../src/impodo/application/schema_workspace_service.py)
-   requires a frozen source selection for file-origin projects, but allows
-   eligibility-schema capture before source freeze for Odoo-origin projects.
-   It also requires exact permitted-model coverage, the configured target
-   identity, and Odoo 19 metadata. `capture_local_manual`
-   stores an explicitly unverified alternative for local drafting only.
-5. [`SchemaWorkspaceService.govern`](../../src/impodo/application/schema_workspace_service.py)
-   validates declared key/scope fields against the captured models and creates
-   a new immutable governance revision.
-6. [`SchemaRepository`](../../src/impodo/adapters/duckdb/schema_repository.py)
-   owns current model/schema catalogs and versioned governance evidence.
-
-Recapturing the schema invalidates current business-key governance, mapping,
-and staging. Changing governed business keys invalidates current mapping and
-staging. These invalidations ensure Stage D cannot silently reuse an earlier
-target shape or identity policy.
-
-### Evidence and tests
-
-```text
-target-bound OdooModelCatalog
--> explicit permitted-model scope
--> target-bound OdooSchemaCatalog
--> versioned SchemaGovernance with confirmed business keys
-```
-
-Start verification in
-[`tests/test_workspace.py`](../../tests/test_workspace.py),
-[`tests/test_business_keys.py`](../../tests/test_business_keys.py),
-[`tests/test_local_odoo_reader.py`](../../tests/test_local_odoo_reader.py), and
-the schema sections of [`tests/test_web_app.py`](../../tests/test_web_app.py).
-
-## Journey 4 — Save, validate, and submit a mapping (Stage D)
-
-### Outcome
-
-The mapping workspace saves recoverable progress separately from immutable
-semantic revisions. Validation binds a canonicalized mapping to the exact
-effective source selection and governed schema. Submission requires a valid
-live-schema revision plus acknowledgement of every current warning; it confirms
-mapping evidence but is not normalization, package, or execution approval.
-
-For an Odoo Selection field, mapping contract v12 can store an ordered
-`SelectionRuleSet`. The browser form parser validates the bounded declarative
-payload, the shared scalar evaluator supplies preview and preparation meaning,
-categorical coverage scans the union of referenced source columns once, and
-the columnar compiler emits native first-match-wins expressions. Captured Odoo
-technical keys remain the only rule outputs; labels are presentation only.
-The transformation-impact evaluator and native Polars summarizer publish
-per-rule raw-match, first-selected, and overlap counts. The DuckDB impact
-repository binds zero-match and overlap acknowledgements to the current impact
-identity, and mapping submission rejects missing decisions.
-
-```mermaid
-sequenceDiagram
-    participant Route as "mapping router"
-    participant Service as "MappingWorkspaceService"
-    participant Validator as "MappingSemanticValidator"
-    participant Repo as "MappingRepository"
-
-    alt save progress
-        Route->>Service: save_working_draft(...)
-        Service->>Repo: replace recoverable draft with optimistic version
-    else check matches
-        Route->>Service: check_definition(...)
-        Service->>Validator: validate canonical definition and current evidence
-        Validator-->>Service: MappingValidationResult
-        Service->>Repo: append new revision + validation or reuse identical current revision
-    else confirm field matches
-        Route->>Service: submit_current(...)
-        Service->>Repo: append submission for the exact checked revision
-    end
-```
-
-### Navigation chain
-
-1. [`build_mapping_router`](../../src/impodo/web/routers/mapping.py) parses the
-   mapping editor state and dispatches one explicit save, check, or confirmation
-   command without treating confirmation as another save.
-2. [`MappingWorkspaceService.save_working_draft`](../../src/impodo/application/mapping_workspace_service.py)
-   stores incomplete recoverable work without claiming semantic validity.
-3. [`MappingWorkspaceService.check_definition`](../../src/impodo/application/mapping_workspace_service.py)
-   canonicalizes the full dataset mapping, invokes the validator, and creates a
-   revision only when its semantic content differs from the current revision.
-   `submit_current` confirms that exact checked revision after all invalid and
-   warning gates pass, without rewriting the draft or revision.
-4. [`MappingSemanticValidator`](../../src/impodo/domain/mapping/validation/validator.py)
-   coordinates focused identity, scalar, relationship, dependency, and control-
-   total validators and returns deterministic issues plus deferred runtime
-   checks.
-5. [`MappingRepository`](../../src/impodo/adapters/duckdb/mapping_repository.py)
-   uses optimistic parent/draft versions and stores working drafts, immutable
-   revisions, validation evidence, submissions, and audit events.
-
-Creating a new immutable mapping revision invalidates canonical staging. A
-submission is accepted only when its mapping content hash and validation hash
-match stored evidence and its warning acknowledgements equal the current
-warning set.
-
-### Evidence and tests
-
-```text
-recoverable MappingWorkingDraft (unchecked)
--> immutable MappingRevision
--> deterministic MappingValidationResult
--> exact MappingSubmission (when valid and acknowledged)
-```
-
-Start verification in
-[`tests/test_mapping_validation.py`](../../tests/test_mapping_validation.py),
-[`tests/test_workspace.py`](../../tests/test_workspace.py), and the mapping
-sections of [`tests/test_web_app.py`](../../tests/test_web_app.py).
-
-## Stage E–G class and evidence families
-
-The product-stage names overlap in implementation, so follow the fixed evidence
-order rather than assuming that each service creates only one stage's object:
-
-| Pipeline step | Main object family | Connection to the next step |
-| --- | --- | --- |
-| Compile and evaluate | `CompiledMigrationPlan` + `PreparedBundle` → `StagedBrowserMapping` | The evaluator applies the submitted mapping to every frozen row and assembles the portable staging contract without storage or Odoo access. |
-| Canonical staging | `CanonicalLineage` + `CanonicalRow` + dataset/run reconciliation + control totals → `CanonicalStagingRun`/`StagingRunSummary` | Row identities, proposed values, symbolic references, issues, and physical-source links become immutable Stage-E evidence. Its published content hash is the input identity for quality. |
-| Transformation impact | streamed `TransformationImpactRow` → `TransformationImpactReport`/`TransformationImpactSnapshot` | This is a filterable before/after projection of the same evaluation, not a second transformation pass with different semantics. Its identity binds physical/effective sources, mapping, schema, derived plan, and evaluator versions. |
-| Quality and quarantine | `QualityRuleSet` + canonical run → `QualityIssue`, `QualityRowResult`, `SourceAccountingEntry`, `QuarantineEntry` → `QualityRun`/summary | The quality overlay preserves canonical rows but decides which IDs remain eligible. Accounting proves every physical row is represented or explicitly set aside. The quality content hash feeds normalization. |
-| Normalization review | impact candidates + staging/quality → `NormalizationEffect` → `NormalizationReviewGroup` → `NormalizationEvaluation` | Effects explain individual field changes; groups collapse them into stable business decisions. Restricted projects mask displayed examples. |
-| Decide and freeze | review groups → `CorrectionImpact`/`CorrectionDecision` in `DryRun` → `NormalizationRunSummary` | Optimistic lifecycle versions protect concurrent decisions. Final approval freezes `eligible_dataset_hash`, the exact canonical rows Stage H may consume. |
-
-The service-facing persistence connections are:
-
-| Service-facing port | Local implementation | Durable responsibility |
-| --- | --- | --- |
-| `PreparationStagingRepository` / `CanonicalStagingRepository` | `adapters.duckdb.staging_repository.StagingRepository` | Verify current submitted inputs, batch-store immutable canonical evidence, advance the staging pointer, and invalidate downstream quality when content changes. |
-| `QualityRepository` | `adapters.duckdb.quality_repository.QualityRepository` | Version rulesets; publish full row/accounting/quarantine overlays; advance quality pointers; invalidate normalization when rules or results change. |
-| `TransformationImpactRepository` | `adapters.duckdb.transformation_impact_repository.TransformationImpactRepository` | Stream and atomically replace the filterable impact snapshot for one exact input identity. |
-| `NormalizationRepository` | `adapters.duckdb.normalization_repository.NormalizationRepository` | Store immutable effects/groups, version decisions with optimistic concurrency, and freeze the eligible-dataset identity after approval. |
-
-Content hashes form a forward-only evidence chain. Changing a submitted mapping,
-frozen selection, derived plan, quality ruleset, or project retention/ownership
-context retires the affected current pointer and requires downstream evidence to
-be regenerated; historical immutable runs remain audit history.
-
-## Journey 5 — Prepare and review data (Stages E–G)
-
-### Outcome
-
-The action reads the frozen source artifacts, evaluates the submitted mapping,
-publishes canonical staging, evaluates quality, creates normalization review
-evidence, and returns a summary. It performs no Odoo call.
-
-```mermaid
-sequenceDiagram
-    participant Route as "preparation router"
-    participant Jobs as "PreparationJobManager"
-    participant Worker as "child worker process"
-    participant Service as "PreparationService"
-    participant Eval as "staging evaluator"
-    participant Stage as "StagingRepository"
-    participant Quality as "QualityService"
-    participant Normalize as "NormalizationService"
-
-    Route->>Jobs: enqueue(project_id, actor, workspace snapshot)
-    Jobs-->>Route: session-scoped job ID
-    Jobs->>Worker: start project-only preparation
-    Worker->>Service: prepare(project_id, actor, progress)
-    Service->>Service: verify authorization, mapping submission, and frozen source
-    Service->>Eval: stage_browser_mapping(...)
-    Eval-->>Service: StagedBrowserMapping
-    Service->>Stage: publish_canonical_staging(...)
-    Stage-->>Service: StagingRunSummary
-    Service->>Quality: evaluate_and_publish(...)
-    Quality-->>Service: quality run and summary
-    Service->>Normalize: evaluate_and_publish(...)
-    Normalize-->>Worker: NormalizationRunSummary
-    Worker-->>Jobs: progress and terminal result
-    Route->>Jobs: poll live status from memory
-```
-
-### Navigation chain
-
-1. [`build_preparation_router`](../../src/impodo/web/routers/preparation.py)
-   handles `POST /projects/{project_id}/summary/check`, registers the work for
-   the current application session, and immediately redirects to a progress
-   page.
-2. [`PreparationJobManager`](../../src/impodo/application/preparation_job_service.py)
-   supervises a child process, cancellation, retry, and crash completion. Its
-   small progress snapshots stay in application memory while the worker writes
-   project DuckDB. The local default runs one heavy worker at a time so
-   concurrent projects do not multiply the preparation RAM peak; later jobs
-   remain queued for this application session. Restarting Impodo clears these
-   transient snapshots without affecting completed evidence in DuckDB.
-   The job captures the registry-authorized Recipe/DataVersion before spawn;
-   the child uses the project-only composition root and validates that identity
-   against the project's linkage without opening `registry.duckdb`. The HTML
-   progress page and JSON poll endpoint also read only the in-memory snapshot.
-3. [`PreparationService.prepare`](../../src/impodo/application/preparation_service.py)
-   enforces the workflow order and owns the use-case transaction boundaries.
-4. [`stage_browser_mapping`](../../src/impodo/application/preparation_service.py)
-   materializes verified source tables, then calls the storage-independent
-   [`evaluate_browser_mapping`](../../src/impodo/domain/staging/evaluator.py).
-5. [`StagingRepository.publish_canonical_staging`](../../src/impodo/adapters/duckdb/staging_repository.py)
-   atomically publishes immutable canonical rows and advances the current
-   staging pointer. Changed content invalidates downstream evidence.
-6. [`QualityService.evaluate_and_publish`](../../src/impodo/application/quality_service.py)
-   creates the exact quality/quarantine overlay for that staging run.
-7. [`NormalizationService.evaluate_and_publish`](../../src/impodo/application/normalization_service.py)
-   creates grouped normalization review evidence. A later explicit approval
-   freezes the eligible dataset; preparation itself does not contact Odoo.
-
-### Evidence and tests
-
-The important durable result chain is:
-
-```text
-submitted mapping + frozen source selection
--> canonical staging run
--> quality run and row dispositions
--> normalization run and review groups
--> explicit frozen eligible dataset
-```
-
-Start verification in
-[`tests/test_readiness.py`](../../tests/test_readiness.py),
-[`tests/test_staging_store.py`](../../tests/test_staging_store.py),
-[`tests/test_quality.py`](../../tests/test_quality.py), and
-[`tests/test_normalization.py`](../../tests/test_normalization.py).
-
-## Stage H class, read, and evidence families
-
-Stage H has two entry paths that converge on one comparison core:
-
-| Concern | Submitted browser-mapping path | Strict profile/CLI path | Shared downstream code |
-| --- | --- | --- | --- |
-| Prepared input | `PreflightService._load_frozen_input` reloads submitted mapping, canonical staging, quality, and frozen normalization evidence; `build_frozen_preflight_input` verifies hashes/lifecycles and adapts eligible canonical rows without transforming again. | `load_profile` → `compile_profile_document` → `prepare_sources` rebuilds typed rows from the declared source package; saved snapshots are bound to profile/source hashes. | Both supply a `CompiledMigrationPlan` and `PreparedBundle`. |
-| Read planning | `plan_preflight_requirements` uses only frozen eligible rows. | `plan_metadata_requests` and `plan_record_requests` use strict-profile prepared rows. | `MetadataRequest`, `RecordRequest`, and `PreflightRequirementPlan` contain sorted fields plus key-derived domains chunked at the safety limit. Empty/unrestricted record domains are rejected before target I/O. |
-| Target capture | `_read_readiness_snapshots` chooses a fixed local shell reader or closed remote JSON-2 reader from project configuration. | Snapshot commands use `OdooReadConnector`; offline preflight uses `SnapshotConnector`. | Connectors expose only target fingerprint, metadata reads, and record reads. Metadata and record snapshots must share one fingerprint and receive deterministic content hashes. |
-| Validation and lookup | Browser verifies the exact planned snapshot projection and configured target identity before the engine. | Snapshot binding verifies profile/source provenance before the engine. | `validate_plan_metadata` checks required model/field semantics; `TargetCatalog` indexes captured rows and contains numeric Odoo IDs; `_resolve_records` emits portable `BusinessReference` values and grouped `ReferenceResolution` evidence. |
-| Comparison | Same engine. | Same engine. | `PreflightEngine.run` applies blocking precedence, indexes target business identities, then emits `Decision` classifications: `BLOCKED`, `AMBIGUOUS`, `CREATE`, `UPDATE`, or `UNCHANGED`, with portable `FieldDifference` evidence. |
-| Output | `_readiness_report` projects decisions; `PreflightRepository` atomically stores the header, paged rows, protected snapshots, current pointer, and audit event. `PreflightService` also generates the practical `ExecutionSnapshot` automatically beside the technical manifest; the workbook is a disposable projection. | `write_preflight_outputs` writes the portable manifest and workbook directly; it does not create browser lifecycle records. | `PreflightResult` is the canonical portable comparison result. `ExecutionSnapshot` binds every row disposition and exact create/update field intentions for the practical writer. Numeric Odoo IDs may exist in protected target snapshots but are recursively forbidden from portable manifests, reports, and execution snapshots. |
-
-The browser evidence chain is:
-
-```text
-FrozenPreflightInput
--> PreflightRequirementPlan
--> MetadataSnapshot + RecordSnapshot (protected)
--> PreflightResult (portable)
--> ReadinessReport header + paged ReadinessRow records
--> technical manifest + optional review workbook projection
-```
-
-Important boundaries when navigating:
-
-- `PreflightService.compare` is the only browser service operation allowed to
-  call the supplied target reader. `_load_frozen_input` and request-domain
-  checks run first.
-- `connectors.py` is a closed read surface: remote JSON-2 supports the planned
-  `fields_get` and `search_read` operations, while the local reader runs only
-  fixed scripts and relies on transaction rollback.
-- `TargetCatalog` is the numeric-ID containment boundary. Engine decisions use
-  governed business keys and source trace IDs.
-- `reporting.py` projects canonical portable results. The workbook is never an
-  input to classification, approval, or persistence.
-
-## Practical Stages I–K
-
-The practical path freezes Stage-H evidence automatically and derives an exact
-per-preview capability from its captured-schema-bound fields, then reads the
-written records back. Optional production approval remains a separate later
-boundary:
-
-| Stage | Code that exists now | Remaining boundary |
-| --- | --- | --- |
-| I — Freeze exact execution input | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py) automatically adapts frozen prepared rows and Stage-H decisions into a portable, row-hashed artifact. The database-bound preflight manifest anchors its semantic hash. [`approvals.py`](../../src/impodo/approvals.py) still defines standalone higher-governance approval values. | The practical snapshot needs no separate approval; the user will confirm **Load** in Stage J. Clean-package certification, dual approval, expiry, and signed grants remain unintegrated optional controls for higher-risk targets. |
-| J — Controlled Odoo execution | [`application/execution_service.py`](../../src/impodo/application/execution_service.py) validates the current snapshot, derives its exact model/field capability through [`odoo_scope.py`](../../src/impodo/odoo_scope.py), resolves relationships, and orders writes; [`odoo_writer.py`](../../src/impodo/odoo_writer.py) owns the separate closed JSON-2 write surface; [`adapters/duckdb/execution_repository.py`](../../src/impodo/adapters/duckdb/execution_repository.py) journals every proposed write; and the load route/template expose one explicit action and saved outcome. [`scripts/p4_representative_runner.py`](../../scripts/p4_representative_runner.py) is the opt-in disposable local/remote 150-row acceptance and throughput-observation harness. | Local Odoo 19 supports creates, explicit updates, and reviewed many2one/many2many relationships. The remote Odoo 19 path supports bounded scalar and many2many creates, many2one references to earlier imports or exact-key existing records, exact-key single-record scalar or relationship replacement, and two-phase create-time cycles made only of deferrable relationship fields. Identity/scope cycles, required-at-create cycles, incremental relationship commands, an actual remote acceptance result, production-scale tuning, and production cutover remain outside the current boundary. |
-| K — Post-write reconciliation | [`application/reconciliation_service.py`](../../src/impodo/application/reconciliation_service.py) binds a completed run to its historical snapshot, [`odoo_readback.py`](../../src/impodo/odoo_readback.py) exposes only exact-ID, exact-External-ID, and exact-key `search_read`, and [`adapters/duckdb/reconciliation_repository.py`](../../src/impodo/adapters/duckdb/reconciliation_repository.py) atomically stores the hash-bound result. The load page shows the plain result and serves fallout CSV. | Committed rows are checked by journaled ID; remote creates also prove their External-ID binding, and uncertain responses are re-matched by business key. Only an absent uncertain create is marked safe to plan again. There is no blind replay, automatic rollback, or production closure workflow. |
-
-Stage K deliberately uses a separate read-back service and reconciliation
-evidence rather than broadening the writer or repurposing readiness reports.
-
-## Journey 6 — Compare approved rows with Odoo (Stage H)
-
-### Outcome
-
-The action reloads and verifies the exact approved staging, quality, and
-normalization evidence, plans bounded target reads, obtains read-only Odoo
-snapshots, classifies each eligible prepared record, and publishes a readiness
-report plus protected snapshot evidence. It never reloads source files or
-writes to Odoo.
-
-```mermaid
-sequenceDiagram
-    participant Route as "preflight router"
-    participant Service as "PreflightService"
-    participant Frozen as "FrozenPreflightInput"
-    participant Planner as "preflight planner"
-    participant Reader as "read-only Odoo reader"
-    participant Engine as "PreflightEngine"
-    participant Repo as "PreflightRepository"
-
-    Route->>Service: compare(project_id, reader, actor)
-    Service->>Frozen: load and verify current durable evidence
-    Service->>Planner: plan_preflight_requirements(...)
-    Planner-->>Service: bounded metadata and record requests
-    Service->>Reader: read planned snapshots
-    Reader-->>Service: metadata and record snapshots
-    Service->>Engine: run(plan, prepared, snapshots)
-    Engine-->>Service: deterministic PreflightResult
-    Service->>Repo: save report and protected snapshots
-    Service-->>Route: ReadinessReport
-```
-
-### Navigation chain
-
-1. [`build_preflight_router`](../../src/impodo/web/routers/preflight.py) handles
-   the compare action, creates a reader bound to the current project, and
-   translates expected failures into a review response.
-2. [`PreflightService.compare`](../../src/impodo/application/preflight_service.py)
-   is the Stage H orchestrator. Its `_load_frozen_input` method refuses stale,
-   incomplete, or unapproved source-side evidence before any reader call.
-3. [`build_frozen_preflight_input`](../../src/impodo/domain/preflight/frozen_input.py)
-   verifies all upstream hashes and adapts eligible canonical rows into the
-   shared `PreparedBundle` contract without applying transformations again.
-4. [`plan_preflight_requirements`](../../src/impodo/planner.py) merges and
-   chunks model requirements. The service rejects any record request whose
-   domain is empty, preventing an accidental unrestricted model scan.
-5. [`_read_readiness_snapshots`](../../src/impodo/web/target_readers.py) selects
-   the configured local or remote read-only adapter. It is the external I/O
-   boundary supplied to the service as `reader`.
-6. [`PreflightEngine.run`](../../src/impodo/engine.py) validates metadata,
-   resolves symbolic references, builds target identity indexes, and emits
-   portable classifications and differences.
-7. [`PreflightRepository.save_readiness_report`](../../src/impodo/adapters/duckdb/preflight_repository.py)
-   atomically binds the report to current upstream and target evidence.
-
-If report publication fails after the manifest was written, the service tries
-to remove that unpublished manifest so filesystem evidence cannot appear
-current without the repository record.
-
-### Evidence and tests
-
-The important result chain is:
-
-```text
-frozen eligible dataset
--> compiled plan + bounded requirement plan
--> read-only metadata and record snapshots
--> portable preflight decisions
--> readiness report + technical manifest
--> optional review workbook projection
-```
-
-Start verification in
-[`tests/test_preflight_service.py`](../../tests/test_preflight_service.py),
-[`tests/test_engine.py`](../../tests/test_engine.py),
-[`tests/test_connectors.py`](../../tests/test_connectors.py), and
-[`tests/test_readiness.py`](../../tests/test_readiness.py).
-
-## What to document next
-
-The [developer workflow guide](../developer/README.md) now pairs every browser
-stage with its user guide, routes, services, evidence, invalidation rules, and
-focused tests. [`docs/workflow.yml`](../workflow.yml) is the machine-readable
-coverage registry.
-
-Documentation is a continuous part of workflow changes: update the paired
-stage pages, workflow registry, owning module/class/method docstrings, this
-cross-stage map, contract or active plan, and focused tests when a connection,
-prerequisite, side effect, invalidation, or implementation status changes. Run
-`scripts/documentation_quality.py --check --report` and keep the module-
-docstring check in normal verification. The missing-symbol report and prose
-style rules remain advisory.
+| Setup | `ProjectService`, `SourceIntakeService` | `/workspaces/{workspace_id}` |
+| Source data | `SourceWorkspaceService`, `OdooCapturePublicationService` | `/workspaces/{workspace_id}/sources` |
+| Odoo data | `SchemaWorkspaceService` | `/workspaces/{workspace_id}/schema` |
+| Match data | `MappingWorkspaceService` | `/workspaces/{workspace_id}/mapping` |
+| Prepare data | `PreparationService`, `PreparationJobManager` | `/workspaces/{workspace_id}/prepare` |
+| Final review | `PreflightService` | `/workspaces/{workspace_id}/summary` |
+| Load and reconcile | `ExecutionService`, `ReconciliationService` | `/workspaces/{workspace_id}/load` |
+
+The route parameter is still named `project_id` in some contained engine
+functions. Its value is a MigrationWorkspace ID. New code should use
+`workspace_id`; it must not recreate a Project-as-workspace alias.
+
+## Query and Odoo performance
+
+`MigrationFoundationRepository.list_projects` and Project overview lists read
+bounded registry projections. Do not open each DataVersion or workspace store
+inside a list loop. Mapping, preparation, and comparison may stream or batch
+rows, but they must not issue one repository or Odoo request per row, field, or
+relationship.
+
+Odoo adapters expose closed Odoo 19 operations. Search and schema reads are
+batched by model, target keys are indexed once, and write authority remains
+separate from read capability.
+
+## Focused verification
+
+- `tests/test_migration_project_phase_m0_contract.py`
+- `tests/test_migration_project_phase_m1_foundation.py`
+- `tests/test_migration_project_phase_m2_source_packages.py`
+- `tests/test_migration_project_phase_m3_project_authoring.py`
+- `tests/test_recipe_representative_shapes.py`
+- `tests/test_preparation_jobs.py`

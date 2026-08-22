@@ -30,7 +30,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
         review = context.resolution.current_review(project_id)
         if review is None:
             return RedirectResponse(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 status_code=303,
             )
         pending_pairs = sum(item.decision is None for item in review.candidates)
@@ -46,7 +46,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
             status_code=status_code,
         )
 
-    @router.get("/projects/{project_id}/resolution", response_class=HTMLResponse)
+    @router.get("/workspaces/{project_id}/resolution", response_class=HTMLResponse)
     async def review_duplicates(request: Request, project_id: str):
         require_session(request)
         return render(request, project_id)
@@ -83,9 +83,9 @@ def build_resolution_router(context: WebContext) -> APIRouter:
             if same_record
             else "Records confirmed as separate.",
         )
-        return RedirectResponse(f"/projects/{project_id}/resolution", status_code=303)
+        return RedirectResponse(f"/workspaces/{project_id}/resolution", status_code=303)
 
-    @router.post("/projects/{project_id}/resolution/candidates/{candidate_id}/merge")
+    @router.post("/workspaces/{project_id}/resolution/candidates/{candidate_id}/merge")
     async def merge_pair(request: Request, project_id: str, candidate_id: str):
         return await decide_pair(
             request,
@@ -94,7 +94,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
             same_record=True,
         )
 
-    @router.post("/projects/{project_id}/resolution/candidates/{candidate_id}/separate")
+    @router.post("/workspaces/{project_id}/resolution/candidates/{candidate_id}/separate")
     async def separate_pair(request: Request, project_id: str, candidate_id: str):
         return await decide_pair(
             request,
@@ -103,7 +103,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
             same_record=False,
         )
 
-    @router.post("/projects/{project_id}/resolution/groups/{group_id}/fields/{field}/select")
+    @router.post("/workspaces/{project_id}/resolution/groups/{group_id}/fields/{field}/select")
     async def select_survivor(
         request: Request,
         project_id: str,
@@ -139,9 +139,9 @@ def build_resolution_router(context: WebContext) -> APIRouter:
         except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, project_id, error=str(error), status_code=422)
         _flash(request, "Surviving field value selected.")
-        return RedirectResponse(f"/projects/{project_id}/resolution", status_code=303)
+        return RedirectResponse(f"/workspaces/{project_id}/resolution", status_code=303)
 
-    @router.post("/projects/{project_id}/resolution/groups/{group_id}/fields/{field}/correct")
+    @router.post("/workspaces/{project_id}/resolution/groups/{group_id}/fields/{field}/correct")
     async def correct_survivor(
         request: Request,
         project_id: str,
@@ -177,9 +177,9 @@ def build_resolution_router(context: WebContext) -> APIRouter:
         except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, project_id, error=str(error), status_code=422)
         _flash(request, "Corrected survivor value recorded for this review.")
-        return RedirectResponse(f"/projects/{project_id}/resolution", status_code=303)
+        return RedirectResponse(f"/workspaces/{project_id}/resolution", status_code=303)
 
-    @router.post("/projects/{project_id}/resolution/approve")
+    @router.post("/workspaces/{project_id}/resolution/approve")
     async def approve_resolution(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -200,7 +200,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
             return render(request, project_id, error=str(error), status_code=422)
         _flash(request, "Duplicate review approved. Preparation is continuing.")
         return RedirectResponse(
-            f"/projects/{project_id}/preparation/{job.job_id}",
+            f"/workspaces/{project_id}/preparation/{job.job_id}",
             status_code=303,
         )
 

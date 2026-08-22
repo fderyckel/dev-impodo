@@ -6,13 +6,14 @@ boundaries, and read-versus-write capabilities explicit.
 
 ## Workflow implementation
 
-The browser calls the reusable business object a **project**; the domain calls
-that aggregate `Recipe`. Each `DataVersion` owns one internal
-workspace, represented in the current browser code by `WorkspaceState`. Read the
-[Recipe lifecycle contract](contracts/recipe-lifecycle.md) before changing
-identity, persistence, application, or qualification behavior.
+`MigrationProject` is the browser and domain business root. Each Project owns
+its DataVersions and runs. A `MigrationWorkspace` contains current working
+evidence, while an optional Project-scoped `Recipe` owns only reusable revision
+meaning. Read the [Project lifecycle contract](contracts/project-lifecycle.md)
+and [Recipe publication contract](contracts/recipe-lifecycle.md) before
+changing identity, persistence, or publication behavior.
 
-Then read [Recipe and data-version setup](workflow/00-project-setup.md) and
+Then read [Project and authoring workspace setup](workflow/00-project-setup.md) and
 follow the implemented workspace stages:
 
 1. [Source data](workflow/01-source-data.md)
@@ -31,8 +32,8 @@ map is [`docs/workflow.yml`](../workflow.yml).
 Contracts contain only cross-stage required behavior. Workflow pages own the
 routes, services, implementation status, performance risks, and focused tests.
 
-- [Recipe and data-version lifecycle](contracts/recipe-lifecycle.md)
-- [Contained workspace lifecycle](contracts/project-lifecycle.md)
+- [Optional Recipe publication](contracts/recipe-lifecycle.md)
+- [Project and workspace lifecycle](contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](contracts/evidence-lifecycle.md)
 - [Canonical staging](contracts/canonical-staging.md)
 - [Preflight](contracts/preflight.md)

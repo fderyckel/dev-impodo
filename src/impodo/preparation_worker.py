@@ -8,7 +8,7 @@ from .access import CapabilityAuthorizationPolicy
 from .adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
-from .adapters.duckdb.database import DuckDbProjectDatabase
+from .adapters.data_version_artifact_store import FixedDataVersionArtifactStore
 from .adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from .adapters.duckdb.mapping_repository import MappingRepository
 from .adapters.duckdb.normalization_repository import NormalizationRepository
@@ -18,8 +18,8 @@ from .adapters.duckdb.preparation_session_repository import (
 )
 from .adapters.duckdb.project_workspace_reader import ProjectWorkspaceReader
 from .adapters.duckdb.quality_repository import QualityRepository
-from .adapters.duckdb.recipe_application_repository import (
-    RecipeApplicationRepository,
+from .adapters.duckdb.migration_workspace_engine_database import (
+    FixedMigrationWorkspaceEngineDatabase,
 )
 from .adapters.duckdb.source_repository import SourceRepository
 from .adapters.duckdb.staging_repository import StagingRepository
@@ -41,18 +41,24 @@ def create_preparation_worker(
     *,
     workspace: PreparationWorkspace,
 ) -> PreparationService:
-    """Compose preparation from one project database and no shared registry.
+    """Compose preparation from one workspace database and no shared registry.
 
-    Recipe/DataVersion authorization is resolved by the browser process before
-    spawn and captured in ``workspace``. The worker validates that exact
-    identity against the immutable linkage inside the project database.
+    Project/DataVersion authorization is resolved by the browser process before
+    spawn and captured in ``workspace``. The worker validates those identities
+    against the isolated workspace and DataVersion stores.
     """
 
-    database = DuckDbProjectDatabase(
+    database = FixedMigrationWorkspaceEngineDatabase(
         project_root,
+        project_id=workspace.project_id,
+        workspace_id=workspace.workspace_id,
         lock_wait_timeout_seconds=PREPARATION_DATABASE_HANDOFF_TIMEOUT_SECONDS,
     )
-    artifacts = LocalArtifactStore(project_root)
+    artifacts = FixedDataVersionArtifactStore(
+        LocalArtifactStore(Path(project_root) / "artifacts"),
+        workspace_id=workspace.workspace_id,
+        data_version_id=workspace.data_version_id,
+    )
     authorization = CapabilityAuthorizationPolicy()
     secrets = CredentialVault()
     projects = ProjectWorkspaceReader(database, workspace)
@@ -64,12 +70,10 @@ def create_preparation_worker(
     coverage = AdvancedCoverageRepository(database)
     quality_repository = QualityRepository(database, projects)
     normalization_repository = NormalizationRepository(database, projects)
-    recipe_quality = RecipeApplicationRepository(database)
     quality = QualityService(
         mappings,
         sources,
         quality_repository,
-        recipe_quality=recipe_quality,
     )
     normalization = NormalizationService(
         normalization_repository,

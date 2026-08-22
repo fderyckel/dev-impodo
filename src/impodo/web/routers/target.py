@@ -74,10 +74,10 @@ def _local_stack_return_to(form) -> str:
 def _local_stack_return_location(project_id: str, return_to: str) -> str:
     if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
         return (
-            f"/projects/{project_id}/summary?local_stack=1"
+            f"/workspaces/{project_id}/summary?local_stack=1"
             "#compare-with-odoo"
         )
-    return f"/projects/{project_id}/target?local_stack=1"
+    return f"/workspaces/{project_id}/target?local_stack=1"
 
 
 def _target_read_key_persistence(form) -> bool:
@@ -169,13 +169,13 @@ async def _validate_selected_local_connection(
 def build_target_router(context: WebContext) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/projects/{project_id}/target", response_class=HTMLResponse)
+    @router.get("/workspaces/{project_id}/target", response_class=HTMLResponse)
     async def project_target_form(request: Request, project_id: str):
         require_session(request)
         project = context.queries.get(project_id)
         if project.status is ProjectStatus.CLOSED:
             return RedirectResponse(
-                f"/projects/{project.project_id}/summary",
+                f"/workspaces/{project.project_id}/summary",
                 status_code=303,
             )
         if (
@@ -183,7 +183,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             and project.source_mode is SourceMode.FILE
         ):
             return RedirectResponse(
-                f"/projects/{project.project_id}/files",
+                f"/workspaces/{project.project_id}/files",
                 status_code=303,
             )
         if project.status is ProjectStatus.DRAFT:
@@ -197,7 +197,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             open_local_stack=request.query_params.get("local_stack") == "1",
         )
 
-    @router.post("/projects/{project_id}/local-stack/select-config")
+    @router.post("/workspaces/{project_id}/local-stack/select-config")
     async def select_local_stack_config(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "return_to"})
@@ -234,7 +234,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/local-stack/refresh")
+    @router.post("/workspaces/{project_id}/local-stack/refresh")
     async def refresh_local_stack(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "return_to"})
@@ -266,7 +266,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/local-stack/start")
+    @router.post("/workspaces/{project_id}/local-stack/start")
     async def start_local_stack(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -307,7 +307,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/local-stack/control")
+    @router.post("/workspaces/{project_id}/local-stack/control")
     async def control_local_stack(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -358,7 +358,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/target")
+    @router.post("/workspaces/{project_id}/target")
     async def project_target(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -382,7 +382,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         current = context.queries.get(project_id)
         if current.status is ProjectStatus.CLOSED:
             return RedirectResponse(
-                f"/projects/{current.project_id}/summary",
+                f"/workspaces/{current.project_id}/summary",
                 status_code=303,
             )
         if (
@@ -390,7 +390,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             and current.source_mode is SourceMode.FILE
         ):
             return RedirectResponse(
-                f"/projects/{current.project_id}/files",
+                f"/workspaces/{current.project_id}/files",
                 status_code=303,
             )
         if current.status is ProjectStatus.DRAFT:
@@ -522,7 +522,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                         result.read_identity,
                         purpose=purpose,
                     )
-                target_url = f"/projects/{project_id}/target"
+                target_url = f"/workspaces/{project_id}/target"
                 if local_test_requested:
                     _flash(
                         request,
@@ -557,7 +557,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 )
                 if remote_test_requested:
                     return RedirectResponse(
-                        f"/projects/{project_id}/target#remote-connection-status",
+                        f"/workspaces/{project_id}/target#remote-connection-status",
                         status_code=303,
                     )
             return _render_target(
@@ -621,18 +621,18 @@ def build_target_router(context: WebContext) -> APIRouter:
                     status_code=422,
                 )
         return RedirectResponse(
-            f"/projects/{project.project_id}/schema",
+            f"/workspaces/{project.project_id}/schema",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/target/read-credential/delete")
+    @router.post("/workspaces/{project_id}/target/read-credential/delete")
     async def forget_target_read_credential(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)
         if project.status is ProjectStatus.CLOSED:
             return RedirectResponse(
-                f"/projects/{project.project_id}/summary",
+                f"/workspaces/{project.project_id}/summary",
                 status_code=303,
             )
         try:
@@ -663,7 +663,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             "The read-only Odoo key was forgotten. Nothing was changed in Odoo.",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/target#read-credential-status",
+            f"/workspaces/{project_id}/target#read-credential-status",
             status_code=303,
         )
 

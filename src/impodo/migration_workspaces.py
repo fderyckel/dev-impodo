@@ -83,6 +83,11 @@ class MigrationWorkspaceRepository(Protocol):
         migration_run_id: str,
     ) -> tuple[MigrationWorkspace, ...]: ...
 
+    def list_project_migration_workspaces(
+        self,
+        project_id: str,
+    ) -> tuple[MigrationWorkspace, ...]: ...
+
     def save_migration_workspace(
         self,
         workspace: MigrationWorkspace,
@@ -192,3 +197,29 @@ class MigrationWorkspaceService:
             event_type="MIGRATION_WORKSPACE_CLOSED",
             actor=actor,
         )
+
+    def get(self, workspace_id: str, *, actor: Actor) -> MigrationWorkspace:
+        self.authorization.require(actor, Capability.PROJECT_VIEW)
+        workspace = self.repository.get_migration_workspace(
+            require_uuid(workspace_id, "workspace_id")
+        )
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_VIEW,
+            project_id=workspace.project_id,
+        )
+        return workspace
+
+    def list_for_project(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[MigrationWorkspace, ...]:
+        project_id = require_uuid(project_id, "project_id")
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_VIEW,
+            project_id=project_id,
+        )
+        return self.repository.list_project_migration_workspaces(project_id)

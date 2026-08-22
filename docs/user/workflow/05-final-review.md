@@ -8,7 +8,7 @@ status: current
 
 ## Goal
 
-Compare every eligible prepared row in the current Recipe data version with
+Compare every eligible prepared row in the current Project DataVersion with
 fresh Odoo evidence and decide whether the proposed outcome is safe to take to
 the load stage.
 
@@ -56,18 +56,16 @@ Final review shows the action that owns the problem:
 Every recovery panel confirms that nothing was changed in Odoo and that your
 saved work is unchanged.
 
-## How Recipes reuse this work
+## How Recipe publication relates to this work
 
-Comparison evidence is never reusable. A Test data version compares its
-representative data with the current Test server. A Production data version
-uses the exact selected, qualified Recipe revision but still compares the
-latest source with fresh Production schema, reference data, credentials, and
-target records.
+Comparison evidence is never part of a Recipe. A Recipe revision can preserve
+the reusable transformation rules authored in this workspace, but this
+DataVersion keeps ownership of its source, preparation, target comparison,
+approval, and load evidence.
 
-A successful Test comparison is only one qualification input. The Test load
-and read-back must also finish before the Recipe overview can qualify that
-exact revision. Test qualification does not approve later Production data or
-grant Production write access.
+Applying one or several published Recipe revisions to replacement rollout data
+belongs to the next implementation phase. It will still require a new
+DataVersion and fresh Odoo evidence.
 
 ## What to check
 
@@ -85,12 +83,12 @@ a hard stop until the identity or target evidence is corrected.
 
 The current report is **Ready** with no ambiguous or blocked rows and remains
 bound to the exact prepared and target evidence. The load stage can become
-available for the current file data version.
+available for the current DataVersion.
 
 ## What changes and what does not
 
-Comparison reads Odoo and stores review evidence for this data version. It
-does not write to Odoo, qualify the Recipe, or authorize Production execution.
+Comparison reads Odoo and stores review evidence for this DataVersion. It
+does not write to Odoo, publish a Recipe, or authorize another run.
 Downloading a workbook or package does not authorize execution.
 
 ## Needs attention
@@ -102,14 +100,14 @@ replace a key unless the page specifically asks for one.
 
 ## What makes this work stale
 
-Source, schema, business-key, mapping, Recipe application, parameter, control,
+Source, schema, business-key, mapping, reusable-rule, parameter, control,
 prepared-data, target-evidence, or dependency-order changes require a fresh
 comparison. Never load from an older data version's report.
 
 ## Next stage
 
 Continue to [Load into Odoo](06-load-into-odoo.md) only for the explicitly
-approved Test or Production target and the exact current review.
+approved target and the exact current review.
 
 ## Related documentation
 

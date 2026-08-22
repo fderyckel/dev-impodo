@@ -39,7 +39,7 @@ def _review_return_url(request: Request, project_id: str) -> str:
     if page > 1:
         query["page"] = page
     suffix = f"?{urlencode(query)}" if query else ""
-    return f"/projects/{project_id}/normalization{suffix}#review-groups"
+    return f"/workspaces/{project_id}/normalization{suffix}#review-groups"
 
 
 def build_normalization_router(context: WebContext) -> APIRouter:
@@ -47,13 +47,13 @@ def build_normalization_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/projects/{project_id}/normalization", response_class=HTMLResponse)
+    @router.get("/workspaces/{project_id}/normalization", response_class=HTMLResponse)
     async def review_prepared_data(request: Request, project_id: str):
         require_session(request)
         return _render_normalization(request, context, project_id)
 
     @router.post(
-        "/projects/{project_id}/normalization/groups/{group_id}/accept"
+        "/workspaces/{project_id}/normalization/groups/{group_id}/accept"
     )
     async def accept_prepared_change(
         request: Request,
@@ -90,7 +90,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/normalization/reopen")
+    @router.post("/workspaces/{project_id}/normalization/reopen")
     async def reopen_prepared_review(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -117,12 +117,12 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             )
         _flash(request, "Prepared review reopened. Review or approve the changes.")
         return RedirectResponse(
-            f"/projects/{project_id}/normalization?status=pending#review-groups",
+            f"/workspaces/{project_id}/normalization?status=pending#review-groups",
             status_code=303,
         )
 
     @router.post(
-        "/projects/{project_id}/normalization/groups/{group_id}/reject"
+        "/workspaces/{project_id}/normalization/groups/{group_id}/reject"
     )
     async def reject_prepared_change(
         request: Request,
@@ -165,7 +165,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/normalization/approve")
+    @router.post("/workspaces/{project_id}/normalization/approve")
     async def approve_prepared_data(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -196,12 +196,12 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 "Prepared Odoo records approved. Compare them with Odoo next.",
             )
             return RedirectResponse(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 status_code=303,
             )
         _flash(request, "Prepared data approved. You can now compare it with Odoo.")
         return RedirectResponse(
-            f"/projects/{project_id}/summary",
+            f"/workspaces/{project_id}/summary",
             status_code=303,
         )
 

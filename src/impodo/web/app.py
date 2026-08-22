@@ -43,10 +43,19 @@ from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
-from ..application.recipe_service import RecipeService
 from ..application.recipe_authoring_service import RecipeAuthoringService
-from ..application.recipe_application_service import RecipeApplicationService
-from ..application.recipe_qualification_service import RecipeQualificationService
+from ..application.migration_project_authoring_service import (
+    MigrationProjectAuthoringService,
+)
+from ..application.project_recipe_publication_service import (
+    ProjectRecipePublicationService,
+)
+from ..application.workspace_source_projection import (
+    WorkspaceMappingSourceProjection,
+)
+from ..application.workspace_data_version_source_service import (
+    WorkspaceDataVersionSourceService,
+)
 from ..application.preparation_service import PreparationService
 from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
@@ -62,7 +71,20 @@ from ..inspection import SourceInspectionService
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import LocalOdooMetadataReader
 from ..local_stack import LocalStackService
-from ..adapters.duckdb.database import DuckDbDatabase
+from ..adapters.duckdb.migration_foundation_database import (
+    MigrationFoundationDatabase,
+)
+from ..adapters.duckdb.migration_foundation_repository import (
+    MigrationFoundationRepository,
+)
+from ..adapters.duckdb.migration_workspace_engine_database import (
+    MigrationWorkspaceEngineDatabase,
+)
+from ..adapters.duckdb.migration_workspace_state_repository import (
+    MigrationWorkspaceStateRepository,
+)
+from ..adapters.duckdb.project_recipe_repository import ProjectRecipeRepository
+from ..adapters.data_version_artifact_store import DataVersionAwareArtifactStore
 from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from ..adapters.duckdb.mapping_repository import MappingRepository
 from ..adapters.duckdb.mapping_field_catalog_repository import (
@@ -73,12 +95,7 @@ from ..adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepositor
 from ..adapters.duckdb.preflight_repository import PreflightRepository
 from ..adapters.duckdb.execution_repository import ExecutionRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
-from ..adapters.duckdb.project_repository import ProjectRepository
-from ..adapters.duckdb.recipe_repository import RecipeRepository
 from ..adapters.duckdb.recipe_authoring_repository import RecipeAuthoringRepository
-from ..adapters.duckdb.recipe_application_repository import (
-    RecipeApplicationRepository,
-)
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
 from ..adapters.duckdb.source_repository import SourceRepository
@@ -102,8 +119,17 @@ from ..projects import (
     ProjectService,
     SourceMode,
 )
+from ..data_version_sources import (
+    DataVersionSourcePackageService,
+    WorkspaceSourceProjectionService,
+)
+from ..data_versions import DataVersionService
+from ..migration_projects import MigrationProjectService
+from ..migration_runs import MigrationRunService
+from ..migration_workspaces import MigrationWorkspaceService
+from ..project_recipes import ProjectRecipeService, ProjectRecipeError
 from ..application.odoo_connection_service import OdooConnectionTestService
-from ..recipes import RecipeNotFoundError
+from ..migration_foundation import MigrationNotFoundError
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from .context import (
     BrowserReadinessReader,
@@ -138,7 +164,8 @@ from .routers.normalization import build_normalization_router
 from .routers.preflight import build_preflight_router
 from .routers.execution import build_execution_router
 from .routers.preparation import build_preparation_router
-from .routers.projects import build_projects_router
+from .routers.migration_projects import build_migration_projects_router
+from .routers.workspace_setup import build_workspace_setup_router
 from .routers.quality import build_quality_router
 from .routers.resolution import build_resolution_router
 from .routers.schema import build_schema_router
@@ -188,15 +215,27 @@ def create_local_app(
     function opens no project and contacts no Odoo target while composing.
     """
 
-    database = DuckDbDatabase(
+    foundation_database = MigrationFoundationDatabase(
         project_root,
         lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
     )
-    resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
-    project_repository = ProjectRepository(database)
-    recipe_repository = RecipeRepository(database)
+    foundation_repository = MigrationFoundationRepository(foundation_database)
+    database = MigrationWorkspaceEngineDatabase(
+        foundation_database,
+        lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
+    )
+    base_artifacts = artifact_store or LocalArtifactStore(
+        Path(project_root) / "artifacts"
+    )
+    resolved_artifacts = DataVersionAwareArtifactStore(
+        base_artifacts,
+        foundation_repository,
+    )
+    project_repository = MigrationWorkspaceStateRepository(
+        database,
+        foundation_repository,
+    )
     recipe_authoring_repository = RecipeAuthoringRepository(database)
-    recipe_application_repository = RecipeApplicationRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
     source_repository = SourceRepository(database, derived_entity_repository)
     schema_repository = SchemaRepository(database)
@@ -224,14 +263,21 @@ def create_local_app(
         project_root,
         resolved_secret_store,
     )
-    recipes = RecipeService(
-        recipe_repository,
+    project_recipe_repository = ProjectRecipeRepository(
+        foundation_repository,
         protected_recipe_store,
-        resolved_authorization,
     )
     odoo_provenance_repository = OdooProvenanceRepository(
         database,
         resolved_artifacts,
+        protected_root=lambda workspace_id: (
+            foundation_database.root
+            / "artifacts"
+            / foundation_repository.get_migration_workspace(
+                workspace_id
+            ).data_version_id
+            / "protected"
+        ),
     )
     odoo_provenance_service = OdooProvenanceService(
         project_repository,
@@ -253,17 +299,62 @@ def create_local_app(
         resolved_artifacts,
     )
     projects = ProjectService(project_repository, resolved_authorization)
-    recipe_authoring = RecipeAuthoringService(
-        recipes,
+    migration_projects = MigrationProjectService(
+        foundation_repository,
+        resolved_authorization,
+    )
+    data_versions = DataVersionService(
+        foundation_repository,
+        resolved_authorization,
+    )
+    migration_runs = MigrationRunService(
+        foundation_repository,
+        resolved_authorization,
+    )
+    migration_workspaces = MigrationWorkspaceService(
+        foundation_repository,
+        resolved_authorization,
+    )
+    source_packages = DataVersionSourcePackageService(
+        foundation_repository,
+        resolved_authorization,
+    )
+    project_authoring = MigrationProjectAuthoringService(
+        migration_projects,
+        data_versions,
+        migration_runs,
+        migration_workspaces,
+        source_packages,
         projects,
-        source_repository,
+    )
+    recipe_compiler = RecipeAuthoringService(
+        WorkspaceMappingSourceProjection(foundation_repository),
         mapping_repository,
         schema_repository,
         quality_repository,
         derived_entity_repository,
         advanced_coverage_repository,
-        resolved_authorization,
         recipe_authoring_repository,
+    )
+    project_recipes = ProjectRecipeService(
+        project_recipe_repository,
+        resolved_authorization,
+    )
+    recipe_publication = ProjectRecipePublicationService(
+        project_recipe_repository,
+        recipe_compiler,
+        resolved_authorization,
+    )
+    data_version_source_projection = WorkspaceDataVersionSourceService(
+        projects,
+        source_repository,
+        data_versions,
+        migration_workspaces,
+        source_packages,
+        WorkspaceSourceProjectionService(
+            foundation_repository,
+            resolved_authorization,
+        ),
     )
     categorical_coverage = CategoricalCoverageService(
         source_repository,
@@ -276,33 +367,17 @@ def create_local_app(
         resolved_authorization,
     )
     mapping_workspace = MappingWorkspaceService(
-        source_repository,
+        WorkspaceMappingSourceProjection(foundation_repository),
         schema_repository,
         mapping_repository,
         resolved_authorization,
         categorical_coverage=categorical_coverage,
         transformation_impacts=transformation_impact_repository,
     )
-    recipe_applications = RecipeApplicationService(
-        recipes=recipes,
-        projects=projects,
-        project_reader=project_repository,
-        sources=source_repository,
-        schemas=schema_repository,
-        schema_workspace=schema_workspace,
-        references=advanced_coverage_repository,
-        preparation=derived_entity_repository,
-        applications=recipe_application_repository,
-        mappings=mapping_workspace,
-        categorical=categorical_coverage,
-        store=protected_recipe_store,
-        authorization=resolved_authorization,
-    )
     quality = QualityService(
         mapping_repository,
         source_repository,
         quality_repository,
-        recipe_quality=recipe_application_repository,
     )
     normalization = NormalizationService(
         normalization_repository,
@@ -368,23 +443,22 @@ def create_local_app(
         reconciliation_repository,
         resolved_authorization,
     )
-    recipe_qualifications = RecipeQualificationService(
-        recipes=recipes,
-        recipe_applications=recipe_applications,
-        applications=recipe_application_repository,
-        mappings=mapping_repository,
-        staging=staging_repository,
-        quality=quality_repository,
-        preflight=preflight,
-        execution=execution_repository,
-        reconciliation=reconciliation,
-        authorization=resolved_authorization,
-    )
     preparation_jobs = (
         PreparationJobManager(project_root) if preparation_jobs_enabled else None
     )
     odoo_capture_jobs = (
-        OdooCaptureJobManager(odoo_capture_publication)
+        OdooCaptureJobManager(
+            odoo_capture_publication,
+            accept_publication=lambda workspace_id, publication, actor: (
+                data_version_source_projection.accept_odoo_capture(
+                    workspace_id,
+                    publication.source_selection,
+                    publication.source_snapshot,
+                    publication.manifest,
+                    actor=actor,
+                )
+            ),
+        )
         if odoo_capture_jobs_enabled
         else None
     )
@@ -401,11 +475,15 @@ def create_local_app(
             quality_repository,
             transformation_impact_repository,
         ),
+        migration_projects=migration_projects,
+        data_versions=data_versions,
+        migration_runs=migration_runs,
+        migration_workspaces=migration_workspaces,
+        project_authoring=project_authoring,
+        project_recipes=project_recipes,
+        recipe_publication=recipe_publication,
+        data_version_source_projection=data_version_source_projection,
         projects=projects,
-        recipes=recipes,
-        recipe_authoring=recipe_authoring,
-        recipe_applications=recipe_applications,
-        recipe_qualifications=recipe_qualifications,
         intake=SourceIntakeService(projects, resolved_artifacts),
         inspections=SourceInspectionService(
             project_repository,
@@ -482,16 +560,6 @@ def create_local_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
-            recipes.recover_incomplete(actor=actor)
-            for summary in project_repository.list():
-                try:
-                    project = project_repository.get(summary.project_id)
-                except ProjectCompatibilityError:
-                    continue
-                if project.source_mode is SourceMode.ODOO:
-                    odoo_provenance_repository.recover_incomplete_publications(
-                        project.project_id
-                    )
             yield
         finally:
             if context.preparation_jobs is not None:
@@ -531,9 +599,13 @@ def create_local_app(
     async def project_not_found(_request: Request, _error: ProjectNotFoundError):
         return HTMLResponse("Project not found", status_code=404)
 
-    @app.exception_handler(RecipeNotFoundError)
-    async def recipe_not_found(_request: Request, _error: RecipeNotFoundError):
-        return HTMLResponse("Recipe not found", status_code=404)
+    @app.exception_handler(MigrationNotFoundError)
+    async def migration_not_found(_request: Request, _error: MigrationNotFoundError):
+        return HTMLResponse("Migration record not found", status_code=404)
+
+    @app.exception_handler(ProjectRecipeError)
+    async def project_recipe_error(_request: Request, error: ProjectRecipeError):
+        return HTMLResponse(str(error), status_code=422)
 
     @app.exception_handler(ProjectCompatibilityError)
     async def project_incompatible(
@@ -542,15 +614,16 @@ def create_local_app(
     ):
         return _render(
             request,
-            "recipe_list.html",
-            recipes=context.recipes.list(actor=context.actor),
+            "project_list.html",
+            projects=context.migration_projects.list(actor=context.actor),
             error=str(error),
             status_code=409,
         )
 
     for router in (
         build_lifecycle_router(context),
-        build_projects_router(context),
+        build_migration_projects_router(context),
+        build_workspace_setup_router(context),
         build_target_router(context),
         build_sources_router(context),
         build_schema_router(context),

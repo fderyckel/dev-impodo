@@ -30,17 +30,28 @@ class DocumentationQualityTests(unittest.TestCase):
         second = render_report(ROOT)
 
         self.assertEqual(first, second)
-        self.assertIn("| Recipe and data-version setup | yes | yes |", first)
+        self.assertIn(
+            "| Project and authoring workspace setup | yes | yes |",
+            first,
+        )
         self.assertIn("| Load into Odoo | yes | yes |", first)
         self.assertEqual(first.count("| yes | yes |"), 7)
 
-    def test_workflow_registers_plain_language_standard_and_skill(self) -> None:
+    def test_workflow_registers_documentation_standards_and_skill(self) -> None:
         manifest = load_manifest(ROOT)
         shared = manifest["shared"]
 
         self.assertEqual(
             shared["writing_standard"],
             "docs/style-guide.md#plain-semantic-language",
+        )
+        self.assertEqual(
+            shared["audience_standard"],
+            "docs/style-guide.md#data-manager-first-explanations",
+        )
+        self.assertEqual(
+            shared["editing_workflow"],
+            "docs/style-guide.md#documentation-editing-workflow",
         )
         self.assertIn(
             ".agents/skills/impodo-documentation/SKILL.md",
@@ -107,6 +118,11 @@ class DocumentationQualityTests(unittest.TestCase):
                 "Spelling.yml",
             }.issubset(plain_style_names)
         )
+
+        user_style_names = {
+            path.name for path in (ROOT / "docs/styles/ImpodoUser").glob("*.yml")
+        }
+        self.assertIn("DataManagerTerms.yml", user_style_names)
 
         spelling_vocabulary = ROOT / "docs/styles/config/ignore/Impodo.txt"
         self.assertTrue(spelling_vocabulary.is_file())

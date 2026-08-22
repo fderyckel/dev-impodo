@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import namedtuple
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-import tempfile
+import shutil
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -75,13 +75,16 @@ from impodo.workspace_contracts import (
 
 HASHES = tuple("sha256:" + digit * 64 for digit in "123456789")
 DiskUsage = namedtuple("DiskUsage", "total used free")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class OdooCapturePublicationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
-        self.database = DuckDbDatabase(self.temporary.name)
-        self.artifacts = LocalArtifactStore(self.temporary.name)
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        self.root = ROOT / ".tmp" / f"ocp-{uuid4()}"
+        self.root.mkdir()
+        self.database = DuckDbDatabase(self.root)
+        self.artifacts = LocalArtifactStore(self.root)
         self.projects = ProjectRepository(self.database)
         self.sources = SourceRepository(
             self.database,
@@ -139,7 +142,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        self.temporary.cleanup()
+        shutil.rmtree(self.root, ignore_errors=True)
 
     def test_streams_values_once_and_promotes_all_current_roots(self) -> None:
         gateway = _Gateway(self.schema, self.now)
@@ -197,6 +200,52 @@ class OdooCapturePublicationTests(unittest.TestCase):
         )
         self.assertIsNotNone(origins)
         self.assertEqual((origins or (None, ()))[1][0].odoo_ids, (41, 42))
+
+    def test_protected_origins_can_follow_data_version_artifact_ownership(
+        self,
+    ) -> None:
+        protected_root = self.root / "artifacts" / str(uuid4()) / "protected"
+        repository = OdooProvenanceRepository(
+            self.database,
+            self.artifacts,
+            protected_root=lambda _workspace_id: protected_root,
+        )
+        authorization = CapabilityAuthorizationPolicy()
+        provenance = OdooProvenanceService(
+            self.projects,
+            self.sources,
+            repository,
+            self.secrets,
+            authorization,
+        )
+        service = OdooCapturePublicationService(
+            OdooSourceCaptureService(
+                self.projects,
+                self.sources,
+                self.schemas,
+                authorization,
+            ),
+            self.sources,
+            provenance,
+            repository,
+            self.artifacts,
+        )
+
+        publication = service.publish(
+            self.project.project_id,
+            _Gateway(self.schema, self.now),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertTrue(
+            (protected_root / publication.manifest.provenance_storage_key).is_file()
+        )
+        self.assertFalse(
+            (
+                self.database.project_directory(self.project.project_id)
+                / "protected"
+            ).exists()
+        )
 
     def test_pinned_capture_prepares_offline_without_portable_ids(self) -> None:
         gateway = _Gateway(self.schema, self.now, values=("", ""))
@@ -353,7 +402,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         }
         roots = []
         for split in (False, True):
-            workspace = Path(self.temporary.name) / f"page-shape-{split}"
+            workspace = self.root / f"page-shape-{split}"
             workspace.mkdir()
             writer = SourceSnapshotCandidateWriter(
                 workspace,
@@ -385,8 +434,8 @@ class OdooCapturePublicationTests(unittest.TestCase):
         )
         before_files = tuple(
             sorted(
-                path.relative_to(self.temporary.name)
-                for path in Path(self.temporary.name).rglob("*.parquet")
+                path.relative_to(self.root)
+                for path in self.root.rglob("*.parquet")
             )
         )
         with patch.object(
@@ -412,14 +461,14 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.assertEqual(
             tuple(
                 sorted(
-                    path.relative_to(self.temporary.name)
-                    for path in Path(self.temporary.name).rglob("*.parquet")
+                    path.relative_to(self.root)
+                    for path in self.root.rglob("*.parquet")
                 )
             ),
             before_files,
         )
         candidates = (
-            Path(self.temporary.name)
+            self.root
             / self.project.project_id
             / "protected"
             / "candidates"
@@ -445,7 +494,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.assertIsNone(self.repository.get_current(self.project.project_id))
         self.assertIsNone(self.sources.get_source_selection(self.project.project_id))
         self.assertEqual(
-            tuple(Path(self.temporary.name).rglob("*.parquet")),
+            tuple(self.root.rglob("*.parquet")),
             (),
         )
 

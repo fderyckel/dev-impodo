@@ -8,10 +8,11 @@ status: current
 
 ## Scope
 
-This contract defines how evidence binds Recipe publication and application to
-the Source data, Odoo data, and Match data stages. It also defines when a
-change invalidates that evidence. The corresponding developer workflow pages
-own stage-specific routes, services, formats, and tests.
+This contract defines how Project-owned evidence binds Source data, Odoo data,
+and Match data, and how optional Recipe publication reads that evidence without
+taking ownership of it. It also defines when a change invalidates the evidence.
+The corresponding developer workflow pages own stage-specific routes,
+services, formats, and tests.
 
 Every dataset uses one discriminated source binding:
 
@@ -26,20 +27,25 @@ There are no placeholder files or alternate historical JSON shapes.
 
 ## Current evidence chains
 
-The reusable lineage is:
+The implemented Project lineage is:
 
 ```text
-Recipe + current Authoring DataVersion workspace
--> read-only RecipeDraft projection
--> immutable portable RecipeRevision
--> fresh Test DataVersion + TargetBinding + RecipeApplicationEvidence
--> Test preparation, comparison, execution, read-back, and reconciliation
--> RecipeQualification
--> explicit CutoverCandidate
--> fresh Production DataVersion pinned to that exact revision
+MigrationProject
+-> Authoring DataVersion with one complete frozen source package
+-> Authoring MigrationRun
+-> MigrationWorkspace with selected dataset and snapshot references
+-> mapping, preparation, comparison, execution, and reconciliation evidence
 ```
 
-The contained workspace chain inside each DataVersion is:
+Optional reusable publication branches from the eligible workspace:
+
+```text
+current immutable workspace evidence
+-> portable RecipeDefinition compilation
+-> immutable Project-scoped RecipeRevision
+```
+
+The contained mapping-engine chain is:
 
 ```text
 registered `WorkspaceState`
@@ -51,8 +57,12 @@ registered `WorkspaceState`
 
 Each pointer selects one current immutable revision. Historical revisions
 remain available for audit but do not satisfy current-stage prerequisites.
-The two chains meet through exact Recipe, revision, DataVersion, workspace,
-application, and evidence hashes; no stage infers linkage from display names.
+The chains meet through exact Project, DataVersion, workspace, mapping, and
+Recipe revision hashes; no stage infers linkage from display names. Recipe
+publication does not move or copy the DataVersion evidence into the Recipe.
+
+Project-owned multi-Recipe applications, qualification, and CutoverPlans belong
+to Phase M4 and later. They are not an active evidence chain in M3.
 
 ## Binding rules
 
@@ -81,9 +91,9 @@ and uniqueness remain declared deferred checks satisfied by fresh preparation
 evidence; mapping validation does not claim target-record coverage. Reusable
 control definitions and the current DataVersion's expected values are separate
 v11 objects, projected back to effective totals only at preparation time.
-Recipe applications persist current `RecipeControlValues` and
-`RecipeParameterValues` as hash-pinned DataVersion evidence; they are not part
-of reusable Recipe semantic identity.
+Current Project work keeps expected values and parameter choices as
+DataVersion/workspace evidence; they are not part of reusable Recipe semantic
+identity unless the Recipe contract explicitly defines their portable shape.
 
 Mapping contract v12 binds conditional Selection providers, ordered rule and
 condition identifiers, typed comparisons, referenced source-column keys,
@@ -95,7 +105,7 @@ application rebinds those IDs to the fresh frozen selection and revalidates
 the current Odoo choices before creating a normal mapping draft.
 
 Governed-reference policy version 1 has one canonical hash shared by Match,
-supporting lookups, Final review, Recipe publication, and Recipe application.
+supporting lookups, Final review, and optional Recipe publication.
 Mapping validation contract version 3, supporting lookup contract version 2,
 preflight requirement-plan contract version 2, and Recipe target-contract
 version 2 bind that hash. Older versions remain readable for audit, but they

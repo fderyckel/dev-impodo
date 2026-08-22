@@ -3,8 +3,8 @@
 ## Status and authority
 
 **Status:** Completed architecture-contract phase from 2026-08-22. This phase
-made no runtime change; the Phase M1 persistence foundation now implements its
-first clean roots outside the browser composition.
+made no runtime change. Phases M1 through M3 now implement its clean roots,
+source ownership, and Project-first authoring browser.
 
 This document freezes Phase M0 of the [Migration projects and multi-Recipe
 cutover implementation
@@ -12,11 +12,10 @@ plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md).
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target ownership model.
 
-Phase M0 changes no browser route, database schema, domain class, or runtime
-behavior. The current Recipe-first contracts and user documentation remain
-authoritative for the running application until later implementation gates
-pass. This document defines the target contracts that the replacement must
-satisfy; it does not claim that the target workflow is available.
+Phase M0 itself changed no browser route, database schema, domain class, or
+runtime behavior. Its later-runtime statements are point-in-time history;
+current Project and Recipe publication contracts describe the implemented M3
+workflow.
 
 The deterministic fixture is
 [`fixtures/migration-projects/phase-m0/acceptance-contract.json`](../../fixtures/migration-projects/phase-m0/acceptance-contract.json).

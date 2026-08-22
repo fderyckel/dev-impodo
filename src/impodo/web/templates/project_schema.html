@@ -25,7 +25,7 @@
         <p>Start with the business records included in this migration.</p>
       </div>
       {% if not model_catalog %}
-        <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
+        <form method="post" action="/workspaces/{{ project.project_id }}/schema/models/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Show available Odoo data
@@ -46,7 +46,7 @@
         <div class="notice warning">
           <strong>Find local Odoo first.</strong>
           Impodo needs to know which Odoo installation on this computer to use.
-          <form method="post" action="/projects/{{ project.project_id }}/schema/local-config">
+          <form method="post" action="/workspaces/{{ project.project_id }}/schema/local-config">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button secondary" type="submit">Find local Odoo</button>
           </form>
@@ -71,7 +71,7 @@
       <details>
         <summary>Has Odoo changed?</summary>
         <p>Update this list only when Odoo apps or record types have changed.</p>
-        <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
+        <form method="post" action="/workspaces/{{ project.project_id }}/schema/models/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Update available choices
@@ -92,14 +92,14 @@
           <div class="notice">
             <strong>The saved Odoo list is still available.</strong>
             Find local Odoo only if you need to refresh the list.
-            <form method="post" action="/projects/{{ project.project_id }}/schema/local-config">
+            <form method="post" action="/workspaces/{{ project.project_id }}/schema/local-config">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button secondary" type="submit">Find local Odoo to refresh</button>
             </form>
           </div>
         {% endif %}
       {% endif %}
-      <form method="post" action="/projects/{{ project.project_id }}/schema" data-model-picker>
+      <form method="post" action="/workspaces/{{ project.project_id }}/schema" data-model-picker>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ project.revision }}">
         <div class="model-picker-tools">
@@ -213,7 +213,7 @@
       </details>
     {% endif %}
     {% if schema_load_failed or schema or (not model_catalog and project.intended_models) %}
-      <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
+      <form method="post" action="/workspaces/{{ project.project_id }}/schema/capture">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="actions">
           <button
@@ -240,7 +240,7 @@
       </form>
     {% endif %}
     <div class="actions">
-      <a class="button secondary" href="/projects/{{ project.project_id }}/{% if project.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}">{% if project.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
+      <a class="button secondary" href="/workspaces/{{ project.project_id }}/{% if project.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}">{% if project.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
     </div>
   </section>
 
@@ -254,7 +254,7 @@
         Use it only when the local target cannot be reached. A live
         capture must replace it before mapping submission.
       </div>
-      <form method="post" action="/projects/{{ project.project_id }}/schema/local-draft">
+      <form method="post" action="/workspaces/{{ project.project_id }}/schema/local-draft">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% for model_name in project.intended_models %}
           {% set existing = manual_schema_by_model.get(model_name) %}
@@ -297,10 +297,10 @@
           The record type and field metadata are ready. Choose the exact scalar
           fields and maximum record count that a later read-only capture may use.
         </p>
-        <a class="button primary" href="/projects/{{ project.project_id }}/sources">Define capture plan</a>
+        <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Define capture plan</a>
       </section>
     {% else %}
-    <form method="post" action="/projects/{{ project.project_id }}/schema/govern">
+    <form method="post" action="/workspaces/{{ project.project_id }}/schema/govern">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <section class="form-card" id="schema-governance">
         <div class="page-heading compact">
@@ -523,7 +523,7 @@
       <div class="actions">
         <button class="button primary" type="submit">Confirm matching rules</button>
         {% if governance %}
-          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Continue to match data</a>
+          <a class="button secondary" href="/workspaces/{{ project.project_id }}/mapping">Continue to match data</a>
         {% endif %}
       </div>
     </form>

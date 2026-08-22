@@ -93,11 +93,10 @@ exist, then unlocks Match data. Odoo source mode completes its first
 responsibility when the eligible schema exists, then unlocks the bounded
 capture and freeze responsibility.
 
-For a Test or Production Recipe application, the captured file-mode target is
-fresh DataVersion evidence. `RecipeApplicationService` subsequently assesses
-only the selected Recipe revision's required Odoo semantics and persists a
-non-secret `TargetBinding`; the server and credentials never become Recipe
-meaning.
+The captured file-mode target is fresh evidence owned by the current
+DataVersion. Optional Recipe publication can compile required portable Odoo
+semantics, but the server identity, schema capture, and credentials never
+become Recipe meaning. Project-owned application planning belongs to Phase M4.
 
 ## Invalidation and recovery
 

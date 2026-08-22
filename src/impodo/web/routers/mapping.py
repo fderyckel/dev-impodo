@@ -72,7 +72,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/projects/{project_id}/mapping", response_class=HTMLResponse)
+    @router.get("/workspaces/{project_id}/mapping", response_class=HTMLResponse)
     async def project_mapping(request: Request, project_id: str):
         require_session(request)
         active_url = _active_preparation_url(context, project_id)
@@ -81,7 +81,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         return _render_mapping(request, context, project_id)
 
     @router.get(
-        "/projects/{project_id}/mapping/field-catalog",
+        "/workspaces/{project_id}/mapping/field-catalog",
         response_class=HTMLResponse,
     )
     async def project_mapping_field_catalog(
@@ -99,7 +99,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             project_id,
         )
 
-    @router.post("/projects/{project_id}/mapping/value-choices")
+    @router.post("/workspaces/{project_id}/mapping/value-choices")
     async def project_mapping_value_choices(
         request: Request,
         project_id: str,
@@ -254,7 +254,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             return JSONResponse({"detail": str(error)}, status_code=422)
 
     @router.get(
-        "/projects/{project_id}/mapping/transformation-impact",
+        "/workspaces/{project_id}/mapping/transformation-impact",
         response_class=HTMLResponse,
     )
     async def project_transformation_impact(request: Request, project_id: str):
@@ -373,7 +373,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
     @router.post(
-        "/projects/{project_id}/mapping/transformation-impact/prepare"
+        "/workspaces/{project_id}/mapping/transformation-impact/prepare"
     )
     async def prepare_transformation_impact(request: Request, project_id: str):
         """Prepare one hash-bound local snapshot without contacting Odoo."""
@@ -431,11 +431,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
         _flash(request, "The changed-value comparison is ready.")
         return RedirectResponse(
-            f"/projects/{project_id}/mapping/transformation-impact",
+            f"/workspaces/{project_id}/mapping/transformation-impact",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/mapping/transformation-impact.csv")
+    @router.post("/workspaces/{project_id}/mapping/transformation-impact.csv")
     async def download_transformation_impact(request: Request, project_id: str):
         """Download matching persisted impact rows without recomputing them."""
 
@@ -568,7 +568,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             },
         )
 
-    @router.post("/projects/{project_id}/mapping/save")
+    @router.post("/workspaces/{project_id}/mapping/save")
     async def save_project_mapping(request: Request, project_id: str):
         """Run one explicit save, check, or confirmation command."""
 
@@ -790,7 +790,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 message = "Field matches confirmed."
                 _flash(request, message)
-                mapping_return_url = f"/projects/{project_id}/prepare"
+                mapping_return_url = f"/workspaces/{project_id}/prepare"
         except HTTPException as error:
             return _mapping_save_error_response(
                 request,
@@ -836,7 +836,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
     @router.post(
-        "/projects/{project_id}/mapping/transformation-impact/acknowledge"
+        "/workspaces/{project_id}/mapping/transformation-impact/acknowledge"
     )
     async def acknowledge_transformation_rule(
         request: Request,
@@ -859,7 +859,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(error)) from error
         _flash(request, "The rule result was reviewed.")
         return RedirectResponse(
-            f"/projects/{project_id}/mapping/transformation-impact",
+            f"/workspaces/{project_id}/mapping/transformation-impact",
             status_code=303,
         )
 
@@ -871,7 +871,7 @@ def _active_preparation_url(context: WebContext, project_id: str) -> str:
     active = manager.active(project_id) if manager is not None else None
     if active is None:
         return ""
-    return f"/projects/{project_id}/preparation/{active.job_id}"
+    return f"/workspaces/{project_id}/preparation/{active.job_id}"
 
 
 def _require_mapping_idle(context: WebContext, project_id: str) -> None:

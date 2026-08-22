@@ -33,14 +33,14 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
     router = APIRouter()
 
     @router.get(
-        "/projects/{project_id}/derived-entities",
+        "/workspaces/{project_id}/derived-entities",
         response_class=HTMLResponse,
     )
     async def project_derived_entities(request: Request, project_id: str):
         require_session(request)
         return _render_derived_entities(request, context, project_id)
 
-    @router.post("/projects/{project_id}/derived-entities/models/refresh")
+    @router.post("/workspaces/{project_id}/derived-entities/models/refresh")
     async def refresh_derived_entity_models(request: Request, project_id: str):
         """Load existing Odoo record types and return to lookup extraction."""
 
@@ -68,11 +68,11 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             f"Loaded {len(catalog.models)} existing Odoo record type(s).",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/derived-entities#lookup-extraction",
+            f"/workspaces/{project_id}/derived-entities#lookup-extraction",
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/derived-entities/save")
+    @router.post("/workspaces/{project_id}/derived-entities/save")
     async def save_project_derived_entity(request: Request, project_id: str):
         form = await request.form()
         _secure_form(
@@ -136,13 +136,13 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         )
         return RedirectResponse(
             (
-                f"/projects/{project_id}/derived-entities"
+                f"/workspaces/{project_id}/derived-entities"
                 f"#lookup-rule-{rule.rule_id}"
             ),
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/derived-entities/lookup/preview")
+    @router.post("/workspaces/{project_id}/derived-entities/lookup/preview")
     async def preview_project_derived_entity(
         request: Request,
         project_id: str,
@@ -203,7 +203,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             pending_lookup={"rule": rule, "preview": preview},
         )
 
-    @router.post("/projects/{project_id}/derived-entities/related/preview")
+    @router.post("/workspaces/{project_id}/derived-entities/related/preview")
     async def preview_project_related_datasets(
         request: Request,
         project_id: str,
@@ -247,7 +247,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             pending_related={"rule": rule, "preview": preview},
         )
 
-    @router.post("/projects/{project_id}/derived-entities/related/save")
+    @router.post("/workspaces/{project_id}/derived-entities/related/save")
     async def save_project_related_datasets(
         request: Request,
         project_id: str,
@@ -296,12 +296,12 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            f"/projects/{project_id}/derived-entities",
+            f"/workspaces/{project_id}/derived-entities",
             status_code=303,
         )
 
     @router.post(
-        "/projects/{project_id}/derived-entities/{rule_id}/delete"
+        "/workspaces/{project_id}/derived-entities/{rule_id}/delete"
     )
     async def delete_project_derived_entity(
         request: Request,
@@ -336,7 +336,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             "Removed the saved separation rule.",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/derived-entities",
+            f"/workspaces/{project_id}/derived-entities",
             status_code=303,
         )
 

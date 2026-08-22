@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}New project · Impodo{% endblock %}
+{% block content %}
+  <section class="form-card narrow">
+    <p class="eyebrow">New data project</p>
+    <h1>What migration are you managing?</h1>
+    <p>Impodo creates the first authoring data package and workspace. It does not create a Recipe.</p>
+    <form method="post" action="/projects/new" data-single-submit>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="creation_request_id" value="{{ values.get('creation_request_id', '') }}">
+      <label>
+        Project name
+        <input name="display_name" maxlength="200" required value="{{ values.get('display_name', '') }}">
+        <small>For example: Thailand customer rollout.</small>
+      </label>
+      <label>
+        Migration purpose <span class="optional">Optional</span>
+        <textarea name="migration_purpose" maxlength="2000">{{ values.get('migration_purpose', '') }}</textarea>
+        <small>What this Project must deliver. Impodo provides a simple default when left blank.</small>
+      </label>
+      <fieldset>
+        <legend>Where is the source data?</legend>
+        <div class="mode-grid">
+          <label class="mode-card">
+            <input type="radio" name="source_mode" value="FILE" {% if values.get('source_mode', 'FILE') == 'FILE' %}checked{% endif %}>
+            <span><strong>Files</strong><small>CSV or XLSX exports from the legacy system.</small></span>
+          </label>
+          <label class="mode-card">
+            <input type="radio" name="source_mode" value="ODOO" {% if values.get('source_mode') == 'ODOO' %}checked{% endif %}>
+            <span><strong>Data already in Odoo</strong><small>Read records from the configured Odoo database.</small></span>
+          </label>
+        </div>
+      </fieldset>
+      <label>
+        Source system label <span class="optional">Optional</span>
+        <input name="source_system_identity" maxlength="500" value="{{ values.get('source_system_identity', '') }}">
+      </label>
+      <div class="actions">
+        <a class="button secondary" href="/projects">Cancel</a>
+        <button class="button primary" type="submit" data-submitting-label="Creating project...">Create project</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}
+

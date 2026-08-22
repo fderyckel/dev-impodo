@@ -21,7 +21,13 @@ class OdooCaptureJobManagerTests(unittest.TestCase):
 
     def test_reports_stream_counters_and_published_manifest(self) -> None:
         publication = _Publication()
-        self.manager = OdooCaptureJobManager(publication)
+        accepted = []
+        self.manager = OdooCaptureJobManager(
+            publication,
+            accept_publication=lambda project_id, result, actor: accepted.append(
+                (project_id, result.manifest.manifest_id, actor)
+            ),
+        )
 
         job = self.manager.enqueue(
             "project-1",
@@ -39,6 +45,10 @@ class OdooCaptureJobManagerTests(unittest.TestCase):
         self.assertEqual(terminal.normalized_bytes, 20)
         self.assertEqual(terminal.manifest_id, "manifest-1")
         self.assertEqual(terminal.progress_percent, 100)
+        self.assertEqual(
+            accepted,
+            [("project-1", "manifest-1", LOCAL_ACTOR)],
+        )
 
     def test_returns_one_active_attempt_and_cancels_at_checkpoint(self) -> None:
         publication = _BlockingPublication()

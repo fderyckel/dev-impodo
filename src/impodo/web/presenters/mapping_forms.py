@@ -1283,7 +1283,7 @@ def _draft_or_redirect(
     project = context.queries.get(project_id)
     if project.status is not ProjectStatus.DRAFT:
         return RedirectResponse(
-            f"/projects/{project.project_id}/summary",
+            f"/workspaces/{project.project_id}/summary",
             status_code=303,
         )
     return project

@@ -9,12 +9,12 @@ status: current
 ## Goal
 
 Confirm the exact records and columns that Impodo may prepare, then freeze
-them as evidence for the current Recipe data version.
+them as evidence for the current Project DataVersion.
 
 ## Before you start
 
-The current data version must be registered. For files, use the complete CSV
-or XLSX package for this authoring, Test, or Production run and know which
+The current DataVersion must be registered. For files, use the complete CSV
+or XLSX package for this authoring work and know which
 worksheets, tables, or ranges belong to the migration. For an Odoo source,
 first complete the eligible-field capture described in
 [Odoo data](02-odoo-data.md).
@@ -45,7 +45,7 @@ version.
 The Odoo-source route reads selected business records; it does not authorize a
 write back to Odoo.
 
-![Current source inspection inside a fictional Recipe data version.](../../images/user/04-source-inspection.png)
+![Current source inspection inside a fictional Project workspace.](../../images/user/04-source-inspection.png)
 
 ![Current frozen table choices and the next Odoo-data action in that data version.](../../images/user/05-frozen-tables.png)
 
@@ -55,11 +55,9 @@ The exact files, rows, hashes, and frozen snapshots belong only to this data
 version. A published Recipe retains the reusable source shape and logical
 table and column bindings, not the source records.
 
-Every Test or Production data version therefore starts clean. Add and freeze
-the complete replacement package again. When you later select **Apply
-Recipe**, Impodo checks the new shape explicitly. A renamed column used by the
-Recipe needs your replacement choice; a new unused column does not silently
-change the Recipe.
+Every later DataVersion must therefore start clean and accept its complete
+replacement package again. Applying several Recipes to later DataVersions is
+part of the next implementation phase and is not available in M3.
 
 ## What to check
 
@@ -87,9 +85,8 @@ not rewrite the frozen source.
 
 Stop when a file hash has changed, a worksheet is missing, headings are wrong,
 or the Odoo capture is broader than intended. Before table freeze, replace an
-incorrect file. Never replace frozen evidence in place. For an authoring
-mistake, create a correctly scoped Recipe; for later replacement data, start a
-fresh Test or Production data version from the Recipe overview.
+incorrect file. Never replace frozen evidence in place. If the migration scope
+is wrong, create a correctly scoped Project.
 
 For combined source information, use the
 [related-table authoring guide](../guides/related-tables.md)

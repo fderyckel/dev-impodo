@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 import os
+from typing import Callable
 
 from ...access import Actor
 from ...artifacts import ArtifactStore
@@ -35,6 +36,7 @@ class OdooProvenanceRepository(DuckDbRepository):
         artifacts: ArtifactStore,
         *,
         history_quota_bytes: int | None = None,
+        protected_root: Callable[[str], Path] | None = None,
     ) -> None:
         super().__init__(database)
         self._artifacts = artifacts
@@ -43,6 +45,7 @@ class OdooProvenanceRepository(DuckDbRepository):
             if history_quota_bytes is not None
             else CURRENT_ODOO_SOURCE_POLICY.max_project_history_bytes
         )
+        self._protected_root_resolver = protected_root
         if self._history_quota_bytes < 1:
             raise ValueError("Odoo history quota must be positive")
 
@@ -172,7 +175,7 @@ class OdooProvenanceRepository(DuckDbRepository):
                 )
                 if retained_bytes + candidate_bytes > self._history_quota_bytes:
                     raise WorkspaceError("Odoo capture history quota would be exceeded")
-                final_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                _mkdir_private(final_path.parent, parents=True)
                 candidate_path.replace(final_path)
                 published = True
                 connection.begin()
@@ -521,7 +524,7 @@ class OdooProvenanceRepository(DuckDbRepository):
     def _write_candidate(self, path: Path, value: bytes) -> None:
         if len(value) > CURRENT_ODOO_SOURCE_POLICY.max_snapshot_bytes:
             raise WorkspaceError("Odoo provenance candidate exceeds snapshot limit")
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _mkdir_private(path.parent, parents=True)
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(descriptor, "wb") as stream:
@@ -537,7 +540,7 @@ class OdooProvenanceRepository(DuckDbRepository):
         candidates = root / "candidates"
         if candidates.is_symlink():
             raise WorkspaceError("Protected Odoo candidate directory is unsafe")
-        candidates.mkdir(mode=0o700, exist_ok=True)
+        _mkdir_private(candidates)
         if candidates.resolve().parent != root.resolve():
             raise WorkspaceError(
                 "Protected Odoo candidate directory escapes the project"
@@ -549,7 +552,7 @@ class OdooProvenanceRepository(DuckDbRepository):
         captures = root / "captures"
         if captures.is_symlink():
             raise WorkspaceError("Protected Odoo capture directory is unsafe")
-        captures.mkdir(mode=0o700, exist_ok=True)
+        _mkdir_private(captures)
         candidate = root / storage_key
         resolved = candidate.resolve()
         if (
@@ -560,11 +563,23 @@ class OdooProvenanceRepository(DuckDbRepository):
         return candidate
 
     def _protected_root(self, project_id: str) -> Path:
-        root = self.project_directory(project_id) / "protected"
+        root = (
+            self._protected_root_resolver(project_id)
+            if self._protected_root_resolver is not None
+            else self.project_directory(project_id) / "protected"
+        )
         if root.is_symlink():
             raise WorkspaceError("Protected Odoo evidence directory is unsafe")
-        root.mkdir(mode=0o700, exist_ok=True)
+        _mkdir_private(root, parents=True)
         return root
+
+
+def _mkdir_private(path: Path, *, parents: bool = False) -> None:
+    """Create a private directory without translating POSIX modes into Windows ACLs."""
+
+    path.mkdir(parents=parents, exist_ok=True)
+    if os.name != "nt":
+        path.chmod(0o700)
 
 
 def _validate_complete_capture(
