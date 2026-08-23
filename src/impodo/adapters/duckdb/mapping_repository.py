@@ -14,6 +14,7 @@ from datetime import (
     datetime,
     timezone,
 )
+from typing import Protocol
 
 
 from ...access import Actor
@@ -44,8 +45,27 @@ from .repository import DuckDbRepository
 
 
 
+class MappingSourceProjectionReader(Protocol):
+    """Read the exact DataVersion projection selected for one workspace."""
+
+    def get_mapping_source_selection(
+        self,
+        workspace_id: str,
+    ) -> SourceSelection | None:
+        """Return the current immutable mapping projection."""
+        ...
+
+
 class MappingRepository(DuckDbRepository):
     """Own recoverable editor state and immutable governed mapping evidence."""
+
+    def __init__(
+        self,
+        database,
+        source_projection: MappingSourceProjectionReader | None = None,
+    ) -> None:
+        super().__init__(database)
+        self._source_projection = source_projection
 
     def get_mapping_working_draft(
         self,
@@ -74,18 +94,11 @@ class MappingRepository(DuckDbRepository):
 
         if draft.project_id != project_id:
             raise WorkspaceError("Working draft belongs to another project")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
-            selection_row = connection.execute(
-                """
-                SELECT selection_json
-                  FROM source_selection
-                 WHERE singleton_id = 1
-                """
-            ).fetchone()
             schema_row = connection.execute(
                 """
                 SELECT catalog_json
@@ -93,37 +106,65 @@ class MappingRepository(DuckDbRepository):
                  WHERE singleton_id = 1
                 """
             ).fetchone()
-            if selection_row is None or schema_row is None:
+            if schema_row is None:
                 raise WorkspaceError(
                     "Freeze datasets and capture Odoo schema first"
                 )
-            selection = SourceSelection.from_json(str(selection_row[0]))
-            plan_row = connection.execute(
-                """
-                SELECT revision.plan_json
-                  FROM derived_entity_plan_current AS current
-                  JOIN derived_entity_plan_revision AS revision
-                    ON revision.plan_id = current.plan_id
-                   AND revision.version = current.version
-                 WHERE current.singleton_id = 1
-                """
-            ).fetchone()
-            plan = (
-                DerivedEntityPlan.from_json(str(plan_row[0]))
-                if plan_row is not None
-                else None
-            )
-            catalog_rows = connection.execute(
-                "SELECT catalog_json FROM source_catalog ORDER BY file_id"
-            ).fetchall()
-            mapping_selection = mapping_source_selection(
-                selection,
-                plan,
-                tuple(
-                    SourceFileCatalog.from_json(str(row[0]))
-                    for row in catalog_rows
-                ),
-            )
+            if self._source_projection is not None:
+                mapping_selection = (
+                    self._source_projection.get_mapping_source_selection(
+                        project_id
+                    )
+                )
+                if mapping_selection is None:
+                    raise WorkspaceError(
+                        "Select DataVersion datasets for this workspace first"
+                    )
+            else:
+                selection_row = connection.execute(
+                    """
+                    SELECT selection_json
+                      FROM source_selection
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                if selection_row is None:
+                    raise WorkspaceError(
+                        "Freeze datasets and capture Odoo schema first"
+                    )
+                selection = SourceSelection.from_json(str(selection_row[0]))
+                plan_row = connection.execute(
+                    """
+                    SELECT revision.plan_json
+                      FROM derived_entity_plan_current AS current
+                      JOIN derived_entity_plan_revision AS revision
+                        ON revision.plan_id = current.plan_id
+                       AND revision.version = current.version
+                     WHERE current.singleton_id = 1
+                    """
+                ).fetchone()
+                plan = (
+                    DerivedEntityPlan.from_json(str(plan_row[0]))
+                    if plan_row is not None
+                    else None
+                )
+                catalog_rows = connection.execute(
+                    """
+                    SELECT catalog.catalog_json
+                      FROM source_file AS source
+                      JOIN source_catalog AS catalog
+                        ON catalog.file_id = source.file_id
+                     ORDER BY source.received_at, source.file_id
+                    """
+                ).fetchall()
+                mapping_selection = mapping_source_selection(
+                    selection,
+                    plan,
+                    tuple(
+                        SourceFileCatalog.from_json(str(row[0]))
+                        for row in catalog_rows
+                    ),
+                )
             schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
             governance_row = connection.execute(
                 """
@@ -148,10 +189,13 @@ class MappingRepository(DuckDbRepository):
             if (
                 draft.definition.source_selection_hash
                 != mapping_selection.content_hash
-                or draft.definition.schema_hash != expected_schema_hash
             ):
                 raise WorkspaceError(
-                    "Working draft does not match the current mapping evidence"
+                    "Working draft does not match the current source evidence"
+                )
+            if draft.definition.schema_hash != expected_schema_hash:
+                raise WorkspaceError(
+                    "Working draft does not match the current Odoo evidence"
                 )
             existing = connection.execute(
                 """
@@ -296,9 +340,9 @@ class MappingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Checked working draft does not match its revision"
             )
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -439,9 +483,9 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Append revalidation only when its mapping content hash matches."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -501,9 +545,9 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Append a submission only when validation and warnings match exactly."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -567,7 +611,7 @@ class MappingRepository(DuckDbRepository):
                     ],
                 )
                 connection.execute(
-                    "UPDATE project SET mapping_version = ?",
+                    "UPDATE workspace_state SET mapping_version = ?",
                     [str(submission.version)],
                 )
                 self._insert_workspace_audit(

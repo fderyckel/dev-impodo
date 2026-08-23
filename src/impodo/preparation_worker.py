@@ -1,4 +1,4 @@
-"""Project-scoped composition root for spawned preparation workers."""
+"""Workspace-scoped composition root for spawned preparation workers."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from .adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from .adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
-from .adapters.duckdb.project_workspace_reader import ProjectWorkspaceReader
+from .adapters.duckdb.workspace_state_reader import WorkspaceStateReader
 from .adapters.duckdb.quality_repository import QualityRepository
 from .adapters.duckdb.migration_workspace_engine_database import (
     FixedMigrationWorkspaceEngineDatabase,
@@ -61,15 +61,15 @@ def create_preparation_worker(
     )
     authorization = CapabilityAuthorizationPolicy()
     secrets = CredentialVault()
-    projects = ProjectWorkspaceReader(database, workspace)
+    workspace_states = WorkspaceStateReader(database, workspace)
     derived_entities = DerivedEntityRepository(database)
     sources = SourceRepository(database, derived_entities)
     mappings = MappingRepository(database)
     staging = StagingRepository(database, artifacts)
     sessions = PreparationSessionRepository(database, artifacts)
     coverage = AdvancedCoverageRepository(database)
-    quality_repository = QualityRepository(database, projects)
-    normalization_repository = NormalizationRepository(database, projects)
+    quality_repository = QualityRepository(database, workspace_states)
+    normalization_repository = NormalizationRepository(database, workspace_states)
     quality = QualityService(
         mappings,
         sources,
@@ -82,14 +82,14 @@ def create_preparation_worker(
     resolution = ResolutionService(coverage, staging)
     odoo_provenance_repository = OdooProvenanceRepository(database, artifacts)
     odoo_provenance = OdooProvenanceService(
-        projects,
+        workspace_states,
         sources,
         odoo_provenance_repository,
         secrets,
         authorization,
     )
     return PreparationService(
-        projects,
+        workspace_states,
         sources,
         derived_entities,
         mappings,

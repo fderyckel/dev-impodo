@@ -662,7 +662,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         peak_tree_mib = memory_sampler.peak_tree_bytes / (1024 * 1024)
         database_path = (
             self.context.preparation.staging.workspace_directory(project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         source_snapshots = (
             self.context.preparation.sources.get_current_source_snapshots(project_id)
@@ -1182,7 +1182,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         elapsed = perf_counter() - started
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
         ending_mib = process.memory_info().rss / (1024 * 1024)
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         database_mib = database_path.stat().st_size / (1024 * 1024)
         self.assertEqual(len(bounded.run.rows), PREPARATION_SCALE_ROWS)
         for forbidden_phase in (
@@ -1304,7 +1304,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
 
         def storage_evidence() -> dict[str, int]:
-            database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+            database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
             with self.context.preparation.staging._connect(database_path) as connection:
                 connection.execute("CHECKPOINT")
                 database_size_row = connection.execute(
@@ -1325,7 +1325,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             }
 
         def vectorization_evidence() -> dict[str, object]:
-            database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+            database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
             with self.context.preparation.staging._connect(database_path) as connection:
                 row = connection.execute(
                     """
@@ -2431,7 +2431,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         impact_batches = preparation_transport_batches["impacts"]
         self.assertEqual(impact_batches, [])
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             native_counts = connection.execute(
                 """
@@ -2496,7 +2496,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
         )
         self.assertEqual(quarantined_page.matching_count, 2)
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.quality.quality._connect(
             database_path
         ) as connection:
@@ -2559,7 +2559,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             stored_normalization.to_json(),
             expected_normalization.to_json(),
         )
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             sessions = connection.execute(
                 """
@@ -2654,7 +2654,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2692,7 +2692,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session = connection.execute(
                 "SELECT status, failure_code FROM preparation_session"
@@ -2792,7 +2792,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session = connection.execute(
                 "SELECT status, failure_code FROM preparation_session"
@@ -2837,7 +2837,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2883,7 +2883,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2938,7 +2938,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session_id = str(
                 connection.execute(
@@ -3011,7 +3011,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertIsNotNone(unchanged)
         assert unchanged is not None
         self.assertEqual(unchanged.run_id, current.run_id)
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             state = connection.execute(
                 """
@@ -3050,7 +3050,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertIsNone(
             self.context.preparation.staging.get_current_staging_summary(project_id)
         )
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             state = connection.execute(
                 """

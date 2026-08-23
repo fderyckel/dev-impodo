@@ -84,7 +84,7 @@ class EvidenceInvalidationMixin:
         connection.execute("DELETE FROM preflight_current")
         connection.execute(
             """
-            UPDATE project
+            UPDATE workspace_state
                SET current_run_id = NULL,
                    approval_status = 'INVALIDATED'
             """
@@ -122,7 +122,7 @@ class EvidenceInvalidationMixin:
         connection.execute("DELETE FROM quality_current")
         connection.execute(
             """
-            UPDATE project
+            UPDATE workspace_state
                SET current_run_id = NULL,
                    approval_status = 'INVALIDATED'
             """
@@ -199,7 +199,7 @@ class EvidenceInvalidationMixin:
         connection.execute("DELETE FROM canonical_staging_current")
         connection.execute(
             """
-            UPDATE project
+            UPDATE workspace_state
                SET current_run_id = NULL,
                    approval_status = 'INVALIDATED'
             """

@@ -69,6 +69,14 @@ class SourceQueryRepository(Protocol):
     ) -> OdooCaptureSelection | None: ...
 
 
+class MappingSourceQueryRepository(Protocol):
+    """Read the DataVersion datasets selected for one MigrationWorkspace."""
+
+    def get_mapping_source_selection(
+        self, workspace_id: str
+    ) -> SourceSelection | None: ...
+
+
 class DerivedEntityQueryRepository(Protocol):
     """Read the current source-preparation plan used by mapping presenters."""
 
@@ -170,6 +178,7 @@ class BrowserQueryService:
         mapping_field_catalogs: MappingFieldCatalogQueryRepository,
         quality: QualityQueryRepository,
         transformation_impacts: TransformationImpactQueryRepository,
+        mapping_sources: MappingSourceQueryRepository,
     ) -> None:
         self._projects = projects
         self._sources = sources
@@ -179,6 +188,7 @@ class BrowserQueryService:
         self._mapping_field_catalogs = mapping_field_catalogs
         self._quality = quality
         self._transformation_impacts = transformation_impacts
+        self._mapping_sources = mapping_sources
 
     def get(self, project_id: str) -> WorkspaceState:
         return self._projects.get(project_id)
@@ -202,7 +212,7 @@ class BrowserQueryService:
     def get_mapping_source_selection(
         self, project_id: str
     ) -> SourceSelection | None:
-        return self._sources.get_mapping_source_selection(project_id)
+        return self._mapping_sources.get_mapping_source_selection(project_id)
 
     def get_current_source_snapshots(
         self, project_id: str

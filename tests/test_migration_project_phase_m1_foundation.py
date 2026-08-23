@@ -636,11 +636,11 @@ class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
         standalone_root = self.root / "standalone"
         legacy_workspace = standalone_root / str(uuid4())
         legacy_workspace.mkdir(parents=True)
-        (legacy_workspace / "project.duckdb").write_bytes(b"legacy")
+        (legacy_workspace / "workspace-engine.duckdb").write_bytes(b"legacy")
         with self.assertRaises(MigrationStorageCompatibilityError):
             MigrationFoundationDatabase(standalone_root)
         self.assertFalse((standalone_root / "registry.duckdb").exists())
-        self.assertTrue((legacy_workspace / "project.duckdb").is_file())
+        self.assertTrue((legacy_workspace / "workspace-engine.duckdb").is_file())
 
     def test_reset_requires_review_confirmation_and_development_mode(self) -> None:
         registry = self.root / "registry.duckdb"
@@ -648,7 +648,7 @@ class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
             connection.execute("CREATE TABLE recipe (recipe_id VARCHAR)")
         legacy_workspace = self.root / str(uuid4())
         legacy_workspace.mkdir()
-        (legacy_workspace / "project.duckdb").write_bytes(b"fixture")
+        (legacy_workspace / "workspace-engine.duckdb").write_bytes(b"fixture")
 
         plan = plan_development_reset(self.root)
         self.assertTrue(plan.can_execute)

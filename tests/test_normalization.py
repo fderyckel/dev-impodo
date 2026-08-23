@@ -679,7 +679,7 @@ class NormalizationStoreTests(unittest.TestCase):
         )
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             connection.execute(
@@ -741,7 +741,7 @@ class NormalizationStoreTests(unittest.TestCase):
 
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             count = connection.execute(
@@ -881,7 +881,7 @@ class NormalizationStoreTests(unittest.TestCase):
         )
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             retired = connection.execute(
@@ -973,7 +973,7 @@ class NormalizationStoreTests(unittest.TestCase):
         elapsed = perf_counter() - started
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         peak_mib = psutil.Process().memory_info().peak_wset / (1024 * 1024)
         database_mib = database_path.stat().st_size / (1024 * 1024)

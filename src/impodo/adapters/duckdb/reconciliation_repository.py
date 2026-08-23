@@ -36,9 +36,9 @@ class ReconciliationRepository(DuckDbRepository):
             raise WorkspaceError("Verification result identifier is invalid") from error
         if report.project_id != project_id:
             raise WorkspaceError("Verification result belongs to another project")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -134,9 +134,9 @@ class ReconciliationRepository(DuckDbRepository):
 
     def get(self, project_id: str, reconciliation_id: str) -> ReconciliationRun | None:
         canonical_id = str(UUID(reconciliation_id))
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(

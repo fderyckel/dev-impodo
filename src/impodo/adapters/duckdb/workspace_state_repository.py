@@ -44,7 +44,7 @@ class WorkspaceStateRepository(DuckDbRepository):
         """
 
         directory = self.workspace_directory(workspace.project_id)
-        database_path = directory / "project.duckdb"
+        database_path = directory / "workspace-engine.duckdb"
         if database_path.is_file():
             raise WorkspaceStateError("MigrationWorkspace engine already exists")
         created_root = False
@@ -76,7 +76,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     def get(self, workspace_id: str) -> WorkspaceState:
         """Return current mutable state from one initialized workspace engine."""
 
-        database_path = self.workspace_directory(workspace_id) / "project.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
         with self._connect(database_path) as connection:
@@ -93,7 +93,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     def has_audit_event(self, project_id: str, event_type: str) -> bool:
         """Return whether the project recorded the exact lifecycle event."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -120,7 +120,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Append a credential event without mutating project semantics."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -156,7 +156,7 @@ class WorkspaceStateRepository(DuckDbRepository):
         registration also refreshes the portable registration manifest.
         """
 
-        database_path = self.workspace_directory(project.project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -170,7 +170,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                            intended_models, data_manager,
                            functional_owner, retention_days,
                            data_classification
-                      FROM project
+                      FROM workspace_state
                     """
                 ).fetchone()
                 if current is None:
@@ -242,7 +242,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Insert one immutable source row without rewriting existing evidence."""
 
-        database_path = self.workspace_directory(project.project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -250,7 +250,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision, status FROM project"
+                    "SELECT revision, status FROM workspace_state"
                 ).fetchone()
                 if current is None:
                     raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
@@ -309,7 +309,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Atomically remove one unfrozen file and its file-scoped evidence."""
 
-        database_path = self.workspace_directory(project.project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -317,7 +317,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision, status FROM project"
+                    "SELECT revision, status FROM workspace_state"
                 ).fetchone()
                 if current is None:
                     raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
@@ -377,7 +377,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Replace Stage C's model allowlist and invalidate its dependents."""
 
-        database_path = self.workspace_directory(project.project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -385,7 +385,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision FROM project"
+                    "SELECT revision FROM workspace_state"
                 ).fetchone()
                 if current is None:
                     raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
@@ -429,11 +429,11 @@ class WorkspaceStateRepository(DuckDbRepository):
 
 
     def _get_project_unresolved(self, project_id: str) -> WorkspaceState:
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
-            row = connection.execute("SELECT * FROM project").fetchone()
+            row = connection.execute("SELECT * FROM workspace_state").fetchone()
             if row is None:
                 raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
             columns = [item[0] for item in connection.description]
@@ -456,7 +456,7 @@ class WorkspaceStateRepository(DuckDbRepository):
         project: WorkspaceState,
     ) -> None:
         connection.execute(
-            f"INSERT INTO project VALUES ({', '.join('?' for _ in range(26))})",
+            f"INSERT INTO workspace_state VALUES ({', '.join('?' for _ in range(26))})",
             _project_values(project),
         )
     def _update_project(
@@ -466,7 +466,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         connection.execute(
             """
-            UPDATE project SET
+            UPDATE workspace_state SET
                 name = ?,
                 source_system = ?,
                 source_mode = ?,

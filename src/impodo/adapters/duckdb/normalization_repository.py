@@ -77,7 +77,7 @@ class NormalizationRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared review no longer matches project ownership and retention"
             )
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         published_at = datetime.now(timezone.utc)
         prepared_run_id = getattr(evaluation.effects, "prepared_run_id", None)
         run_id = (
@@ -307,9 +307,9 @@ class NormalizationRepository(DuckDbRepository):
     ) -> NormalizationRunSummary | None:
         """Return the current non-retired review run's lifecycle projection."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -331,9 +331,9 @@ class NormalizationRepository(DuckDbRepository):
         """Reassemble immutable effect/group evidence and verify its hash."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -367,9 +367,9 @@ class NormalizationRepository(DuckDbRepository):
         """Load the current serialized decision state for one run."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -393,9 +393,9 @@ class NormalizationRepository(DuckDbRepository):
         """Load bounded group summaries and count routine-change records in SQL."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
@@ -434,7 +434,7 @@ class NormalizationRepository(DuckDbRepository):
         """Record one manager decision with an optimistic lifecycle check."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         decided_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -522,7 +522,7 @@ class NormalizationRepository(DuckDbRepository):
         """Approve the full prepared dataset and bind its exact eligible hash."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         approved_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -596,7 +596,7 @@ class NormalizationRepository(DuckDbRepository):
         """Reopen the current review while retaining prior audit transitions."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         reopened_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)

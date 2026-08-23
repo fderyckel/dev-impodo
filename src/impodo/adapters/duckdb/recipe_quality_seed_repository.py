@@ -32,7 +32,7 @@ class RecipeQualitySeedRepository(DuckDbRepository):
                 "rules": rule_payload,
             }
         )
-        database_path = self.workspace_directory(workspace_id) / "project.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -65,7 +65,7 @@ class RecipeQualitySeedRepository(DuckDbRepository):
         workspace_id: str,
         mapping_content_hash: str,
     ) -> tuple[QualityRule, ...]:
-        database_path = self.workspace_directory(workspace_id) / "project.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:

@@ -11,7 +11,7 @@ from impodo.workspace_errors import WorkspaceDatabaseBusyError
 
 
 LOCK_ERROR = (
-    'IO Error: Cannot open file "project.duckdb": The process cannot access '
+    'IO Error: Cannot open file "workspace-engine.duckdb": The process cannot access '
     "the file because it is being used by another process."
 )
 
@@ -28,7 +28,7 @@ class DuckDbLockContentionTests(unittest.TestCase):
             "impodo.adapters.duckdb.unit_of_work.duckdb.connect",
             side_effect=(duckdb.IOException(LOCK_ERROR), connection),
         ) as connect:
-            with factory.connect(Path("project.duckdb")) as opened:
+            with factory.connect(Path("workspace-engine.duckdb")) as opened:
                 self.assertIs(opened, connection)
 
         self.assertEqual(connect.call_count, 2)
@@ -46,7 +46,7 @@ class DuckDbLockContentionTests(unittest.TestCase):
             ),
             self.assertRaises(WorkspaceDatabaseBusyError) as raised,
         ):
-            with factory.connect(Path("project.duckdb")):
+            with factory.connect(Path("workspace-engine.duckdb")):
                 pass
 
         self.assertEqual(
@@ -67,7 +67,7 @@ class DuckDbLockContentionTests(unittest.TestCase):
             ),
             self.assertRaises(duckdb.IOException) as raised,
         ):
-            with factory.connect(Path("project.duckdb")):
+            with factory.connect(Path("workspace-engine.duckdb")):
                 pass
 
         self.assertIs(raised.exception, error)

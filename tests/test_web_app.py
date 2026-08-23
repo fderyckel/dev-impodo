@@ -90,7 +90,6 @@ from impodo.odoo_readback import ReadbackRecord
 from impodo.workspace_state import OdooConnectionMode, WorkspaceStatus, SourceMode
 from impodo.preparation_jobs import PreparationJobStatus, PreparationWorkspace
 from impodo.planner import PreflightRequirementPlan
-from impodo.recipes import DataVersionState
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -216,41 +215,43 @@ def _wait_for_odoo_capture(
 
 
 def _created_workspace_id(app, response) -> str:
-    parts = response.headers["location"].split("/")
-    if len(parts) > 2 and parts[1] == "projects":
-        return parts[2]
-    recipe_id = parts[2]
-    recipe = app.state.context.recipes.get(
-        recipe_id,
+    parts = urlsplit(response.headers["location"]).path.strip("/").split("/")
+    if len(parts) >= 2 and parts[0] == "workspaces":
+        return parts[1]
+    if len(parts) < 2 or parts[0] != "projects":
+        raise AssertionError("Project creation returned an unexpected location")
+    workspaces = app.state.context.migration_workspaces.list_for_project(
+        parts[1],
         actor=app.state.context.actor,
     )
-    versions = app.state.context.recipes.data_versions(
-        recipe_id,
-        actor=app.state.context.actor,
-    )
-    return next(
-        item.workspace_project_id
-        for item in versions
-        if item.data_version_id == recipe.current_data_version_id
-    )
+    if len(workspaces) != 1:
+        raise AssertionError("New Project did not create one authoring workspace")
+    return workspaces[0].workspace_id
 
 
-def _created_recipe_id(app, response) -> str:
-    """Resolve the Recipe whether creation redirects to Recipe or project setup."""
-
-    project_id = _created_workspace_id(app, response)
-    return app.state.context.recipes.resolve_workspace(
-        project_id,
-        actor=app.state.context.actor,
-    ).recipe_id
+def _create_workspace(
+    context,
+    *,
+    name: str,
+    source_system: str,
+    source_mode: str = "FILE",
+):
+    return context.project_authoring.create(
+        actor=context.actor,
+        display_name=name,
+        source_mode=source_mode,
+        creation_request_id=str(uuid4()),
+        source_system_identity=source_system,
+    ).workspace_state
 
 
 class LocalBrowserSecurityTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.project_root = Path(self.temporary.name) / "impodo-data"
         self.app = create_local_app(
-            self.temporary.name,
+            self.project_root,
             launch_token="launch-secret",
             session_secret="session-secret",
             secret_store=MemorySecretStore(),
@@ -262,7 +263,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_launch_session_host_and_origin_controls(self) -> None:
-        unauthenticated = self.client.get("/recipes")
+        unauthenticated = self.client.get("/projects")
         self.assertEqual(unauthenticated.status_code, 401)
 
         wrong_host = self.client.get(
@@ -285,7 +286,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         )
         self.assertEqual(reused.status_code, 401)
 
-        projects = self.client.get("/recipes")
+        projects = self.client.get("/projects")
         self.assertEqual(projects.status_code, 200)
         self.assertIn(
             '<span class="brand-tagline">Prepare clean data for Odoo</span>',
@@ -302,27 +303,29 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertIn("flag-luxembourg.svg", projects.text)
         self.assertEqual(projects.headers["x-frame-options"], "DENY")
         self.assertIn("frame-ancestors 'none'", projects.headers["content-security-policy"])
-        self.assertEqual(self.client.get("/projects").status_code, 404)
-        self.assertEqual(self.client.get("/projects/new").status_code, 404)
+        self.assertEqual(self.client.get("/projects").status_code, 200)
+        self.assertEqual(self.client.get("/projects/new").status_code, 200)
 
         csrf = _csrf(projects.text)
         missing_origin = self.client.post(
-            "/recipes/new",
+            "/projects/new",
             data={
                 "csrf_token": csrf,
-                "name": "Blocked",
-                "source_system": "Other",
+                "display_name": "Blocked",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
         )
         self.assertEqual(missing_origin.status_code, 403)
 
         origin_fallback = self.client.post(
-            "/recipes/new",
+            "/projects/new",
             data={
                 "csrf_token": csrf,
                 "creation_request_id": str(uuid4()),
-                "name": "Origin fallback",
-                "source_system": "Other",
+                "display_name": "Origin fallback",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
             headers={"Origin": "http://testserver"},
             follow_redirects=False,
@@ -330,24 +333,26 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertEqual(origin_fallback.status_code, 303)
 
         referer_fallback = self.client.post(
-            "/recipes/new",
+            "/projects/new",
             data={
                 "csrf_token": csrf,
                 "creation_request_id": str(uuid4()),
-                "name": "Referer fallback",
-                "source_system": "Other",
+                "display_name": "Referer fallback",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
-            headers={"Referer": "http://testserver/recipes/new"},
+            headers={"Referer": "http://testserver/projects/new"},
             follow_redirects=False,
         )
         self.assertEqual(referer_fallback.status_code, 303)
 
         cross_site = self.client.post(
-            "/recipes/new",
+            "/projects/new",
             data={
                 "csrf_token": csrf,
-                "name": "Cross-site",
-                "source_system": "Other",
+                "display_name": "Cross-site",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
             headers={
                 "Origin": "http://testserver",
@@ -357,13 +362,14 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertEqual(cross_site.status_code, 403)
 
         hostile_referer = self.client.post(
-            "/recipes/new",
+            "/projects/new",
             data={
                 "csrf_token": csrf,
-                "name": "Hostile",
-                "source_system": "Other",
+                "display_name": "Hostile",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
-            headers={"Referer": "http://testserver.attacker.example/recipes/new"},
+            headers={"Referer": "http://testserver.attacker.example/projects/new"},
         )
         self.assertEqual(hostile_referer.status_code, 403)
 
@@ -511,8 +517,9 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.local_odoo_reader.get_target_fingerprint.side_effect = (
             lambda project, _profile: _browser_schema(project).fingerprint
         )
+        self.project_root = Path(self.temporary.name) / "impodo-data"
         self.app = create_local_app(
-            self.temporary.name,
+            self.project_root,
             launch_token="launch-secret",
             session_secret="session-secret",
             secret_store=MemorySecretStore(),
@@ -525,15 +532,16 @@ class LocalStackBrowserTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(launched.status_code, 303)
-        projects = self.client.get("/recipes")
+        projects = self.client.get("/projects")
         self.csrf = _csrf(projects.text)
         created = self.client.post(
-            "/recipes/new",
+            "/projects/new",
             data={
                 "csrf_token": self.csrf,
                 "creation_request_id": str(uuid4()),
-                "name": "Local readiness",
-                "source_system": "Other",
+                "display_name": "Local readiness",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -560,12 +568,12 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_selects_config_checks_status_and_keeps_profile_session_only(self) -> None:
-        target = self.client.get(f"/projects/{self.project_id}/target")
+        target = self.client.get(f"/workspaces/{self.project_id}/target")
         self.assertIn("Find local Odoo", target.text)
         self.assertIn("Choose local Odoo setup", target.text)
 
         selected = self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -573,7 +581,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(selected.status_code, 303)
         self.assertEqual(
             selected.headers["location"],
-            f"/projects/{self.project_id}/target?local_stack=1",
+            f"/workspaces/{self.project_id}/target?local_stack=1",
         )
         self.assertEqual(self.picker_calls, 1)
 
@@ -600,13 +608,13 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_start_requires_confirmation_and_updates_readiness(self) -> None:
         self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
 
         unconfirmed = self.client.post(
-            f"/projects/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.project_id}/local-stack/start",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -615,7 +623,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(self.start_calls, 0)
 
         started = self.client.post(
-            f"/projects/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.project_id}/local-stack/start",
             data={
                 "csrf_token": self.csrf,
                 "confirm_start": "1",
@@ -634,7 +642,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self._select_and_start_stack()
 
         tested = self.client.post(
-            f"/projects/{self.project_id}/target",
+            f"/workspaces/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(self.project_revision),
@@ -650,7 +658,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(tested.status_code, 303)
         self.assertEqual(
             tested.headers["location"],
-            f"/projects/{self.project_id}/target?local_stack=1",
+            f"/workspaces/{self.project_id}/target?local_stack=1",
         )
         results = self.client.get(tested.headers["location"])
         self.assertIn('data-auto-open="true"', results.text)
@@ -661,13 +669,13 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_local_connection_test_opens_mixed_failure_results(self) -> None:
         self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
 
         tested = self.client.post(
-            f"/projects/{self.project_id}/target",
+            f"/workspaces/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(self.project_revision),
@@ -694,7 +702,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         tested = self.client.post(
-            f"/projects/{self.project_id}/target",
+            f"/workspaces/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(self.project_revision),
@@ -718,7 +726,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         process = self.started_processes[0]
 
         unconfirmed = self.client.post(
-            f"/projects/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.project_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "action": "stop",
@@ -730,7 +738,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         process.terminate.assert_not_called()
 
         stopped = self.client.post(
-            f"/projects/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.project_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -750,7 +758,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         first_process = self.started_processes[0]
 
         restarted = self.client.post(
-            f"/projects/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.project_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -787,7 +795,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         blocked = self.client.post(
-            f"/projects/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.project_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -801,13 +809,13 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_stop_never_controls_a_stack_started_outside_impodo(self) -> None:
         self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
 
         blocked = self.client.post(
-            f"/projects/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.project_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -822,7 +830,7 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_remote_project_cannot_open_local_assistant(self) -> None:
         saved = self.client.post(
-            f"/projects/{self.project_id}/target",
+            f"/workspaces/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(self.project_revision),
@@ -838,7 +846,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertIn("Check the Odoo connection before continuing", saved.text)
 
         blocked = self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -849,41 +857,12 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
         self.assertEqual(self.picker_calls, 0)
 
-    def test_compare_missing_local_profile_opens_reusable_recovery(self) -> None:
-        self._register_local_project()
-        context = self.app.state.context
-
-        def compare_with_reader(_project_id, *, reader, actor):
-            self.assertEqual(actor, context.actor)
-            return reader(
-                PreflightRequirementPlan((), (), (), source_record_count=0)
-            )
-
-        with patch.object(
-            context.preflight,
-            "compare",
-            side_effect=compare_with_reader,
-        ):
-            blocked = self.client.post(
-                f"/projects/{self.project_id}/summary/compare",
-                data={"csrf_token": self.csrf},
-                headers=POST_HEADERS,
-            )
-
-        self.assertEqual(blocked.status_code, 422)
-        self.assertIn("Reconnect local Odoo for this session", blocked.text)
-        self.assertIn('data-auto-open="true"', blocked.text)
-        self.assertIn('name="return_to" value="summary_compare"', blocked.text)
-        self.assertIn("Choose local Odoo setup", blocked.text)
-        self.assertIn("Continue comparison", blocked.text)
-        self.assertNotIn("We could not complete that action", blocked.text)
-
     def test_registered_project_reconnects_and_returns_to_comparison(self) -> None:
         self._register_local_project()
         self.stack_running = True
 
         selected = self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={
                 "csrf_token": self.csrf,
                 "return_to": "summary_compare",
@@ -896,7 +875,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(
             selected.headers["location"],
             (
-                f"/projects/{self.project_id}/summary?local_stack=1"
+                f"/workspaces/{self.project_id}/summary?local_stack=1"
                 "#compare-with-odoo"
             ),
         )
@@ -920,7 +899,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.stack_running = True
 
         rejected = self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={
                 "csrf_token": self.csrf,
                 "return_to": "summary_compare",
@@ -950,7 +929,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         blocked = self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -960,7 +939,7 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_start_requires_its_explicit_capability(self) -> None:
         self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -980,7 +959,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         blocked = self.client.post(
-            f"/projects/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.project_id}/local-stack/start",
             data={
                 "csrf_token": self.csrf,
                 "confirm_start": "1",
@@ -991,37 +970,15 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(blocked.status_code, 403)
         self.assertEqual(self.start_calls, 0)
 
-    def test_registered_overview_keeps_recipe_return_link_visible(self) -> None:
-        self._register_local_project()
-        context = self.app.state.context
-        recipe_id = context.recipes.resolve_workspace(
-            self.project_id,
-            actor=context.actor,
-        ).recipe_id
-
-        overview = self.client.get(f"/projects/{self.project_id}/overview")
-
-        self.assertEqual(overview.status_code, 200)
-        self.assertIn(
-            '<span class="nav-label">Data version overview</span>',
-            overview.text,
-        )
-        self.assertIn('class="sidebar-current-recipe-link"', overview.text)
-        self.assertIn(f'href="/recipes/{recipe_id}"', overview.text)
-        self.assertIn(
-            'aria-label="Open Recipe overview: Local readiness"',
-            overview.text,
-        )
-
     def _select_and_start_stack(self) -> None:
         selected = self.client.post(
-            f"/projects/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.project_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
         self.assertEqual(selected.status_code, 200)
         started = self.client.post(
-            f"/projects/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.project_id}/local-stack/start",
             data={
                 "csrf_token": self.csrf,
                 "confirm_start": "1",
@@ -1152,7 +1109,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(launched.status_code, 303)
-        self.csrf = _csrf(self.client.get("/recipes").text)
+        self.csrf = _csrf(self.client.get("/projects").text)
 
     def tearDown(self) -> None:
         self.client.close()
@@ -1196,10 +1153,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def _registered_remote_schema_project(self):
         context = self.app.state.context
-        created = context.projects.create_project(
-            actor=context.actor,
+        created = _create_workspace(
+            context,
             name="Remote summary recovery",
             source_system="Odoo",
+            source_mode="ODOO",
         )
         now = datetime.now(timezone.utc)
         project = replace(
@@ -1278,26 +1236,31 @@ class ProjectSetupWizardTests(unittest.TestCase):
         return project, schema
 
     def test_new_project_asks_only_for_name_and_source_mode(self) -> None:
-        new_page = self.client.get("/recipes/new")
-        self.assertIn("Project name", new_page.text)
-        self.assertIn("Use files", new_page.text)
-        self.assertIn("Use data already in Odoo", new_page.text)
+        new_page = self.client.get("/projects/new")
+        self.assertIn("Data project name", new_page.text)
+        self.assertIn(">Files<", new_page.text)
+        self.assertIn(">Data already in Odoo<", new_page.text)
         self.assertNotIn('name="source_system"', new_page.text)
         self.assertNotIn('name="export_date"', new_page.text)
         self.assertNotIn("Data manager", new_page.text)
         self.assertNotIn("Odoo web address", new_page.text)
 
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Customer migration",
+                "display_name": "Customer migration",
+                "source_mode": "FILE",
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        data_project_id = self.app.state.context.migration_workspaces.get(
+            project_id,
+            actor=self.app.state.context.actor,
+        ).project_id
         self.assertEqual(
             created.headers["location"],
-            f"/projects/{project_id}/files",
+            f"/projects/{data_project_id}",
         )
         project = self.app.state.context.queries.get(project_id)
         self.assertEqual(project.source_system, "Uploaded files")
@@ -1307,41 +1270,46 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(project.odoo_base_url, "")
 
         legacy_governance = self.client.get(
-            f"/projects/{project_id}/governance",
+            f"/workspaces/{project_id}/governance",
             follow_redirects=False,
         )
         self.assertEqual(legacy_governance.status_code, 303)
         self.assertEqual(
             legacy_governance.headers["location"],
-            f"/projects/{project_id}/files",
+            f"/workspaces/{project_id}/files",
         )
 
     def test_setup_shows_each_blocker_before_the_user_can_move_forward(
         self,
     ) -> None:
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Products migration",
-                "source_system": "Dynamics AX 2012",
+                "display_name": "Products migration",
+                "source_mode": "FILE",
+                "source_system_identity": "Dynamics AX 2012",
             },
         )
         project_id = _created_workspace_id(self.app, created)
-        recipe_id = _created_recipe_id(self.app, created)
+        context = self.app.state.context
+        data_project_id = context.migration_workspaces.get(
+            project_id,
+            actor=context.actor,
+        ).project_id
 
-        files_page = self.client.get(f"/projects/{project_id}/files")
+        files_page = self.client.get(f"/workspaces/{project_id}/files")
         self.assertIn("Add the files for this project", files_page.text)
         self.assertIn("Add at least one source file.", files_page.text)
         self.assertIn('class="setup-step attention current"', files_page.text)
         self.assertNotIn('class="setup-step locked"', files_page.text)
-        self.assertIn('class="sidebar-current-recipe-link"', files_page.text)
+        self.assertIn('class="sidebar-current-project-link"', files_page.text)
         self.assertIn(
-            f'href="/recipes/{recipe_id}"',
+            f'href="/projects/{data_project_id}"',
             files_page.text,
         )
         self.assertIn(
-            'aria-label="Open Recipe overview: Products migration"',
+            'aria-label="Open data project overview: Products migration"',
             files_page.text,
         )
         self.assertNotIn("Governance", files_page.text)
@@ -1349,7 +1317,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Odoo destination", files_page.text)
 
         registration_fallback = self._post(
-            f"/projects/{project_id}/register",
+            f"/workspaces/{project_id}/register",
             {"csrf_token": self.csrf, "revision": "1"},
         )
         self.assertEqual(registration_fallback.status_code, 422)
@@ -1358,17 +1326,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Responsible data manager", registration_fallback.text)
 
         blocked_target = self.client.get(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             follow_redirects=False,
         )
         self.assertEqual(blocked_target.status_code, 303)
         self.assertEqual(
             blocked_target.headers["location"],
-            f"/projects/{project_id}/files",
+            f"/workspaces/{project_id}/files",
         )
 
         uploaded = self.client.post(
-            f"/projects/{project_id}/files",
+            f"/workspaces/{project_id}/files",
             data={"csrf_token": self.csrf, "revision": "1"},
             files={
                 "source_file": (
@@ -1388,42 +1356,47 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_incomplete_file_project_can_be_left_and_resumed(self) -> None:
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Waiting for files",
-                "source_system": "Dynamics AX 2012",
+                "display_name": "Waiting for files",
+                "source_mode": "FILE",
+                "source_system_identity": "Dynamics AX 2012",
             },
         )
         project_id = _created_workspace_id(self.app, created)
-        recipe_id = _created_recipe_id(self.app, created)
+        context = self.app.state.context
+        data_project_id = context.migration_workspaces.get(
+            project_id,
+            actor=context.actor,
+        ).project_id
 
-        recipe_list = self.client.get("/recipes")
-        self.assertIn("Waiting for files", recipe_list.text)
-        recipe_page = self.client.get(f"/recipes/{recipe_id}")
-        self.assertIn("Add source files", recipe_page.text)
+        project_list = self.client.get("/projects")
+        self.assertIn("Waiting for files", project_list.text)
+        project_page = self.client.get(f"/projects/{data_project_id}")
+        self.assertIn("Add source files", project_page.text)
         self.assertIn(
-            f'href="/projects/{project_id}/files"',
-            recipe_page.text,
+            f'href="/workspaces/{project_id}/files"',
+            project_page.text,
         )
 
         project = self.app.state.context.queries.get(project_id)
         self.assertEqual(project.status, WorkspaceStatus.DRAFT)
         resumed = self.client.get(
-            f"/projects/{project_id}",
+            f"/workspaces/{project_id}",
             follow_redirects=False,
         )
         self.assertEqual(
             resumed.headers["location"],
-            f"/projects/{project_id}/files",
+            f"/workspaces/{project_id}/files",
         )
 
     def test_source_files_can_change_only_before_table_choices_are_saved(
         self,
     ) -> None:
         context = self.app.state.context
-        project = context.projects.create_project(
-            actor=context.actor,
+        project = _create_workspace(
+            context,
             name="Correctable source files",
             source_system="CSV",
         )
@@ -1464,7 +1437,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             stream=BytesIO(b"code,name\nBAD,Wrong\n"),
         )
         current = context.queries.get(project.project_id)
-        files_page = self.client.get(f"/projects/{project.project_id}/files")
+        files_page = self.client.get(f"/workspaces/{project.project_id}/files")
         self.assertEqual(
             files_page.text.count("data-source-file-remove-form"),
             2,
@@ -1477,7 +1450,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             / wrong.stored_name
         )
         removed_draft = self._post(
-            f"/projects/{project.project_id}/files/{wrong.file_id}/remove",
+            f"/workspaces/{project.project_id}/files/{wrong.file_id}/remove",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -1503,18 +1476,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
             actor=context.actor,
         )
 
-        source_page = self.client.get(f"/projects/{project.project_id}/sources")
+        source_page = self.client.get(f"/workspaces/{project.project_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertEqual(
             source_page.text.count("data-source-file-remove-form"),
             1,
         )
         self.assertIn(
-            f'action="/projects/{project.project_id}/sources/files"',
+            f'action="/workspaces/{project.project_id}/sources/files"',
             source_page.text,
         )
         replacement_upload = self.client.post(
-            f"/projects/{project.project_id}/sources/files",
+            f"/workspaces/{project.project_id}/sources/files",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(registered.revision),
@@ -1533,7 +1506,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         current = context.queries.get(project.project_id)
         corrected = current.source_files[1]
         removed_registered = self._post(
-            f"/projects/{project.project_id}/files/{corrected.file_id}/remove",
+            f"/workspaces/{project.project_id}/files/{corrected.file_id}/remove",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -1543,14 +1516,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(removed_registered.status_code, 303)
         self.assertEqual(
             removed_registered.headers["location"],
-            f"/projects/{project.project_id}/sources#source-files",
+            f"/workspaces/{project.project_id}/sources#source-files",
         )
         removed_page = self.client.get(removed_registered.headers["location"])
         self.assertIn(
             "Removed corrected.csv from this project.",
             removed_page.text,
         )
-        datasets_page = self.client.get(f"/projects/{project.project_id}/datasets")
+        datasets_page = self.client.get(f"/workspaces/{project.project_id}/datasets")
         self.assertEqual(
             datasets_page.text.count("data-source-file-remove-form"),
             1,
@@ -1571,7 +1544,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             actor=context.actor,
         )
         blocked = self._post(
-            f"/projects/{project.project_id}/files/{kept.file_id}/remove",
+            f"/workspaces/{project.project_id}/files/{kept.file_id}/remove",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -1589,16 +1562,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self,
     ) -> None:
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Remote connection feedback",
-                "source_system": "Other",
+                "display_name": "Remote connection feedback",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
         )
         project_id = _created_workspace_id(self.app, created)
         project = self._complete_setup_before_target(project_id)
-        target_form = self.client.get(f"/projects/{project_id}/target")
+        target_form = self.client.get(f"/workspaces/{project_id}/target")
         self.assertIn('name="read_api_key"', target_form.text)
         self.assertIn('name="read_api_key_storage"', target_form.text)
         self.assertIn('value="vault"', target_form.text)
@@ -1606,7 +1580,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn('name="write_api_key"', target_form.text)
 
         tested = self.client.post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -1623,7 +1597,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(tested.status_code, 303)
         self.assertEqual(
             tested.headers["location"],
-            f"/projects/{project_id}/target#remote-connection-status",
+            f"/workspaces/{project_id}/target#remote-connection-status",
         )
         result = self.client.get(tested.headers["location"])
         self.assertIn("connection-state-ready", result.text)
@@ -1662,12 +1636,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
         )
 
-        refreshed = self.client.get(f"/projects/{project_id}/target")
+        refreshed = self.client.get(f"/workspaces/{project_id}/target")
         self.assertIn("The Odoo connection is ready.", refreshed.text)
         self.assertEqual(len(self.connection_calls), 1)
 
         forgotten = self.client.post(
-            f"/projects/{project_id}/target/read-credential/delete",
+            f"/workspaces/{project_id}/target/read-credential/delete",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -1680,7 +1654,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(self.secrets.values, {})
 
         changed = self.client.post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -1726,7 +1700,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             side_effect=compare_with_reader,
         ):
             blocked = self.client.post(
-                f"/projects/{project.project_id}/summary/compare",
+                f"/workspaces/{project.project_id}/summary/compare",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
             )
@@ -1743,7 +1717,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with patch.object(context.preflight, "compare") as compare:
             reconnected = self.client.post(
-                f"/projects/{project.project_id}/summary/compare",
+                f"/workspaces/{project.project_id}/summary/compare",
                 data={
                     "csrf_token": self.csrf,
                     "read_api_key": "replacement-read-key",
@@ -1805,7 +1779,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             blocked = self.client.post(
-                f"/projects/{project.project_id}/summary/compare",
+                f"/workspaces/{project.project_id}/summary/compare",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
             )
@@ -1814,7 +1788,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('id="comparison-recovery"', blocked.text)
         self.assertIn("Review the linked field match", blocked.text)
         self.assertIn(
-            f'href="/projects/{project.project_id}/mapping"',
+            f'href="/workspaces/{project.project_id}/mapping"',
             blocked.text,
         )
         self.assertNotIn('name="read_api_key"', blocked.text)
@@ -1844,7 +1818,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     "raw schema mismatch",
                 ),
                 "Refresh the Odoo data structure",
-                f'href="/projects/{project.project_id}/schema"',
+                f'href="/workspaces/{project.project_id}/schema"',
             ),
             (
                 OdooReadWorkflowError(
@@ -1852,7 +1826,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     "raw prepared mismatch",
                 ),
                 "Prepare and approve the data again",
-                f'href="/projects/{project.project_id}/prepare"',
+                f'href="/workspaces/{project.project_id}/prepare"',
             ),
             (
                 SecretStoreError("raw Windows credential-store failure"),
@@ -1875,7 +1849,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     ),
                 ):
                     blocked = self.client.post(
-                        f"/projects/{project.project_id}/summary/compare",
+                        f"/workspaces/{project.project_id}/summary/compare",
                         data={"csrf_token": self.csrf},
                         headers=POST_HEADERS,
                     )
@@ -1897,18 +1871,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
             fingerprint_probe=rejected_connection,
         )
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Rejected remote connection",
-                "source_system": "Other",
+                "display_name": "Rejected remote connection",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
         )
         project_id = _created_workspace_id(self.app, created)
         project = self._complete_setup_before_target(project_id)
 
         tested = self.client.post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -1944,18 +1919,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self._replace_connection_probes(identity_probe=denied_identity)
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Read principal permission",
-                "source_system": "Other",
+                "display_name": "Read principal permission",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
         )
         project_id = _created_workspace_id(self.app, created)
         project = self._complete_setup_before_target(project_id)
 
         tested = self.client.post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -2018,17 +1994,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
             with self.subTest(support_code=support_code):
                 self._replace_connection_probes(fingerprint_probe=tester)
                 created = self._post(
-                    "/recipes/new",
+                    "/projects/new",
                     {
                         "csrf_token": self.csrf,
-                        "name": f"Remote failure {index}",
-                        "source_system": "Other",
+                        "display_name": f"Remote failure {index}",
+                        "source_mode": "FILE",
+                        "source_system_identity": "Other",
                     },
                 )
                 project_id = _created_workspace_id(self.app, created)
                 project = self._complete_setup_before_target(project_id)
                 tested = self.client.post(
-                    f"/projects/{project_id}/target",
+                    f"/workspaces/{project_id}/target",
                     data={
                         "csrf_token": self.csrf,
                         "revision": str(project.revision),
@@ -2048,113 +2025,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 self.assertIn(support_code, result.text)
                 self.assertNotIn(f"secret-{index}", result.text)
 
-    def test_recipe_list_permanently_deletes_draft_after_confirmation(
-        self,
-    ) -> None:
-        created = self._post(
-            "/recipes/new",
-            {
-                "csrf_token": self.csrf,
-                "name": "Disposable rehearsal",
-                "source_system": "Other",
-            },
-        )
-        recipe_id = _created_recipe_id(self.app, created)
-        project_id = _created_workspace_id(self.app, created)
-        project = self._complete_setup_before_target(project_id)
-        targeted = self._post(
-            f"/projects/{project_id}/target",
-            {
-                "csrf_token": self.csrf,
-                "revision": str(project.revision),
-                "odoo_connection_mode": "REMOTE",
-                "odoo_base_url": "https://odoo.example.test",
-                "odoo_database": "migration",
-                "intended_applications": "Contacts",
-                "api_key": "disposable-api-key",
-                "remember_api_key": "1",
-                "action": "test",
-            },
-        )
-        self.assertEqual(targeted.status_code, 303)
-        self.assertEqual(len(self.secrets.values), 1)
-
-        project = self.app.state.context.projects.repository.get(project_id)
-        project_dir = self.app.state.context.projects.repository.workspace_directory(project_id)
-        recipe_list = self.client.get("/recipes")
-        self.assertIn(
-            f'action="/recipes/{recipe_id}/delete"',
-            recipe_list.text,
-        )
-        self.assertIn('data-recipe-delete-dialog', recipe_list.text)
-        self.assertIn('data-recipe-delete-trigger', recipe_list.text)
-        self.assertIn('bootstrap-icons.svg#trash3', recipe_list.text)
-        self.assertIn(
-            "This deletes the Recipe draft, its contained workspace, uploaded files",
-            recipe_list.text,
-        )
-        self.assertIn("This cannot be undone.", recipe_list.text)
-        self.assertNotIn("does not change Odoo", recipe_list.text)
-        self.assertNotIn(
-            "Records already created or updated in Odoo will remain",
-            recipe_list.text,
-        )
-
-        recipe = self.app.state.context.recipes.get(
-            recipe_id,
-            actor=self.app.state.context.actor,
-        )
-
-        stale = self._post(
-            f"/recipes/{recipe_id}/delete",
-            {
-                "csrf_token": self.csrf,
-                "recipe_revision": str(recipe.optimistic_revision),
-                "workspace_revision": str(project.revision - 1),
-            },
-        )
-        self.assertEqual(stale.status_code, 422)
-        self.assertIn("Recipe workspace changed", stale.text)
-        self.assertIn("<summary>Support details</summary>", stale.text)
-        self.assertTrue(project_dir.is_dir())
-        self.assertEqual(len(self.secrets.values), 1)
-
-        deleted = self._post(
-            f"/recipes/{recipe_id}/delete",
-            {
-                "csrf_token": self.csrf,
-                "recipe_revision": str(recipe.optimistic_revision),
-                "workspace_revision": str(project.revision),
-            },
-        )
-        self.assertEqual(deleted.status_code, 303)
-        self.assertEqual(deleted.headers["location"], "/recipes")
-        self.assertFalse(project_dir.exists())
-        self.assertEqual(self.secrets.values, {})
-        missing = self.client.get(f"/projects/{project_id}")
-        self.assertEqual(missing.status_code, 404)
-        refreshed = self.client.get(deleted.headers["location"])
-        self.assertIn(
-            'Deleted Recipe "Disposable rehearsal".',
-            unescape(refreshed.text),
-        )
-
-        script = self.client.get("/static/app.js")
-        self.assertIn("recipeDeleteDialog.showModal()", script.text)
-        self.assertIn("form?.requestSubmit()", script.text)
-
     def test_incompatible_project_explains_recovery(
         self,
     ) -> None:
         context = self.app.state.context
-        project = context.projects.create_project(
-            actor=context.actor,
+        project = _create_workspace(
+            context,
             name="Historical rehearsal",
             source_system="Other",
         )
         repository = context.projects.repository
         project_dir = repository.workspace_directory(project.project_id)
-        database_path = project_dir / "project.duckdb"
+        database_path = project_dir / "workspace-engine.duckdb"
         with repository._connect(database_path) as connection:
             connection.execute("DROP TABLE schema_version")
             connection.execute(
@@ -2162,15 +2044,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             connection.execute("INSERT INTO schema_version VALUES (1)")
 
-        opened = self.client.get(f"/projects/{project.project_id}")
+        opened = self.client.get(f"/workspaces/{project.project_id}")
         self.assertEqual(opened.status_code, 409)
         self.assertIn("uses a different Impodo data contract", opened.text)
         self.assertNotIn("Traceback", opened.text)
 
     def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
         context = self.app.state.context
-        project = context.projects.create_project(
-            actor=context.actor,
+        project = _create_workspace(
+            context,
             name="Paginated load review",
             source_system="Other",
         )
@@ -2232,7 +2114,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             page = self.client.get(
-                f"/projects/{project.project_id}/load"
+                f"/workspaces/{project.project_id}/load"
                 "?rows_page=2&rows_per_page=20"
             )
 
@@ -2249,8 +2131,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_load_review_separates_read_only_review_from_confirmation(self) -> None:
         context = self.app.state.context
-        project = context.projects.create_project(
-            actor=context.actor,
+        project = _create_workspace(
+            context,
             name="Staged load review",
             source_system="Other",
         )
@@ -2293,19 +2175,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             review = self.client.get(
-                f"/projects/{project.project_id}/load/review"
+                f"/workspaces/{project.project_id}/load/review"
             )
             confirm = self.client.get(
-                f"/projects/{project.project_id}/load/confirm"
+                f"/workspaces/{project.project_id}/load/confirm"
             )
             outcome = self.client.get(
-                f"/projects/{project.project_id}/load/outcome",
+                f"/workspaces/{project.project_id}/load/outcome",
                 follow_redirects=False,
             )
             preview.can_load = False
             preview.scope_error = "One reviewed field is no longer available."
             blocked_confirm = self.client.get(
-                f"/projects/{project.project_id}/load/confirm",
+                f"/workspaces/{project.project_id}/load/confirm",
                 follow_redirects=False,
             )
 
@@ -2321,18 +2203,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(outcome.status_code, 303)
         self.assertEqual(
             outcome.headers["location"],
-            f"/projects/{project.project_id}/load/review",
+            f"/workspaces/{project.project_id}/load/review",
         )
         self.assertEqual(blocked_confirm.status_code, 303)
         self.assertEqual(
             blocked_confirm.headers["location"],
-            f"/projects/{project.project_id}/load/review",
+            f"/workspaces/{project.project_id}/load/review",
         )
 
     def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
         context = self.app.state.context
-        created = context.projects.create_project(
-            actor=context.actor,
+        created = _create_workspace(
+            context,
             name="Local draft",
             source_system="CSV",
         )
@@ -2370,7 +2252,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         drafted = self._post(
-            f"/projects/{registered.project_id}/schema/local-draft",
+            f"/workspaces/{registered.project_id}/schema/local-draft",
             {
                 "csrf_token": self.csrf,
                 "acknowledge_local_draft": "1",
@@ -2393,8 +2275,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        created = context.projects.create_project(
-            actor=context.actor,
+        created = _create_workspace(
+            context,
             name="Keyless local schema",
             source_system="CSV",
         )
@@ -2431,7 +2313,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             actor=context.actor,
         )
         unconfigured_page = self.client.get(
-            f"/projects/{registered.project_id}/schema"
+            f"/workspaces/{registered.project_id}/schema"
         )
         self.assertIn(
             "Find local Odoo first",
@@ -2442,7 +2324,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             unconfigured_page.text,
         )
         blocked = self.client.post(
-            f"/projects/{registered.project_id}/schema/models/refresh",
+            f"/workspaces/{registered.project_id}/schema/models/refresh",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -2487,13 +2369,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             _browser_schema(registered)
         )
 
-        page = self.client.get(f"/projects/{registered.project_id}/schema")
+        page = self.client.get(f"/workspaces/{registered.project_id}/schema")
         self.assertIn("Local Odoo is ready to check", page.text)
         self.assertNotIn("Access key", page.text)
         self.assertIn("Show available Odoo data", page.text)
         self.assertNotIn("Verify access and load models", page.text)
         refreshed = self._post(
-            f"/projects/{registered.project_id}/schema/models/refresh",
+            f"/workspaces/{registered.project_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed.status_code, 303)
@@ -2511,7 +2393,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Save Odoo choices", verified_page.text)
         context.local_stack = LocalStackService()
         cached_page = self.client.get(
-            f"/projects/{registered.project_id}/schema"
+            f"/workspaces/{registered.project_id}/schema"
         )
         self.assertIn("The Odoo list is ready", cached_page.text)
         self.assertIn(
@@ -2525,7 +2407,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context.local_stack = configured_local_stack
         project = context.projects.repository.get(registered.project_id)
         scoped = self._post(
-            f"/projects/{registered.project_id}/schema",
+            f"/workspaces/{registered.project_id}/schema",
             {
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -2535,7 +2417,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(scoped.status_code, 303)
         self.assertEqual(
             scoped.headers["location"],
-            f"/projects/{registered.project_id}/schema#odoo-details",
+            f"/workspaces/{registered.project_id}/schema#odoo-details",
         )
         self.local_odoo_reader.get_model_catalog.assert_called_once()
         self.local_odoo_reader.get_model_metadata.assert_called_once()
@@ -2553,7 +2435,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             registered.project_id
         )
         unchanged_scope = self._post(
-            f"/projects/{registered.project_id}/schema",
+            f"/workspaces/{registered.project_id}/schema",
             {
                 "csrf_token": self.csrf,
                 "revision": str(unchanged_project.revision),
@@ -2564,7 +2446,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.local_odoo_reader.get_model_metadata.assert_called_once()
         context.local_stack = LocalStackService()
         cached_schema_page = self.client.get(
-            f"/projects/{registered.project_id}/schema"
+            f"/workspaces/{registered.project_id}/schema"
         )
         self.assertIn(
             "Odoo details are ready",
@@ -2587,7 +2469,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         project = context.projects.repository.get(registered.project_id)
         failed_load = self.client.post(
-            f"/projects/{registered.project_id}/schema",
+            f"/workspaces/{registered.project_id}/schema",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -2628,7 +2510,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             models={"product.template": product_model},
         )
         recovered = self._post(
-            f"/projects/{registered.project_id}/schema/capture",
+            f"/workspaces/{registered.project_id}/schema/capture",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(recovered.status_code, 303)
@@ -2639,34 +2521,38 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
         self,
     ) -> None:
-        new_page = self.client.get("/recipes/new")
-        self.assertIn("Use files", new_page.text)
-        self.assertIn("Use data already in Odoo", new_page.text)
+        new_page = self.client.get("/projects/new")
+        self.assertIn(">Files<", new_page.text)
+        self.assertIn(">Data already in Odoo<", new_page.text)
 
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Odoo product cleanup",
-                "source_system": "Odoo 19",
+                "display_name": "Odoo product cleanup",
+                "source_system_identity": "Odoo 19",
                 "source_mode": "ODOO",
             },
         )
         self.assertEqual(created.status_code, 303)
         project_id = _created_workspace_id(self.app, created)
+        data_project_id = self.app.state.context.migration_workspaces.get(
+            project_id,
+            actor=self.app.state.context.actor,
+        ).project_id
         self.assertEqual(
             created.headers["location"],
-            f"/projects/{project_id}/target",
+            f"/projects/{data_project_id}",
         )
         details_page = self.client.get(
-            f"/projects/{project_id}/details",
+            f"/workspaces/{project_id}/details",
             follow_redirects=False,
         )
         self.assertEqual(
             details_page.headers["location"],
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
         )
-        target_page = self.client.get(created.headers["location"])
+        target_page = self.client.get(f"/workspaces/{project_id}/target")
         self.assertIn("Connect the Odoo source", target_page.text)
         self.assertIn(
             "Moving records between two Odoo databases is not available yet.",
@@ -2674,14 +2560,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn("It does not discover models or fields", target_page.text)
         files = self.client.get(
-            f"/projects/{project_id}/files",
+            f"/workspaces/{project_id}/files",
             follow_redirects=False,
         )
         self.assertEqual(files.status_code, 303)
-        self.assertEqual(files.headers["location"], f"/projects/{project_id}/target")
+        self.assertEqual(files.headers["location"], f"/workspaces/{project_id}/target")
 
         unchecked = self._post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": "1",
@@ -2696,7 +2582,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Check the Odoo connection before continuing", unchecked.text)
 
         checked = self._post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": "2",
@@ -2713,7 +2599,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         target = self._post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": "3",
@@ -2725,7 +2611,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(
             target.headers["location"],
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
         )
         project = self.app.state.context.projects.repository.get(project_id)
         self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
@@ -2734,18 +2620,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(project.source_files, ())
         self.assertIsNone(project.export_date)
 
-        schema_page = self.client.get(f"/projects/{project_id}/schema")
-        self.assertIn("Stage 1 of 6 Â· Odoo data", schema_page.text)
+        schema_page = self.client.get(f"/workspaces/{project_id}/schema")
+        self.assertIn("Stage 1 of 6", schema_page.text)
+        self.assertIn("Odoo data", schema_page.text)
         self.assertIn("Choose the Odoo source record type", schema_page.text)
 
         refreshed = self._post(
-            f"/projects/{project_id}/schema/models/refresh",
+            f"/workspaces/{project_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed.status_code, 303)
         current = self.app.state.context.projects.repository.get(project_id)
         scoped = self._post(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -2755,13 +2642,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(scoped.status_code, 303)
         self.assertEqual(self.schema_calls, [(project_id, "read-secret")])
 
-        source_page = self.client.get(f"/projects/{project_id}/sources")
+        source_page = self.client.get(f"/workspaces/{project_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertIn("Define a bounded Odoo capture", source_page.text)
         self.assertIn("Freezing is read-only", source_page.text)
         calls_before_selection = len(self.schema_calls)
         selected = self._post(
-            f"/projects/{project_id}/sources/odoo-selection",
+            f"/workspaces/{project_id}/sources/odoo-selection",
             {
                 "csrf_token": self.csrf,
                 "dataset_name": "odoo_contacts",
@@ -2785,7 +2672,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Ready to freeze", saved_page.text)
 
         stale = self._post(
-            f"/projects/{project_id}/sources/odoo-capture",
+            f"/workspaces/{project_id}/sources/odoo-capture",
             {
                 "csrf_token": self.csrf,
                 "selection_id": selection.selection_id,
@@ -2803,7 +2690,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             lambda selected_project, _secret: gateway
         )
         started = self._post(
-            f"/projects/{project_id}/sources/odoo-capture",
+            f"/workspaces/{project_id}/sources/odoo-capture",
             {
                 "csrf_token": self.csrf,
                 "selection_id": selection.selection_id,
@@ -2828,7 +2715,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Immutable audit history", frozen_page.text)
         self.assertIn("Frozen", frozen_page.text)
 
-        mapping_page = self.client.get(f"/projects/{project_id}/mapping")
+        mapping_page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)
         self.assertIn("Update only the records selected from Odoo", mapping_page.text)
         self.assertIn("Allow Impodo to update this field", mapping_page.text)
@@ -2868,7 +2755,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ["approved_write_field_0", "name"],
         ]
         checked = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": mapping_entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
@@ -2886,12 +2773,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             str(working.version),
         ]
         submitted = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": mapping_entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
         self.assertEqual(submitted.status_code, 200, submitted.text)
-        prepared_page = self.client.get(f"/projects/{project_id}/prepare")
+        prepared_page = self.client.get(f"/workspaces/{project_id}/prepare")
         self.assertEqual(prepared_page.status_code, 200)
         self.assertIn("Prepare data", prepared_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
@@ -2904,12 +2791,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             2,
             self.app.state.context.quality.current_summary(project_id),
         )
-        normalization_page = self.client.get(f"/projects/{project_id}/normalization")
+        normalization_page = self.client.get(f"/workspaces/{project_id}/normalization")
         self.assertEqual(normalization_page.status_code, 200)
         self.assertIn("Review prepared changes", normalization_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         approved = self._post(
-            f"/projects/{project_id}/normalization/approve",
+            f"/workspaces/{project_id}/normalization/approve",
             {
                 "csrf_token": self.csrf,
                 "run_id": normalization.run_id,
@@ -2919,7 +2806,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(approved.status_code, 303)
         self.assertEqual(
             approved.headers["location"],
-            f"/projects/{project_id}/summary",
+            f"/workspaces/{project_id}/summary",
         )
         approved_page = self.client.get(approved.headers["location"])
         self.assertIn("Compare the approved data with Odoo", approved_page.text)
@@ -2975,7 +2862,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.readiness_reader = pinned_reader
         compared = self._post(
-            f"/projects/{project_id}/summary/compare",
+            f"/workspaces/{project_id}/summary/compare",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(compared.status_code, 303, compared.text)
@@ -3050,7 +2937,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.readiness_reader = conflicting_reader
         blocked_compare = self._post(
-            f"/projects/{project_id}/summary/compare",
+            f"/workspaces/{project_id}/summary/compare",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(blocked_compare.status_code, 303, blocked_compare.text)
@@ -3107,22 +2994,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Customer migration",
-                "source_system": "Dynamics AX 2012",
+                "display_name": "Customer migration",
+                "source_mode": "FILE",
+                "source_system_identity": "Dynamics AX 2012",
             },
         )
         self.assertEqual(created.status_code, 303)
         project_id = _created_workspace_id(self.app, created)
+        data_project_id = self.app.state.context.migration_workspaces.get(
+            project_id,
+            actor=self.app.state.context.actor,
+        ).project_id
         self.assertEqual(
             created.headers["location"],
-            f"/projects/{project_id}/files",
+            f"/projects/{data_project_id}",
         )
 
         uploaded = self.client.post(
-            f"/projects/{project_id}/files",
+            f"/workspaces/{project_id}/files",
             data={"csrf_token": self.csrf, "revision": "1"},
             files=[
                 (
@@ -3149,15 +3041,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(uploaded.status_code, 303)
 
         registered = self._post(
-            f"/projects/{project_id}/register",
+            f"/workspaces/{project_id}/register",
             {"csrf_token": self.csrf, "revision": "3"},
         )
         self.assertEqual(registered.status_code, 303)
         self.assertEqual(
             registered.headers["location"],
-            f"/projects/{project_id}/sources",
+            f"/workspaces/{project_id}/sources",
         )
-        summary = self.client.get(f"/projects/{project_id}/overview")
+        summary = self.client.get(f"/workspaces/{project_id}/overview")
         self.assertIn("Data version overview", summary.text)
         self.assertIn("Ready for source check", summary.text)
         self.assertIn("Check source data", summary.text)
@@ -3172,7 +3064,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Source data", summary.text)
         self.assertIn("Load into Odoo", summary.text)
         self.assertIn(
-            f'href="/projects/{project_id}/sources"',
+            f'href="/workspaces/{project_id}/sources"',
             summary.text,
         )
         project = self.app.state.context.projects.repository.get(project_id)
@@ -3192,7 +3084,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         source_discovery = self.client.get(registered.headers["location"])
         self.assertEqual(source_discovery.status_code, 200)
-        self.assertIn("Stage 1 of 6 Â· Source data", source_discovery.text)
+        self.assertIn("Stage 1 of 6", source_discovery.text)
+        self.assertIn("Source data", source_discovery.text)
         self.assertIn('aria-current="step"', source_discovery.text)
         self.assertIn('aria-current="page"', source_discovery.text)
         self.assertIn("Check source files", source_discovery.text)
@@ -3200,7 +3093,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-source-review-page", source_discovery.text)
         self.assertIn("data-source-review-form", source_discovery.text)
         inspected = self.client.post(
-            f"/projects/{project_id}/sources/inspect",
+            f"/workspaces/{project_id}/sources/inspect",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -3208,7 +3101,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(inspected.status_code, 303)
         self.assertEqual(
             inspected.headers["location"],
-            f"/projects/{project_id}/sources#source-files",
+            f"/workspaces/{project_id}/sources#source-files",
         )
         inspection_page = self.client.get(inspected.headers["location"])
         self.assertIn("Checked 2 source file", inspection_page.text)
@@ -3232,7 +3125,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         configured = self.client.post(
-            f"/projects/{project_id}/sources/{catalogs[0].file_id}/configure",
+            f"/workspaces/{project_id}/sources/{catalogs[0].file_id}/configure",
             data={
                 "csrf_token": self.csrf,
                 "action": "confirm",
@@ -3247,13 +3140,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(configured.status_code, 303)
         self.assertEqual(
             configured.headers["location"],
-            f"/projects/{project_id}/sources#source-{catalogs[0].file_id}",
+            f"/workspaces/{project_id}/sources#source-{catalogs[0].file_id}",
         )
         configured_page = self.client.get(configured.headers["location"])
         self.assertIn("Confirmed customers.csv", configured_page.text)
 
         workbook_configured = self.client.post(
-            f"/projects/{project_id}/sources/{catalogs[1].file_id}/configure",
+            f"/workspaces/{project_id}/sources/{catalogs[1].file_id}/configure",
             data={
                 "csrf_token": self.csrf,
                 "action": "confirm",
@@ -3268,24 +3161,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(workbook_configured.status_code, 303)
         self.assertEqual(
             workbook_configured.headers["location"],
-            f"/projects/{project_id}/sources#source-{catalogs[1].file_id}",
+            f"/workspaces/{project_id}/sources#source-{catalogs[1].file_id}",
         )
         configured_page = self.client.get(workbook_configured.headers["location"])
         self.assertIn("Confirmed products.xlsx", configured_page.text)
         self.assertIn("Choose tables", configured_page.text)
 
-        datasets = self.client.get(f"/projects/{project_id}/datasets")
+        datasets = self.client.get(f"/workspaces/{project_id}/datasets")
         self.assertEqual(datasets.status_code, 200)
-        self.assertIn("Stage 1 of 6 Â· Source data", datasets.text)
+        self.assertIn("Stage 1 of 6", datasets.text)
+        self.assertIn("Source data", datasets.text)
         self.assertIn('aria-current="step"', datasets.text)
         self.assertIn('aria-current="page"', datasets.text)
         self.assertIn("Choose the tables to prepare", datasets.text)
         self.assertNotIn(
-            f" Â· {catalogs[0].tables[0].name}</strong>",
+            f">{catalogs[0].tables[0].name}</strong>",
             datasets.text,
         )
         frozen = self.client.post(
-            f"/projects/{project_id}/datasets/freeze",
+            f"/workspaces/{project_id}/datasets/freeze",
             data={
                 "csrf_token": self.csrf,
                 "dataset_name_0": "customers",
@@ -3297,7 +3191,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(frozen.status_code, 303)
         self.assertEqual(
             frozen.headers["location"],
-            f"/projects/{project_id}/datasets#tables-ready",
+            f"/workspaces/{project_id}/datasets#tables-ready",
         )
         saved_datasets = self.client.get(frozen.headers["location"])
         self.assertIn('id="tables-ready"', saved_datasets.text)
@@ -3305,13 +3199,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Choose Odoo data", saved_datasets.text)
 
         odoo_data = self.client.get(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             follow_redirects=False,
         )
         self.assertEqual(odoo_data.status_code, 303)
         self.assertEqual(
             odoo_data.headers["location"],
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
         )
         target_page = self.client.get(odoo_data.headers["location"])
         self.assertIn("Connect the Odoo destination", target_page.text)
@@ -3319,7 +3213,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         project = self.app.state.context.queries.get(project_id)
         tested_target = self.client.post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -3339,7 +3233,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         project = self.app.state.context.queries.get(project_id)
         saved_target = self._post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -3351,7 +3245,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(
             saved_target.headers["location"],
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
         )
         project = self.app.state.context.queries.get(project_id)
         self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
@@ -3360,18 +3254,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
             b"super-secret-token",
             (
                 self.app.state.context.projects.repository.workspace_directory(project_id)
-                / "project.duckdb"
+                / "workspace-engine.duckdb"
             ).read_bytes(),
         )
 
         derived_page = self.client.get(
-            f"/projects/{project_id}/derived-entities"
+            f"/workspaces/{project_id}/derived-entities"
         )
         self.assertIn("Separate combined information", derived_page.text)
-        self.assertIn("Stage 1 of 6 Â· Optional source organization", derived_page.text)
+        self.assertIn("Stage 1 of 6", derived_page.text)
+        self.assertIn("Optional source organization", derived_page.text)
         self.assertIn("You are viewing Source data", derived_page.text)
         self.assertIn("Current data-version work:", derived_page.text)
-        self.assertIn("Stage 2 Â· Odoo data", derived_page.text)
+        self.assertIn("Stage 2", derived_page.text)
+        self.assertIn("Odoo data", derived_page.text)
         self.assertIn(
             "Saved rules are repeated consistently for every row",
             derived_page.text,
@@ -3388,7 +3284,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Show available Odoo record types", derived_page.text)
         self.assertNotIn(
             (
-                f'action="/projects/{project_id}/derived-entities/'
+                f'action="/workspaces/{project_id}/derived-entities/'
                 'lookup/preview#lookup-preview"'
             ),
             derived_page.text,
@@ -3407,7 +3303,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         product_name = selection.datasets[1].columns[1]
         product_code = selection.datasets[1].columns[0]
         related_preview = self.client.post(
-            f"/projects/{project_id}/derived-entities/related/preview",
+            f"/workspaces/{project_id}/derived-entities/related/preview",
             data={
                 "csrf_token": self.csrf,
                 "expected_parent_version": "",
@@ -3425,7 +3321,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Review before creating", related_preview.text)
         self.assertIn("Create these separate tables", related_preview.text)
         saved_related = self.client.post(
-            f"/projects/{project_id}/derived-entities/related/save",
+            f"/workspaces/{project_id}/derived-entities/related/save",
             data={
                 "csrf_token": self.csrf,
                 "expected_parent_version": "",
@@ -3452,7 +3348,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNotNone(related_plan)
         removed_related = self.client.post(
             (
-                f"/projects/{project_id}/derived-entities/"
+                f"/workspaces/{project_id}/derived-entities/"
                 f"{related_plan.rules[0].rule_id}/delete"
             ),
             data={
@@ -3477,7 +3373,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "blank_policy": "block",
         }
         blocked_without_models = self.client.post(
-            f"/projects/{project_id}/derived-entities/lookup/preview",
+            f"/workspaces/{project_id}/derived-entities/lookup/preview",
             data=derived_rule_data,
             headers=POST_HEADERS,
         )
@@ -3489,13 +3385,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         project = self.app.state.context.projects.repository.get(project_id)
         refreshed_lookup_models = self._post(
-            f"/projects/{project_id}/derived-entities/models/refresh",
+            f"/workspaces/{project_id}/derived-entities/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed_lookup_models.status_code, 303)
         self.assertEqual(
             refreshed_lookup_models.headers["location"],
-            f"/projects/{project_id}/derived-entities#lookup-extraction",
+            f"/workspaces/{project_id}/derived-entities#lookup-extraction",
         )
         self.assertEqual(
             self.model_catalog_calls,
@@ -3507,7 +3403,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Odoo record types are ready", lookup_model_page.text)
         self.assertIn(
             (
-                f'action="/projects/{project_id}/derived-entities/'
+                f'action="/workspaces/{project_id}/derived-entities/'
                 'lookup/preview#lookup-preview"'
             ),
             lookup_model_page.text,
@@ -3518,7 +3414,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Article and Service", lookup_model_page.text)
 
         rejected_lookup_model = self.client.post(
-            f"/projects/{project_id}/derived-entities/lookup/preview",
+            f"/workspaces/{project_id}/derived-entities/lookup/preview",
             data={**derived_rule_data, "target_model": "x.not.available"},
             headers=POST_HEADERS,
         )
@@ -3528,7 +3424,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             rejected_lookup_model.text,
         )
         rejected_lookup_save = self.client.post(
-            f"/projects/{project_id}/derived-entities/save",
+            f"/workspaces/{project_id}/derived-entities/save",
             data={**derived_rule_data, "target_model": "x.not.available"},
             headers=POST_HEADERS,
         )
@@ -3538,7 +3434,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             rejected_lookup_save.text,
         )
         lookup_preview = self.client.post(
-            f"/projects/{project_id}/derived-entities/lookup/preview",
+            f"/workspaces/{project_id}/derived-entities/lookup/preview",
             data=derived_rule_data,
             headers=POST_HEADERS,
         )
@@ -3547,7 +3443,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('id="lookup-preview"', lookup_preview.text)
         self.assertIn("Create this related table", lookup_preview.text)
         saved_derived = self.client.post(
-            f"/projects/{project_id}/derived-entities/save",
+            f"/workspaces/{project_id}/derived-entities/save",
             data=derived_rule_data,
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -3567,7 +3463,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(
             saved_derived.headers["location"],
             (
-                f"/projects/{project_id}/derived-entities"
+                f"/workspaces/{project_id}/derived-entities"
                 f"#lookup-rule-{saved_rule.rule_id}"
             ),
         )
@@ -3586,7 +3482,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("entity:P001", derived_preview.text)
 
         refreshed_models = self._post(
-            f"/projects/{project_id}/schema/models/refresh",
+            f"/workspaces/{project_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed_models.status_code, 303)
@@ -3598,7 +3494,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ],
         )
         model_page = self.client.get(refreshed_models.headers["location"])
-        self.assertIn("Stage 2 of 6 Â· Odoo data", model_page.text)
+        self.assertIn("Stage 2 of 6", model_page.text)
+        self.assertIn("Odoo data", model_page.text)
         self.assertIn('aria-current="step"', model_page.text)
         self.assertIn('aria-current="page"', model_page.text)
         self.assertIn("Choose the Odoo data you need", model_page.text)
@@ -3610,7 +3507,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             model_page.text,
         )
         self.assertIn(
-            f'action="/projects/{project_id}/schema"',
+            f'action="/workspaces/{project_id}/schema"',
             model_page.text,
         )
         self.assertIn('aria-live="polite"', model_page.text)
@@ -3633,7 +3530,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("label.model-choice[hidden]", model_picker_styles.text)
 
         rejected_scope = self.client.post(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -3648,7 +3545,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         scope = self.client.post(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -3714,7 +3611,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Reference", schema_page.text)
         self.assertIn("Support options for combined matching", schema_page.text)
         governed = self.client.post(
-            f"/projects/{project_id}/schema/govern",
+            f"/workspaces/{project_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "ref",
@@ -3728,10 +3625,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(governed.status_code, 303)
         mapping_page = self.client.get(governed.headers["location"])
-        self.assertIn(
-            '<p class="eyebrow">Stage 3 of 6 Â· Match data</p>',
-            mapping_page.text,
-        )
+        self.assertIn("Stage 3 of 6", mapping_page.text)
+        self.assertIn("Match data", mapping_page.text)
         self.assertIn('aria-current="step"', mapping_page.text)
         self.assertIn('aria-current="page"', mapping_page.text)
         self.assertIn("Match your data to Odoo", mapping_page.text)
@@ -3870,35 +3765,48 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
         )
         self.assertIsNotNone(mapping_selection)
-        mapped_customer, product_names, mapped_product = (
-            mapping_selection.datasets
-        )
+        mapping_datasets = {
+            item.name: item for item in mapping_selection.datasets
+        }
+        mapped_customer = mapping_datasets["customers"]
+        product_names = mapping_datasets["product_names"]
+        mapped_product = mapping_datasets["products"]
         product_name_key, product_name_value = product_names.columns
+        dataset_indices = {
+            item.dataset_id: index
+            for index, item in enumerate(mapping_selection.datasets)
+        }
+        customer_index = dataset_indices[mapped_customer.dataset_id]
+        product_names_index = dataset_indices[product_names.dataset_id]
+        product_index = dataset_indices[mapped_product.dataset_id]
         self.assertEqual(mapped_customer.dataset_id, customer.dataset_id)
         self.assertEqual(mapped_product.dataset_id, product.dataset_id)
         business_key_id = schema_governance.business_keys[0].key_id
         mapping_filter_query = (
-            "scalar_page=1&field_query=nam&mapping_dataset=1&relation_page=1"
+            "scalar_page=1&field_query=nam&"
+            f"mapping_dataset={customer_index}&relation_page=1"
         )
         saved_progress = self.client.post(
-            f"/projects/{project_id}/mapping/save?{mapping_filter_query}",
+            f"/workspaces/{project_id}/mapping/save?{mapping_filter_query}",
             data={
                 "csrf_token": self.csrf,
                 "action": "save_progress",
                 "expected_parent_version": "",
                 "expected_working_draft_version": "",
-                "target_model_0": "res.partner",
-                "mode_0": "upsert",
-                "scalar_value_source_0_1": "source",
-                "scalar_type_0_1": "string",
-                "scalar_case_0_1": "preserve",
-                "scalar_formula_0_1": 'coalesce(value, "Unnamed contact")',
-                "scalar_compare_0_1": "1",
-                "scalar_null_0_1": "distinct",
-                "target_model_1": "res.partner",
-                "mode_1": "upsert",
-                "target_model_2": "res.partner",
-                "mode_2": "upsert",
+                f"target_model_{customer_index}": "res.partner",
+                f"mode_{customer_index}": "upsert",
+                f"scalar_value_source_{customer_index}_1": "source",
+                f"scalar_type_{customer_index}_1": "string",
+                f"scalar_case_{customer_index}_1": "preserve",
+                f"scalar_formula_{customer_index}_1": (
+                    'coalesce(value, "Unnamed contact")'
+                ),
+                f"scalar_compare_{customer_index}_1": "1",
+                f"scalar_null_{customer_index}_1": "distinct",
+                f"target_model_{product_names_index}": "res.partner",
+                f"mode_{product_names_index}": "upsert",
+                f"target_model_{product_index}": "res.partner",
+                f"mode_{product_index}": "upsert",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -3907,18 +3815,43 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(
             saved_progress.headers["location"],
             (
-                f"/projects/{project_id}/mapping?{mapping_filter_query}"
-                "#mapping-dataset-1"
+                f"/workspaces/{project_id}/mapping?{mapping_filter_query}"
+                f"#mapping-dataset-{customer_index}"
             ),
         )
         saved_progress_page = self.client.get(
             saved_progress.headers["location"]
         )
-        self.assertIn('id="mapping-dataset-1"', saved_progress_page.text)
+        self.assertIn(
+            f'id="mapping-dataset-{customer_index}"',
+            saved_progress_page.text,
+        )
         self.assertIn("data-mapping-dataset", saved_progress_page.text)
         self.assertIn(
             "Saved your matching progress. Check the matches when ready.",
             saved_progress_page.text,
+        )
+        saved_draft = (
+            self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
+                project_id
+            )
+        )
+        current_mapping_selection = (
+            self.app.state.context.queries.get_mapping_source_selection(project_id)
+        )
+        self.assertIsNotNone(saved_draft)
+        self.assertIsNotNone(current_mapping_selection)
+        self.assertEqual(
+            saved_draft.definition.source_selection_hash,
+            current_mapping_selection.content_hash,
+        )
+        current_governance = (
+            self.app.state.context.queries.get_schema_governance(project_id)
+        )
+        self.assertIsNotNone(current_governance)
+        self.assertEqual(
+            saved_draft.definition.schema_hash,
+            current_governance.content_hash,
         )
         self.assertIn("Saved changes need checking", saved_progress_page.text)
         self.assertIn("Your saved work is loaded", saved_progress_page.text)
@@ -3941,56 +3874,58 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         mapping_data = {
                 "csrf_token": self.csrf,
-                "target_model_0": "res.partner",
-                "mode_0": "upsert",
-                "source_identity_0": customer_code.stable_key,
-                "business_key_0": business_key_id,
-                "identity_source_0_0": customer_code.stable_key,
-                "scalar_value_source_0_1": "source_with_fallback",
-                "scalar_source_0_1": customer_name.stable_key,
-                "scalar_literal_0_1": "Unnamed contact",
-                "scalar_type_0_1": "string",
-                "scalar_trim_0_1": "1",
-                "scalar_collapse_0_1": "1",
-                "scalar_empty_null_0_1": "1",
-                "scalar_case_0_1": "preserve",
-                "scalar_formula_0_1": 'coalesce(value, "Unnamed contact")',
-                "scalar_compare_0_1": "1",
-                "scalar_null_0_1": "distinct",
-                "target_model_1": "res.partner",
-                "mode_1": "upsert",
-                "source_identity_1": product_name_key.stable_key,
-                "business_key_1": business_key_id,
-                "identity_source_1_0": product_name_value.stable_key,
-                "scalar_value_source_1_1": "source",
-                "scalar_source_1_1": product_name_value.stable_key,
-                "scalar_type_1_1": "string",
-                "scalar_compare_1_1": "1",
-                "scalar_null_1_1": "distinct",
-                "target_model_2": "res.partner",
-                "mode_2": "upsert",
-                "source_identity_2": product_code.stable_key,
-                "business_key_2": business_key_id,
-                "identity_source_2_0": product_code.stable_key,
-                "scalar_value_source_2_1": "constant",
-                "scalar_literal_2_1": "Imported product",
-                "scalar_type_2_1": "string",
-                "scalar_case_2_1": "sentence",
-                "scalar_text_steps_2_1": (
+                f"target_model_{customer_index}": "res.partner",
+                f"mode_{customer_index}": "upsert",
+                f"source_identity_{customer_index}": customer_code.stable_key,
+                f"business_key_{customer_index}": business_key_id,
+                f"identity_source_{customer_index}_0": customer_code.stable_key,
+                f"scalar_value_source_{customer_index}_1": "source_with_fallback",
+                f"scalar_source_{customer_index}_1": customer_name.stable_key,
+                f"scalar_literal_{customer_index}_1": "Unnamed contact",
+                f"scalar_type_{customer_index}_1": "string",
+                f"scalar_trim_{customer_index}_1": "1",
+                f"scalar_collapse_{customer_index}_1": "1",
+                f"scalar_empty_null_{customer_index}_1": "1",
+                f"scalar_case_{customer_index}_1": "preserve",
+                f"scalar_formula_{customer_index}_1": (
+                    'coalesce(value, "Unnamed contact")'
+                ),
+                f"scalar_compare_{customer_index}_1": "1",
+                f"scalar_null_{customer_index}_1": "distinct",
+                f"target_model_{product_names_index}": "res.partner",
+                f"mode_{product_names_index}": "upsert",
+                f"source_identity_{product_names_index}": product_name_key.stable_key,
+                f"business_key_{product_names_index}": business_key_id,
+                f"identity_source_{product_names_index}_0": product_name_value.stable_key,
+                f"scalar_value_source_{product_names_index}_1": "source",
+                f"scalar_source_{product_names_index}_1": product_name_value.stable_key,
+                f"scalar_type_{product_names_index}_1": "string",
+                f"scalar_compare_{product_names_index}_1": "1",
+                f"scalar_null_{product_names_index}_1": "distinct",
+                f"target_model_{product_index}": "res.partner",
+                f"mode_{product_index}": "upsert",
+                f"source_identity_{product_index}": product_code.stable_key,
+                f"business_key_{product_index}": business_key_id,
+                f"identity_source_{product_index}_0": product_code.stable_key,
+                f"scalar_value_source_{product_index}_1": "constant",
+                f"scalar_literal_{product_index}_1": "Imported product",
+                f"scalar_type_{product_index}_1": "string",
+                f"scalar_case_{product_index}_1": "sentence",
+                f"scalar_text_steps_{product_index}_1": (
                     '[{"kind":"find_replace","search_value":"Imported",'
                     '"replacement_value":"imported","search_mode":"literal",'
                     '"replace_all":true,"characters":""}]'
                 ),
-                "scalar_exact_length_2_1": "16",
-                "scalar_segment_location_2_1": "first",
-                "scalar_segment_length_2_1": "1",
-                "scalar_character_class_2_1": "uppercase",
-                "scalar_pattern_2_1": "[A-Z][a-z ]{15}",
-                "scalar_compare_2_1": "1",
-                "scalar_null_2_1": "distinct",
+                f"scalar_exact_length_{product_index}_1": "16",
+                f"scalar_segment_location_{product_index}_1": "first",
+                f"scalar_segment_length_{product_index}_1": "1",
+                f"scalar_character_class_{product_index}_1": "uppercase",
+                f"scalar_pattern_{product_index}_1": "[A-Z][a-z ]{15}",
+                f"scalar_compare_{product_index}_1": "1",
+                f"scalar_null_{product_index}_1": "distinct",
         }
         checked = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "draft",
@@ -4018,7 +3953,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(checked_revision.version, 1)
 
         premature_submit = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "submit",
@@ -4036,7 +3971,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         rule_preview = self.client.post(
-            f"/projects/{project_id}/mapping/transformation-impact/prepare",
+            f"/workspaces/{project_id}/mapping/transformation-impact/prepare",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4044,7 +3979,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(rule_preview.status_code, 303)
 
         submitted = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "submit",
@@ -4057,19 +3992,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(submitted.status_code, 303)
         self.assertEqual(
             submitted.headers["location"],
-            f"/projects/{project_id}/prepare",
+            f"/workspaces/{project_id}/prepare",
         )
         submitted_page = self.client.get(submitted.headers["location"])
         self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("Prepare all source rows", submitted_page.text)
         confirmed_mapping_page = self.client.get(
-            f"/projects/{project_id}/mapping"
+            f"/workspaces/{project_id}/mapping"
         )
         self.assertIn("Field matches are confirmed", confirmed_mapping_page.text)
         self.assertIn("Continue to Prepare data", confirmed_mapping_page.text)
         self.assertRegex(
             confirmed_mapping_page.text,
-            rf'class="button secondary" href="/projects/{project_id}/prepare"',
+            rf'class="button secondary" href="/workspaces/{project_id}/prepare"',
         )
         revision = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
@@ -4121,16 +4056,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(product_field.validation.character_class, "uppercase")
 
         impact_link = (
-            f"/projects/{project_id}/mapping/transformation-impact"
+            f"/workspaces/{project_id}/mapping/transformation-impact"
         )
         self.assertIn("Review rule effects", confirmed_mapping_page.text)
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
         self.assertIn("Review rule effects", impact_page.text)
-        self.assertIn("Stage 3 of 6 Â· Rule review", impact_page.text)
+        self.assertIn("Stage 3 of 6", impact_page.text)
+        self.assertIn("Rule review", impact_page.text)
         self.assertIn('aria-current="step"', impact_page.text)
         self.assertIn('aria-current="page"', impact_page.text)
-        self.assertIn("What each cleanup step did", impact_page.text)
+        self.assertIn("What each rule did", impact_page.text)
         self.assertIn("your confirmed preparation choices", impact_page.text)
         self.assertNotIn("data-impact-row", impact_page.text)
         prepared = self.client.post(
@@ -4161,26 +4097,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
         mapping_script = self.client.get("/static/app.js")
         self.assertNotIn("data-impact-export", mapping_script.text)
 
-        prepare_page = self.client.get(f"/projects/{project_id}/prepare")
+        prepare_page = self.client.get(f"/workspaces/{project_id}/prepare")
         self.assertEqual(prepare_page.status_code, 200)
-        self.assertIn("Stage 4 of 6 Â· Prepare data", prepare_page.text)
+        self.assertIn("Stage 4 of 6", prepare_page.text)
+        self.assertIn("Prepare data", prepare_page.text)
         self.assertIn("Prepare all source rows", prepare_page.text)
         self.assertIn(
             "Impodo prepares from the source copy stored inside this project",
             prepare_page.text,
         )
         self.assertIn(
-            f'action="/projects/{project_id}/summary/check"',
+            f'action="/workspaces/{project_id}/summary/check"',
             prepare_page.text,
         )
         self.assertIn('aria-current="step"', prepare_page.text)
         self.assertIn('aria-current="page"', prepare_page.text)
 
-        summary = self.client.get(f"/projects/{project_id}/summary")
+        summary = self.client.get(f"/workspaces/{project_id}/summary")
         self.assertIn("Prepare and review data", summary.text)
-        self.assertIn("Uses Impodoâ€™s stored local copy", summary.text)
+        self.assertIn("Uses Impodo’s stored local copy", summary.text)
         checked = self.client.post(
-            f"/projects/{project_id}/summary/check",
+            f"/workspaces/{project_id}/summary/check",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4188,7 +4125,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(checked.status_code, 303)
         self.assertIn("/preparation/", checked.headers["location"])
         progress_page = self.client.get(checked.headers["location"])
-        self.assertIn("Stage 4 of 6 Â· Prepare data", progress_page.text)
+        self.assertIn("Stage 4 of 6", progress_page.text)
+        self.assertIn("Prepare data", progress_page.text)
         self.assertIn(
             "Impodo is preparing from its stored local copy",
             progress_page.text,
@@ -4234,7 +4172,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertLessEqual(len(quality_page.items), 20)
         prepared_summary_page = self.client.get(
-            f"/projects/{project_id}/summary"
+            f"/workspaces/{project_id}/summary"
         )
         self.assertIn(
             f"Records 1-{min(20, quality_page.matching_count)} "
@@ -4252,7 +4190,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             group for group in evaluation.groups if group.requires_decision
         )
         rejected = self.client.post(
-            f"/projects/{project_id}/normalization/groups/"
+            f"/workspaces/{project_id}/normalization/groups/"
             f"{decision_group.group_id}/reject?status=pending&page=2",
             data={
                 "csrf_token": self.csrf,
@@ -4272,7 +4210,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         normalization = normalization_service.current_summary(project_id)
         assert normalization is not None
         reopened = self.client.post(
-            f"/projects/{project_id}/normalization/reopen",
+            f"/workspaces/{project_id}/normalization/reopen",
             data={
                 "csrf_token": self.csrf,
                 "run_id": normalization.run_id,
@@ -4284,12 +4222,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(reopened.status_code, 303)
         self.assertEqual(
             reopened.headers["location"],
-            f"/projects/{project_id}/normalization?status=pending#review-groups",
+            f"/workspaces/{project_id}/normalization?status=pending#review-groups",
         )
         normalization = normalization_service.current_summary(project_id)
         assert normalization is not None
         approved = self.client.post(
-            f"/projects/{project_id}/normalization/approve",
+            f"/workspaces/{project_id}/normalization/approve",
             data={
                 "csrf_token": self.csrf,
                 "run_id": normalization.run_id,
@@ -4308,15 +4246,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
             frozen_review[2].approved_groups,
             frozen_review[2].summary.required_group_keys,
         )
-        project = self.app.state.context.projects.repository.get(project_id)
+        workspace = self.app.state.context.migration_workspaces.get(
+            project_id,
+            actor=self.app.state.context.actor,
+        )
+        package = (
+            self.app.state.context.data_version_source_projection.packages.repository
+            .get_source_package(workspace.data_version_id)
+        )
+        assert package is not None
         source_artifact = (
-            self.app.state.context.projects.repository.workspace_directory(project_id)
+            Path(self.temporary.name)
+            / "artifacts"
+            / workspace.data_version_id
             / "inbox"
-            / project.source_files[0].stored_name
+            / package.files[0].storage_key
         )
         source_artifact.unlink()
         compared = self.client.post(
-            f"/projects/{project_id}/summary/compare",
+            f"/workspaces/{project_id}/summary/compare",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4397,7 +4345,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         database_path = (
             self.app.state.context.projects.repository.workspace_directory(project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         staging_repository = self.app.state.context.preflight.staging
         with staging_repository._connect(database_path) as connection:
@@ -4428,7 +4376,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
         try:
             rejected_tamper = self.client.post(
-                f"/projects/{project_id}/summary/compare",
+                f"/workspaces/{project_id}/summary/compare",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
                 follow_redirects=False,
@@ -4447,7 +4395,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(len(self.readiness_calls), 1)
 
         compared_again = self.client.post(
-            f"/projects/{project_id}/summary/compare",
+            f"/workspaces/{project_id}/summary/compare",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4489,7 +4437,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         load_preview = self.app.state.context.execution.current_preview(project_id)
         assert load_preview is not None
-        final_review = self.client.get(f"/projects/{project_id}/summary")
+        final_review = self.client.get(f"/workspaces/{project_id}/summary")
         self.assertIn("Final review complete", final_review.text)
         self.assertNotIn("Preview the Odoo load", final_review.text)
         self.assertLess(
@@ -4497,7 +4445,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             final_review.text.index("Final review complete"),
         )
         load_landing = self.client.get(
-            f"/projects/{project_id}/load",
+            f"/workspaces/{project_id}/load",
             follow_redirects=False,
         )
         self.assertEqual(load_landing.status_code, 303)
@@ -4510,7 +4458,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Continue to confirmation", load_page.text)
         self.assertNotIn('name="write_api_key"', load_page.text)
         outcome_before_load = self.client.get(
-            f"/projects/{project_id}/load/outcome",
+            f"/workspaces/{project_id}/load/outcome",
             follow_redirects=False,
         )
         self.assertEqual(outcome_before_load.status_code, 303)
@@ -4518,7 +4466,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             outcome_before_load.headers["location"].endswith("/load/review")
         )
         confirmation_page = self.client.get(
-            f"/projects/{project_id}/load/confirm"
+            f"/workspaces/{project_id}/load/confirm"
         )
         self.assertEqual(confirmation_page.status_code, 200)
         self.assertIn("Confirm the Odoo load", confirmation_page.text)
@@ -4636,7 +4584,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.app.state.context.readback_reader_factory = readback_factory
         self.app.state.context.write_identity_probe = write_identity_probe
         missing_write_key = self.client.post(
-            f"/projects/{project_id}/load",
+            f"/workspaces/{project_id}/load",
             data={
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
@@ -4651,7 +4599,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(readback_factory_keys, [])
 
         loaded = self.client.post(
-            f"/projects/{project_id}/load",
+            f"/workspaces/{project_id}/load",
             data={
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
@@ -4718,7 +4666,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with self.subTest("persisted readiness paging"):
             first_page = self.client.get(
-                f"/projects/{project_id}/summary"
+                f"/workspaces/{project_id}/summary"
             )
             self.assertEqual(
                 first_page.text.count("data-readiness-row"),
@@ -4742,7 +4690,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.assertEqual(next_query["page"], ["2"])
 
             second_page = self.client.get(
-                f"/projects/{project_id}/summary?page=2"
+                f"/workspaces/{project_id}/summary?page=2"
             )
             self.assertEqual(
                 second_page.text.count("data-readiness-row"),
@@ -4754,7 +4702,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.assertNotIn("ROW-0001", second_page.text)
 
             clamped_page = self.client.get(
-                f"/projects/{project_id}/summary?page=999"
+                f"/workspaces/{project_id}/summary?page=999"
             )
             self.assertEqual(
                 clamped_page.text.count("data-readiness-row"),
@@ -4765,7 +4713,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.assertIn("ROW-0201", clamped_page.text)
 
             filtered_page = self.client.get(
-                f"/projects/{project_id}/summary",
+                f"/workspaces/{project_id}/summary",
                 params={
                     "status": "blocked",
                     "dataset": sample_row.dataset,
@@ -4805,7 +4753,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertTrue(all(item.domain for item in readiness_requests))
         evidence = self.client.get(
-            f"/projects/{project_id}/summary/manifest"
+            f"/workspaces/{project_id}/summary/manifest"
         )
         self.assertEqual(evidence.status_code, 200)
         self.assertIn(
@@ -4817,7 +4765,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 workbook
             ).write_bytes(b"review package")
             packaged = self.client.post(
-                f"/projects/{project_id}/summary/package",
+                f"/workspaces/{project_id}/summary/package",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
                 follow_redirects=False,
@@ -4827,7 +4775,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Download review workbook", packaged_page.text)
         self.assertIn("Recreate review workbook", packaged_page.text)
         workbook = self.client.get(
-            f"/projects/{project_id}/summary/workbook"
+            f"/workspaces/{project_id}/summary/workbook"
         )
         self.assertEqual(workbook.status_code, 200)
         self.assertIn(
@@ -4848,7 +4796,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.schema_reader = company_schema_reader
         changed_scope = self.client.post(
-            f"/projects/{project_id}/schema",
+            f"/workspaces/{project_id}/schema",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -4893,7 +4841,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
         )
         stale_mapping = self.client.get(
-            f"/projects/{project_id}/mapping"
+            f"/workspaces/{project_id}/mapping"
         )
         self.assertIn(
             "Your source tables or Odoo choices changed, so older matching work was not loaded",
@@ -4902,17 +4850,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_saved_key_is_not_reused_after_target_change(self) -> None:
         created = self._post(
-            "/recipes/new",
+            "/projects/new",
             {
                 "csrf_token": self.csrf,
-                "name": "Credential binding",
-                "source_system": "Other",
+                "display_name": "Credential binding",
+                "source_mode": "FILE",
+                "source_system_identity": "Other",
             },
         )
         project_id = _created_workspace_id(self.app, created)
         project = self._complete_setup_before_target(project_id)
         local = self._post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -4926,7 +4875,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(local.status_code, 303)
 
         remote = self.client.post(
-            f"/projects/{project_id}/target",
+            f"/workspaces/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision + 1),
@@ -4954,7 +4903,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context = self.app.state.context
 
         saved = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={
                 "entries": [
                     ["csrf_token", self.csrf],
@@ -5000,14 +4949,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         source_identity, source_value = dataset.columns
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertIn("data-value-match-dialog", page.text)
         self.assertIn("Match values", page.text)
-        self.assertIn("Choice field Â· 2 choice(s) captured from Odoo", page.text)
+        self.assertIn("Choice field", page.text)
+        self.assertIn("2 choice(s) captured from Odoo", page.text)
         self.assertIn("Review source choices", page.text)
         self.assertIn("How must source choices be covered?", page.text)
-        self.assertIn("French (France) â€” fr_FR", page.text)
+        self.assertIn("French (France) — fr_FR", page.text)
         self.assertNotIn("datalist", page.text)
         mapping_script = self.client.get("/static/app.js")
         self.assertIn(
@@ -5031,7 +4981,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             choices = self.client.post(
-                f"/projects/{project_id}/mapping/value-choices",
+                f"/workspaces/{project_id}/mapping/value-choices",
                 data={
                     "csrf_token": self.csrf,
                     "kind": "scalar",
@@ -5077,7 +5027,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ],
         ]
         saved = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
@@ -5128,7 +5078,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             return_value=({"value": "FRA", "count": 3},),
         ):
             response = self.client.post(
-                f"/projects/{project_id}/mapping/value-choices",
+                f"/workspaces/{project_id}/mapping/value-choices",
                 data={
                     "csrf_token": self.csrf,
                     "kind": "relationship",
@@ -5155,7 +5105,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("odoo_id", response.text)
         source_identity = dataset.columns[0]
         saved = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={
                 "entries": [
                     ["csrf_token", self.csrf],
@@ -5208,7 +5158,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             business_key_description="",
         )
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn(">\n                        Reference\n", page.text)
@@ -5271,7 +5221,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
 
         context.readiness_reader = readiness_reader
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         schema = context.schema_workspace.schemas.get_odoo_schema_catalog(project_id)
@@ -5283,7 +5233,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 database="odoo19_local",
             ),
         )
-        self.assertIn("Country code â€” recommended", page.text)
+        self.assertIn("Country code — recommended", page.text)
         self.assertIn(
             'value="odoo-standard:res.country:code" selected',
             page.text,
@@ -5309,17 +5259,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "business_key_id": "odoo-standard:res.country:code",
             }
             choices = self.client.post(
-                f"/projects/{project_id}/mapping/value-choices",
+                f"/workspaces/{project_id}/mapping/value-choices",
                 data=request_data,
                 headers=POST_HEADERS,
             )
             reused = self.client.post(
-                f"/projects/{project_id}/mapping/value-choices",
+                f"/workspaces/{project_id}/mapping/value-choices",
                 data=request_data,
                 headers=POST_HEADERS,
             )
             refreshed = self.client.post(
-                f"/projects/{project_id}/mapping/value-choices",
+                f"/workspaces/{project_id}/mapping/value-choices",
                 data={**request_data, "refresh": "1"},
                 headers=POST_HEADERS,
             )
@@ -5347,7 +5297,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("odoo_id", choices.text)
 
         saved = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={
                 "entries": [
                     ["csrf_token", self.csrf],
@@ -5397,8 +5347,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_reviewed_reference_matching_is_not_country_specific(self) -> None:
         for related_model, label in (
-            ("res.lang", "Language code â€” recommended"),
-            ("res.currency", "Currency code â€” recommended"),
+            ("res.lang", "Language code — recommended"),
+            ("res.currency", "Currency code — recommended"),
         ):
             with self.subTest(related_model=related_model):
                 project_id, _dataset, _business_key = self._mapping_ready_project(
@@ -5407,7 +5357,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     relationship_model=related_model,
                 )
 
-                page = self.client.get(f"/projects/{project_id}/mapping")
+                page = self.client.get(f"/workspaces/{project_id}/mapping")
 
                 self.assertEqual(page.status_code, 200)
                 self.assertIn(label, page.text)
@@ -5422,7 +5372,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             relationship_model="res.company",
         )
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("No matching rule available", page.text)
@@ -5479,7 +5429,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(initial.version, 1)
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertEqual(page.text.count("data-relation-field-row"), 3)
         self.assertIn("Showing 3 of 51 linked fields", page.text)
@@ -5491,13 +5441,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("relation_0002</code>", page.text)
 
         expanded = self.client.get(
-            f"/projects/{project_id}/mapping?relation_page_size=20"
+            f"/workspaces/{project_id}/mapping?relation_page_size=20"
         )
         self.assertEqual(expanded.text.count("data-relation-field-row"), 20)
         self.assertIn('data-relation-page-size="20"', expanded.text)
 
         searched = self.client.get(
-            f"/projects/{project_id}/mapping?relation_query=relation_0049"
+            f"/workspaces/{project_id}/mapping?relation_query=relation_0049"
         )
         self.assertEqual(searched.status_code, 200)
         self.assertEqual(searched.text.count("data-relation-field-row"), 1)
@@ -5505,7 +5455,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Showing 1 of 1 linked fields", searched.text)
 
         fragment = self.client.get(
-            f"/projects/{project_id}/mapping/field-catalog"
+            f"/workspaces/{project_id}/mapping/field-catalog"
             "?catalog=relation&relation_query=relation_0049"
         )
         self.assertEqual(fragment.status_code, 200)
@@ -5516,7 +5466,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("projection;dur=", fragment.headers["server-timing"])
 
         searched_by_model = self.client.get(
-            f"/projects/{project_id}/mapping?relation_query=res.partner"
+            f"/workspaces/{project_id}/mapping?relation_query=res.partner"
         )
         self.assertEqual(
             searched_by_model.text.count("data-relation-field-row"),
@@ -5525,13 +5475,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Showing 3 of 51 linked fields", searched_by_model.text)
 
         last_page = self.client.get(
-            f"/projects/{project_id}/mapping?relation_page=17"
+            f"/workspaces/{project_id}/mapping?relation_page=17"
         )
         self.assertEqual(last_page.text.count("data-relation-field-row"), 3)
         self.assertIn("relation_0049", last_page.text)
 
         rejected_size = self.client.get(
-            f"/projects/{project_id}/mapping?relation_page_size=100"
+            f"/workspaces/{project_id}/mapping?relation_page_size=100"
         )
         self.assertEqual(
             rejected_size.text.count("data-relation-field-row"),
@@ -5589,7 +5539,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ["field_0001"],
         )
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("Odoo manages 1 selected field", page.text)
@@ -5605,7 +5555,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         recovered = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "remove_readonly",
@@ -5664,7 +5614,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
         page = self.client.get(
-            f"/projects/{project_id}/mapping?field_query=not-visible"
+            f"/workspaces/{project_id}/mapping?field_query=not-visible"
         )
 
         self.assertEqual(page.status_code, 200)
@@ -5677,7 +5627,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             page.text.index('id="next-step-blockers"'),
             page.text.index('class="actions mapping-actions"'),
         )
-        self.assertIn("You cannot continue yet â€” 1 reason", page.text)
+        self.assertIn("You cannot continue yet — 1 reason", page.text)
         self.assertIn("large_contacts: Field 0000 needs attention", page.text)
         self.assertIn(
             "Required target field res.partner.field_0000 has no value provider.",
@@ -5696,7 +5646,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn('data-target-field="field_0000"', page.text)
 
         decision = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:field_0000:odoo_default",
@@ -5748,7 +5698,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "target_field_disposition_0": "field_0000:odoo_default",
         }
         checked = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "draft",
@@ -5785,7 +5735,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         submitted = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={
                 "entries": [
                     *mapping_data.items(),
@@ -5804,7 +5754,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(submitted.status_code, 200)
         self.assertEqual(
             submitted.json()["redirect_url"],
-            f"/projects/{project_id}/prepare",
+            f"/workspaces/{project_id}/prepare",
         )
         submitted_page = self.client.get(submitted.json()["redirect_url"])
         self.assertIn("Field matches confirmed", submitted_page.text)
@@ -5842,7 +5792,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
         first_decision = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:field_0000:odoo_default",
@@ -5865,7 +5815,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         second_decision = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:field_0001:odoo_default",
@@ -5920,7 +5870,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertIn("Linked Field 0000 needs attention", page.text)
         self.assertIn(
             'value="set_disposition:0:relation_0000:odoo_managed"',
@@ -5928,7 +5878,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         decision = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:relation_0000:odoo_managed",
@@ -5960,7 +5910,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             readonly_relationship_indexes=(1,),
         )
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn('data-target-field="relation_0000"', page.text)
@@ -6003,7 +5953,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(initial.version, 1)
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertEqual(page.text.count("data-scalar-mapping-row"), 3)
         self.assertIn("Showing 3 of 1500 fields", page.text)
@@ -6014,14 +5964,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertLess(page.text.count(source_value.stable_key), 100)
 
         last_page = self.client.get(
-            f"/projects/{project_id}/mapping?scalar_page=500"
+            f"/workspaces/{project_id}/mapping?scalar_page=500"
         )
         self.assertEqual(last_page.text.count("data-scalar-mapping-row"), 3)
         self.assertIn("field_1499", last_page.text)
         self.assertIn("scalar_page=500", last_page.text)
 
         expanded = self.client.get(
-            f"/projects/{project_id}/mapping?scalar_page_size=50"
+            f"/workspaces/{project_id}/mapping?scalar_page_size=50"
         )
         self.assertEqual(expanded.text.count("data-scalar-mapping-row"), 50)
         self.assertIn("field_0049", expanded.text)
@@ -6029,7 +5979,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('data-scalar-page-size="50"', expanded.text)
 
         rejected_size = self.client.get(
-            f"/projects/{project_id}/mapping?scalar_page_size=100"
+            f"/workspaces/{project_id}/mapping?scalar_page_size=100"
         )
         self.assertEqual(
             rejected_size.text.count("data-scalar-mapping-row"),
@@ -6038,7 +5988,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('data-scalar-page-size="3"', rejected_size.text)
 
         searched = self.client.get(
-            f"/projects/{project_id}/mapping?field_query=field_1499"
+            f"/workspaces/{project_id}/mapping?field_query=field_1499"
         )
         self.assertEqual(searched.status_code, 200)
         self.assertEqual(searched.text.count("data-scalar-mapping-row"), 1)
@@ -6046,7 +5996,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("field_0000</code>", searched.text)
 
         fragment = self.client.get(
-            f"/projects/{project_id}/mapping/field-catalog"
+            f"/workspaces/{project_id}/mapping/field-catalog"
             "?field_query=field_1499"
         )
         self.assertEqual(fragment.status_code, 200)
@@ -6078,7 +6028,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ["scalar_null_0_1", "distinct"],
         ]
         saved = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": entries},
             headers={
                 **POST_HEADERS,
@@ -6091,7 +6041,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("saved_at", saved.json())
         self.assertEqual(
             saved.json()["redirect_url"],
-            f"/projects/{project_id}/mapping#mapping-dataset-0",
+            f"/workspaces/{project_id}/mapping#mapping-dataset-0",
         )
         saved_again_entries = [list(entry) for entry in entries]
         for entry in saved_again_entries:
@@ -6100,7 +6050,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             elif entry[0] == "scalar_literal_0_1":
                 entry[1] = "Updated safely again"
         saved_again = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": saved_again_entries},
             headers={
                 **POST_HEADERS,
@@ -6129,7 +6079,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         denied = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": entries},
             headers={
                 **POST_HEADERS,
@@ -6153,7 +6103,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             elif item[0] == "expected_working_draft_version":
                 item[1] = "3"
         invalid = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": invalid_entries},
             headers={
                 **POST_HEADERS,
@@ -6180,7 +6130,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             elif item[0] == "expected_parent_version":
                 item[1] = ""
         retried = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             json={"entries": retry_entries},
             headers={
                 **POST_HEADERS,
@@ -6197,7 +6147,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             b"x" * (5 * 1024 * 1024)
         ) + b'"]]}'
         rejected = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             content=oversized,
             headers={
                 **POST_HEADERS,
@@ -6215,7 +6165,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             [f"field_{index}=x" for index in range(25_001)]
         )
         recovered = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             content=excessive_form,
             headers={
                 **POST_HEADERS,
@@ -6253,7 +6203,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 return_value=None,
             ),
         ):
-            page = self.client.get(f"/projects/{project_id}/summary")
+            page = self.client.get(f"/workspaces/{project_id}/summary")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("Your prepared data is safe", page.text)
@@ -6308,7 +6258,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "sha256:not-a-digest"
         )
         database_path = (
-            context.projects.repository.workspace_directory(project_id) / "project.duckdb"
+            context.projects.repository.workspace_directory(project_id) / "workspace-engine.duckdb"
         )
         with context.projects.repository._connect(database_path) as connection:
             connection.execute(
@@ -6318,7 +6268,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
 
         failed = self.client.post(
-            f"/projects/{project_id}/summary/check",
+            f"/workspaces/{project_id}/summary/check",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -6326,7 +6276,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(failed.status_code, 303)
         self.assertIn(
-            f"/projects/{project_id}/preparation/",
+            f"/workspaces/{project_id}/preparation/",
             failed.headers["location"],
         )
         completed_job = _wait_for_preparation(
@@ -6368,14 +6318,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         source_identity, source_value = dataset.columns
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertIn("Check a known total (optional)", page.text)
         self.assertIn("Allowed difference", page.text)
         self.assertNotIn("control_totals_json", page.text)
 
         saved = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/workspaces/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "save_progress",
@@ -6427,59 +6377,21 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with patch.object(manager, "active", return_value=active):
             mapping_page = self.client.get(
-                f"/projects/{project_id}/mapping",
+                f"/workspaces/{project_id}/mapping",
                 follow_redirects=False,
             )
             autosave = self.client.post(
-                f"/projects/{project_id}/mapping/save",
+                f"/workspaces/{project_id}/mapping/save",
                 json={"entries": []},
                 headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
             )
 
-        progress_url = f"/projects/{project_id}/preparation/{active.job_id}"
+        progress_url = f"/workspaces/{project_id}/preparation/{active.job_id}"
         self.assertEqual(mapping_page.status_code, 303)
         self.assertEqual(mapping_page.headers["location"], progress_url)
         self.assertEqual(autosave.status_code, 409)
         self.assertEqual(autosave.json()["redirect_url"], progress_url)
         self.assertIn("Wait for it to finish", autosave.json()["detail"])
-
-    def test_sealed_data_version_explains_why_preparation_cannot_restart(
-        self,
-    ) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
-            scalar_field_count=1,
-        )
-        context = self.app.state.context
-        resolution = context.recipes.resolve_workspace(
-            project_id,
-            actor=context.actor,
-        )
-
-        with patch.object(
-            context.recipes,
-            "resolve_workspace",
-            return_value=replace(
-                resolution,
-                data_version_state=DataVersionState.SEALED,
-            ),
-        ):
-            response = self.client.post(
-                f"/projects/{project_id}/summary/check",
-                data={"csrf_token": self.csrf},
-                headers=POST_HEADERS,
-                follow_redirects=False,
-            )
-
-        self.assertEqual(response.status_code, 303)
-        self.assertEqual(
-            response.headers["location"],
-            f"/projects/{project_id}/summary",
-        )
-        self.assertIsNone(context.preparation_jobs.active(project_id))
-        summary = self.client.get(response.headers["location"])
-        self.assertIn("saved history for Authoring data version 1", summary.text)
-        self.assertIn("No Odoo records were changed", summary.text)
-        self.assertIn("Open the Recipe overview", summary.text)
 
     def test_data_manager_can_save_a_guided_business_data_check(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
@@ -6530,7 +6442,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             MappingValidationStatus.INVALID,
         )
 
-        page = self.client.get(f"/projects/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertIn("Data checks", page.text)
         self.assertIn("Recommended checks are already on", page.text)
@@ -6538,7 +6450,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("ruleset_json", page.text)
 
         saved = self.client.post(
-            f"/projects/{project_id}/mapping/quality",
+            f"/workspaces/{project_id}/mapping/quality",
             data={
                 "csrf_token": self.csrf,
                 "quality_dataset_id": dataset.dataset_id,
@@ -6618,9 +6530,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 return_value=report,
             ),
         ):
-            page = self.client.get(f"/projects/{project_id}/summary")
+            page = self.client.get(f"/workspaces/{project_id}/summary")
             package = self.client.post(
-                f"/projects/{project_id}/summary/package",
+                f"/workspaces/{project_id}/summary/package",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
             )
@@ -6709,7 +6621,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 )
             )
 
-        impact_url = f"/projects/{project_id}/mapping/transformation-impact"
+        impact_url = f"/workspaces/{project_id}/mapping/transformation-impact"
         first_visit = self.client.get(impact_url)
         self.assertIn("Prepare the comparison", first_visit.text)
         self.assertIn("data-transformation-impact-prepare", first_visit.text)
@@ -6717,7 +6629,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('aria-live="polite"', first_visit.text)
         impact_script = self.client.get("/static/app.js")
         self.assertIn("[data-transformation-impact-prepare]", impact_script.text)
-        self.assertIn("Preparing the comparisonâ€¦", impact_script.text)
+        self.assertIn("Preparing the comparison…", impact_script.text)
         with patch(
             "impodo.application.transformation_impact_service.stage_browser_mapping",
             side_effect=fake_stage,
@@ -6741,7 +6653,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Removed 1 space before the value and 1 space after the value.",
             first_page.text,
         )
-        self.assertIn("Showing 1â€“100 of 205", first_page.text)
+        self.assertIn("Showing 1–100 of 205", first_page.text)
         self.assertIn("Next 100", first_page.text)
         next_match = re.search(
             r'href="([^"]+after=[^"]+)"[^>]*>Next 100</a>',
@@ -6750,12 +6662,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNotNone(next_match)
         second_page = self.client.get(unescape(next_match.group(1)))
         self.assertEqual(second_page.text.count('class="impact-row'), 100)
-        self.assertIn("Showing 101â€“200 of 205", second_page.text)
+        self.assertIn("Showing 101–200 of 205", second_page.text)
         self.assertIn("Previous 100", second_page.text)
 
         invalid_page = self.client.get(f"{impact_url}?outcome=invalid")
         self.assertEqual(invalid_page.text.count('class="impact-row'), 100)
-        self.assertIn("Showing 1â€“100 of 102", invalid_page.text)
+        self.assertIn("Showing 1–100 of 102", invalid_page.text)
         invalid_csv = self.client.post(
             f"{impact_url}.csv",
             data={"csrf_token": self.csrf, "outcome": "invalid"},
@@ -6777,7 +6689,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNotNone(original_governance)
 
         duplicate_simple = self.client.post(
-            f"/projects/{project_id}/schema/govern",
+            f"/workspaces/{project_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "ref",
@@ -6826,7 +6738,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(unchanged_governance.business_keys, (original_key,))
 
         duplicate_combined = self.client.post(
-            f"/projects/{project_id}/schema/govern",
+            f"/workspaces/{project_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "",
@@ -6843,7 +6755,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Repeated combined reference", duplicate_combined.text)
 
         valid = self.client.post(
-            f"/projects/{project_id}/schema/govern",
+            f"/workspaces/{project_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "field_0000",
@@ -6887,17 +6799,29 @@ class ProjectSetupWizardTests(unittest.TestCase):
         project = context.queries.get(project_id)
         selection = context.queries.get_source_selection(project_id)
         assert selection is not None
-        workspace = PreparationWorkspace.from_resolution(
-            context.recipes.resolve_workspace(
-                project_id,
+        migration_workspace = context.migration_workspaces.get(
+            project_id,
+            actor=context.actor,
+        )
+        workspace = PreparationWorkspace.from_context(
+            migration_workspace,
+            context.data_versions.get(
+                migration_workspace.data_version_id,
                 actor=context.actor,
-            )
+            ),
+            context.migration_runs.get(
+                migration_workspace.migration_run_id,
+                actor=context.actor,
+            ),
         )
         manager = context.preparation_jobs
         assert manager is not None
         root = Path(self.temporary.name)
         registry_path = root / "registry.duckdb"
-        project_path = root / project_id / "project.duckdb"
+        project_path = (
+            context.projects.repository.workspace_directory(project_id)
+            / "workspace-engine.duckdb"
+        )
 
         with _spawned_duckdb_locks(registry_path):
             job = manager.enqueue(
@@ -6908,7 +6832,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 workspace=workspace,
             )
             progress_url = (
-                f"/projects/{project_id}/preparation/{job.job_id}"
+                f"/workspaces/{project_id}/preparation/{job.job_id}"
             )
             completed = _wait_for_preparation(
                 self.client,
@@ -6931,7 +6855,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Stage 4 of 6", progress_page.text)
         self.assertIn("Preparation progress", progress_page.text)
         self.assertIn(
-            f'href="/recipes/{workspace.recipe_id}"',
+            f'href="/projects/{workspace.project_id}"',
             progress_page.text,
         )
         self.assertIn('aria-current="page"', progress_page.text)
@@ -6952,8 +6876,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         business_key_description: str = "Unique reference",
     ):
         context = self.app.state.context
-        created = context.projects.create_project(
-            actor=context.actor,
+        created = _create_workspace(
+            context,
             name="Large mapping",
             source_system="CSV",
         )
@@ -7109,7 +7033,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def _post(self, path: str, data: dict[str, str]):
         submitted = dict(data)
-        if path == "/recipes/new":
+        if path == "/projects/new":
             submitted.setdefault("creation_request_id", str(uuid4()))
         return self.client.post(
             path,

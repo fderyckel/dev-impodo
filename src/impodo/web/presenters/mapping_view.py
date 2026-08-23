@@ -12,7 +12,6 @@ from ...derived_entities import (
     DerivedEntityRule,
     derived_dataset_links,
     derived_mapping_samples,
-    mapping_source_selection,
     preview_derived_entities,
     related_dataset_links,
 )
@@ -88,15 +87,7 @@ def _render_mapping(
         if physical_selection is not None
         else ()
     )
-    selection = (
-        mapping_source_selection(
-            physical_selection,
-            preparation_plan,
-            source_catalogs,
-        )
-        if physical_selection is not None
-        else None
-    )
+    selection = context.queries.get_mapping_source_selection(project_id)
     schema = context.queries.get_odoo_schema_catalog(project_id)
     governance = context.queries.get_schema_governance(project_id)
     revision = context.queries.get_mapping_revision(project_id)
@@ -372,15 +363,7 @@ def _render_mapping_field_catalog(
     physical_selection = snapshot.physical_selection
     preparation_plan = snapshot.preparation_plan
     source_catalogs = snapshot.source_catalogs
-    selection = (
-        mapping_source_selection(
-            physical_selection,
-            preparation_plan,
-            source_catalogs,
-        )
-        if physical_selection is not None
-        else None
-    )
+    selection = context.queries.get_mapping_source_selection(project_id)
     schema = snapshot.schema
     governance = snapshot.governance
     revision = snapshot.revision

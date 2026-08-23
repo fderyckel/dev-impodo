@@ -9,9 +9,35 @@ into the workspace.
 
 from __future__ import annotations
 
-from ..data_version_sources import WorkspaceSourceProjectionRepository
+import json
+from typing import Protocol
+
+from ..data_version_sources import (
+    DataVersionSourcePackage,
+    WorkspaceSourceProjectionRepository,
+)
+from ..derived_entities import DerivedEntityPlan, mapping_source_selection
 from ..domain.serialization import content_hash
+from ..inspection import SourceFileCatalog
 from ..workspace_contracts import SourceSelection
+
+
+class WorkspaceProjectionRepository(WorkspaceSourceProjectionRepository, Protocol):
+    """Read workspace selection and its owning immutable source package."""
+
+    def get_source_package(
+        self,
+        data_version_id: str,
+    ) -> DataVersionSourcePackage | None: ...
+
+
+class WorkspacePreparationReader(Protocol):
+    """Read source-organization rules authored inside one workspace."""
+
+    def get_derived_entity_plan(
+        self,
+        workspace_id: str,
+    ) -> DerivedEntityPlan | None: ...
 
 
 class WorkspaceMappingSourceProjection:
@@ -19,9 +45,11 @@ class WorkspaceMappingSourceProjection:
 
     def __init__(
         self,
-        repository: WorkspaceSourceProjectionRepository,
+        repository: WorkspaceProjectionRepository,
+        preparation: WorkspacePreparationReader | None = None,
     ) -> None:
         self.repository = repository
+        self.preparation = preparation
 
     def get_mapping_source_selection(
         self,
@@ -38,7 +66,7 @@ class WorkspaceMappingSourceProjection:
             item.to_mapping_dataset() for item in projection.datasets
         )
         version = 1
-        return SourceSelection(
+        selection = SourceSelection(
             selection_id=projection.projection_id,
             version=version,
             project_id=projection.workspace_id,
@@ -52,6 +80,27 @@ class WorkspaceMappingSourceProjection:
                     "version": version,
                 }
             ),
+        )
+        if self.preparation is None:
+            return selection
+        package = self.repository.get_source_package(projection.data_version_id)
+        if package is None:
+            return selection
+        catalogs = tuple(
+            SourceFileCatalog.from_json(
+                json.dumps(
+                    dict(item.payload),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+            for item in package.catalogs
+        )
+        return mapping_source_selection(
+            selection,
+            self.preparation.get_derived_entity_plan(workspace_id),
+            catalogs,
         )
 
     def get_source_selection(

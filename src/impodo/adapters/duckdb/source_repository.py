@@ -14,7 +14,7 @@ from datetime import (
     datetime,
     timezone,
 )
-from typing import Iterable
+from typing import Iterable, Protocol
 
 
 from ...access import Actor
@@ -44,6 +44,17 @@ from .repository import DuckDbRepository
 
 
 
+class WorkspaceSourceProjectionReader(Protocol):
+    """Read the immutable DataVersion selection bound to one workspace."""
+
+    def get_mapping_source_selection(
+        self,
+        workspace_id: str,
+    ) -> SourceSelection | None:
+        """Return the selected logical datasets without copying source data."""
+        ...
+
+
 class SourceRepository(DuckDbRepository):
     """Own current Stage B workspace evidence and its invalidation boundary."""
 
@@ -51,9 +62,11 @@ class SourceRepository(DuckDbRepository):
         self,
         database: DuckDbWorkspaceDatabase,
         derived_entities: DerivedEntityRepository,
+        mapping_source_projection: WorkspaceSourceProjectionReader | None = None,
     ) -> None:
         super().__init__(database)
         self._derived_entities = derived_entities
+        self._mapping_source_projection = mapping_source_projection
 
     def get_source_catalogs(
         self,
@@ -61,9 +74,9 @@ class SourceRepository(DuckDbRepository):
     ) -> tuple[SourceFileCatalog, ...]:
         """Load source catalogs in the same order as registered source files."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
@@ -86,9 +99,9 @@ class SourceRepository(DuckDbRepository):
         """Atomically replace the complete hash-bound catalog set."""
 
         catalog_set = tuple(catalogs)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             source_rows = connection.execute(
@@ -104,10 +117,10 @@ class SourceRepository(DuckDbRepository):
                     "Source catalogs do not match the registered project files"
                 )
             revision_row = connection.execute(
-                "SELECT revision FROM project"
+                "SELECT revision FROM workspace_state"
             ).fetchone()
             if revision_row is None:
-                raise WorkspaceStateNotFoundError("Project not found")
+                raise WorkspaceStateNotFoundError("Workspace engine state not found")
 
             connection.begin()
             try:
@@ -166,9 +179,9 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Replace one catalog and invalidate every dependent source decision."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             source = connection.execute(
@@ -245,9 +258,9 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Confirm one exact catalog and invalidate selection/mapping/staging."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -359,17 +372,17 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Append a schema/identity-bound plan and advance its pointer atomically."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
             project = connection.execute(
-                "SELECT source_mode, status FROM project"
+                "SELECT source_mode, status FROM workspace_state"
             ).fetchone()
             if project is None:
-                raise WorkspaceStateNotFoundError("Project not found")
+                raise WorkspaceStateNotFoundError("Workspace engine state not found")
             if (
                 str(project[0]) != SourceMode.ODOO.value
                 or str(project[1]) != WorkspaceStatus.REGISTERED.value
@@ -481,6 +494,11 @@ class SourceRepository(DuckDbRepository):
         project_id: str,
     ) -> SourceSelection | None:
         """Return physical or prepared logical datasets used by mapping."""
+
+        if self._mapping_source_projection is not None:
+            return self._mapping_source_projection.get_mapping_source_selection(
+                project_id
+            )
 
         selection = self.get_source_selection(project_id)
         if selection is None:
@@ -600,9 +618,9 @@ class SourceRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             revision = self._workspace_revision(connection)

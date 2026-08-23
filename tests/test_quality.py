@@ -1137,7 +1137,7 @@ class QualityStoreTests(unittest.TestCase):
             ),
             content_hash=PHYSICAL_HASH,
         )
-        database_path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
+        database_path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
         with self.projects._connect(database_path) as connection:
             connection.execute("INSERT INTO source_selection VALUES (1, ?)", [selection.to_json()])
             connection.execute(
@@ -1260,7 +1260,7 @@ class QualityStoreTests(unittest.TestCase):
 
         database_path = (
             self.projects.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.quality._connect(database_path) as connection:
             sparse_counts = connection.execute(
@@ -1456,7 +1456,7 @@ class QualityStoreTests(unittest.TestCase):
             self.staging.get_current_staging_summary(self.project.project_id).run_id,
             staging.run_id,
         )
-        database_path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
+        database_path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
         with self.projects._connect(database_path) as connection:
             lifecycle = connection.execute(
                 "SELECT status, retired_reason FROM quality_run WHERE run_id = ?",

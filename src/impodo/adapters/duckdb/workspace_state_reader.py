@@ -21,8 +21,8 @@ from .repository import DuckDbRepository
 from .serialization import _project_from_rows
 
 
-class ProjectWorkspaceReader(DuckDbRepository):
-    """Load the exact Project-authorized workspace passed to a child worker.
+class WorkspaceStateReader(DuckDbRepository):
+    """Load the exact authorized workspace state passed to a child worker.
 
     The browser resolves Project, DataVersion, run, and workspace identities
     before it starts a worker. The worker checks those identities against the
@@ -41,14 +41,14 @@ class ProjectWorkspaceReader(DuckDbRepository):
         workspace_directory = self.workspace_directory(project_id)
         self._verify_workspace_store(workspace_directory / "workspace.duckdb")
         self._verify_data_version_store()
-        database_path = workspace_directory / "project.duckdb"
+        database_path = workspace_directory / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
-            row = connection.execute("SELECT * FROM project").fetchone()
+            row = connection.execute("SELECT * FROM workspace_state").fetchone()
             if row is None:
-                raise WorkspaceStateNotFoundError("Project not found")
+                raise WorkspaceStateNotFoundError("Workspace engine state not found")
             columns = [item[0] for item in connection.description]
             source_rows = connection.execute(
                 """

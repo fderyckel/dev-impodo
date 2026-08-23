@@ -380,7 +380,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         database_path = (
             self.schema_repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.schema_repository._connect(database_path) as connection:
             event = connection.execute(

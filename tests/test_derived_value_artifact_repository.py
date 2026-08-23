@@ -266,7 +266,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         self._finalize(session.session_id)
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             connection.execute(
@@ -403,7 +403,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         self._finalize_and_publish(session.session_id)
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             connection.begin()

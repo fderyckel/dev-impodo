@@ -17,9 +17,9 @@ class SupportingLookupRepository(DuckDbRepository):
         project_id: str,
         lookup_key: str,
     ) -> SupportingLookupSnapshot | None:
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -55,9 +55,9 @@ class SupportingLookupRepository(DuckDbRepository):
     ) -> None:
         if snapshot.project_id != project_id:
             raise WorkspaceError("Supporting lookup belongs to another project")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()

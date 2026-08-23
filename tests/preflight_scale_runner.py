@@ -221,7 +221,7 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     peak_bytes = int(peak if sys.platform == "darwin" else peak * 1024)
 
-    database_path = root / project_id / "project.duckdb"
+    database_path = root / project_id / "workspace-engine.duckdb"
     with context.preflight.staging._connect(database_path) as connection:
         stored = connection.execute(
             """
@@ -263,7 +263,7 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
 
     database_bytes = sum(
         path.stat().st_size
-        for path in database_path.parent.glob("project.duckdb*")
+        for path in database_path.parent.glob("workspace-engine.duckdb*")
         if path.is_file()
     )
     return {

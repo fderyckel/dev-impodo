@@ -160,7 +160,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
         database_path = (
-            sessions.workspace_directory(project.project_id) / "project.duckdb"
+            sessions.workspace_directory(project.project_id) / "workspace-engine.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(
@@ -310,7 +310,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
         )
         database_path = (
-            sessions.workspace_directory(project.project_id) / "project.duckdb"
+            sessions.workspace_directory(project.project_id) / "workspace-engine.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(

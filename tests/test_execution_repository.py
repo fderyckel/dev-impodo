@@ -47,7 +47,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
         )
         self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.preflight_id = str(uuid4())
-        path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
+        path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
         with self.projects._connect(path) as connection:
             connection.execute(
                 """
@@ -153,7 +153,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
             finished,
         )
         self.assertEqual(finished.batch_rows, 10)
-        path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
+        path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
         with self.projects._connect(path) as connection:
             events = connection.execute(
                 """

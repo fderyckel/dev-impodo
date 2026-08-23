@@ -114,7 +114,7 @@ def _is_lock_contention(error: duckdb.IOException) -> bool:
 
 
 class DuckDbUnitOfWork(AbstractContextManager["DuckDbUnitOfWork"]):
-    """Own one explicit transaction shared by a project-scoped command.
+    """Own one explicit transaction shared by a workspace-scoped command.
 
     Services can pass this boundary to cooperating repository operations when
     several evidence writes and pointer changes must succeed atomically.

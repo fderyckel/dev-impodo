@@ -74,9 +74,9 @@ class StagingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared data must be regenerated with the current evaluator"
             )
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         published_at = datetime.now(timezone.utc)
         pending_run_id = getattr(run.rows, "canonical_run_id", None)
         if pending_run_id is None:
@@ -301,7 +301,7 @@ class StagingRepository(DuckDbRepository):
                 )
                 connection.execute(
                     """
-                    UPDATE project
+                    UPDATE workspace_state
                        SET current_run_id = NULL,
                            approval_status = 'INVALIDATED'
                     """
@@ -429,9 +429,9 @@ class StagingRepository(DuckDbRepository):
     ) -> StagingRunSummary | None:
         """Return the summary selected by the current published-run pointer."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -464,9 +464,9 @@ class StagingRepository(DuckDbRepository):
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Prepared-data run identifier is invalid") from error
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             header = connection.execute(

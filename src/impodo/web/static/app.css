@@ -256,7 +256,7 @@ body.sidebar-collapsed .app-shell {
   white-space: nowrap;
 }
 
-.sidebar-current-recipe-link {
+.sidebar-current-project-link {
   display: block;
   border-radius: 3px;
   color: inherit;
@@ -265,11 +265,11 @@ body.sidebar-collapsed .app-shell {
   text-underline-offset: .18em;
 }
 
-.sidebar-current-recipe-link:hover {
+.sidebar-current-project-link:hover {
   text-decoration-color: currentColor;
 }
 
-.sidebar-current-recipe-link:focus-visible {
+.sidebar-current-project-link:focus-visible {
   outline: 3px solid rgb(194 32 38 / 28%);
   outline-offset: 3px;
 }

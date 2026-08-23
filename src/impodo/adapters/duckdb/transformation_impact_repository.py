@@ -46,9 +46,9 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> TransformationImpactSnapshot | None:
         """Return the current snapshot only when every input still matches."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -109,9 +109,9 @@ class TransformationImpactRepository(DuckDbRepository):
             current = self.get_transformation_impact_snapshot(project_id, identity)
             if current is not None:
                 return current
-            database_path = self.workspace_directory(project_id) / "project.duckdb"
+            database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
             if not database_path.is_file():
-                raise WorkspaceStateNotFoundError("Project not found")
+                raise WorkspaceStateNotFoundError("Workspace engine state not found")
             created_at = datetime.now(timezone.utc)
             with self._connect(database_path) as connection:
                 self._ensure_workspace_database_schema(connection)
@@ -257,9 +257,9 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> None:
         """Acknowledge one reviewable rule fact for the exact current snapshot."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             run = connection.execute(
@@ -321,9 +321,9 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> TransformationRuleReview | None:
         """Return review evidence only for the exact current mapping inputs."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             run = connection.execute(
@@ -370,9 +370,9 @@ class TransformationImpactRepository(DuckDbRepository):
             raise WorkspaceError("Transformation impact page size is invalid")
         if after is not None and before is not None:
             raise WorkspaceError("Choose only one transformation impact cursor")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             stored = connection.execute(
@@ -480,9 +480,9 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> Iterator[TransformationImpactRow]:
         """Stream all matching snapshot rows in deterministic order."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             stored = connection.execute(

@@ -22,14 +22,14 @@ from .supporting_lookup import ensure_supporting_lookup_schema
 from .source_snapshot import create_source_snapshot_schema
 
 
-_UNSUPPORTED_PROJECT_MESSAGE = (
-    "This project uses a different Impodo data contract and cannot be opened "
-    "by this build. Delete it from the Projects page and create a new project."
+_UNSUPPORTED_WORKSPACE_MESSAGE = (
+    "This workspace uses a different Impodo data contract and cannot be opened "
+    "by this build. Delete its Data Project and create a new one."
 )
 
 
 class WorkspaceEngineSchemaMixin:
-    """Create the current schema and reject incompatible project databases."""
+    """Create the current schema and reject incompatible workspace databases."""
 
     def _initialize_workspace_database(
         self,
@@ -46,7 +46,7 @@ class WorkspaceEngineSchemaMixin:
                 1, '{SCHEMA_GENERATION}', {SCHEMA_VERSION}
             );
 
-            CREATE TABLE project (
+            CREATE TABLE workspace_state (
                 project_id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
                 source_system VARCHAR NOT NULL,
@@ -629,9 +629,9 @@ class WorkspaceEngineSchemaMixin:
                 """
             ).fetchone()
         except duckdb.Error as error:
-            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE) from error
+            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE) from error
         if row is None or str(row[0]) != SCHEMA_GENERATION:
-            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE)
+            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
         stored_version = int(row[1])
         if stored_version != SCHEMA_VERSION:
             raise WorkspaceStateCompatibilityError(
@@ -654,7 +654,7 @@ class WorkspaceEngineSchemaMixin:
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
-        """Remember a project database initialized by this application process."""
+        """Remember a workspace database initialized by this application process."""
 
         schema_key = self._project_schema_file_key(connection)
         if schema_key is None:

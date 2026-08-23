@@ -61,7 +61,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         if workspace.state is not MigrationWorkspaceState.OPEN:
             raise WorkspaceStateError("A closed MigrationWorkspace cannot be initialized")
         directory = self.workspace_directory(project.project_id)
-        database_path = directory / "project.duckdb"
+        database_path = directory / "workspace-engine.duckdb"
         if database_path.is_file():
             current = self.get(project.project_id)
             if current != project:
@@ -100,7 +100,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
 
     def get(self, project_id: str) -> WorkspaceState:
         self.foundation.get_migration_workspace(project_id)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
         with self._connect(database_path) as connection:

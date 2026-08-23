@@ -267,7 +267,15 @@ def create_local_app(
     )
     recipe_compilation_repository = RecipeCompilationRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
-    source_repository = SourceRepository(database, derived_entity_repository)
+    workspace_mapping_sources = WorkspaceMappingSourceProjection(
+        foundation_repository,
+        derived_entity_repository,
+    )
+    source_repository = SourceRepository(
+        database,
+        derived_entity_repository,
+        workspace_mapping_sources,
+    )
     local_schema_repository = SchemaRepository(database)
     run_planning_repository = MigrationRunPlanningRepository(
         foundation_repository
@@ -276,7 +284,7 @@ def create_local_app(
         local_schema_repository,
         run_planning_repository,
     )
-    mapping_repository = MappingRepository(database)
+    mapping_repository = MappingRepository(database, workspace_mapping_sources)
     supporting_lookup_repository = SupportingLookupRepository(database)
     mapping_field_catalog_repository = MappingFieldCatalogRepository(database)
     staging_repository = StagingRepository(database, resolved_artifacts)
@@ -374,7 +382,7 @@ def create_local_app(
         projects,
     )
     recipe_compiler = RecipeCompiler(
-        WorkspaceMappingSourceProjection(foundation_repository),
+        workspace_mapping_sources,
         mapping_repository,
         schema_repository,
         quality_repository,
@@ -413,7 +421,7 @@ def create_local_app(
         resolved_authorization,
     )
     mapping_workspace = MappingWorkspaceService(
-        WorkspaceMappingSourceProjection(foundation_repository),
+        workspace_mapping_sources,
         schema_repository,
         mapping_repository,
         resolved_authorization,
@@ -421,7 +429,7 @@ def create_local_app(
         transformation_impacts=transformation_impact_repository,
     )
     recipe_application_service = RecipeApplicationService(
-        sources=WorkspaceMappingSourceProjection(foundation_repository),
+        sources=workspace_mapping_sources,
         schemas=schema_repository,
         schema_workspace=schema_workspace,
         references=advanced_coverage_repository,
@@ -576,6 +584,7 @@ def create_local_app(
             mapping_field_catalog_repository,
             quality_repository,
             transformation_impact_repository,
+            workspace_mapping_sources,
         ),
         migration_projects=migration_projects,
         data_versions=data_versions,

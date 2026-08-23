@@ -32,11 +32,11 @@ class DuckDbWorkspaceDatabase(
 ):
     """Workspace-scoped DuckDB connection, schema, and transaction boundary.
 
-    The root contains UUID-named project directories and databases. DuckDB
+    The root contains UUID-named workspace directories and engine databases. DuckDB
     external access and extension loading are disabled by the connection
-    factory. Project access requires the exact current schema. This boundary
-    deliberately knows nothing about the cross-project Recipe registry, so a
-    spawned worker can operate on one project without contending for
+    factory. Workspace access requires the exact current schema. This boundary
+    deliberately knows nothing about the Project foundation store, so a
+    spawned worker can operate on one workspace without contending for
     ``registry.duckdb``.
     """
 
@@ -56,7 +56,7 @@ class DuckDbWorkspaceDatabase(
         self.root.mkdir(parents=True, exist_ok=True)
 
     def workspace_directory(self, project_id: str) -> Path:
-        """Return the contained UUID directory for a validated project ID."""
+        """Return the contained UUID directory for a validated workspace ID."""
 
         try:
             canonical = str(UUID(project_id))
@@ -69,11 +69,11 @@ class DuckDbWorkspaceDatabase(
         return target
 
     def unit_of_work(self, project_id: str) -> DuckDbUnitOfWork:
-        """Return one project-scoped transaction shared by collaborating ports."""
+        """Return one workspace-scoped transaction shared by collaborating ports."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         return DuckDbUnitOfWork(
             self.connection_factory,
             database_path,
@@ -86,9 +86,9 @@ class DuckDbWorkspaceDatabase(
         query: str,
         parameters: list[object] | None = None,
     ) -> tuple[str, ...]:
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(query, parameters or []).fetchall()
@@ -121,9 +121,9 @@ class DuckDbWorkspaceDatabase(
         }
         if (table, value_column) not in permitted:
             raise ValueError("Unsupported workspace table")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             revision = self._workspace_revision(connection)
@@ -169,9 +169,9 @@ class DuckDbWorkspaceDatabase(
 
     @staticmethod
     def _workspace_revision(connection: duckdb.DuckDBPyConnection) -> int:
-        row = connection.execute("SELECT revision FROM project").fetchone()
+        row = connection.execute("SELECT revision FROM workspace_state").fetchone()
         if row is None:
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         return int(row[0])
 
     @contextmanager

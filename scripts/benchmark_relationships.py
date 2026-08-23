@@ -600,7 +600,7 @@ def _storage(
     project_id: str,
     session_id: str,
 ) -> dict[str, object]:
-    database_path = root / project_id / "project.duckdb"
+    database_path = root / project_id / "workspace-engine.duckdb"
     with repository._connect(database_path) as connection:
         connection.execute("CHECKPOINT")
         size = connection.execute("PRAGMA database_size").fetchone()

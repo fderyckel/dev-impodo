@@ -1349,7 +1349,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         )
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             connection.execute(
@@ -1484,7 +1484,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         self.assertEqual(frozen.lifecycle_version, 2)
         self.assertEqual(frozen.decision_count, 1)
         database_path = (
-            restarted.workspace_directory(self.project.project_id) / "project.duckdb"
+            restarted.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
         )
         with restarted._connect(database_path) as connection:
             compact_rows = connection.execute(

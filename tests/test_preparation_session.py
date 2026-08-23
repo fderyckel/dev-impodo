@@ -219,7 +219,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         )
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             counts = connection.execute(
@@ -558,7 +558,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         )
 
         database_path = (
-            Path(self.temporary.name) / self.project.project_id / "project.duckdb"
+            Path(self.temporary.name) / self.project.project_id / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             states = connection.execute(

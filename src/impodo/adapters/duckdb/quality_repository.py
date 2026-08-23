@@ -146,9 +146,9 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError(
                 "A data-check review date exceeds the project retention period"
             )
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         created_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -270,7 +270,7 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Quality evidence no longer matches project ownership and retention"
             )
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         published_at = datetime.now(timezone.utc)
         run_id = str(uuid4())
         summary_counts = _quality_summary_counts(run)
@@ -513,7 +513,7 @@ class QualityRepository(DuckDbRepository):
                 )
                 connection.execute(
                     """
-                    UPDATE project
+                    UPDATE workspace_state
                        SET current_run_id = NULL,
                            approval_status = 'INVALIDATED'
                     """
@@ -558,9 +558,9 @@ class QualityRepository(DuckDbRepository):
     ) -> QualityRunSummary | None:
         """Return the current non-retired quality run's lifecycle projection."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -588,9 +588,9 @@ class QualityRepository(DuckDbRepository):
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Quality run identifier is invalid") from error
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             header = connection.execute(
@@ -870,9 +870,9 @@ class QualityRepository(DuckDbRepository):
         filter_predicate = (
             " AND ".join(conditions) if conditions else "TRUE"
         )
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             current = connection.execute(

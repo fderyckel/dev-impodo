@@ -143,9 +143,9 @@ class PreflightRepository(DuckDbRepository):
             or decision_count < 0
         ):
             raise WorkspaceError("Readiness snapshot evidence is invalid")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -153,7 +153,7 @@ class PreflightRepository(DuckDbRepository):
                 target = connection.execute(
                     """
                     SELECT odoo_connection_mode, odoo_base_url, odoo_database
-                      FROM project
+                      FROM workspace_state
                     """
                 ).fetchone()
                 if target is None or target_identity_hash(
@@ -416,7 +416,7 @@ class PreflightRepository(DuckDbRepository):
                 )
                 connection.execute(
                     """
-                    UPDATE project
+                    UPDATE workspace_state
                        SET current_run_id = ?,
                            approval_status = 'REVIEW_REQUIRED'
                     """,
@@ -470,9 +470,9 @@ class PreflightRepository(DuckDbRepository):
             clauses.append("dataset = ?")
             parameters.append(dataset)
         where = " AND ".join(clauses)
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             count_row = connection.execute(

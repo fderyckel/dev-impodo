@@ -84,9 +84,9 @@ class OdooProvenanceRepository(DuckDbRepository):
             != manifest.data_size_bytes
         ):
             raise WorkspaceError("Odoo values artifact size is inconsistent")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
 
         candidate_path = self._candidate_path(project_id, manifest.manifest_id)
         final_path = self._artifact_path(project_id, manifest.provenance_storage_key)
@@ -98,10 +98,10 @@ class OdooProvenanceRepository(DuckDbRepository):
             with self._connect(database_path) as connection:
                 self._ensure_workspace_database_schema(connection)
                 project = connection.execute(
-                    "SELECT source_mode, status, revision FROM project"
+                    "SELECT source_mode, status, revision FROM workspace_state"
                 ).fetchone()
                 if project is None:
-                    raise WorkspaceStateNotFoundError("Project not found")
+                    raise WorkspaceStateNotFoundError("Workspace engine state not found")
                 if (
                     str(project[0]) != SourceMode.ODOO.value
                     or str(project[1]) != WorkspaceStatus.REGISTERED.value
@@ -404,9 +404,9 @@ class OdooProvenanceRepository(DuckDbRepository):
 
         if not reason.strip() or len(reason) > 200:
             raise WorkspaceError("Odoo provenance invalidation reason is invalid")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             exists = connection.execute(
@@ -454,9 +454,9 @@ class OdooProvenanceRepository(DuckDbRepository):
 
         if now.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(

@@ -82,7 +82,7 @@
               <span class="sidebar-project-label">Current data project</span>
               {% if migration_context is defined %}
                 <a
-                  class="sidebar-current-recipe-link"
+                  class="sidebar-current-project-link"
                   href="/projects/{{ migration_context.project_id }}"
                   aria-label="Open data project overview: {{ navigation.project_name }}"
                   {% if request.url.path == '/projects/' ~ migration_context.project_id %}aria-current="page"{% endif %}

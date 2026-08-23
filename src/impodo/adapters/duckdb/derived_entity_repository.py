@@ -57,9 +57,9 @@ class DerivedEntityRepository(DuckDbRepository):
     ) -> None:
         """Append one exact plan revision and invalidate mapping/staging."""
 
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             selection_row = connection.execute(

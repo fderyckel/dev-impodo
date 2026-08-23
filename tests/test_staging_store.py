@@ -99,7 +99,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         )
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             connection.execute(
@@ -160,7 +160,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertEqual(restored.to_json(), run.to_json())
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             run_count = connection.execute(
@@ -289,7 +289,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         )
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             retired = connection.execute(
@@ -376,7 +376,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertEqual(current.run_id, first.run_id)
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             run_count = connection.execute(
@@ -418,7 +418,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         )
         database_path = (
             self.repository.workspace_directory(self.project.project_id)
-            / "project.duckdb"
+            / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             status = connection.execute(

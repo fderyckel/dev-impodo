@@ -49,9 +49,9 @@ class ExecutionRepository(DuckDbRepository):
             or any(item.status is not ExecutionRowStatus.PLANNED for item in run.rows)
         ):
             raise WorkspaceError("Execution run is invalid")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -185,7 +185,7 @@ class ExecutionRepository(DuckDbRepository):
             for item in rows
         ):
             raise WorkspaceError("Execution outcome is invalid")
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -243,7 +243,7 @@ class ExecutionRepository(DuckDbRepository):
         if status is ExecutionRunStatus.RUNNING:
             raise WorkspaceError("Execution completion status is invalid")
         canonical_run_id = str(UUID(run_id))
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -308,9 +308,9 @@ class ExecutionRepository(DuckDbRepository):
 
     def get_run(self, project_id: str, run_id: str) -> ExecutionRun | None:
         canonical_run_id = str(UUID(run_id))
-        database_path = self.workspace_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             header = connection.execute(
