@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Loading into Odoo &middot; {{ project.name }} &middot; Impodo{% endblock %}
+{% block content %}
+  {% set active = job.status.value in ('QUEUED', 'RUNNING') %}
+  <div
+    class="load-progress-page"
+    data-load-job
+    data-status-url="/workspaces/{{ job.project_id }}/load/progress/{{ job.job_id }}/status"
+  >
+    <nav class="load-stepper" aria-label="Load into Odoo progress">
+      <ol>
+        <li class="load-step complete">
+          <a href="/workspaces/{{ job.project_id }}/load/review">
+            <span class="load-step-number" aria-hidden="true">1</span>
+            <span><strong>Check changes</strong><small>Complete</small></span>
+          </a>
+        </li>
+        <li class="load-step {% if active %}current{% elif job.status.value == 'SUCCEEDED' %}complete{% else %}attention{% endif %}">
+          <span aria-current="step">
+            <span class="load-step-number" aria-hidden="true">2</span>
+            <span>
+              <strong>Confirm and load</strong>
+              <small data-load-step-state>{% if active %}In progress{% elif job.status.value == 'SUCCEEDED' %}Complete{% else %}Needs attention{% endif %}</small>
+            </span>
+          </span>
+        </li>
+        <li class="load-step {% if job.status.value == 'SUCCEEDED' %}available{% else %}locked{% endif %}">
+          {% if job.status.value == 'SUCCEEDED' %}<a href="/workspaces/{{ job.project_id }}/load/outcome">{% else %}<span aria-disabled="true">{% endif %}
+            <span class="load-step-number" aria-hidden="true">3</span>
+            <span><strong>Verify result</strong><small>{% if job.status.value == 'SUCCEEDED' %}Available{% else %}Not ready{% endif %}</small></span>
+          {% if job.status.value == 'SUCCEEDED' %}</a>{% else %}</span>{% endif %}
+        </li>
+      </ol>
+    </nav>
+
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 6 of 6 &middot; Confirm and load</p>
+        <h1>Loading {{ project.name }} into {{ job.target_environment }} Odoo</h1>
+        <p>Impodo records each completed Odoo call before reporting it here. You can leave this page and return to the load from this project.</p>
+      </div>
+      <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% else %}ready{% endif %}" data-load-state>
+        {% if job.status.value == 'SUCCEEDED' %}Finished{% elif job.status.value == 'FAILED' %}Stopped{% else %}In progress{% endif %}
+      </span>
+    </div>
+
+    <section class="load-target-banner" aria-labelledby="load-progress-target-title">
+      <div>
+        <p class="eyebrow">Odoo target</p>
+        <h2 id="load-progress-target-title">{{ job.target_database }}</h2>
+        <p>{{ job.target_environment }} &middot; {{ job.target_server }}</p>
+      </div>
+      <p class="load-target-total">
+        <strong data-load-total>{{ job.total_rows }}</strong>
+        record{{ 's' if job.total_rows != 1 else '' }} to load
+      </p>
+    </section>
+
+    <section class="form-card load-progress-card" aria-labelledby="load-progress-title" aria-live="polite">
+      <div class="load-progress-heading">
+        <div>
+          <p class="eyebrow">Current step</p>
+          <h2 id="load-progress-title" data-load-message>{{ job.message }}</h2>
+        </div>
+        <span class="activity-spinner" aria-hidden="true" data-load-spinner {% if not active %}hidden{% endif %}></span>
+      </div>
+      <progress max="100" value="{{ job.progress_percent }}" data-load-progress>{{ job.progress_percent }}%</progress>
+      <div class="load-progress-numbers">
+        <strong data-load-percent>{{ job.progress_percent }}%</strong>
+        <span data-load-rows>{{ job.completed_rows }} of {{ job.total_rows }} records completed</span>
+      </div>
+      <div class="readiness-cards load-progress-counts" aria-label="Recorded Odoo load totals">
+        <div class="readiness-card ready">
+          <span>New accepted</span>
+          <strong data-load-created>{{ job.created_count }}</strong>
+          <small>Odoo returned a record</small>
+        </div>
+        <div class="readiness-card review">
+          <span>Updates accepted</span>
+          <strong data-load-updated>{{ job.updated_count }}</strong>
+          <small>Odoo accepted the change</small>
+        </div>
+        <div class="readiness-card {% if job.attention_count %}blocked{% else %}ready{% endif %}" data-load-attention-card>
+          <span>Needs attention</span>
+          <strong data-load-attention>{{ job.attention_count }}</strong>
+          <small>Known failed or uncertain outcomes</small>
+        </div>
+      </div>
+      <p class="muted" data-load-guidance>
+        {% if job.phase.value == 'VERIFYING' %}Impodo is now checking the saved results against Odoo.{% else %}Accepted totals are not called verified until Impodo reads the completed records back from Odoo.{% endif %}
+      </p>
+      <p class="muted" data-load-relationships {% if not job.relationship_pending_count %}hidden{% endif %}>Some new records are waiting for their relationship step.</p>
+    </section>
+
+    <section class="next-action-card blocked" data-load-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Load stopped</p>
+        <h2>Review the recorded totals before continuing</h2>
+        <p data-load-failure>{{ job.failure_message }}</p>
+        <p><strong>Do not start another load from this review.</strong> A completed Odoo call may already have changed records.</p>
+      </div>
+      <a class="button secondary" href="/projects">Return to projects</a>
+    </section>
+
+    <section class="next-action-card ready" data-load-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2>Verify the saved Odoo result</h2>
+        <p>The verification result will open automatically. Use the button if it does not.</p>
+      </div>
+      <a class="button primary" data-load-continue href="/workspaces/{{ job.project_id }}/load/outcome">Verify result</a>
+    </section>
+
+    <div class="load-progress-actions" data-load-active {% if not active %}hidden{% endif %}>
+      <a class="button secondary" href="/projects">Work on another data project</a>
+    </div>
+
+    <details class="technical-details form-card">
+      <summary>Support details</summary>
+      <p>Job <code>{{ job.job_id }}</code></p>
+      <p data-load-run {% if not job.execution_run_id %}hidden{% endif %}>Load run <code>{{ job.execution_run_id }}</code></p>
+    </details>
+  </div>
+{% endblock %}

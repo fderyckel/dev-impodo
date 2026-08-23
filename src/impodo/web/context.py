@@ -1,6 +1,6 @@
 """Name the dependencies available to every local browser route.
 
-Migration stages: cross-cutting Aâ€“K. Layer: web dependency container.
+Migration stages: cross-cutting A–K. Layer: web dependency container.
 
 :func:`impodo.web.app.create_local_app` constructs ``WebContext`` once and
 passes it to each router builder. Routes use the typed services and closed
@@ -29,6 +29,7 @@ from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import OdooSourceCapturePort
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
+from ..application.load_job_service import LoadJobManager
 from ..application.reconciliation_service import ReconciliationService
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
@@ -136,7 +137,7 @@ class WebContext:
     cutover_plans: CutoverPlanService
     production_runs: ProductionCutoverService
     data_version_source_projection: WorkspaceDataVersionSourceService
-    projects: WorkspaceStateService
+    workspace_states: WorkspaceStateService
     intake: SourceIntakeService
     inspections: SourceInspectionService
     sources: SourceWorkspaceService
@@ -152,6 +153,7 @@ class WebContext:
     normalization: NormalizationService
     preflight: PreflightService
     execution: ExecutionService
+    load_jobs: LoadJobManager | None
     reconciliation: ReconciliationService
     transformation_impacts: TransformationImpactService
     odoo_capture_publication: OdooCapturePublicationService

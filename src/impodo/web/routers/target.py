@@ -404,7 +404,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         show_local_results = False
         try:
             previous_project = context.queries.get(project_id)
-            project = context.projects.update_target(
+            project = context.workspace_states.update_target(
                 project_id,
                 actor=context.actor,
                 expected_revision=_revision(form),
@@ -426,7 +426,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     reason=TargetCredentialRemovalReason.TARGET_CHANGED,
                 )
                 audit_removed_target_credentials(
-                    context.projects,
+                    context.workspace_states,
                     previous_project,
                     removal_receipts,
                     actor=context.actor,
@@ -458,7 +458,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     persistent=_target_read_key_persistence(form),
                 )
                 audit_stored_target_credential(
-                    context.projects,
+                    context.workspace_states,
                     project,
                     TargetCredentialRole.READ,
                     read_credential,
@@ -607,7 +607,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             )
         if project.status is WorkspaceStatus.DRAFT:
             try:
-                project = context.projects.register(
+                project = context.workspace_states.register(
                     project.project_id,
                     actor=context.actor,
                     expected_revision=project.revision,
@@ -644,7 +644,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             )
             if receipt is not None:
                 audit_removed_target_credentials(
-                    context.projects,
+                    context.workspace_states,
                     project,
                     (receipt,),
                     actor=context.actor,

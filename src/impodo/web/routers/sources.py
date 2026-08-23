@@ -43,7 +43,12 @@ from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...data_versions import DataVersionState
 from ...inspection import SourceInspectionError, SourceInspectionOptions
 from ...migration_foundation import MigrationFoundationError
-from ...workspace_state import WorkspaceStateError, WorkspaceStatus, SourceMode
+from ...workspace_state import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStateError,
+    WorkspaceStatus,
+)
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ..security import require_session
@@ -51,7 +56,11 @@ from fastapi import APIRouter
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
-from ..presenters.schema import _dataset_choices, _decode_delimiter
+from ..presenters.schema import (
+    _dataset_choices,
+    _dataset_choices_from,
+    _decode_delimiter,
+)
 from ..target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
@@ -99,20 +108,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             return _render_odoo_capture_selection(request, context, project)
-        catalogs = context.queries.get_source_catalogs(project_id)
-        return _render(
+        return _render_file_sources(
             request,
-            "project_sources.html",
+            context,
+            project_id,
             project=project,
-            catalogs=catalogs,
-            configurations={
-                item.file_id: item
-                for item in context.queries.get_source_configurations(project_id)
-            },
-            source_groups=_source_groups(catalogs),
-            can_remove_source_files=(
-                context.queries.get_source_selection(project_id) is None
-            ),
         )
 
     @router.post("/workspaces/{project_id}/files/{file_id}/remove")
@@ -291,7 +291,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 persistent=bool(_text(form, "remember_read_api_key")),
             )
             audit_stored_target_credential(
-                context.projects,
+                context.workspace_states,
                 project,
                 TargetCredentialRole.READ,
                 credential,
@@ -379,15 +379,24 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
             gateway = context.source_capture_factory(project, credential.secret)
             manager = _odoo_capture_manager(context)
+            workspace = context.migration_workspaces.get(
+                project_id,
+                actor=context.actor,
+            )
+            migration_project = context.migration_projects.get(
+                workspace.project_id,
+                actor=context.actor,
+            )
             job = manager.enqueue(
                 project_id,
-                project.name,
+                migration_project.display_name,
                 selection.max_rows,
                 gateway,
                 actor=context.actor,
             )
         except (
             ConnectorError,
+            MigrationFoundationError,
             OdooCaptureJobStateError,
             WorkspaceStateError,
             SecretStoreError,
@@ -477,21 +486,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
         except SourceInspectionError as error:
-            return _render(
+            return _render_file_sources(
                 request,
-                "project_sources.html",
+                context,
+                project_id,
                 project=project,
-                catalogs=context.queries.get_source_catalogs(project_id),
-                configurations={
-                    item.file_id: item
-                    for item in context.queries.get_source_configurations(project_id)
-                },
-                source_groups=_source_groups(
-                    context.queries.get_source_catalogs(project_id)
-                ),
-                can_remove_source_files=(
-                    context.queries.get_source_selection(project_id) is None
-                ),
                 error=str(error),
                 status_code=422,
             )
@@ -576,21 +575,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
             else:
                 _flash(request, f"Updated preview for {refreshed.display_name}.")
         except (SourceInspectionError, WorkspaceError, ValueError) as error:
-            return _render(
+            return _render_file_sources(
                 request,
-                "project_sources.html",
-                project=context.queries.get(project_id),
-                catalogs=context.queries.get_source_catalogs(project_id),
-                configurations={
-                    item.file_id: item
-                    for item in context.queries.get_source_configurations(project_id)
-                },
-                source_groups=_source_groups(
-                    context.queries.get_source_catalogs(project_id)
-                ),
-                can_remove_source_files=(
-                    context.queries.get_source_selection(project_id) is None
-                ),
+                context,
+                project_id,
                 error=str(error),
                 status_code=422,
             )
@@ -601,17 +589,22 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.get("/workspaces/{project_id}/datasets", response_class=HTMLResponse)
     async def project_datasets(request: Request, project_id: str):
-        """Render confirmed physical tables and the current frozen selection."""
+        """Redirect unfinished choices to Source data or show saved tables."""
 
         require_session(request)
         project = context.queries.get(project_id)
-        choices = _dataset_choices(context, project_id)
+        selection = context.queries.get_source_selection(project_id)
+        if selection is None:
+            return RedirectResponse(
+                f"/workspaces/{project_id}/sources#table-choices",
+                status_code=303,
+            )
         return _render(
             request,
-            "project_datasets.html",
+            "workspace_datasets.html",
             project=project,
-            choices=choices,
-            selection=context.queries.get_source_selection(project_id),
+            choices=(),
+            selection=selection,
         )
 
     @router.post("/workspaces/{project_id}/datasets/freeze")
@@ -651,7 +644,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         except (MigrationFoundationError, WorkspaceError) as error:
             return _render(
                 request,
-                "project_datasets.html",
+                "workspace_datasets.html",
                 project=context.queries.get(project_id),
                 choices=choices,
                 selection=context.queries.get_source_selection(project_id),
@@ -714,6 +707,36 @@ def _source_groups(catalogs):
     return result
 
 
+def _render_file_sources(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    project: WorkspaceState | None = None,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    """Render file review and the final table-choice action from one snapshot."""
+
+    current_project = project or context.queries.get(project_id)
+    catalogs = context.queries.get_source_catalogs(project_id)
+    configurations = context.queries.get_source_configurations(project_id)
+    selection = context.queries.get_source_selection(project_id)
+    return _render(
+        request,
+        "workspace_sources.html",
+        project=current_project,
+        catalogs=catalogs,
+        configurations={item.file_id: item for item in configurations},
+        source_groups=_source_groups(catalogs),
+        choices=_dataset_choices_from(catalogs, configurations),
+        selection=selection,
+        can_remove_source_files=selection is None,
+        error=error,
+        status_code=status_code,
+    )
+
+
 def _render_source_file_error(
     request: Request,
     context: WebContext,
@@ -732,32 +755,23 @@ def _render_source_file_error(
     if return_to == "files":
         return _render(
             request,
-            "project_files.html",
+            "workspace_files.html",
             project=project,
             error=str(error),
             status_code=422,
         )
     if return_to == "sources":
-        catalogs = context.queries.get_source_catalogs(project_id)
-        return _render(
+        return _render_file_sources(
             request,
-            "project_sources.html",
+            context,
+            project_id,
             project=project,
-            catalogs=catalogs,
-            configurations={
-                item.file_id: item
-                for item in context.queries.get_source_configurations(project_id)
-            },
-            source_groups=_source_groups(catalogs),
-            can_remove_source_files=(
-                context.queries.get_source_selection(project_id) is None
-            ),
             error=str(error),
             status_code=422,
         )
     return _render(
         request,
-        "project_datasets.html",
+        "workspace_datasets.html",
         project=project,
         choices=_dataset_choices(context, project_id),
         selection=context.queries.get_source_selection(project_id),
@@ -853,7 +867,7 @@ def _render_odoo_capture_selection(
     )
     return _render(
         request,
-        "project_odoo_capture_selection.html",
+        "workspace_odoo_capture_selection.html",
         project=project,
         schema=schema,
         models=models,
@@ -911,7 +925,7 @@ def _render_odoo_capture_progress(request: Request, job: OdooCaptureJob):
 
     return _render(
         request,
-        "project_odoo_capture_progress.html",
+        "workspace_odoo_capture_progress.html",
         project=SimpleNamespace(
             project_id=job.project_id,
             name=job.project_name,

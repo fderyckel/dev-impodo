@@ -5,7 +5,8 @@
 Completed on 2026-08-23.
 
 M6 implements the fresh latest-data Production use of one exact selected and
-qualified Project CutoverPlan. It does not complete M7 Recipe-first cleanup.
+qualified Project CutoverPlan. The later M7 clean cutover is recorded
+separately.
 
 ## Operator outcome
 
@@ -125,12 +126,12 @@ This change updates the active implementation plan, roadmap, ADR-014 status,
 documentation index, user and developer indexes, workflow registry, security
 boundary, paired Production workflow pages, Production lifecycle contract,
 and current BPMN model. Historical Recipe-first reports remain labelled
-point-in-time evidence. M7 still owns deletion of their superseded active code
-and fixtures.
+point-in-time evidence. M7 later removed their superseded active code and
+fixtures.
 
-## Next phase
+## Historical handoff
 
-M7 removes Recipe-first ownership, compatibility services, aliases, migrations,
-routes, templates, tests, and stale active documentation. It must retain the
-Project-first M0-M6 behavior and use Git history instead of preserving live
-legacy code.
+M7 removed Recipe-first ownership, compatibility services, aliases, migrations,
+routes, templates, tests, and stale active documentation while retaining the
+Project-first M0-M6 behavior. See the [M7 clean-cutover
+record](migration-projects-phase-m7-clean-cutover.md).

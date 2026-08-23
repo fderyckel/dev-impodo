@@ -1,6 +1,6 @@
 """Orchestrate target-independent preparation and review evidence.
 
-Migration stages: Eâ€“G â€” normalize/validate, canonical staging, and symbolic
+Migration stages: E–G — normalize/validate, canonical staging, and symbolic
 relationship preparation. Layer: application service.
 
 ``PreparationService.prepare`` is called by the preparation browser route. It

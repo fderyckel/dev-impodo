@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from io import StringIO
 from secrets import compare_digest
 from typing import Sequence
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from ...access import AuthorizationError, Capability
@@ -18,10 +18,15 @@ from ...application.execution_service import (
     ExecutionPreview,
     validated_create_batch_rows,
 )
+from ...application.load_job_service import (
+    LoadJobNotFoundError,
+    LoadJobResult,
+    LoadJobStateError,
+)
 from ...connectors import ConnectorError
-from ...odoo_writer import OdooWriteError
 from ...odoo_readback import OdooReadbackError
 from ...models import OdooReadIdentity, OdooWriteIdentity
+from ...load_jobs import LoadJob, LoadJobStatus
 from ...migration_foundation import MigrationConflictError
 from ...migration_production import ProductionRunError
 from ...workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStateError
@@ -40,7 +45,7 @@ from ..target_credentials import (
 )
 
 
-async def _probe_remote_write_identity(
+def _probe_remote_write_identity_sync(
     context: WebContext,
     project: WorkspaceState,
     preview: ExecutionPreview,
@@ -50,12 +55,7 @@ async def _probe_remote_write_identity(
 
     if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
-    identity = await run_in_threadpool(
-        context.write_identity_probe,
-        project,
-        api_key,
-        preview.api_scope,
-    )
+    identity = context.write_identity_probe(project, api_key, preview.api_scope)
     schema = context.queries.get_odoo_schema_catalog(project.project_id)
     if schema is None or not schema.read_context_hash:
         raise WorkspaceError(
@@ -66,6 +66,38 @@ async def _probe_remote_write_identity(
             "The write credential does not use the reviewed Odoo context"
         )
     return identity
+
+
+async def _probe_remote_write_identity(
+    context: WebContext,
+    project: WorkspaceState,
+    preview: ExecutionPreview,
+    api_key: str,
+) -> OdooWriteIdentity | None:
+    return await run_in_threadpool(
+        _probe_remote_write_identity_sync,
+        context,
+        project,
+        preview,
+        api_key,
+    )
+
+
+def _probe_read_identity_sync(
+    context: WebContext,
+    project: WorkspaceState,
+    preview: ExecutionPreview,
+    api_key: str,
+) -> OdooReadIdentity | None:
+    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+        return None
+    if not preview.snapshot.readable_models:
+        raise WorkspaceError("Refresh the remote Odoo schema and compare again")
+    return context.read_identity_probe(
+        project,
+        api_key,
+        preview.snapshot.readable_models,
+    )
 
 
 async def _probe_current_read_identity(
@@ -90,13 +122,12 @@ async def _probe_current_read_identity(
         raise SecretStoreError(
             "Enter the current Odoo read key, refresh the schema, and compare again"
         )
-    if not preview.snapshot.readable_models:
-        raise WorkspaceError("Refresh the remote Odoo schema and compare again")
     identity = await run_in_threadpool(
-        context.read_identity_probe,
+        _probe_read_identity_sync,
+        context,
         project,
+        preview,
         credential.secret,
-        preview.snapshot.readable_models,
     )
     return identity, credential.binding_hash, credential.secret
 
@@ -153,6 +184,27 @@ def _load_row_page_url(page: int, page_size: int) -> str:
     return f"?{query}#row-outcomes"
 
 
+def _load_progress_url(project_id: str, job_id: str) -> str:
+    return f"/workspaces/{project_id}/load/progress/{job_id}"
+
+
+def _target_server(base_url: str) -> str:
+    parsed = urlsplit(base_url)
+    return parsed.netloc or parsed.path or "Configured Odoo server"
+
+
+def _target_environment(context: WebContext, project_id: str) -> str:
+    workspace = context.migration_workspaces.get(project_id, actor=context.actor)
+    data_version = context.data_versions.get(
+        workspace.data_version_id,
+        actor=context.actor,
+    )
+    return {
+        "PRODUCTION": "Production",
+        "TEST": "Test",
+    }.get(data_version.purpose.value, "Target")
+
+
 def build_execution_router(context: WebContext) -> APIRouter:
     """Build the Stage-J load action and Stage-K read-back result flow."""
 
@@ -203,7 +255,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         )
         return _render(
             request,
-            "project_load.html",
+            "workspace_load.html",
             project=project,
             preview=preview,
             reconciliation=reconciliation,
@@ -240,6 +292,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{project_id}/load")
     async def load_landing(request: Request, project_id: str):
         require_session(request)
+        active_job = _manager(context).active(project_id)
+        if active_job is not None:
+            return RedirectResponse(
+                _load_progress_url(project_id, active_job.job_id),
+                status_code=303,
+            )
         preview = context.execution.current_preview(project_id)
         if preview is None:
             destination = f"/workspaces/{project_id}/summary"
@@ -257,6 +315,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
     )
     async def review_load(request: Request, project_id: str):
         require_session(request)
+        active_job = _manager(context).active(project_id)
+        if active_job is not None:
+            return RedirectResponse(
+                _load_progress_url(project_id, active_job.job_id),
+                status_code=303,
+            )
         return render(request, project_id, step="review")
 
     @router.get(
@@ -265,6 +329,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
     )
     async def confirm_load(request: Request, project_id: str):
         require_session(request)
+        active_job = _manager(context).active(project_id)
+        if active_job is not None:
+            return RedirectResponse(
+                _load_progress_url(project_id, active_job.job_id),
+                status_code=303,
+            )
         preview = context.execution.current_preview(project_id)
         if preview is None:
             return RedirectResponse(
@@ -308,6 +378,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
     )
     async def review_outcome(request: Request, project_id: str):
         require_session(request)
+        active_job = _manager(context).active(project_id)
+        if active_job is not None:
+            return RedirectResponse(
+                _load_progress_url(project_id, active_job.job_id),
+                status_code=303,
+            )
         preview = context.execution.current_preview(project_id)
         if preview is None:
             return RedirectResponse(
@@ -320,6 +396,32 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         return render(request, project_id, step="outcome")
+
+    @router.get(
+        "/workspaces/{project_id}/load/progress/{job_id}",
+        response_class=HTMLResponse,
+    )
+    async def load_progress(request: Request, project_id: str, job_id: str):
+        require_session(request)
+        job = _get_job(context, project_id, job_id)
+        project = context.queries.get(project_id)
+        return _render(
+            request,
+            "workspace_load_progress.html",
+            project=project,
+            job=job,
+            job_payload=_job_payload(job),
+            status_code=200,
+        )
+
+    @router.get("/workspaces/{project_id}/load/progress/{job_id}/status")
+    async def load_progress_status(
+        request: Request,
+        project_id: str,
+        job_id: str,
+    ):
+        require_session(request)
+        return JSONResponse(_job_payload(_get_job(context, project_id, job_id)))
 
     @router.post("/workspaces/{project_id}/load")
     async def load_into_odoo(request: Request, project_id: str):
@@ -338,6 +440,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
             },
         )
         project = context.queries.get(project_id)
+        active_job = _manager(context).active(project_id)
+        if active_job is not None:
+            return RedirectResponse(
+                _load_progress_url(project_id, active_job.job_id),
+                status_code=303,
+            )
         credential_owner = context.production_runs.credential_workspace(
             project_id,
             actor=context.actor,
@@ -358,110 +466,178 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
             if preview.scope_error:
                 raise WorkspaceError(preview.scope_error)
-            (
-                read_identity,
-                read_credential_binding_hash,
-                read_credential_secret,
-            ) = (
-                await _probe_current_read_identity(
-                    context,
-                    project,
-                    preview,
+            snapshot_hash = _text(form, "snapshot_hash")
+            if snapshot_hash != preview.snapshot.semantic_hash:
+                raise WorkspaceError("The load preview changed. Review it again.")
+            read_credential = None
+            if project.odoo_connection_mode is OdooConnectionMode.REMOTE:
+                read_credential = get_target_credential(
+                    context.secret_store,
+                    credential_owner,
+                    TargetCredentialRole.READ,
                 )
-            )
+                if read_credential is None:
+                    raise SecretStoreError(
+                        "Enter the current Odoo read key, refresh the schema, "
+                        "and compare again"
+                    )
+                if not preview.snapshot.readable_models:
+                    raise WorkspaceError(
+                        "Refresh the remote Odoo schema and compare again"
+                    )
             submitted_key = _text(form, "write_api_key") or _text(
                 form,
                 "api_key",
             )
-            if submitted_key:
-                write_identity = await _probe_remote_write_identity(
-                    context,
-                    project,
-                    preview,
-                    submitted_key,
-                )
-                write_credential = store_target_credential(
-                    context.secret_store,
-                    credential_owner,
-                    TargetCredentialRole.WRITE,
-                    submitted_key,
-                    persistent=(
-                        "remember_write_api_key" in form
-                        or "remember_api_key" in form
-                    ),
-                )
-                audit_stored_target_credential(
-                    context.projects,
-                    credential_owner,
-                    TargetCredentialRole.WRITE,
-                    write_credential,
-                    actor=context.actor,
-                )
-            else:
-                write_credential = get_target_credential(
-                    context.secret_store,
-                    credential_owner,
-                    TargetCredentialRole.WRITE,
-                )
-            if write_credential is None:
+            saved_write_credential = get_target_credential(
+                context.secret_store,
+                credential_owner,
+                TargetCredentialRole.WRITE,
+            )
+            if not submitted_key and saved_write_credential is None:
                 raise SecretStoreError(
                     "Enter a separate Odoo write API key for this exact target"
                 )
+            api_key = (
+                submitted_key
+                if submitted_key
+                else saved_write_credential.secret
+            )
             if (
                 credential_owner.project_id != project.project_id
-                and read_credential_secret is not None
-                and compare_digest(
-                    read_credential_secret,
-                    write_credential.secret,
-                )
+                and read_credential is not None
+                and compare_digest(read_credential.secret, api_key)
             ):
                 raise SecretStoreError(
                     "Use a different Odoo API key for write access"
                 )
-            api_key = write_credential.secret
-            if not submitted_key:
-                write_identity = await _probe_remote_write_identity(
+            remember_write_key = (
+                "remember_write_api_key" in form or "remember_api_key" in form
+            )
+
+            def run_load(report_writing, report_verifying) -> LoadJobResult:
+                read_identity = _probe_read_identity_sync(
+                    context,
+                    project,
+                    preview,
+                    read_credential.secret if read_credential is not None else "",
+                )
+                write_identity = _probe_remote_write_identity_sync(
                     context,
                     project,
                     preview,
                     api_key,
                 )
-            context.production_runs.assert_execution_authority(
+                write_credential = saved_write_credential
+                if submitted_key:
+                    write_credential = store_target_credential(
+                        context.secret_store,
+                        credential_owner,
+                        TargetCredentialRole.WRITE,
+                        submitted_key,
+                        persistent=remember_write_key,
+                    )
+                    audit_stored_target_credential(
+                        context.workspace_states,
+                        credential_owner,
+                        TargetCredentialRole.WRITE,
+                        write_credential,
+                        actor=context.actor,
+                    )
+                if write_credential is None:
+                    raise SecretStoreError(
+                        "Enter a separate Odoo write API key for this exact target"
+                    )
+                read_credential_binding_hash = (
+                    read_credential.binding_hash
+                    if read_credential is not None
+                    else ""
+                )
+                context.production_runs.assert_execution_authority(
+                    project_id,
+                    read_identity=read_identity,
+                    read_credential_generation=read_credential_binding_hash,
+                    expected_read_credential_generation=(
+                        preview.snapshot.read_credential_binding_hash
+                    ),
+                    write_identity=write_identity,
+                    write_credential_generation=write_credential.binding_hash,
+                    actor=context.actor,
+                )
+                executor = context.write_executor_factory(
+                    project,
+                    api_key,
+                    preview.api_scope,
+                )
+                run = context.execution.execute(
+                    project_id,
+                    expected_snapshot_hash=snapshot_hash,
+                    executor=executor,
+                    actor=context.actor,
+                    batch_rows=batch_rows,
+                    read_identity=read_identity,
+                    read_credential_binding_hash=read_credential_binding_hash,
+                    write_identity=write_identity,
+                    write_credential_binding_hash=(
+                        write_credential.binding_hash
+                        if write_identity is not None
+                        else ""
+                    ),
+                    progress=report_writing,
+                )
+                report_verifying(run)
+                try:
+                    readback_identity = _probe_remote_write_identity_sync(
+                        context,
+                        project,
+                        preview,
+                        api_key,
+                    )
+                    reader = context.readback_reader_factory(
+                        project,
+                        api_key,
+                        preview.api_scope,
+                    )
+                    context.reconciliation.reconcile(
+                        project_id,
+                        expected_execution_run_id=run.run_id,
+                        reader=reader,
+                        actor=context.actor,
+                        write_identity=readback_identity,
+                        write_credential_binding_hash=(
+                            write_credential.binding_hash
+                            if readback_identity is not None
+                            else ""
+                        ),
+                    )
+                except (
+                    ConnectorError,
+                    OdooReadbackError,
+                    WorkspaceStateError,
+                    WorkspaceError,
+                ):
+                    verification_complete = False
+                else:
+                    verification_complete = True
+                return LoadJobResult(
+                    execution_run_id=run.run_id,
+                    verification_complete=verification_complete,
+                )
+
+            job = _manager(context).enqueue(
                 project_id,
-                read_identity=read_identity,
-                read_credential_generation=read_credential_binding_hash,
-                expected_read_credential_generation=(
-                    preview.snapshot.read_credential_binding_hash
-                ),
-                write_identity=write_identity,
-                write_credential_generation=write_credential.binding_hash,
-                actor=context.actor,
-            )
-            executor = context.write_executor_factory(
-                project,
-                api_key,
-                preview.api_scope,
-            )
-            run = await run_in_threadpool(
-                context.execution.execute,
-                project_id,
-                expected_snapshot_hash=_text(form, "snapshot_hash"),
-                executor=executor,
-                actor=context.actor,
-                batch_rows=batch_rows,
-                read_identity=read_identity,
-                read_credential_binding_hash=read_credential_binding_hash,
-                write_identity=write_identity,
-                write_credential_binding_hash=(
-                    write_credential.binding_hash if write_identity is not None else ""
-                ),
+                project.name,
+                target_database=preview.snapshot.target_database,
+                target_server=_target_server(project.odoo_base_url),
+                target_environment=_target_environment(context, project_id),
+                total_rows=preview.snapshot.write_count,
+                work=run_load,
             )
         except (
             AuthorizationError,
-            ConnectorError,
+            LoadJobStateError,
             MigrationConflictError,
             ProductionRunError,
-            OdooWriteError,
             WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
@@ -473,45 +649,8 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
-        try:
-            readback_identity = await _probe_remote_write_identity(
-                context,
-                project,
-                preview,
-                api_key,
-            )
-            reader = context.readback_reader_factory(
-                project,
-                api_key,
-                preview.api_scope,
-            )
-            report = await run_in_threadpool(
-                context.reconciliation.reconcile,
-                project_id,
-                expected_execution_run_id=run.run_id,
-                reader=reader,
-                actor=context.actor,
-                write_identity=readback_identity,
-                write_credential_binding_hash=(
-                    write_credential.binding_hash
-                    if readback_identity is not None
-                    else ""
-                ),
-            )
-        except (
-            ConnectorError,
-            OdooReadbackError,
-            WorkspaceStateError,
-            WorkspaceError,
-        ) as error:
-            _flash(
-                request,
-                f"The load outcome was saved, but verification could not finish: {error}",
-            )
-        else:
-            _flash_reconciliation(request, report)
         return RedirectResponse(
-            f"/workspaces/{project_id}/load/outcome",
+            _load_progress_url(project_id, job.job_id),
             status_code=303,
         )
 
@@ -530,6 +669,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "remember_api_key",
             },
         )
+        active_job = _manager(context).active(project_id)
+        if active_job is not None:
+            return RedirectResponse(
+                _load_progress_url(project_id, active_job.job_id),
+                status_code=303,
+            )
         project = context.queries.get(project_id)
         credential_owner = context.production_runs.credential_workspace(
             project_id,
@@ -581,7 +726,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     persistent=requested_persistence,
                 )
                 audit_stored_target_credential(
-                    context.projects,
+                    context.workspace_states,
                     credential_owner,
                     TargetCredentialRole.WRITE,
                     write_credential,
@@ -687,4 +832,45 @@ def _flash_reconciliation(request: Request, report) -> None:
             request,
             f"Verified {report.verified_count} row(s) against Odoo.",
         )
+
+
+def _job_payload(job: LoadJob) -> dict[str, object]:
+    return {
+        "job_id": job.job_id,
+        "status": job.status.value,
+        "phase": job.phase.value,
+        "message": job.message,
+        "target_database": job.target_database,
+        "target_server": job.target_server,
+        "target_environment": job.target_environment,
+        "completed_rows": job.completed_rows,
+        "total_rows": job.total_rows,
+        "created_count": job.created_count,
+        "updated_count": job.updated_count,
+        "attention_count": job.attention_count,
+        "relationship_pending_count": job.relationship_pending_count,
+        "not_attempted_count": job.not_attempted_count,
+        "progress_percent": job.progress_percent,
+        "execution_run_id": job.execution_run_id,
+        "verification_complete": job.verification_complete,
+        "failure_message": job.failure_message,
+        "redirect_url": (
+            f"/workspaces/{job.project_id}/load/outcome"
+            if job.status is LoadJobStatus.SUCCEEDED
+            else ""
+        ),
+    }
+
+
+def _get_job(context: WebContext, project_id: str, job_id: str) -> LoadJob:
+    try:
+        return _manager(context).get(project_id, job_id)
+    except LoadJobNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Odoo load job not found") from error
+
+
+def _manager(context: WebContext):
+    if context.load_jobs is None:
+        raise RuntimeError("Background Odoo load jobs are unavailable")
+    return context.load_jobs
 

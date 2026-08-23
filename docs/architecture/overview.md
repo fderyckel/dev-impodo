@@ -161,14 +161,14 @@ checked again before writer construction.
 <root>/artifacts/<workspace_id>/
 <root>/projects/<project_id>/data_versions/<data_version_id>/data-version.duckdb
 <root>/projects/<project_id>/workspaces/<workspace_id>/workspace.duckdb
-<root>/projects/<project_id>/workspaces/<workspace_id>/project.duckdb
+<root>/projects/<project_id>/workspaces/<workspace_id>/workspace-engine.duckdb
 ```
 
 The registry stores bounded Project, DataVersion, run target and requirement,
 Production activation, Recipe application, workspace, Recipe, issue, and
 operation projections. The
 DataVersion database stores the source package. The small workspace database
-stores exact source references. `project.duckdb` is the contained current
+stores exact source references. `workspace-engine.duckdb` is the contained current
 mapping engine state; its historical filename is not a Project aggregate
 identity.
 

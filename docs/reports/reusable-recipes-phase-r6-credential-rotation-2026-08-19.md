@@ -1,5 +1,9 @@
 # Recipe Phase R6 credential rotation implementation report
 
+**Historical evidence:** This report records the superseded Recipe-first
+implementation as it existed on 2026-08-19. ADR-014 and Migration Project
+Phases M0 through M7 define the current architecture.
+
 ## Outcome
 
 R6 closes the credential-dependent evidence boundary for the Test-to-Production

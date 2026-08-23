@@ -28,7 +28,8 @@ first complete the eligible-field capture described in
    types, blanks, repeated values, and warnings.
 3. Configure the intended tables for every file.
 4. Add a corrected file and remove the wrong file if necessary.
-5. Open **Choose tables** and select **Freeze selected tables**.
+5. After every file is confirmed, give each table a **Name shown in Impodo**
+   and select **Save tables for this data version**.
 6. Optionally open **Prepare related datasets** when combined information must
    become separate related tables.
 

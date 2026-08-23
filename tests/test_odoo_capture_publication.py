@@ -392,7 +392,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         )
         values = {
             "boolean": (False, None),
-            "text": ("", "CafÃ© æ±äº¬ ðŸ˜€"),
+            "text": ("", "Café 東京 😀"),
             "integer": (0, 42),
             "date": (date(2026, 8, 12), None),
             "datetime": (self.now, self.now + timedelta(seconds=1)),

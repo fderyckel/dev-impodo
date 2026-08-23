@@ -34,12 +34,12 @@ stages:
       - src/impodo/web/templates/project_list.html
       - src/impodo/web/templates/project_new.html
       - src/impodo/web/templates/project_business_overview.html
-      - src/impodo/web/templates/project_overview.html
-      - src/impodo/web/templates/project_details.html
-      - src/impodo/web/templates/project_governance.html
-      - src/impodo/web/templates/project_files.html
-      - src/impodo/web/templates/project_review.html
-      - src/impodo/web/templates/project_target.html
+      - src/impodo/web/templates/workspace_overview.html
+      - src/impodo/web/templates/workspace_details.html
+      - src/impodo/web/templates/workspace_governance.html
+      - src/impodo/web/templates/workspace_files.html
+      - src/impodo/web/templates/workspace_review.html
+      - src/impodo/web/templates/workspace_target.html
     code_references:
       - src/impodo/application/migration_project_authoring_service.py::MigrationProjectAuthoringService
       - src/impodo/migration_projects.py::MigrationProjectService
@@ -52,7 +52,7 @@ stages:
       - src/impodo/workspace_state.py::WorkspaceStateService.register
       - src/impodo/application/recipe_compilation_service.py::RecipeCompiler.compile_workspace
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
-      - src/impodo/web/presenters/navigation.py::build_project_navigation
+      - src/impodo/web/presenters/navigation.py::build_workspace_navigation
       - src/impodo/web/presenters/concepts.py::ConceptHelp
     tests:
       - tests/test_concept_help.py
@@ -81,11 +81,11 @@ stages:
       - src/impodo/web/routers/sources.py
       - src/impodo/web/routers/derived_entities.py
     templates:
-      - src/impodo/web/templates/project_sources.html
-      - src/impodo/web/templates/project_datasets.html
-      - src/impodo/web/templates/project_derived_entities.html
-      - src/impodo/web/templates/project_odoo_capture_selection.html
-      - src/impodo/web/templates/project_odoo_capture_progress.html
+      - src/impodo/web/templates/workspace_sources.html
+      - src/impodo/web/templates/workspace_datasets.html
+      - src/impodo/web/templates/workspace_derived_entities.html
+      - src/impodo/web/templates/workspace_odoo_capture_selection.html
+      - src/impodo/web/templates/workspace_odoo_capture_progress.html
     code_references:
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.freeze_selection
@@ -192,7 +192,7 @@ stages:
     router_modules:
       - src/impodo/web/routers/schema.py
     templates:
-      - src/impodo/web/templates/project_schema.html
+      - src/impodo/web/templates/workspace_schema.html
     code_references:
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.capture
@@ -214,8 +214,8 @@ stages:
       - src/impodo/web/routers/mapping.py
       - src/impodo/web/routers/quality.py
     templates:
-      - src/impodo/web/templates/project_mapping.html
-      - src/impodo/web/templates/project_transformation_impact.html
+      - src/impodo/web/templates/workspace_mapping.html
+      - src/impodo/web/templates/workspace_transformation_impact.html
     code_references:
       - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService
       - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService.submit_current
@@ -247,10 +247,10 @@ stages:
       - src/impodo/web/routers/resolution.py
       - src/impodo/web/routers/normalization.py
     templates:
-      - src/impodo/web/templates/project_prepare.html
-      - src/impodo/web/templates/project_preparation_progress.html
-      - src/impodo/web/templates/project_resolution.html
-      - src/impodo/web/templates/project_normalization.html
+      - src/impodo/web/templates/workspace_prepare.html
+      - src/impodo/web/templates/workspace_preparation_progress.html
+      - src/impodo/web/templates/workspace_resolution.html
+      - src/impodo/web/templates/workspace_normalization.html
     code_references:
       - src/impodo/application/preparation_service.py::PreparationService
       - src/impodo/application/preparation_job_service.py::PreparationJobManager
@@ -278,7 +278,7 @@ stages:
       - src/impodo/web/routers/summary.py
       - src/impodo/web/routers/preflight.py
     templates:
-      - src/impodo/web/templates/project_summary.html
+      - src/impodo/web/templates/workspace_summary.html
     code_references:
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
@@ -304,7 +304,7 @@ stages:
     router_modules:
       - src/impodo/web/routers/execution.py
     templates:
-      - src/impodo/web/templates/project_load.html
+      - src/impodo/web/templates/workspace_load.html
     code_references:
       - src/impodo/application/execution_service.py::ExecutionService
       - src/impodo/application/execution_service.py::ExecutionService.execute

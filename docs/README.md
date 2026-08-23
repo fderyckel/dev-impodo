@@ -79,11 +79,10 @@ applies those rules when documentation is created or rewritten.
   Recipes, Project-owned data packages, and integrated multi-Recipe cutover
   are the current product-delivery focus.
 - [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-  — accepted target architecture and active plan. Phases M0 through M6 are
-  complete: the Project-first browser now supports one-off work, optional
-  Recipe publication, and integrated Test planning with isolated Recipe
-  applications, exact CutoverPlan qualification, and rollout-candidate
-  selection, followed by a fresh latest-data Production run. Phase M7 is next.
+  — implemented target architecture. Phases M0 through M7 establish the
+  Project-first browser, optional Recipe publication, integrated Test planning,
+  exact CutoverPlan qualification, fresh Production rollout, and the final
+  clean removal of Recipe-first ownership.
 - [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
   — completed architecture-only contracts and executable fixtures for Project
   ownership, optional and multiple Recipes, Project-owned data packages,
@@ -107,14 +106,13 @@ applies those rules when documentation is created or rewritten.
 - [Migration Projects Phase M6 Production rollout](plans/migration-projects-phase-m6-production-rollout.md)
   — fresh latest-data acceptance, exact selected-plan activation, independent
   Production authority, isolated applications, and restart-safe recovery.
+- [Migration Projects Phase M7 clean cutover](plans/migration-projects-phase-m7-clean-cutover.md)
+  — final removal of Recipe-first ownership, compatibility code, additive
+  workspace schema migration, stale fixtures, and current documentation claims.
 - [Migration Projects Phase M5 integrated qualification](plans/migration-projects-phase-m5-cutover-qualification.md)
   — immutable CutoverPlan revisions, complete ordered Test evidence,
   protected qualification, dependency write guards, and separate rollout
   selection without Production authority.
-- [Selection value providers and conditional rules implementation plan](plans/selection-value-providers-and-rules-implementation-plan.md)
-  — approved design for separating Odoo choices from source values, preserving
-  fixed choice mappings, and adding a governed multi-column rule provider for
-  Odoo Selection fields. The behavior is not yet implemented.
 - [Odoo source import and round-trip update implementation plan](plans/odoo-source-import-plan.md)
   — scoped proposal for selecting existing Odoo 19 records as immutable
   Impodo source data, transforming them, and applying guarded updates back to

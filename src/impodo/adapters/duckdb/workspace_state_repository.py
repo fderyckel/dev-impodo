@@ -179,7 +179,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                     raise WorkspaceStateConflictError(
                         "The workspace was modified by another request"
                     )
-                target_changed = event_type == "PROJECT_TARGET_UPDATED" and (
+                target_changed = event_type == "WORKSPACE_TARGET_UPDATED" and (
                     str(current[1] or "")
                     != (
                         project.odoo_connection_mode.value
@@ -211,12 +211,12 @@ class WorkspaceStateRepository(DuckDbRepository):
                     connection.execute("DELETE FROM supporting_lookup_current")
                     self._invalidate_canonical_staging(
                         connection,
-                        reason="PROJECT_TARGET_CHANGED",
+                        reason="WORKSPACE_TARGET_CHANGED",
                     )
                 elif governance_changed:
                     self._invalidate_quality(
                         connection,
-                        reason="PROJECT_GOVERNANCE_CHANGED",
+                        reason="WORKSPACE_GOVERNANCE_CHANGED",
                     )
                 self._insert_audit(
                     connection,

@@ -126,7 +126,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Source ownership cutover | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
 | Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
-| Navigation | [`build_project_navigation`](../../../src/impodo/web/presenters/navigation.py) |
+| Navigation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
 | Data-manager concept registry | [`ConceptHelp`](../../../src/impodo/web/presenters/concepts.py) |
 | Read-only Concepts route | [`concepts.py`](../../../src/impodo/web/routers/concepts.py) |
 | Browser composition | [`app.py`](../../../src/impodo/web/app.py) |

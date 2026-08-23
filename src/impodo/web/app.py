@@ -1,6 +1,6 @@
 """Assemble the local browser application and all concrete dependencies.
 
-Migration stages: cross-cutting Aâ€“K. Layer: composition root.
+Migration stages: cross-cutting A–K. Layer: composition root.
 
 ``create_local_app`` connects DuckDB repositories, filesystem artifacts,
 application services, closed Odoo readers and writer, security middleware, and route
@@ -42,6 +42,7 @@ from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
+from ..application.load_job_service import LoadJobManager
 from ..application.reconciliation_service import ReconciliationService
 from ..application.recipe_compilation_service import RecipeCompiler
 from ..application.migration_project_authoring_service import (
@@ -230,9 +231,10 @@ def create_local_app(
     local_odoo_reader: LocalOdooMetadataReader | None = None,
     preparation_jobs_enabled: bool = True,
     odoo_capture_jobs_enabled: bool = True,
+    load_jobs_enabled: bool = True,
     duckdb_lock_wait_timeout_seconds: float = 0.0,
 ) -> FastAPI:
-    """Construct the loopback FastAPI application for migration Stages Aâ€“K.
+    """Construct the loopback FastAPI application for migration Stages A–K.
 
     Production defaults use per-project DuckDB repositories, local artifact
     storage, the credential vault, inline jobs, closed read-only Odoo adapters,
@@ -261,7 +263,7 @@ def create_local_app(
         base_artifacts,
         foundation_repository,
     )
-    project_repository = MigrationWorkspaceStateRepository(
+    workspace_state_repository = MigrationWorkspaceStateRepository(
         database,
         foundation_repository,
     )
@@ -297,12 +299,12 @@ def create_local_app(
         local_advanced_coverage_repository,
         run_planning_repository,
     )
-    quality_repository = QualityRepository(database, project_repository)
+    quality_repository = QualityRepository(database, workspace_state_repository)
     normalization_repository = NormalizationRepository(
         database,
-        project_repository,
+        workspace_state_repository,
     )
-    preflight_repository = PreflightRepository(database, project_repository)
+    preflight_repository = PreflightRepository(database, workspace_state_repository)
     execution_repository = ExecutionRepository(database)
     reconciliation_repository = ReconciliationRepository(database)
     transformation_impact_repository = TransformationImpactRepository(database)
@@ -334,7 +336,7 @@ def create_local_app(
         ),
     )
     odoo_provenance_service = OdooProvenanceService(
-        project_repository,
+        workspace_state_repository,
         source_repository,
         odoo_provenance_repository,
         resolved_secret_store,
@@ -342,7 +344,7 @@ def create_local_app(
     )
     odoo_capture_publication = OdooCapturePublicationService(
         OdooSourceCaptureService(
-            project_repository,
+            workspace_state_repository,
             source_repository,
             schema_repository,
             resolved_authorization,
@@ -352,7 +354,10 @@ def create_local_app(
         odoo_provenance_repository,
         resolved_artifacts,
     )
-    projects = WorkspaceStateService(project_repository, resolved_authorization)
+    workspace_states = WorkspaceStateService(
+        workspace_state_repository,
+        resolved_authorization,
+    )
     migration_projects = MigrationProjectService(
         foundation_repository,
         resolved_authorization,
@@ -379,7 +384,7 @@ def create_local_app(
         migration_runs,
         migration_workspaces,
         source_packages,
-        projects,
+        workspace_states,
     )
     recipe_compiler = RecipeCompiler(
         workspace_mapping_sources,
@@ -400,7 +405,7 @@ def create_local_app(
         resolved_authorization,
     )
     data_version_source_projection = WorkspaceDataVersionSourceService(
-        projects,
+        workspace_states,
         source_repository,
         data_versions,
         migration_workspaces,
@@ -415,7 +420,7 @@ def create_local_app(
         resolved_artifacts,
     )
     schema_workspace = SchemaWorkspaceService(
-        project_repository,
+        workspace_state_repository,
         source_repository,
         schema_repository,
         resolved_authorization,
@@ -448,7 +453,7 @@ def create_local_app(
             foundation_repository,
             resolved_authorization,
         ),
-        workspace_states=projects,
+        workspace_states=workspace_states,
         compiler=recipe_application_service,
         cutover_plans=cutover_plan_repository,
         authorization=resolved_authorization,
@@ -459,7 +464,7 @@ def create_local_app(
         runs=migration_runs,
         migration_workspaces=migration_workspaces,
         source_packages=source_packages,
-        workspace_states=projects,
+        workspace_states=workspace_states,
         cutover_plans=cutover_plan_repository,
         production_runs=production_run_repository,
         run_planning=run_planning,
@@ -476,7 +481,7 @@ def create_local_app(
     )
     resolution = ResolutionService(advanced_coverage_repository, staging_repository)
     preparation = PreparationService(
-        project_repository,
+        workspace_state_repository,
         source_repository,
         derived_entity_repository,
         mapping_repository,
@@ -494,7 +499,7 @@ def create_local_app(
         quality_repository,
         normalization_repository,
         mapping_repository,
-        project_repository,
+        workspace_state_repository,
         source_repository,
         preflight_repository,
         resolved_artifacts,
@@ -524,7 +529,7 @@ def create_local_app(
         return credential.binding_hash if credential is not None else ""
 
     execution = ExecutionService(
-        project_repository,
+        workspace_state_repository,
         preflight,
         execution_repository,
         resolved_authorization,
@@ -572,11 +577,12 @@ def create_local_app(
         if odoo_capture_jobs_enabled
         else None
     )
+    load_jobs = LoadJobManager() if load_jobs_enabled else None
     resolved_connection_tester = connection_tester or _test_connection
     resolved_read_identity_probe = read_identity_probe or _probe_read_identity
     context = WebContext(
         queries=BrowserQueryService(
-            project_repository,
+            workspace_state_repository,
             source_repository,
             derived_entity_repository,
             schema_repository,
@@ -597,16 +603,16 @@ def create_local_app(
         cutover_plans=cutover_plans,
         production_runs=production_runs,
         data_version_source_projection=data_version_source_projection,
-        projects=projects,
-        intake=SourceIntakeService(projects, resolved_artifacts),
+        workspace_states=workspace_states,
+        intake=SourceIntakeService(workspace_states, resolved_artifacts),
         inspections=SourceInspectionService(
-            project_repository,
+            workspace_state_repository,
             source_repository,
             resolved_artifacts,
             resolved_authorization,
         ),
         sources=SourceWorkspaceService(
-            project_repository,
+            workspace_state_repository,
             source_repository,
             resolved_authorization,
             resolved_artifacts,
@@ -631,9 +637,10 @@ def create_local_app(
         normalization=normalization,
         preflight=preflight,
         execution=execution,
+        load_jobs=load_jobs,
         reconciliation=reconciliation,
         transformation_impacts=TransformationImpactService(
-            project_repository,
+            workspace_state_repository,
             mapping_repository,
             source_repository,
             derived_entity_repository,
@@ -680,6 +687,8 @@ def create_local_app(
                 context.preparation_jobs.shutdown()
             if context.odoo_capture_jobs is not None:
                 context.odoo_capture_jobs.shutdown()
+            if context.load_jobs is not None:
+                context.load_jobs.shutdown()
 
     app = FastAPI(
         title="Impodo",

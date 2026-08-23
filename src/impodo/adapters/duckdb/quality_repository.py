@@ -47,7 +47,7 @@ from ...staging_contracts import CanonicalRow
 from ...workspace_errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
 from .database import DuckDbWorkspaceDatabase
-from .repository import DuckDbRepository, ProjectAggregateReader
+from .repository import DuckDbRepository, WorkspaceAggregateReader
 
 
 
@@ -92,10 +92,10 @@ class QualityRepository(DuckDbRepository):
     def __init__(
         self,
         database: DuckDbWorkspaceDatabase,
-        projects: ProjectAggregateReader,
+        workspace_states: WorkspaceAggregateReader,
     ) -> None:
         super().__init__(database)
-        self._projects = projects
+        self._workspace_states = workspace_states
 
     def get_current_quality_ruleset(
         self,
@@ -137,7 +137,7 @@ class QualityRepository(DuckDbRepository):
             QualityRuleSet.from_json(ruleset.to_json())
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Data-check rules are invalid") from error
-        project = self._projects.get(project_id)
+        project = self._workspace_states.get(project_id)
         if any(
             item.review_by_days is not None
             and item.review_by_days > project.retention_days
@@ -265,7 +265,7 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Quality evidence must be regenerated with the current evaluator"
             )
-        project = self._projects.get(project_id)
+        project = self._workspace_states.get(project_id)
         if run.retention_context_hash != retention_context_hash(project):
             raise WorkspaceError(
                 "Quality evidence no longer matches project ownership and retention"

@@ -315,13 +315,20 @@
     </section>
   {% endfor %}
 
-  {% if catalogs and configurations|length == project.source_files|length %}
-    <section class="form-card">
-      <h2>Your source data is confirmed</h2>
-      <p>Every source file is ready for table selection.</p>
-      <div class="actions">
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/datasets">Choose tables</a>
-      </div>
+  {% if catalogs and configurations|length == project.source_files|length and (selection or choices) %}
+    <section class="form-card" id="table-choices">
+      {% if selection %}
+        <h2>Table choices saved</h2>
+        <p>Impodo will use the saved tables from these exact source files.</p>
+        <div class="actions">
+          <a class="button secondary" href="/workspaces/{{ project.project_id }}/datasets#tables-ready">View saved tables</a>
+        </div>
+      {% elif choices %}
+        <h2>Save the tables for this data version</h2>
+        <p>Give each confirmed table a short, recognisable name. After you save, source files cannot be added or removed from this data version.</p>
+        {% set dataset_choice_recovery = false %}
+        {% include "_dataset_choice_form.html" %}
+      {% endif %}
     </section>
   {% endif %}
 {% endblock %}

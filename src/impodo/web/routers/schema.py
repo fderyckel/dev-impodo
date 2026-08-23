@@ -218,7 +218,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     raise WorkspaceStateError(
                         f"{unknown[0]} is not in the refreshed Odoo model catalogue"
                     )
-            saved_project = context.projects.update_schema_scope(
+            saved_project = context.workspace_states.update_schema_scope(
                 project_id,
                 actor=context.actor,
                 expected_revision=_revision(form),

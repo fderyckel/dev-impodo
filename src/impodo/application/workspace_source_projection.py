@@ -83,6 +83,9 @@ class WorkspaceMappingSourceProjection:
         )
         if self.preparation is None:
             return selection
+        plan = self.preparation.get_derived_entity_plan(workspace_id)
+        if plan is None:
+            return selection
         package = self.repository.get_source_package(projection.data_version_id)
         if package is None:
             return selection
@@ -99,7 +102,7 @@ class WorkspaceMappingSourceProjection:
         )
         return mapping_source_selection(
             selection,
-            self.preparation.get_derived_entity_plan(workspace_id),
+            plan,
             catalogs,
         )
 

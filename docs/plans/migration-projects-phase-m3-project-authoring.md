@@ -38,12 +38,12 @@ mapping editor and Recipe compiler.
 
 ## Recipe publication
 
-`ProjectRecipePublicationService` compiles an eligible workspace without a
+`RecipePublicationService` compiles an eligible workspace without a
 Recipe shell. First publication creates one Project-scoped Recipe and revision
 1 together. Successor publication preserves the Recipe ID and appends the next
 immutable revision.
 
-`ProjectRecipeRepository` reserves an operation intent, stores the protected
+`RecipeRepository` reserves an operation intent, stores the protected
 payload, commits the registry revision, and resumes safely after injected
 cross-store faults. Publication never updates Project or DataVersion identity
 or ownership.

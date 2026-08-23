@@ -1,0 +1,29 @@
+<form method="post" action="/workspaces/{{ project.project_id }}/datasets/freeze">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="file-list">
+    {% for choice in choices %}
+      <div class="file-row dataset-row">
+        <div>
+          <strong>{{ choice.file_name }}{% if choice.table_label %} · {{ choice.table_label }}{% endif %}</strong>
+          <span>{{ choice.row_count }} rows · {{ choice.column_count }} columns</span>
+        </div>
+        <label>
+          <span>Name shown in Impodo</span>
+          <input
+            name="dataset_name_{{ loop.index0 }}"
+            value="{{ choice.default_name }}"
+            pattern="[a-z][a-z0-9_]{0,62}"
+            required
+          >
+          <small>Use a short, recognisable name such as <code>customer_orders</code>.</small>
+        </label>
+      </div>
+    {% endfor %}
+  </div>
+  <div class="actions">
+    {% if dataset_choice_recovery %}
+      <a class="button secondary" href="/workspaces/{{ project.project_id }}/sources#table-choices">Back to source review</a>
+    {% endif %}
+    <button class="button primary" type="submit">Save tables for this data version</button>
+  </div>
+</form>

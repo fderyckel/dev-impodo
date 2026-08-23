@@ -223,8 +223,8 @@ class SourceFileCatalog:
             raise SourceInspectionError("Stored source catalog is invalid") from error
 
 
-class ProjectCatalogReader(Protocol):
-    """Read registered project files and lifecycle for source inspection."""
+class WorkspaceCatalogReader(Protocol):
+    """Read registered workspace files and lifecycle for source inspection."""
 
     def get(self, project_id: str):
         """Return the project whose immutable artifacts will be inspected."""
@@ -273,12 +273,12 @@ class SourceInspectionService:
 
     def __init__(
         self,
-        projects: ProjectCatalogReader,
+        workspace_states: WorkspaceCatalogReader,
         sources: SourceCatalogRepository,
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.projects = projects
+        self.workspace_states = workspace_states
         self.sources = sources
         self.artifacts = artifacts
         self.authorization = authorization
@@ -296,7 +296,7 @@ class SourceInspectionService:
             Capability.SOURCE_INSPECT,
             project_id=project_id,
         )
-        project = self.projects.get(project_id)
+        project = self.workspace_states.get(project_id)
         if project.status is not WorkspaceStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before inspecting its sources"
@@ -344,7 +344,7 @@ class SourceInspectionService:
             Capability.SOURCE_INSPECT,
             project_id=project_id,
         )
-        project = self.projects.get(project_id)
+        project = self.workspace_states.get(project_id)
         if project.status is not WorkspaceStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before configuring its sources"
@@ -1360,7 +1360,7 @@ def _render_value(value: Any) -> str | None:
 
 def _bounded_display(rendered: str) -> str:
     if len(rendered) > DISPLAY_VALUE_LIMIT:
-        return rendered[: DISPLAY_VALUE_LIMIT - 1] + "â€¦"
+        return rendered[: DISPLAY_VALUE_LIMIT - 1] + "…"
     return rendered
 
 

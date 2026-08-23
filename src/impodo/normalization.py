@@ -1181,7 +1181,7 @@ def _policy_manifest(mappings: Mapping[str, DatasetMapping]) -> list[dict[str, A
 
 
 def _protected_display(value: str, *, restricted: bool) -> str:
-    if not restricted or value in {"", "â€”", "Invalid"}:
+    if not restricted or value in {"", "—", "Invalid"}:
         return value
     return "Hidden for restricted data"
 

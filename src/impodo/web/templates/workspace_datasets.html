@@ -1,11 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Datasets · {{ project.name }} · Impodo{% endblock %}
+{% block title %}{% if selection %}Saved source tables{% else %}Choose tables{% endif %} · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Stage 1 of 6 · Source data</p>
-      <h1>Choose the tables to prepare</h1>
-      <p>Give each confirmed source table a short, recognisable name.</p>
+      {% if selection %}
+        <h1>Saved source tables</h1>
+        <p>Impodo will prepare the tables saved for this data version.</p>
+      {% else %}
+        <h1>Choose the tables to prepare</h1>
+        <p>Give each confirmed source table a short, recognisable name.</p>
+      {% endif %}
     </div>
     {% if selection %}<span class="status registered">Choices saved</span>{% endif %}
   </div>
@@ -33,45 +38,20 @@
     </section>
   {% endif %}
 
-  <section class="form-card">
-    {% if choices %}
-      <form method="post" action="/workspaces/{{ project.project_id }}/datasets/freeze">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <div class="file-list">
-          {% for choice in choices %}
-            <div class="file-row dataset-row">
-              <div>
-                <strong>{{ choice.file_name }}{% if choice.table_label %} · {{ choice.table_label }}{% endif %}</strong>
-                <span>{{ choice.row_count }} rows · {{ choice.column_count }} columns</span>
-              </div>
-              <label>
-                <span>Name shown in Impodo</span>
-                <input
-                  name="dataset_name_{{ loop.index0 }}"
-                  value="{{ selection.datasets[loop.index0].name if selection and selection.datasets|length > loop.index0 else choice.default_name }}"
-                  pattern="[a-z][a-z0-9_]{0,62}"
-                  required
-                >
-                <small>Use a short, recognisable name such as <code>customer_orders</code>.</small>
-              </label>
-            </div>
-          {% endfor %}
+  {% if not selection %}
+    <section class="form-card">
+      {% if choices %}
+        {% set dataset_choice_recovery = true %}
+        {% include "_dataset_choice_form.html" %}
+      {% else %}
+        <div class="empty-state">
+          <h2>No confirmed source tables</h2>
+          <p>Check and confirm every source file before choosing tables.</p>
+          <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Check source files</a>
         </div>
-        <div class="actions">
-          <a class="button secondary" href="/workspaces/{{ project.project_id }}/sources">Back to sources</a>
-          <button class="button primary" type="submit">
-            Save table choices
-          </button>
-        </div>
-      </form>
-    {% else %}
-      <div class="empty-state">
-        <h2>No confirmed source tables</h2>
-        <p>Check and confirm every source file before choosing tables.</p>
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Check source files</a>
-      </div>
-    {% endif %}
-  </section>
+      {% endif %}
+    </section>
+  {% endif %}
 
   {% if selection %}
     <section class="form-card" id="tables-ready">

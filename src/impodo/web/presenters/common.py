@@ -9,8 +9,8 @@ from fastapi import Request
 from ...workspace_state import WorkspaceState, WorkspaceStatus
 from ..context import WebContext
 from .concepts import CONCEPTS, CONCEPTS_BY_SLUG
-from .navigation import build_project_navigation
-from .setup import build_project_setup_view
+from .navigation import build_workspace_navigation
+from .setup import build_workspace_setup_view
 
 
 def _render(
@@ -27,18 +27,34 @@ def _render(
         if context.get("support_error") is None:
             context["support_error"] = support_error
     project = context.get("project")
-    if isinstance(project, WorkspaceState) and "project_navigation" not in context:
-        context["project_navigation"] = build_project_navigation(
-            request.app.state.context,
+    application = request.app.state.context
+    migration_workspace = None
+    migration_project = None
+    if isinstance(project, WorkspaceState) and (
+        "workspace_navigation" not in context or "migration_context" not in context
+    ):
+        migration_workspace = application.migration_workspaces.get(
+            project.project_id,
+            actor=application.actor,
+        )
+        migration_project = application.migration_projects.get(
+            migration_workspace.project_id,
+            actor=application.actor,
+        )
+    if isinstance(project, WorkspaceState) and "workspace_navigation" not in context:
+        assert migration_project is not None
+        context["workspace_navigation"] = build_workspace_navigation(
+            application,
             project,
             template_name,
             current_path=request.url.path,
+            project_name=migration_project.display_name,
         )
     if (
         isinstance(project, WorkspaceState)
         and project.status is WorkspaceStatus.DRAFT
     ):
-        setup_view = build_project_setup_view(project, template_name)
+        setup_view = build_workspace_setup_view(project, template_name)
         context.setdefault("setup_steps", setup_view.steps)
         context.setdefault(
             "setup_current_requirements",
@@ -50,22 +66,18 @@ def _render(
             or request.query_params.get("blocked") == "1"
         )
     if isinstance(project, WorkspaceState) and "migration_context" not in context:
-        application = request.app.state.context
-        workspace = application.migration_workspaces.get(
-            project.project_id,
-            actor=application.actor,
-        )
+        assert migration_workspace is not None
         data_version = application.data_versions.get(
-            workspace.data_version_id,
+            migration_workspace.data_version_id,
             actor=application.actor,
         )
         context["migration_context"] = {
-            "project_id": workspace.project_id,
+            "project_id": migration_workspace.project_id,
             "data_version_id": data_version.data_version_id,
             "data_version_number": data_version.version_number,
             "data_version_purpose": data_version.purpose.value,
-            "migration_run_id": workspace.migration_run_id,
-            "workspace_id": workspace.workspace_id,
+            "migration_run_id": migration_workspace.migration_run_id,
+            "workspace_id": migration_workspace.workspace_id,
         }
     values = {
         "csrf_token": request.session.get("csrf_token", ""),

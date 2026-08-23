@@ -58,8 +58,8 @@ from ..domain.serialization import content_hash
 
 
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
-class ProjectReader(Protocol):
-    """Read the project lifecycle needed before dataset freezing."""
+class WorkspaceStateReader(Protocol):
+    """Read the workspace lifecycle needed before dataset freezing."""
 
     def get(self, project_id: str) -> WorkspaceState:
         """Return the project whose registration gates dataset freezing."""
@@ -170,14 +170,14 @@ class SourceWorkspaceService:
 
     def __init__(
         self,
-        projects: ProjectReader,
+        workspace_states: WorkspaceStateReader,
         sources: SourceWorkspaceRepository,
         authorization: AuthorizationPolicy,
         artifacts: ArtifactStore | None = None,
         *,
         schemas: OdooCaptureSchemaReader | None = None,
     ) -> None:
-        self.projects = projects
+        self.workspace_states = workspace_states
         self.sources = sources
         self.authorization = authorization
         self.artifacts = artifacts
@@ -205,7 +205,7 @@ class SourceWorkspaceService:
             Capability.SOURCE_SELECT,
             project_id=project_id,
         )
-        project = self.projects.get(project_id)
+        project = self.workspace_states.get(project_id)
         if project.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before selecting Odoo source records"
@@ -434,7 +434,7 @@ class SourceWorkspaceService:
             Capability.SOURCE_SELECT,
             project_id=project_id,
         )
-        project = self.projects.get(project_id)
+        project = self.workspace_states.get(project_id)
         if project.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before selecting datasets"

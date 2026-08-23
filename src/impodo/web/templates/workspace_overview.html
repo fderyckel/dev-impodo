@@ -7,14 +7,14 @@
       <h1>{{ project.name }}</h1>
       <p>See what is complete, what needs attention and what to do next.</p>
     </div>
-    {% if project_navigation.current_stage %}
-      <span class="status {{ project_navigation.current_stage.status }}">
-        {{ project_navigation.current_stage.status_label }}
+    {% if workspace_navigation.current_stage %}
+      <span class="status {{ workspace_navigation.current_stage.status }}">
+        {{ workspace_navigation.current_stage.status_label }}
       </span>
     {% endif %}
   </div>
 
-  {% set current_stage = project_navigation.current_stage %}
+  {% set current_stage = workspace_navigation.current_stage %}
   {% if current_stage and current_stage.status != "complete" %}
     <section class="next-action-card {{ current_stage.status }}" aria-labelledby="overview-next-title">
       <div>
@@ -64,7 +64,7 @@
       </div>
     </div>
     <ol class="overview-stages">
-      {% for stage in project_navigation.stages %}
+      {% for stage in workspace_navigation.stages %}
         <li class="overview-stage {{ stage.status }}">
           <div class="overview-stage-number" aria-hidden="true">{{ stage.number }}</div>
           <div class="overview-stage-copy">

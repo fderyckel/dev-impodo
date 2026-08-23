@@ -37,7 +37,7 @@ does not duplicate any aggregate.
 
 ## Compiler reuse
 
-`ProjectRecipeApplicationCompiler` reuses the retained application compiler's
+`RecipeApplicationService` reuses the retained application compiler's
 validation and materialization helpers at the new Project-owned boundary. It
 creates a normal fresh mapping draft and never calls the superseded
 Recipe-owned DataVersion or application-creation workflow. Portable text

@@ -3,7 +3,7 @@
 # This build supports one exact current schema. A contract change starts a new
 # generation; projects from another generation are rejected, never upgraded.
 SCHEMA_GENERATION = "impodo-workspace-engine-2026-08-m7"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PREFLIGHT_ROW_BATCH_SIZE = 1_000
 STAGING_ROW_BATCH_SIZE = 1_000
 QUALITY_ROW_BATCH_SIZE = 1_000

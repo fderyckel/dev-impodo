@@ -12,8 +12,8 @@ from .database import DuckDbWorkspaceDatabase
 from .unit_of_work import DuckDbUnitOfWork
 
 
-class ProjectAggregateReader(Protocol):
-    """Load project policy and source-file context from one workspace."""
+class WorkspaceAggregateReader(Protocol):
+    """Load policy and source-file context from one workspace."""
 
     def get(self, project_id: str) -> WorkspaceState: ...
 
@@ -40,15 +40,15 @@ class DuckDbRepository:
     def _transformation_impact_lock(self):
         return self._database._transformation_impact_lock
 
-    def workspace_directory(self, project_id: str) -> Path:
-        """Delegate contained project-directory validation to the database."""
+    def workspace_directory(self, workspace_id: str) -> Path:
+        """Delegate contained workspace-directory validation to the database."""
 
-        return self._database.workspace_directory(project_id)
+        return self._database.workspace_directory(workspace_id)
 
-    def unit_of_work(self, project_id: str) -> DuckDbUnitOfWork:
-        """Return a project transaction reusable by collaborating repositories."""
+    def unit_of_work(self, workspace_id: str) -> DuckDbUnitOfWork:
+        """Return a workspace transaction reusable by collaborating repositories."""
 
-        return self._database.unit_of_work(project_id)
+        return self._database.unit_of_work(workspace_id)
 
     def _connect(self, path: Path):
         return self._database._connect(path)

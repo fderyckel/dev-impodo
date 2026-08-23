@@ -1413,8 +1413,8 @@
                         Review owner
                         {% set selected_owner = rule.owner_role.value if rule else 'DATA_MANAGER' %}
                         <select name="quality_owner_{{ slot.index }}">
-                          <option value="DATA_MANAGER" {% if selected_owner == 'DATA_MANAGER' %}selected{% endif %}>Data manager{% if project.data_manager %} Â· {{ project.data_manager }}{% endif %}</option>
-                          <option value="FUNCTIONAL_OWNER" {% if selected_owner == 'FUNCTIONAL_OWNER' %}selected{% endif %}>Functional owner{% if project.functional_owner %} Â· {{ project.functional_owner }}{% endif %}</option>
+                          <option value="DATA_MANAGER" {% if selected_owner == 'DATA_MANAGER' %}selected{% endif %}>Data manager{% if project.data_manager %} · {{ project.data_manager }}{% endif %}</option>
+                          <option value="FUNCTIONAL_OWNER" {% if selected_owner == 'FUNCTIONAL_OWNER' %}selected{% endif %}>Functional owner{% if project.functional_owner %} · {{ project.functional_owner }}{% endif %}</option>
                         </select>
                       </label>
                     </div>

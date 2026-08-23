@@ -56,7 +56,7 @@ def _field_metadata(field: str) -> FieldMetadata:
 def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
     app = create_local_app(root)
     context = app.state.context
-    project = context.projects.repository.get(project_id)
+    project = context.workspace_states.repository.get(project_id)
     fingerprint = TargetFingerprint(
         target_hash=target_identity_hash(
             connection_mode=project.odoo_connection_mode.value,

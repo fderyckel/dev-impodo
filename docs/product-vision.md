@@ -34,9 +34,9 @@ The supported preparation boundary is currently 100,000 physical rows for an
 exact-snapshot direct mapping compiled entirely to the native columnar path,
 50,000 rows for a direct mapping that still requires the Python oracle, and
 25,000 rows for derived or materialized paths. Loading is restricted to the
-separately governed disposable local or remote Odoo 19 capabilities.
-Production loading and production cutover controls are not current
-capabilities.
+separately governed local, remote Test, or qualified-plan Production Odoo 19
+capabilities. Production loading outside the selected qualified-plan workflow
+is not a current capability.
 
 The completed disposable-target migration is retained as acceptance evidence.
 The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
@@ -598,7 +598,7 @@ gateway; or hosted multi-user infrastructure.
 Product ownership has accepted an architecture in which `MigrationProject` is
 the business root, DataVersion owns a complete Project source package, and
 several Project-scoped Recipes can participate in one qualified CutoverPlan.
-Phases M0 through M6 implement the Project root, source ownership, one-off
+Phases M0 through M7 implement the Project root, source ownership, one-off
 authoring, optional Recipe publication, and integrated Test planning with one
 isolated workspace per Recipe application. Exact ordered application evidence,
 qualified CutoverPlans, and separate rollout-candidate selection are now
@@ -607,16 +607,16 @@ different Odoo 19 target binding, independent credential authority, and fresh
 isolated applications. The
 [Migration projects and multi-Recipe cutover implementation
 plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-defines the remaining delivery phases.
+records the completed clean-cutover architecture.
 
 ## 8. Delivery roadmap
 
 **Current priority note, 2026-08-23:** The historical capability phases below
-describe the wider product progression. Product ownership has made the
-[Migration projects and multi-Recipe cutover
+describe the wider product progression. The [Migration projects and
+multi-Recipe cutover
 plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-the active product-delivery track. The completed Recipe-first plan remains
-historical implementation evidence only. Scale expansion, general
+is complete. The completed Recipe-first plan remains historical implementation
+evidence only. Scale expansion, general
 certification, general production hardening, Odoo-source guarded updates,
 gateway, and hosted work remain deferred under the [authoritative
 remaining-work roadmap](plans/remaining-work.md).

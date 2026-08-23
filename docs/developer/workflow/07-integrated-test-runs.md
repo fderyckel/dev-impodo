@@ -86,7 +86,7 @@ workspace. A changed request under the same operation ID fails closed.
 
 ### Fresh compiler boundary
 
-`ProjectRecipeApplicationCompiler` adapts the retained Recipe compiler to an
+`RecipeApplicationService` adapts the retained Recipe application compiler to an
 already provisioned application workspace. It never calls the superseded
 Recipe-owned DataVersion or application-creation paths. It rebuilds governance
 and structural preparation, rebinds logical source columns, creates a normal

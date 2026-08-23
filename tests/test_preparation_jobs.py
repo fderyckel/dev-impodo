@@ -282,7 +282,7 @@ class PreparationWorkerFailureTests(unittest.TestCase):
         self.assertEqual(events.put.call_args_list[0].args[0], ("started",))
         failure = events.put.call_args_list[1].args[0]
         self.assertEqual(failure[0], "failed")
-        self.assertEqual(failure[1], "LOCAL_PROJECT_STORAGE_IO_FAILED")
+        self.assertEqual(failure[1], "LOCAL_WORKSPACE_STORAGE_IO_FAILED")
         self.assertIn("No Odoo records were changed", failure[2])
         self.assertIn("free space", failure[2])
 

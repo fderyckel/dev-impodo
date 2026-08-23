@@ -36,7 +36,7 @@ from ...quality import retention_context_hash
 from ...workspace_errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
 from .database import DuckDbWorkspaceDatabase
-from .repository import DuckDbRepository, ProjectAggregateReader
+from .repository import DuckDbRepository, WorkspaceAggregateReader
 
 
 from .serialization import _canonical_json, _columnar_parameters
@@ -48,10 +48,10 @@ class NormalizationRepository(DuckDbRepository):
     def __init__(
         self,
         database: DuckDbWorkspaceDatabase,
-        projects: ProjectAggregateReader,
+        workspace_states: WorkspaceAggregateReader,
     ) -> None:
         super().__init__(database)
-        self._projects = projects
+        self._workspace_states = workspace_states
 
     def publish_normalization_run(
         self,
@@ -72,7 +72,7 @@ class NormalizationRepository(DuckDbRepository):
             or evaluation.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
         ):
             raise WorkspaceError("Prepared review must be regenerated")
-        project = self._projects.get(project_id)
+        project = self._workspace_states.get(project_id)
         if evaluation.retention_context_hash != retention_context_hash(project):
             raise WorkspaceError(
                 "Prepared review no longer matches project ownership and retention"

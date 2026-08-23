@@ -63,6 +63,16 @@ from impodo.domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.data_version_sources import (
+    DataVersionSourcePackage,
+    SourcePackageCatalog,
+    SourcePackageConfiguration,
+    SourcePackageDataset,
+    SourcePackageFile,
+    SourcePackageOrigin,
+    SourcePackageState,
+    source_column_contract_hash,
+)
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCapturePage,
@@ -556,7 +566,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             display_name="local-readiness.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
-        registered = context.projects.register(
+        registered = context.workspace_states.register(
             self.project_id,
             actor=context.actor,
             expected_revision=context.queries.get(self.project_id).revision,
@@ -596,11 +606,11 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertNotIn("master-secret", refreshed.text)
         self.assertIn("Start local Odoo", refreshed.text)
 
-        project = self.app.state.context.projects.repository.get(self.project_id)
+        project = self.app.state.context.workspace_states.repository.get(self.project_id)
         self.assertEqual(project.odoo_base_url, "")
         self.assertEqual(project.odoo_database, "")
         config_bytes = str(self.config).encode()
-        for path in self.app.state.context.projects.repository.workspace_directory(
+        for path in self.app.state.context.workspace_states.repository.workspace_directory(
             self.project_id
         ).rglob("*"):
             if path.is_file():
@@ -990,7 +1000,7 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def _register_local_project(self, *, database: str = "odoo19_local"):
         context = self.app.state.context
-        project = context.projects.repository.get(self.project_id)
+        project = context.workspace_states.repository.get(self.project_id)
         now = datetime.now(timezone.utc)
         registered = replace(
             project,
@@ -1002,7 +1012,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             updated_at=now,
             registered_at=now,
         )
-        context.projects.repository.save(
+        context.workspace_states.repository.save(
             registered,
             expected_revision=project.revision,
             event_type="TEST_PROJECT_REGISTERED",
@@ -1127,7 +1137,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             display_name="target-test.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
-        return context.projects.register(
+        return context.workspace_states.register(
             project_id,
             actor=context.actor,
             expected_revision=context.queries.get(project_id).revision,
@@ -1172,7 +1182,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             updated_at=now,
             registered_at=now,
         )
-        context.projects.repository.save(
+        context.workspace_states.repository.save(
             project,
             expected_revision=created.revision,
             event_type="TEST_PROJECT_REGISTERED",
@@ -1269,15 +1279,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(project.functional_owner, "")
         self.assertEqual(project.odoo_base_url, "")
 
-        legacy_governance = self.client.get(
+        removed_governance = self.client.get(
             f"/workspaces/{project_id}/governance",
             follow_redirects=False,
         )
-        self.assertEqual(legacy_governance.status_code, 303)
-        self.assertEqual(
-            legacy_governance.headers["location"],
-            f"/workspaces/{project_id}/files",
-        )
+        self.assertEqual(removed_governance.status_code, 404)
 
     def test_setup_shows_each_blocker_before_the_user_can_move_forward(
         self,
@@ -1374,9 +1380,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         project_list = self.client.get("/projects")
         self.assertIn("Waiting for files", project_list.text)
         project_page = self.client.get(f"/projects/{data_project_id}")
-        self.assertIn("Add source files", project_page.text)
+        self.assertIn("Continue preparing and matching", project_page.text)
         self.assertIn(
-            f'href="/workspaces/{project_id}/files"',
+            f'href="/workspaces/{project_id}/overview"',
             project_page.text,
         )
 
@@ -1400,7 +1406,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             name="Correctable source files",
             source_system="CSV",
         )
-        project = context.projects.update_details(
+        project = context.workspace_states.update_details(
             project.project_id,
             actor=context.actor,
             expected_revision=project.revision,
@@ -1410,7 +1416,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             export_date=date.today().isoformat(),
             description="Correctable source files",
         )
-        project = context.projects.update_governance(
+        project = context.workspace_states.update_governance(
             project.project_id,
             actor=context.actor,
             expected_revision=project.revision,
@@ -1445,7 +1451,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-source-file-remove-dialog", files_page.text)
 
         wrong_path = (
-            context.projects.repository.workspace_directory(project.project_id)
+            context.workspace_states.repository.workspace_directory(project.project_id)
             / "inbox"
             / wrong.stored_name
         )
@@ -1468,7 +1474,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             updated_at=now,
             registered_at=now,
         )
-        context.projects.repository.save(
+        context.workspace_states.repository.save(
             registered,
             expected_revision=current.revision,
             event_type="TEST_PROJECT_REGISTERED",
@@ -1619,7 +1625,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.read_identity_calls,
             [(project_id, "remote-secret-key", ("res.users",))],
         )
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
         self.assertEqual(
             get_target_credential(
                 self.secrets,
@@ -1810,7 +1816,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             (
                 ConnectorTransportError("HTTP 503 raw upstream response"),
                 "Try the comparison again",
-                'action="/projects/',
+                f'action="/workspaces/{project.project_id}/summary/compare"',
             ),
             (
                 OdooReadWorkflowError(
@@ -2034,7 +2040,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             name="Historical rehearsal",
             source_system="Other",
         )
-        repository = context.projects.repository
+        repository = context.workspace_states.repository
         project_dir = repository.workspace_directory(project.project_id)
         database_path = project_dir / "workspace-engine.duckdb"
         with repository._connect(database_path) as connection:
@@ -2056,7 +2062,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             name="Paginated load review",
             source_system="Other",
         )
-        project = context.projects.update_target(
+        project = context.workspace_states.update_target(
             project.project_id,
             actor=context.actor,
             expected_revision=project.revision,
@@ -2136,7 +2142,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             name="Staged load review",
             source_system="Other",
         )
-        project = context.projects.update_target(
+        project = context.workspace_states.update_target(
             project.project_id,
             actor=context.actor,
             expected_revision=project.revision,
@@ -2230,7 +2236,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             updated_at=now,
             registered_at=now,
         )
-        context.projects.repository.save(
+        context.workspace_states.repository.save(
             registered,
             expected_revision=created.revision,
             event_type="TEST_PROJECT_REGISTERED",
@@ -2292,7 +2298,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             updated_at=now,
             registered_at=now,
         )
-        context.projects.repository.save(
+        context.workspace_states.repository.save(
             registered,
             expected_revision=created.revision,
             event_type="TEST_PROJECT_REGISTERED",
@@ -2320,7 +2326,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             unconfigured_page.text,
         )
         self.assertIn(
-            f'action="/projects/{registered.project_id}/schema/local-config"',
+            f'action="/workspaces/{registered.project_id}/schema/local-config"',
             unconfigured_page.text,
         )
         blocked = self.client.post(
@@ -2405,7 +2411,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.local_odoo_reader.get_model_catalog.assert_called_once()
 
         context.local_stack = configured_local_stack
-        project = context.projects.repository.get(registered.project_id)
+        project = context.workspace_states.repository.get(registered.project_id)
         scoped = self._post(
             f"/workspaces/{registered.project_id}/schema",
             {
@@ -2431,7 +2437,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Odoo data is ready",
             scoped_page.text,
         )
-        unchanged_project = context.projects.repository.get(
+        unchanged_project = context.workspace_states.repository.get(
             registered.project_id
         )
         unchanged_scope = self._post(
@@ -2467,7 +2473,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.local_odoo_reader.get_model_metadata.side_effect = ConnectorError(
             "raw local reader failure"
         )
-        project = context.projects.repository.get(registered.project_id)
+        project = context.workspace_states.repository.get(registered.project_id)
         failed_load = self.client.post(
             f"/workspaces/{registered.project_id}/schema",
             data={
@@ -2492,7 +2498,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             failed_load.text.index("Try loading details again"),
         )
         self.assertNotIn("We could not complete that action", failed_load.text)
-        saved_after_failure = context.projects.repository.get(
+        saved_after_failure = context.workspace_states.repository.get(
             registered.project_id
         )
         self.assertEqual(
@@ -2544,13 +2550,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             created.headers["location"],
             f"/projects/{data_project_id}",
         )
-        details_page = self.client.get(
-            f"/workspaces/{project_id}/details",
-            follow_redirects=False,
-        )
-        self.assertEqual(
-            details_page.headers["location"],
-            f"/workspaces/{project_id}/target",
+        project_page = self.client.get(created.headers["location"])
+        self.assertIn(
+            f'href="/workspaces/{project_id}/overview"',
+            project_page.text,
         )
         target_page = self.client.get(f"/workspaces/{project_id}/target")
         self.assertIn("Connect the Odoo source", target_page.text)
@@ -2613,10 +2616,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             target.headers["location"],
             f"/workspaces/{project_id}/schema",
         )
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
         self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
         self.assertEqual(project.source_mode, SourceMode.ODOO)
-        self.assertEqual(project.source_system, "Odoo")
+        self.assertEqual(project.source_system, "Odoo 19")
         self.assertEqual(project.source_files, ())
         self.assertIsNone(project.export_date)
 
@@ -2630,7 +2633,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed.status_code, 303)
-        current = self.app.state.context.projects.repository.get(project_id)
+        current = self.app.state.context.workspace_states.repository.get(project_id)
         scoped = self._post(
             f"/workspaces/{project_id}/schema",
             {
@@ -2712,8 +2715,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         self.assertIn("Current frozen Odoo source", frozen_page.text)
         self.assertIn("2</dd>", frozen_page.text)
-        self.assertIn("Immutable audit history", frozen_page.text)
-        self.assertIn("Frozen", frozen_page.text)
+        self.assertIn("Protected history", frozen_page.text)
+        self.assertIn("Frozen versions", frozen_page.text)
 
         mapping_page = self.client.get(f"/workspaces/{project_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)
@@ -2992,6 +2995,99 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
         )
 
+    def test_source_review_saves_table_choices_without_an_intermediate_page(
+        self,
+    ) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "display_name": "Inline source confirmation",
+                "source_mode": "FILE",
+                "source_system_identity": "Fictional ERP",
+            },
+        )
+        project_id = _created_workspace_id(self.app, created)
+        uploaded = self.client.post(
+            f"/workspaces/{project_id}/files",
+            data={"csrf_token": self.csrf, "revision": "1"},
+            files={
+                "source_file": (
+                    "customers.csv",
+                    b"code,name\nC001,Example\n",
+                    "text/csv",
+                )
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(uploaded.status_code, 303)
+        context = self.app.state.context
+        project = context.queries.get(project_id)
+        registered = self._post(
+            f"/workspaces/{project_id}/register",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+            },
+        )
+        self.assertEqual(registered.status_code, 303)
+
+        inspected = self.client.post(
+            f"/workspaces/{project_id}/sources/inspect",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(inspected.status_code, 303)
+        catalog = context.queries.get_source_catalogs(project_id)[0]
+        confirmed = self.client.post(
+            f"/workspaces/{project_id}/sources/{catalog.file_id}/configure",
+            data={
+                "csrf_token": self.csrf,
+                "action": "confirm",
+                "encoding": "utf-8",
+                "delimiter": ",",
+                "header_row_0": "1",
+                "selected_0": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(confirmed.status_code, 303)
+        source_page = self.client.get(confirmed.headers["location"])
+        self.assertIn("Save the tables for this data version", source_page.text)
+        self.assertIn('name="dataset_name_0"', source_page.text)
+        self.assertIn(
+            f'action="/workspaces/{project_id}/datasets/freeze"',
+            source_page.text,
+        )
+
+        old_page = self.client.get(
+            f"/workspaces/{project_id}/datasets",
+            follow_redirects=False,
+        )
+        self.assertEqual(old_page.status_code, 303)
+        self.assertEqual(
+            old_page.headers["location"],
+            f"/workspaces/{project_id}/sources#table-choices",
+        )
+
+        frozen = self.client.post(
+            f"/workspaces/{project_id}/datasets/freeze",
+            data={
+                "csrf_token": self.csrf,
+                "dataset_name_0": "customers",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(frozen.status_code, 303)
+        saved_page = self.client.get(frozen.headers["location"])
+        self.assertIn("Saved source tables", saved_page.text)
+        self.assertIn("Tables ready for the next step", saved_page.text)
+        self.assertNotIn('name="dataset_name_0"', saved_page.text)
+
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
             "/projects/new",
@@ -3067,14 +3163,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f'href="/workspaces/{project_id}/sources"',
             summary.text,
         )
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
         self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
         self.assertIsNone(project.odoo_connection_mode)
         self.assertIsNone(project.export_date)
         self.assertEqual(project.data_manager, "")
         self.assertEqual(project.mapping_version, None)
         manifest = (
-            self.app.state.context.projects.repository.workspace_directory(project_id)
+            self.app.state.context.workspace_states.repository.workspace_directory(project_id)
             / "audit"
             / f"project-registration-r{project.revision}.json"
         )
@@ -3165,18 +3261,26 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         configured_page = self.client.get(workbook_configured.headers["location"])
         self.assertIn("Confirmed products.xlsx", configured_page.text)
-        self.assertIn("Choose tables", configured_page.text)
+        self.assertIn("Save the tables for this data version", configured_page.text)
+        self.assertIn(
+            f'action="/workspaces/{project_id}/datasets/freeze"',
+            configured_page.text,
+        )
+        self.assertIn('name="dataset_name_0"', configured_page.text)
+        self.assertIn('name="dataset_name_1"', configured_page.text)
+        self.assertIn(
+            "source files cannot be added or removed from this data version",
+            configured_page.text,
+        )
 
-        datasets = self.client.get(f"/workspaces/{project_id}/datasets")
-        self.assertEqual(datasets.status_code, 200)
-        self.assertIn("Stage 1 of 6", datasets.text)
-        self.assertIn("Source data", datasets.text)
-        self.assertIn('aria-current="step"', datasets.text)
-        self.assertIn('aria-current="page"', datasets.text)
-        self.assertIn("Choose the tables to prepare", datasets.text)
-        self.assertNotIn(
-            f">{catalogs[0].tables[0].name}</strong>",
-            datasets.text,
+        datasets = self.client.get(
+            f"/workspaces/{project_id}/datasets",
+            follow_redirects=False,
+        )
+        self.assertEqual(datasets.status_code, 303)
+        self.assertEqual(
+            datasets.headers["location"],
+            f"/workspaces/{project_id}/sources#table-choices",
         )
         frozen = self.client.post(
             f"/workspaces/{project_id}/datasets/freeze",
@@ -3194,9 +3298,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/workspaces/{project_id}/datasets#tables-ready",
         )
         saved_datasets = self.client.get(frozen.headers["location"])
+        self.assertIn("Saved source tables", saved_datasets.text)
         self.assertIn('id="tables-ready"', saved_datasets.text)
         self.assertIn("Tables ready for the next step", saved_datasets.text)
         self.assertIn("Choose Odoo data", saved_datasets.text)
+        self.assertNotIn('name="dataset_name_0"', saved_datasets.text)
+        self.assertNotIn("Save tables for this data version", saved_datasets.text)
 
         odoo_data = self.client.get(
             f"/workspaces/{project_id}/schema",
@@ -3253,7 +3360,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn(
             b"super-secret-token",
             (
-                self.app.state.context.projects.repository.workspace_directory(project_id)
+                self.app.state.context.workspace_states.repository.workspace_directory(project_id)
                 / "workspace-engine.duckdb"
             ).read_bytes(),
         )
@@ -3383,7 +3490,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             blocked_without_models.text,
         )
 
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
         refreshed_lookup_models = self._post(
             f"/workspaces/{project_id}/derived-entities/models/refresh",
             {"csrf_token": self.csrf},
@@ -3555,10 +3662,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(scope.status_code, 303)
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
         self.assertEqual(project.intended_models, ("res.partner",))
         self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
         read_credential = get_target_credential(
             self.secrets,
             project,
@@ -4285,6 +4392,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Rows", readiness_page.text)
         self.assertIn("Support details", readiness_page.text)
         self.assertIn("Create review workbook", readiness_page.text)
+        self.assertIn("Keep these rules for another data version", readiness_page.text)
+        self.assertIn(
+            "Your submitted preparation, matching, relationship, and checking "
+            "rules are already saved in this workspace.",
+            readiness_page.text,
+        )
+        self.assertIn("Save these rules as a Recipe", readiness_page.text)
+        self.assertIn(
+            f'href="/projects/{workspace.project_id}#project-recipes-title"',
+            readiness_page.text,
+        )
+        self.assertIn(
+            "The review workbook documents this data check. "
+            "It does not save or publish the rules.",
+            readiness_page.text,
+        )
         self.assertIn("Odoo remains unchanged", readiness_page.text)
         self.assertIn("prepared rows safely saved", readiness_page.text)
         self.assertIn("data-staging-summary", readiness_page.text)
@@ -4344,7 +4467,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         database_path = (
-            self.app.state.context.projects.repository.workspace_directory(project_id)
+            self.app.state.context.workspace_states.repository.workspace_directory(project_id)
             / "workspace-engine.duckdb"
         )
         staging_repository = self.app.state.context.preflight.staging
@@ -4783,7 +4906,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             workbook.headers["content-type"],
         )
 
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
 
         def company_schema_reader(project, api_key):
             self.schema_calls.append((project.project_id, api_key))
@@ -4806,7 +4929,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(changed_scope.status_code, 303)
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self.app.state.context.workspace_states.repository.get(project_id)
         self.assertEqual(project.intended_models, ("res.company",))
         self.assertIsNone(project.mapping_version)
         self.assertEqual(project.approval_status.value, "INVALIDATED")
@@ -4955,7 +5078,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Match values", page.text)
         self.assertIn("Choice field", page.text)
         self.assertIn("2 choice(s) captured from Odoo", page.text)
-        self.assertIn("Review source choices", page.text)
+        self.assertIn("Match source choices to Odoo", page.text)
         self.assertIn("How must source choices be covered?", page.text)
         self.assertIn("French (France) — fr_FR", page.text)
         self.assertNotIn("datalist", page.text)
@@ -6258,9 +6381,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "sha256:not-a-digest"
         )
         database_path = (
-            context.projects.repository.workspace_directory(project_id) / "workspace-engine.duckdb"
+            context.workspace_states.repository.workspace_directory(project_id) / "workspace-engine.duckdb"
         )
-        with context.projects.repository._connect(database_path) as connection:
+        with context.workspace_states.repository._connect(database_path) as connection:
             connection.execute(
                 "UPDATE source_selection SET selection_json = ? "
                 "WHERE singleton_id = 1",
@@ -6542,6 +6665,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Opening balance", page.text)
         self.assertIn("Difference -100 EUR", page.text)
         self.assertIn("<summary>Support details</summary>", page.text)
+        self.assertNotIn("Save these rules as a Recipe", page.text)
         self.assertEqual(package.status_code, 422)
         self.assertIn("Resolve the named totals", package.text)
 
@@ -6819,7 +6943,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         root = Path(self.temporary.name)
         registry_path = root / "registry.duckdb"
         project_path = (
-            context.projects.repository.workspace_directory(project_id)
+            context.workspace_states.repository.workspace_directory(project_id)
             / "workspace-engine.duckdb"
         )
 
@@ -6893,7 +7017,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             updated_at=now,
             registered_at=now,
         )
-        context.projects.repository.save(
+        context.workspace_states.repository.save(
             registered,
             expected_revision=created.revision,
             event_type="TEST_PROJECT_REGISTERED",
@@ -6917,6 +7041,98 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 SourceDatasetColumn(1, "Reference", "column:ref", "string"),
                 SourceDatasetColumn(2, "Value", "column:value", "string"),
             ),
+        )
+        migration_workspace = context.migration_workspaces.get(
+            registered.project_id,
+            actor=context.actor,
+        )
+        data_version = context.data_versions.get(
+            migration_workspace.data_version_id,
+            actor=context.actor,
+        )
+        package_service = context.data_version_source_projection.packages
+        current_package = package_service.repository.get_source_package(
+            data_version.data_version_id
+        )
+        assert current_package is not None
+        source_file_id = str(uuid4())
+        source_hash = "sha256:" + "1" * 64
+        package_catalog = SourcePackageCatalog(
+            file_id=source_file_id,
+            source_sha256=source_hash,
+            payload={"format": "CSV", "tables": ["large_contacts"]},
+        )
+        package_dataset = SourcePackageDataset(
+            dataset_id=dataset.dataset_id,
+            display_name=dataset.name,
+            source_file_ids=(source_file_id,),
+            source=FileSourceBinding(
+                file_id=source_file_id,
+                table_key="contacts",
+                source_sha256=source_hash,
+                catalog_hash=package_catalog.content_hash,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
+            row_count=dataset.row_count,
+            columns=dataset.columns,
+            schema_hash=source_column_contract_hash(dataset.columns),
+            snapshot_hash="sha256:" + "4" * 64,
+            snapshot_storage_key="snapshots/large_contacts.parquet",
+            manifest={"logical_name": "large_contacts"},
+        )
+        dataset = package_dataset.to_mapping_dataset()
+        draft_package = DataVersionSourcePackage(
+            data_version_id=data_version.data_version_id,
+            project_id=migration_workspace.project_id,
+            revision=current_package.revision + 1,
+            origin=SourcePackageOrigin.FILE,
+            state=SourcePackageState.DRAFT,
+            files=(
+                SourcePackageFile(
+                    file_id=source_file_id,
+                    display_name="large-contacts.csv",
+                    storage_key="source/large-contacts.csv",
+                    size_bytes=128,
+                    sha256=source_hash,
+                    received_at=now,
+                ),
+            ),
+            catalogs=(package_catalog,),
+            configurations=(
+                SourcePackageConfiguration(
+                    file_id=source_file_id,
+                    catalog_hash=package_catalog.content_hash,
+                    payload={
+                        "encoding": "utf-8",
+                        "selected_tables": ["large_contacts"],
+                    },
+                ),
+            ),
+            datasets=(package_dataset,),
+            updated_at=now,
+        )
+        saved_package = package_service.replace_draft(
+            draft_package,
+            actor=context.actor,
+            expected_package_revision=current_package.revision,
+        )
+        package_service.freeze(
+            data_version.data_version_id,
+            actor=context.actor,
+            expected_data_version_revision=data_version.optimistic_revision,
+            expected_package_revision=saved_package.revision,
+            operation_id=str(uuid4()),
+        )
+        context.data_version_source_projection.projections.materialize(
+            registered.project_id,
+            actor=context.actor,
+            dataset_ids=(dataset.dataset_id,),
+            expected_workspace_revision=(
+                migration_workspace.optimistic_revision
+            ),
+            operation_id=str(uuid4()),
         )
         selection = SourceSelection(
             selection_id=str(uuid4()),

@@ -29,11 +29,11 @@ class MigrationWorkspaceEngineDatabase(DuckDbWorkspaceDatabase):
         )
         self.foundation = foundation
 
-    def workspace_directory(self, project_id: str) -> Path:
-        """Resolve the engine's historical key as a MigrationWorkspace ID."""
+    def workspace_directory(self, workspace_id: str) -> Path:
+        """Resolve one MigrationWorkspace engine directory."""
 
         try:
-            workspace_id = str(UUID(project_id))
+            workspace_id = str(UUID(workspace_id))
         except (AttributeError, TypeError, ValueError) as error:
             raise MigrationNotFoundError("Invalid workspace_id") from error
         with self.foundation.connect(self.foundation.registry_path) as connection:
@@ -64,8 +64,8 @@ class FixedMigrationWorkspaceEngineDatabase(DuckDbWorkspaceDatabase):
         self.business_project_id = require_uuid(project_id, "project_id")
         self.workspace_id = require_uuid(workspace_id, "workspace_id")
 
-    def workspace_directory(self, project_id: str) -> Path:
-        if require_uuid(project_id, "workspace_id") != self.workspace_id:
+    def workspace_directory(self, workspace_id: str) -> Path:
+        if require_uuid(workspace_id, "workspace_id") != self.workspace_id:
             raise MigrationIdentifierConfusionError(
                 "The worker was asked to open another MigrationWorkspace"
             )

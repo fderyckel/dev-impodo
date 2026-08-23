@@ -516,7 +516,7 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
                 display_name="customers.csv",
                 stream=BytesIO(b"code,name\nC001,Acme\n"),
             )
-        context.projects.register(
+        context.workspace_states.register(
             workspace_id,
             actor=context.actor,
             expected_revision=context.queries.get(workspace_id).revision,

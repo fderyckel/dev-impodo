@@ -368,7 +368,7 @@ class OdooProvenanceTests(unittest.TestCase):
         self.projects.save(
             changed,
             expected_revision=self.project.revision,
-            event_type="PROJECT_TARGET_UPDATED",
+            event_type="WORKSPACE_TARGET_UPDATED",
             event_detail="replacement target",
             actor=LOCAL_ACTOR,
         )

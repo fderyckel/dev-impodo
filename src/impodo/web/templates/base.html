@@ -6,7 +6,7 @@
     </svg>
   {%- endmacro %}
   {% set current_path = request.url.path %}
-  {% set navigation = project_navigation if project_navigation is defined else none %}
+  {% set navigation = workspace_navigation if workspace_navigation is defined else none %}
   {% set projects_active = not navigation and current_path == "/projects" %}
   {% set concepts_active = current_path == "/concepts" %}
   <head>

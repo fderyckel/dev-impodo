@@ -3867,6 +3867,117 @@ document.addEventListener("DOMContentLoaded", () => {
     window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
   }
 
+  const loadJob = document.querySelector("[data-load-job]");
+  if (loadJob) {
+    const statusUrl = loadJob.dataset.statusUrl;
+    const state = loadJob.querySelector("[data-load-state]");
+    const stepState = loadJob.querySelector("[data-load-step-state]");
+    const message = loadJob.querySelector("[data-load-message]");
+    const progress = loadJob.querySelector("[data-load-progress]");
+    const percent = loadJob.querySelector("[data-load-percent]");
+    const rows = loadJob.querySelector("[data-load-rows]");
+    const total = loadJob.querySelector("[data-load-total]");
+    const created = loadJob.querySelector("[data-load-created]");
+    const updated = loadJob.querySelector("[data-load-updated]");
+    const attention = loadJob.querySelector("[data-load-attention]");
+    const attentionCard = loadJob.querySelector("[data-load-attention-card]");
+    const relationships = loadJob.querySelector("[data-load-relationships]");
+    const guidance = loadJob.querySelector("[data-load-guidance]");
+    const spinner = loadJob.querySelector("[data-load-spinner]");
+    const activeActions = loadJob.querySelector("[data-load-active]");
+    const failed = loadJob.querySelector("[data-load-failed]");
+    const failure = loadJob.querySelector("[data-load-failure]");
+    const complete = loadJob.querySelector("[data-load-complete]");
+    const continueLink = loadJob.querySelector("[data-load-continue]");
+    const run = loadJob.querySelector("[data-load-run]");
+    let pollTimer;
+
+    const showLoadStatus = (job) => {
+      const active = job.status === "QUEUED" || job.status === "RUNNING";
+      if (message) message.textContent = job.message;
+      if (progress) progress.value = job.progress_percent;
+      if (percent) percent.textContent = `${job.progress_percent}%`;
+      if (total) total.textContent = Number(job.total_rows).toLocaleString();
+      if (created) created.textContent = Number(job.created_count).toLocaleString();
+      if (updated) updated.textContent = Number(job.updated_count).toLocaleString();
+      if (attention) attention.textContent = Number(job.attention_count).toLocaleString();
+      if (rows) {
+        const completedLabel = `${Number(job.completed_rows).toLocaleString()} of ${Number(job.total_rows).toLocaleString()} records completed`;
+        rows.textContent = job.status === "FAILED" && job.not_attempted_count
+          ? `${completedLabel} · ${Number(job.not_attempted_count).toLocaleString()} not attempted`
+          : completedLabel;
+      }
+      if (attentionCard) {
+        attentionCard.classList.toggle("blocked", Boolean(job.attention_count));
+        attentionCard.classList.toggle("ready", !job.attention_count);
+      }
+      if (relationships) {
+        relationships.hidden = !job.relationship_pending_count;
+        relationships.textContent = job.relationship_pending_count
+          ? `${Number(job.relationship_pending_count).toLocaleString()} new record(s) are waiting for their relationship step.`
+          : "";
+      }
+      if (guidance) {
+        guidance.textContent = job.phase === "VERIFYING"
+          ? "Impodo is now checking the saved results against Odoo."
+          : "Accepted totals are not called verified until Impodo reads the completed records back from Odoo.";
+      }
+      if (spinner) spinner.hidden = !active;
+      if (activeActions) activeActions.hidden = !active;
+      if (stepState) {
+        stepState.textContent = active
+          ? "In progress"
+          : job.status === "SUCCEEDED"
+            ? "Complete"
+            : "Needs attention";
+      }
+      if (run) {
+        run.hidden = !job.execution_run_id;
+        const code = run.querySelector("code");
+        if (code) code.textContent = job.execution_run_id;
+      }
+      if (state) {
+        state.classList.remove("ready", "review", "blocked");
+        state.textContent = active
+          ? "In progress"
+          : job.status === "SUCCEEDED"
+            ? "Finished"
+            : "Stopped";
+        state.classList.add(
+          active ? "review" : job.status === "SUCCEEDED" ? "ready" : "blocked"
+        );
+      }
+      if (job.status === "FAILED") {
+        if (failed) failed.hidden = false;
+        if (failure) failure.textContent = job.failure_message;
+      } else if (job.status === "SUCCEEDED") {
+        if (complete) complete.hidden = false;
+        if (continueLink && job.redirect_url) continueLink.href = job.redirect_url;
+        if (job.redirect_url) window.location.assign(job.redirect_url);
+      }
+      return active;
+    };
+
+    const pollLoad = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Load progress is temporarily unavailable");
+        if (showLoadStatus(await response.json())) {
+          pollTimer = window.setTimeout(pollLoad, 750);
+        }
+      } catch {
+        if (message) message.textContent = "Reconnecting to the saved load progress…";
+        pollTimer = window.setTimeout(pollLoad, 1500);
+      }
+    };
+
+    if (statusUrl) pollLoad();
+    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+  }
+
   restoreMappingPosition();
   restoreNormalizationPosition();
   restoreSourceReviewPosition();

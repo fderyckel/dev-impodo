@@ -1,5 +1,9 @@
 # Recipe Phase R4.5 clean-root implementation report
 
+**Historical evidence:** This report records the superseded Recipe-first
+implementation as it existed on 2026-08-19. ADR-014 and Migration Project
+Phases M0 through M7 define the current architecture.
+
 ## Outcome
 
 R4.5 leaves one Recipe-native product model before Production rollout work

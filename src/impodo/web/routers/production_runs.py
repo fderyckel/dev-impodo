@@ -77,7 +77,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 export_as_of=_text(form, "export_as_of"),
                 operation_id=_text(form, "operation_id"),
             )
-        setup_state = context.projects.repository.get(
+        setup_state = context.workspace_states.repository.get(
             bundle.setup_workspace.workspace_id
         )
         destination = (
@@ -177,7 +177,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                     persistent="remember_write_api_key" in form,
                 )
                 audit_stored_target_credential(
-                    context.projects,
+                    context.workspace_states,
                     setup_state,
                     TargetCredentialRole.WRITE,
                     write_credential,
@@ -299,7 +299,7 @@ def _activation_view(context, project_id, migration_run_id):
         binding.setup_workspace_id,
         actor=context.actor,
     )
-    setup_state = context.projects.repository.get(binding.setup_workspace_id)
+    setup_state = context.workspace_states.repository.get(binding.setup_workspace_id)
     plan = context.cutover_plans.repository.get_revision(
         binding.cutover_plan_id,
         binding.cutover_plan_revision,

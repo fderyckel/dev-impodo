@@ -62,7 +62,7 @@ def _render_target(
     )
     return _render(
         request,
-        "project_target.html",
+        "workspace_target.html",
         project=project,
         applications=ODOO_APPLICATIONS,
         local_stack=context.local_stack.get(project.project_id),
@@ -152,7 +152,7 @@ def _render_normalization(
     page_items = matching[start : start + NORMALIZATION_GROUPS_PER_PAGE]
     return _render(
         request,
-        "project_normalization.html",
+        "workspace_normalization.html",
         project=project,
         normalization=summary,
         dry_run=dry_run,
@@ -387,7 +387,7 @@ def _render_summary(
         row_start_index = 0
     return _render(
         request,
-        "project_summary.html",
+        "workspace_summary.html",
         project=project,
         revision=revision,
         submission=submission,

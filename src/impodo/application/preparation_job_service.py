@@ -355,7 +355,7 @@ def _run_preparation_worker(
         events.put(
             (
                 "failed",
-                "LOCAL_PROJECT_STORAGE_IO_FAILED",
+                "LOCAL_WORKSPACE_STORAGE_IO_FAILED",
                 "Impodo could not read or save this project's local files. "
                 "No Odoo records were changed and your previous prepared "
                 "evidence remains available. Check that the local drive is "

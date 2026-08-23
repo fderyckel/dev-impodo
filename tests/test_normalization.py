@@ -872,7 +872,7 @@ class NormalizationStoreTests(unittest.TestCase):
         self.projects.save(
             changed_project,
             expected_revision=current_project.revision,
-            event_type="PROJECT_GOVERNANCE_UPDATED",
+            event_type="WORKSPACE_GOVERNANCE_UPDATED",
             event_detail="",
             actor=LOCAL_ACTOR,
         )
@@ -890,7 +890,7 @@ class NormalizationStoreTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(
             retired,
-            ("INVALIDATED", "PROJECT_GOVERNANCE_CHANGED"),
+            ("INVALIDATED", "WORKSPACE_GOVERNANCE_CHANGED"),
         )
 
     @unittest.skipUnless(

@@ -18,7 +18,7 @@ from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
-from ..presenters.navigation import build_preparation_job_navigation
+from ..presenters.navigation import build_preparation_workspace_navigation
 from ..security import require_session
 
 
@@ -75,7 +75,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         )
         return _render(
             request,
-            "project_prepare.html",
+            "workspace_prepare.html",
             project=project,
             can_prepare=can_prepare,
         )
@@ -126,11 +126,10 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token"})
         try:
             workspace = _preparation_workspace(context, project_id)
-            project = context.queries.get(project_id)
             job = _manager(context).retry(
                 project_id,
                 job_id,
-                project.name,
+                _migration_project_name(context, workspace.project_id),
                 _preparation_row_count(context, project_id),
                 actor=context.actor,
                 workspace=workspace,
@@ -155,15 +154,23 @@ def enqueue_preparation(context: WebContext, project_id: str) -> PreparationJob:
     """Capture lightweight display/scale metadata before starting the process."""
 
     workspace = _preparation_workspace(context, project_id)
-    project = context.queries.get(project_id)
     total_rows = _preparation_row_count(context, project_id)
     return _manager(context).enqueue(
         project_id,
-        project.name,
+        _migration_project_name(context, workspace.project_id),
         total_rows,
         actor=context.actor,
         workspace=workspace,
     )
+
+
+def _migration_project_name(context: WebContext, project_id: str) -> str:
+    """Return the business Project name without opening a workspace database."""
+
+    return context.migration_projects.get(
+        project_id,
+        actor=context.actor,
+    ).display_name
 
 
 def _preparation_workspace(
@@ -219,9 +226,9 @@ def _render_progress(
     )
     return _render(
         request,
-        "project_preparation_progress.html",
+        "workspace_preparation_progress.html",
         project=project,
-        project_navigation=build_preparation_job_navigation(job),
+        workspace_navigation=build_preparation_workspace_navigation(job),
         migration_context={
             "project_id": job.workspace.project_id,
             "data_version_id": job.workspace.data_version_id,

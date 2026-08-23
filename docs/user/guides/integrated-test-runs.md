@@ -22,7 +22,7 @@ Your data project needs:
 - at least one saved Recipe; and
 - an Authoring workspace with reviewed Odoo 19 fields and supporting lists.
 
-The current M4 browser starts from an already accepted Test data version. If
+The current browser starts from an already accepted Test data version. If
 the form says that one is required, stop there: do not reuse the Authoring
 sample and do not treat independently uploaded files as one complete delivery.
 Accepting a new Test delivery is a separate browser step and is not added by
@@ -50,7 +50,7 @@ conflicting Recipes is not a safe repair; one Recipe must own that field.
 - Every selected Recipe version is the intended saved version.
 - Dependencies describe real business order, not a workaround for a collision.
 - The reviewed Odoo workspace belongs to this data project and target.
-- Every Recipe owns distinct writable Odoo fields.
+- The selected Recipe versions declare non-overlapping writable Odoo fields.
 
 ## What Impodo creates
 

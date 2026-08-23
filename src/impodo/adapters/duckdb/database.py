@@ -51,27 +51,25 @@ class DuckDbWorkspaceDatabase(
             lock_wait_timeout_seconds=lock_wait_timeout_seconds
         )
         self._transformation_impact_lock = RLock()
-        self._project_schema_migration_lock = RLock()
-        self._prepared_project_schema_files: set[tuple[str, int, int]] = set()
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def workspace_directory(self, project_id: str) -> Path:
+    def workspace_directory(self, workspace_id: str) -> Path:
         """Return the contained UUID directory for a validated workspace ID."""
 
         try:
-            canonical = str(UUID(project_id))
+            canonical = str(UUID(workspace_id))
         except (ValueError, AttributeError) as error:
-            raise WorkspaceStateNotFoundError("Invalid project identifier") from error
+            raise WorkspaceStateNotFoundError("Invalid workspace identifier") from error
         candidate = self.root / canonical
         target = candidate.resolve()
         if target != candidate or target.parent != self.root:
-            raise WorkspaceStateNotFoundError("Invalid project identifier")
+            raise WorkspaceStateNotFoundError("Invalid workspace identifier")
         return target
 
-    def unit_of_work(self, project_id: str) -> DuckDbUnitOfWork:
+    def unit_of_work(self, workspace_id: str) -> DuckDbUnitOfWork:
         """Return one workspace-scoped transaction shared by collaborating ports."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         return DuckDbUnitOfWork(
@@ -82,11 +80,11 @@ class DuckDbWorkspaceDatabase(
 
     def _read_json_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         query: str,
         parameters: list[object] | None = None,
     ) -> tuple[str, ...]:
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -96,15 +94,15 @@ class DuckDbWorkspaceDatabase(
 
     def _read_singleton_json(
         self,
-        project_id: str,
+        workspace_id: str,
         query: str,
     ) -> str | None:
-        values = self._read_json_rows(project_id, query)
+        values = self._read_json_rows(workspace_id, query)
         return values[0] if values else None
 
     def _save_singleton(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         table: str,
         value_column: str,
@@ -121,7 +119,7 @@ class DuckDbWorkspaceDatabase(
         }
         if (table, value_column) not in permitted:
             raise ValueError("Unsupported workspace table")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:

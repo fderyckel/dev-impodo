@@ -12,30 +12,17 @@ architecture, contracts, and audience-appropriate documentation.
 
 ## Current implemented boundary
 
-Impodo supports the reviewed disposable local and remote Odoo 19 load and
-read-back path. Mapping contract v11, validation-bound categorical coverage,
-split reusable control definitions/DataVersion expectations, legacy upgrade
-review, and the shared application-layer source scan are implemented.
+Impodo supports the Project-first browser and the reviewed local or remote Odoo
+19 workflow. A Project may contain no Recipe or several Project-scoped Recipes.
+The Project owns complete DataVersion source packages, Authoring, Test, and
+Production runs, workspaces, and its CutoverPlan. A Recipe owns only immutable
+reusable rule revisions.
 
-Recipe Phases R0 through R7 are complete historical evidence for the removed
-Recipe-first aggregate, DataVersion, TargetBinding, qualification, cutover,
-credential-rotation, intent, recovery, and bound contracts have deterministic
-fixtures and executable tests. The Recipe root, independent Recipe/DataVersion lineage,
-protected persistence, migration ledgers, recovery intents, workspace seals,
-and compatibility resolution for current project routes are implemented.
-Recipe-native creation, a nonduplicating RecipeDraft readiness projection,
-portable compilation, immutable publication, and Recipe/DataVersion history
-are implemented. Current remote Test TargetBindings, separately supplied
-credential generations, same-ish source binding, focused drift review, fresh
-preparation/governance/mapping materialization, mapping-bound quality seeds,
-and protected application evidence are implemented. Exact current Test
-preparation, quality, comparison, execution, read-back, reconciliation,
-protected qualification, later-revision invalidation, explicit rollout
-candidate selection, clean Production application, credential-rotation
-invalidation, and Product, Product/BOM, and parameterized-stock qualification
-are implemented.
-Matching remains the existing workspace experience unless Recipe-specific
-context requires a small change.
+Phases M0 through M7 are complete. They provide one-off authoring, optional
+Recipe publication, shared Test target capture, isolated Recipe applications,
+integrated qualification and selection, fresh Production data and authority,
+and the clean removal of Recipe-first ownership and compatibility code.
+Recipe-first R0 through R7 records remain historical evidence only.
 
 The current preparation limits remain:
 
@@ -47,35 +34,35 @@ The current preparation limits remain:
 
 This roadmap decision does not raise, remove, or reinterpret those limits.
 
-## Current product priority — Migration Projects and multi-Recipe cutover
+## Completed product priority — Migration Projects and multi-Recipe cutover
 
 **Priority decision, 2026-08-22:** Product ownership accepted
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 and made the [Migration projects and multi-Recipe cutover implementation
 plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) the
-active product-delivery focus.
+product-delivery focus. That plan completed on 2026-08-23.
 
 The current browser uses `MigrationProject` as the business root, lets a
 Project exist without a Recipe, makes DataVersion the owner of the complete
 source package, and applies several exact Project-scoped Recipe revisions
-through one planned Test MigrationRun. Phase M5 qualifies one exact integrated
-CutoverPlan and records rollout selection separately. Phase M6 now creates a
-fresh latest-data Production run with independent target and credential
-authority. Phase M7 must remove the remaining Recipe-first compatibility code
-and stale historical fixtures from the active implementation.
+through one planned Test MigrationRun. One exact integrated CutoverPlan is
+qualified and selected separately. Production uses a fresh latest-data run
+with independent target and credential authority. M7 removed the remaining
+Recipe-first compatibility code and stale active fixtures.
 
-The implementation must retain the current portable Recipe compiler, fresh
-Test and Production evidence, credential separation, Odoo 19 boundaries,
-immutable execution evidence, and reconciliation behavior. It must remove the
+The completed implementation retains the portable Recipe compiler, fresh Test
+and Production evidence, credential separation, Odoo 19 boundaries, immutable
+execution evidence, and reconciliation behavior. M7 removed the
 Project-as-Recipe alias, Recipe-owned DataVersions and cutover pointer,
-Recipe-root creation route, old schema migrations, compatibility shells, and
-stale documentation before completion.
+Recipe-root creation route, old schema migration, compatibility shells, and
+stale active documentation.
 
-No deferred product track becomes current while this plan is active. Narrow
-maintenance, security, data-loss, regression, and performance fixes required
-to preserve the current workflow remain in scope.
+Completing M7 does not automatically activate a deferred product track. Product
+ownership must explicitly select the next priority. Narrow maintenance,
+security, data-loss, regression, and performance fixes required to preserve the
+current workflow remain in scope.
 
-**Phase status, 2026-08-23:** Phases M0 through M6 are complete. The [Phase M0
+**Phase status, 2026-08-23:** Phases M0 through M7 are complete. The [Phase M0
 contracts](migration-projects-phase-m0-contracts.md) freeze the target
 ownership and integrated-plan rules. The [Phase M1 persistence
 foundation](migration-projects-phase-m1-foundation.md) implements the clean
@@ -97,7 +84,10 @@ write guards, protected evidence, and separate rollout selection. The [Phase
 M6 implementation](migration-projects-phase-m6-production-rollout.md) adds
 fresh latest-data setup, exact selected-plan activation, independent
 Production read and write authority, isolated application evidence, and
-restart-safe cross-store recovery. Phase M7 is next.
+restart-safe cross-store recovery. The [Phase M7 clean
+cutover](migration-projects-phase-m7-clean-cutover.md) removes Recipe-first
+ownership, additive workspace migration, compatibility paths, stale fixtures,
+and stale current documentation.
 
 ## Completed product priority — Recipe test-to-production reuse
 

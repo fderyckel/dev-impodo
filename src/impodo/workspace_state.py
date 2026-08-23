@@ -367,7 +367,7 @@ class WorkspaceStateService:
         return self._save(
             updated,
             project,
-            "PROJECT_DETAILS_UPDATED",
+            "WORKSPACE_DETAILS_UPDATED",
             actor=actor,
         )
 
@@ -410,7 +410,7 @@ class WorkspaceStateService:
         return self._save(
             updated,
             project,
-            "PROJECT_GOVERNANCE_UPDATED",
+            "WORKSPACE_GOVERNANCE_UPDATED",
             actor=actor,
         )
 
@@ -458,7 +458,7 @@ class WorkspaceStateService:
         return self._save(
             updated,
             project,
-            "PROJECT_TARGET_UPDATED",
+            "WORKSPACE_TARGET_UPDATED",
             actor=actor,
         )
 
@@ -790,7 +790,7 @@ class WorkspaceStateService:
         return self._save(
             registered,
             project,
-            "PROJECT_REGISTERED",
+            "WORKSPACE_REGISTERED",
             actor=actor,
         )
 
@@ -851,7 +851,7 @@ def workspace_setup_requirements(
     if not project.name:
         requirements.append(
             WorkspaceSetupRequirement(
-                code="PROJECT_NAME_REQUIRED",
+                code="WORKSPACE_NAME_REQUIRED",
                 step=WorkspaceSetupStep.DETAILS,
                 problem="Project name is required",
                 guidance="Enter a project name.",

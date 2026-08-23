@@ -197,8 +197,8 @@ or rewrite the source.
 
 ## 3. Freeze the physical tables
 
-After all files are confirmed, open **Choose tables** and assign stable table
-names:
+After all files are confirmed, continue below the source reviews and assign
+stable names under **Save the tables for this data version**:
 
 | File | Table name in Impodo |
 | --- | --- |
@@ -206,8 +206,8 @@ names:
 | products_training.csv | products |
 | bom_lines_training.csv | bom_source_rows |
 
-Select **Freeze selected tables**. The selection is now bound to the confirmed
-source hashes.
+Select **Save tables for this data version**. Impodo binds the selection to the
+confirmed source files.
 
 If the source owner sends a corrected export before table choices are saved,
 return to **Check source files**, add the corrected file, and remove the wrong

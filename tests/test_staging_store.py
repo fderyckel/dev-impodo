@@ -402,7 +402,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.projects.save(
             changed,
             expected_revision=current_project.revision,
-            event_type="PROJECT_TARGET_UPDATED",
+            event_type="WORKSPACE_TARGET_UPDATED",
             event_detail="",
             actor=LOCAL_ACTOR,
         )
@@ -431,7 +431,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(
             status,
-            (StagingRunStatus.INVALIDATED.value, "PROJECT_TARGET_CHANGED"),
+            (StagingRunStatus.INVALIDATED.value, "WORKSPACE_TARGET_CHANGED"),
         )
 
     def test_row_writer_uses_bounded_bulk_batches(self) -> None:

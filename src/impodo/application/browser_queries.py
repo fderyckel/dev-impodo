@@ -1,6 +1,6 @@
 """Expose read-only current-evidence projections to browser presenters.
 
-Migration stages: cross-cutting Aâ€“H. ``BrowserQueryService`` deliberately
+Migration stages: cross-cutting A–H. ``BrowserQueryService`` deliberately
 contains transparent forwarding methods: it gives routes one typed read facade
 without mixing queries into command services or exposing DuckDB directly.
 These one-line forwarders are documented by their repository port and return
@@ -41,7 +41,7 @@ from .mapping_field_catalog_query import (
 )
 
 
-class ProjectQueryRepository(Protocol):
+class WorkspaceStateQueryRepository(Protocol):
     """Read current mutable workspace state."""
 
     def get(self, project_id: str) -> WorkspaceState: ...
@@ -58,9 +58,6 @@ class SourceQueryRepository(Protocol):
         self, project_id: str
     ) -> tuple[SourceConfiguration, ...]: ...
     def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
-    def get_mapping_source_selection(
-        self, project_id: str
-    ) -> SourceSelection | None: ...
     def get_current_source_snapshots(
         self, project_id: str
     ) -> tuple[SourceSnapshot, ...]: ...
@@ -170,7 +167,7 @@ class BrowserQueryService:
 
     def __init__(
         self,
-        projects: ProjectQueryRepository,
+        workspace_states: WorkspaceStateQueryRepository,
         sources: SourceQueryRepository,
         derived_entities: DerivedEntityQueryRepository,
         schemas: SchemaQueryRepository,
@@ -180,7 +177,7 @@ class BrowserQueryService:
         transformation_impacts: TransformationImpactQueryRepository,
         mapping_sources: MappingSourceQueryRepository,
     ) -> None:
-        self._projects = projects
+        self._workspace_states = workspace_states
         self._sources = sources
         self._derived_entities = derived_entities
         self._schemas = schemas
@@ -191,10 +188,10 @@ class BrowserQueryService:
         self._mapping_sources = mapping_sources
 
     def get(self, project_id: str) -> WorkspaceState:
-        return self._projects.get(project_id)
+        return self._workspace_states.get(project_id)
 
-    def has_project_audit_event(self, project_id: str, event_type: str) -> bool:
-        return self._projects.has_audit_event(project_id, event_type)
+    def has_workspace_audit_event(self, project_id: str, event_type: str) -> bool:
+        return self._workspace_states.has_audit_event(project_id, event_type)
 
     def get_source_catalogs(
         self, project_id: str

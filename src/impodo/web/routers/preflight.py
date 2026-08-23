@@ -1,6 +1,6 @@
 """Expose read-only Odoo comparison and its review artifacts.
 
-Migration stage: H â€” read-only target preflight. Layer: web route.
+Migration stage: H — read-only target preflight. Layer: web route.
 
 The compare action supplies
 :class:`impodo.application.preflight_service.PreflightService` with a
@@ -171,7 +171,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     persistent=_read_key_persistence(form),
                 )
                 audit_stored_target_credential(
-                    context.projects,
+                    context.workspace_states,
                     credential_owner,
                     TargetCredentialRole.READ,
                     credential,

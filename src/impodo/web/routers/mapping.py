@@ -346,7 +346,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
         return _render(
             request,
-            "project_transformation_impact.html",
+            "workspace_transformation_impact.html",
             project=project,
             revision=revision,
             snapshot=snapshot,
@@ -411,7 +411,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
             return _render(
                 request,
-                "project_transformation_impact.html",
+                "workspace_transformation_impact.html",
                 project=project,
                 revision=revision,
                 snapshot=None,

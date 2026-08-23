@@ -15,6 +15,7 @@ from ...business_keys import (
     selectable_business_key_fields,
 )
 from ...derived_entities import DerivedEntityRule
+from ...inspection import SourceFileCatalog
 from ...workspace_state import WorkspaceState
 from ...workspace_contracts import (
     OdooModelCatalog,
@@ -22,6 +23,7 @@ from ...workspace_contracts import (
     SchemaField,
     SchemaModel,
     SchemaOrigin,
+    SourceConfiguration,
 )
 from ...workspace_errors import WorkspaceError
 from ..constants import (
@@ -143,12 +145,21 @@ def _dataset_choices(
     context: WebContext,
     project_id: str,
 ) -> tuple[dict[str, str], ...]:
-    catalogs = {
-        item.file_id: item
-        for item in context.queries.get_source_catalogs(project_id)
-    }
+    return _dataset_choices_from(
+        context.queries.get_source_catalogs(project_id),
+        context.queries.get_source_configurations(project_id),
+    )
+
+
+def _dataset_choices_from(
+    source_catalogs: tuple[SourceFileCatalog, ...],
+    source_configurations: tuple[SourceConfiguration, ...],
+) -> tuple[dict[str, str], ...]:
+    """Build naming rows from one already-loaded source review snapshot."""
+
+    catalogs = {item.file_id: item for item in source_catalogs}
     choices: list[dict[str, str]] = []
-    for configuration in context.queries.get_source_configurations(project_id):
+    for configuration in source_configurations:
         catalog = catalogs.get(configuration.file_id)
         if catalog is None or catalog.content_hash != configuration.catalog_hash:
             continue
@@ -268,7 +279,7 @@ def _render_derived_entities(
         namespace = "imported_data"
     return _render(
         request,
-        "project_derived_entities.html",
+        "workspace_derived_entities.html",
         project=project,
         selection=selection,
         plan=plan,
@@ -391,7 +402,7 @@ def _render_schema(
     )
     return _render(
         request,
-        "project_schema.html",
+        "workspace_schema.html",
         project=project,
         selection=context.queries.get_source_selection(project_id),
         model_catalog=model_catalog,

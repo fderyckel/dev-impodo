@@ -160,8 +160,8 @@
                     {% endif %}
                     <details class="technical-details">
                       <summary>Support details</summary>
-                      <code>{{ row.effective_disposition.value }} Â· {{ row.row_id }}</code>
-                      {% for detail in item.issues %}<small class="row-field"><code>{{ detail.reason_code }} Â· {{ detail.rule_id }}</code></small>{% endfor %}
+                      <code>{{ row.effective_disposition.value }} · {{ row.row_id }}</code>
+                      {% for detail in item.issues %}<small class="row-field"><code>{{ detail.reason_code }} · {{ detail.rule_id }}</code></small>{% endfor %}
                     </details>
                   </td>
                 </tr>
@@ -197,8 +197,8 @@
       {% endif %}
       <details class="technical-details">
         <summary>Support details</summary>
-        <p><code>Quality run {{ quality.run_id }} Â· {{ quality.content_hash }}</code></p>
-        <p>Prepared evidence <code>{{ quality.staging_content_hash }}</code> Â· rules <code>{{ quality.ruleset_hash }}</code></p>
+        <p><code>Quality run {{ quality.run_id }} · {{ quality.content_hash }}</code></p>
+        <p>Prepared evidence <code>{{ quality.staging_content_hash }}</code> · rules <code>{{ quality.ruleset_hash }}</code></p>
       </details>
     </section>
   {% endif %}
@@ -310,6 +310,20 @@
         {% endif %}
       </div>
     </section>
+    {% endif %}
+
+    {% if migration_context.data_version_purpose == 'AUTHORING' and not odoo_source and submission and staging and staging.control_totals_passed and quality and quality.ready_for_package and not readiness.blocked_count and not readiness.needs_review_count %}
+      <section class="form-card" aria-labelledby="recipe-save-title" data-recipe-save-handoff>
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Optional before Odoo load</p>
+            <h2 id="recipe-save-title">Keep these rules for another data version</h2>
+            <p>Your submitted preparation, matching, relationship, and checking rules are already saved in this workspace. Save a Recipe when you want Impodo to apply them to another suitable data version.</p>
+            <p class="muted">The review workbook documents this data check. It does not save or publish the rules.</p>
+          </div>
+          <a class="button secondary" href="/projects/{{ migration_context.project_id }}#project-recipes-title">Save these rules as a Recipe</a>
+        </div>
+      </section>
     {% endif %}
 
     {% if staging %}

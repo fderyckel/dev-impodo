@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**Status:** Accepted target architecture and active implementation plan from
-2026-08-23. Phases M0 through M6 are complete; Phase M7 is next.
+**Status:** Implemented target architecture. Phases M0 through M7 completed on
+2026-08-23.
 
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target architecture. It supersedes ADR-012 and ADR-013 for
@@ -13,9 +13,8 @@ credential-separation, evidence, and fail-closed execution boundaries where
 this plan does not explicitly replace them.
 
 Current contracts, architecture pages, user documentation, and screenshots
-describe the implemented Project-first browser through M5. This plan must not
-be used to claim that a Production run is available before its later
-implementation gate passes.
+describe the implemented Project-first browser. This plan remains the
+normative design record; the phase records preserve implementation evidence.
 
 This plan replaces the completed
 [Recipe-first test-to-production plan](reusable-recipes-and-data-versions-implementation-plan.md)
@@ -637,9 +636,9 @@ unbounded distinct-value materialization.
 
 ## 13. Delivery phases
 
-All phases should be developed on one cutover branch. The Recipe-first runtime
-must not be released as a supported compatibility mode beside the new model.
-The branch is not complete until Phase M7 deletes the old ownership path.
+All phases were developed as one clean cutover. The Recipe-first runtime is not
+a supported compatibility mode beside the implemented model. Phase M7 removed
+the old ownership path.
 
 ### Phase M0 - Freeze target contracts and acceptance fixtures
 
@@ -771,7 +770,8 @@ as Production readiness.
 
 ### Phase M7 - Remove Recipe-first ownership and complete documentation
 
-**Status:** Planned and blocking.
+**Status:** Completed on 2026-08-23. See the [Phase M7 clean-cutover
+record](migration-projects-phase-m7-clean-cutover.md).
 
 - Delete Recipe-owned DataVersion and cutover fields, services, repository
   methods, schema migrations, routes, templates, presenters, tests, and type

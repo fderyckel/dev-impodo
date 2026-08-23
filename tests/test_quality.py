@@ -1444,7 +1444,7 @@ class QualityStoreTests(unittest.TestCase):
         self.projects.save(
             changed,
             expected_revision=current.revision,
-            event_type="PROJECT_GOVERNANCE_UPDATED",
+            event_type="WORKSPACE_GOVERNANCE_UPDATED",
             event_detail="",
             actor=LOCAL_ACTOR,
         )
@@ -1466,7 +1466,7 @@ class QualityStoreTests(unittest.TestCase):
             lifecycle,
             (
                 QualityRunStatus.INVALIDATED.value,
-                "PROJECT_GOVERNANCE_CHANGED",
+                "WORKSPACE_GOVERNANCE_CHANGED",
             ),
         )
 

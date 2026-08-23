@@ -653,7 +653,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         ) as path:
             table = load_source_snapshot_table(path, snapshot)
         row = table.rows[0]
-        self.assertEqual(row.values["Text"], "Ã…ngstrÃ¶m æ±äº¬")
+        self.assertEqual(row.values["Text"], "Ångström 東京")
         self.assertIs(row.values["Boolean"], True)
         self.assertEqual(row.values["Integer"], 9_007_199_254_740_991)
         self.assertEqual(row.values["Float"], 12.5)
@@ -920,7 +920,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         worksheet.append(headers)
         worksheet.append(
             (
-                "Ã…ngstrÃ¶m æ±äº¬",
+                "Ångström 東京",
                 True,
                 9_007_199_254_740_991,
                 12.5,

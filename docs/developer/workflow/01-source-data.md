@@ -28,6 +28,14 @@ For file mode, `sources.py` invokes source inspection and
 tables. The frozen source snapshot is built from hash-checked CSV or XLSX
 content and materialized as tagged Parquet evidence.
 
+After every file is confirmed, the Source data page uses the already loaded
+catalogues and configurations to render the dataset-name fields and the final
+save action. `POST /workspaces/{project_id}/datasets/freeze` retains the hard
+evidence boundary. Before a selection exists,
+`GET /workspaces/{project_id}/datasets` returns the data manager to the inline
+form; after the save, that route presents the saved-table result and the next
+action.
+
 For Odoo mode, schema capture occurs first. The source routes then save a
 bounded capture selection, hold the read credential in session state, run the
 capture job, and publish frozen Odoo records through

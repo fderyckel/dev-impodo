@@ -50,10 +50,10 @@ class WorkflowStage:
 
 
 @dataclass(frozen=True, slots=True)
-class ProjectNavigation:
-    """Complete navigation context for one rendered project page."""
+class WorkspaceNavigation:
+    """Complete navigation context for one rendered workspace page."""
 
-    project_id: str
+    workspace_id: str
     project_name: str
     registered: bool
     setup_active: bool
@@ -90,54 +90,57 @@ class ProjectNavigation:
 
 
 _TEMPLATE_LOCATION = {
-    "project_overview.html": ("", "Project overview"),
-    "project_sources.html": ("source", "Check source files"),
-    "project_odoo_capture_selection.html": (
+    "workspace_overview.html": ("", "Project overview"),
+    "workspace_sources.html": ("source", "Check source files"),
+    "workspace_odoo_capture_selection.html": (
         "source",
         "Define bounded Odoo capture",
     ),
-    "project_odoo_capture_progress.html": (
+    "workspace_odoo_capture_progress.html": (
         "source",
         "Freeze Odoo records",
     ),
-    "project_datasets.html": ("source", "Choose tables"),
-    "project_derived_entities.html": (
+    "workspace_datasets.html": ("source", "Saved source tables"),
+    "workspace_derived_entities.html": (
         "source",
         "Separate combined information",
     ),
-    "project_schema.html": ("odoo", "Choose Odoo records"),
-    "project_mapping.html": ("match", "Match fields"),
-    "project_transformation_impact.html": (
+    "workspace_schema.html": ("odoo", "Choose Odoo records"),
+    "workspace_mapping.html": ("match", "Match fields"),
+    "workspace_transformation_impact.html": (
         "match",
         "Review rule effects",
     ),
-    "project_prepare.html": ("prepare", "Start preparation"),
-    "project_preparation_progress.html": (
+    "workspace_prepare.html": ("prepare", "Start preparation"),
+    "workspace_preparation_progress.html": (
         "prepare",
         "Preparation progress",
     ),
-    "project_resolution.html": ("prepare", "Review possible duplicates"),
-    "project_normalization.html": ("prepare", "Approve prepared data"),
-    "project_summary.html": ("review", "Final review"),
-    "project_load.html": ("load", "Load into Odoo"),
+    "workspace_resolution.html": ("prepare", "Review possible duplicates"),
+    "workspace_normalization.html": ("prepare", "Approve prepared data"),
+    "workspace_summary.html": ("review", "Final review"),
+    "workspace_load.html": ("load", "Load into Odoo"),
+    "workspace_load_progress.html": ("load", "Loading into Odoo"),
 }
 
 
-def build_project_navigation(
+def build_workspace_navigation(
     context: WebContext,
     project: WorkspaceState,
     template_name: str,
     *,
     current_path: str = "",
-) -> ProjectNavigation:
+    project_name: str | None = None,
+) -> WorkspaceNavigation:
     """Return one request-scoped workflow snapshot for the rendered page."""
 
     current_project = context.queries.get(project.project_id)
+    navigation_name = project_name or current_project.name
     viewed_stage_id, viewed_page_label = _TEMPLATE_LOCATION.get(
         template_name,
         ("", "Project setup"),
     )
-    if template_name == "project_load.html":
+    if template_name == "workspace_load.html":
         if current_path.endswith("/load/confirm"):
             viewed_page_label = "Confirm and load"
         elif current_path.endswith("/load/outcome"):
@@ -151,9 +154,9 @@ def build_project_navigation(
             if current_project.source_mode is SourceMode.FILE
             else "target"
         )
-        return ProjectNavigation(
-            project_id=current_project.project_id,
-            project_name=current_project.name,
+        return WorkspaceNavigation(
+            workspace_id=current_project.project_id,
+            project_name=navigation_name,
             registered=False,
             setup_active=True,
             setup_href=f"/workspaces/{current_project.project_id}/{setup_page}",
@@ -263,6 +266,7 @@ def build_project_navigation(
                 viewed_stage_id,
                 viewed_page_label,
                 stages,
+                project_name=navigation_name,
             )
 
         project_id = current_project.project_id
@@ -312,6 +316,7 @@ def build_project_navigation(
                 viewed_stage_id,
                 viewed_page_label,
                 stages,
+                project_name=navigation_name,
             )
 
         active_job = (
@@ -439,6 +444,7 @@ def build_project_navigation(
             viewed_stage_id,
             viewed_page_label,
             stages,
+            project_name=navigation_name,
         )
 
     project_id = current_project.project_id
@@ -475,8 +481,16 @@ def build_project_navigation(
                 _page(
                     project_id,
                     "datasets",
-                    "Choose tables",
-                    "/datasets",
+                    (
+                        "Saved source tables"
+                        if source_complete
+                        else "Save table choices"
+                    ),
+                    (
+                        "/datasets#tables-ready"
+                        if source_complete
+                        else "/sources#table-choices"
+                    ),
                     complete=source_complete,
                 ),
                 _page(
@@ -498,6 +512,7 @@ def build_project_navigation(
             viewed_stage_id,
             viewed_page_label,
             stages,
+            project_name=navigation_name,
         )
 
     schema = context.queries.get_odoo_schema_catalog(project_id)
@@ -531,6 +546,7 @@ def build_project_navigation(
             viewed_stage_id,
             viewed_page_label,
             stages,
+            project_name=navigation_name,
         )
 
     revision = context.queries.get_mapping_revision(project_id)
@@ -588,6 +604,7 @@ def build_project_navigation(
             viewed_stage_id,
             viewed_page_label,
             stages,
+            project_name=navigation_name,
         )
 
     active_job = (
@@ -632,6 +649,7 @@ def build_project_navigation(
             viewed_stage_id,
             viewed_page_label,
             stages,
+            project_name=navigation_name,
         )
 
     staging = context.preflight.current_staging(project_id)
@@ -672,7 +690,7 @@ def build_project_navigation(
             complete=staging is not None,
         )
     ]
-    if template_name == "project_preparation_progress.html" and current_path:
+    if template_name == "workspace_preparation_progress.html" and current_path:
         preparation_pages.append(
             WorkflowPage(
                 page_id="preparation-progress",
@@ -724,6 +742,7 @@ def build_project_navigation(
             viewed_stage_id,
             viewed_page_label,
             stages,
+            project_name=navigation_name,
         )
 
     report = context.preflight.current_report(project_id)
@@ -768,10 +787,16 @@ def build_project_navigation(
             viewed_stage_id,
             viewed_page_label,
             stages,
+            project_name=navigation_name,
         )
 
     load_status = "current"
     load_label = "Current"
+    active_load_job = (
+        context.load_jobs.active(project_id)
+        if context.load_jobs is not None
+        else None
+    )
     try:
         preview = context.execution.current_preview(project_id)
     except (ReadinessError, WorkspaceError):
@@ -779,7 +804,9 @@ def build_project_navigation(
         load_status = "attention"
         load_label = "Needs attention"
     reconciliation = None
-    if preview is not None:
+    if active_load_job is not None:
+        load_label = "In progress"
+    elif preview is not None:
         if preview.snapshot.write_count == 0:
             load_status = "complete"
             load_label = "No changes needed"
@@ -807,7 +834,25 @@ def build_project_navigation(
         complete=preview is not None,
         attention=preview is not None and not preview.can_load,
     )
-    if preview is not None and preview.current_run is not None:
+    if active_load_job is not None:
+        confirm_page = WorkflowPage(
+            page_id="load-confirm",
+            label="Confirm and load",
+            href=(
+                f"/workspaces/{project_id}/load/progress/"
+                f"{active_load_job.job_id}"
+            ),
+            status="current",
+            status_label="In progress",
+        )
+        outcome_page = WorkflowPage(
+            page_id="load-outcome",
+            label="Verify result",
+            href=None,
+            status="locked",
+            status_label="Not ready",
+        )
+    elif preview is not None and preview.current_run is not None:
         confirm_page = WorkflowPage(
             page_id="load-confirm",
             label="Confirm and load",
@@ -871,6 +916,7 @@ def build_project_navigation(
         viewed_stage_id,
         viewed_page_label,
         stages,
+        project_name=navigation_name,
     )
 
 
@@ -880,7 +926,9 @@ def _navigation(
     viewed_stage_id: str,
     viewed_page_label: str,
     stages: list[WorkflowStage],
-) -> ProjectNavigation:
+    *,
+    project_name: str | None = None,
+) -> WorkspaceNavigation:
     current_stage = next(
         (
             stage
@@ -911,14 +959,14 @@ def _navigation(
         )
         for stage in stages
     )
-    return ProjectNavigation(
-        project_id=project.project_id,
-        project_name=project.name,
+    return WorkspaceNavigation(
+        workspace_id=project.project_id,
+        project_name=project_name or project.name,
         registered=True,
         setup_active=False,
         setup_href=f"/workspaces/{project.project_id}/details",
         overview_href=f"/workspaces/{project.project_id}/overview",
-        overview_active=template_name == "project_overview.html",
+        overview_active=template_name == "workspace_overview.html",
         current_stage_id=current_stage.stage_id,
         current_stage_label=current_stage.label,
         viewed_stage_id=viewed_stage_id,
@@ -927,7 +975,7 @@ def _navigation(
     )
 
 
-def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
+def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavigation:
     """Build Stage-4 navigation entirely from the in-memory job snapshot."""
 
     project_id = job.project_id
@@ -983,8 +1031,8 @@ def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
         ),
         *_locked_stages(project_id, after="prepare"),
     )
-    return ProjectNavigation(
-        project_id=project_id,
+    return WorkspaceNavigation(
+        workspace_id=project_id,
         project_name=job.project_name,
         registered=True,
         setup_active=False,

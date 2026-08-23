@@ -74,7 +74,7 @@ class DurablePreflightScaleTests(unittest.TestCase):
             )
             self.assertTrue(summary.frozen)
 
-            project = context.projects.repository.get(project_id)
+            project = context.workspace_states.repository.get(project_id)
             for source in project.source_files:
                 artifacts.delete_source(project_id, source.stored_name)
 

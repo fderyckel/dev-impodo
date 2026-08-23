@@ -1572,7 +1572,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 sha256=stored.sha256,
                 received_at=benchmark_now,
             )
-            project = self.context.projects.add_source_file(
+            project = self.context.workspace_states.add_source_file(
                 project.project_id,
                 actor=self.context.actor,
                 expected_revision=project.revision,
@@ -1604,7 +1604,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             updated_at=benchmark_now,
             registered_at=benchmark_now,
         )
-        self.context.projects.repository.save(
+        self.context.workspace_states.repository.save(
             registered,
             expected_revision=project.revision,
             event_type="TEST_PROJECT_REGISTERED",
@@ -1872,7 +1872,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             sha256=stored.sha256,
             received_at=benchmark_now,
         )
-        project = self.context.projects.add_source_file(
+        project = self.context.workspace_states.add_source_file(
             project.project_id,
             actor=self.context.actor,
             expected_revision=project.revision,
@@ -1893,7 +1893,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             updated_at=now,
             registered_at=now,
         )
-        self.context.projects.repository.save(
+        self.context.workspace_states.repository.save(
             registered,
             expected_revision=project.revision,
             event_type="TEST_PROJECT_REGISTERED",

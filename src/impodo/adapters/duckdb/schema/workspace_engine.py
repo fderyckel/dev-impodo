@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import duckdb
 
 from ....workspace_state import WorkspaceStateCompatibilityError
@@ -18,7 +16,7 @@ from .reconciliation import create_reconciliation_schema
 from .recipe_application_workspace import (
     create_recipe_application_workspace_schema,
 )
-from .supporting_lookup import ensure_supporting_lookup_schema
+from .supporting_lookup import create_supporting_lookup_schema
 from .source_snapshot import create_source_snapshot_schema
 
 
@@ -611,8 +609,7 @@ class WorkspaceEngineSchemaMixin:
         create_prepared_snapshot_schema(connection)
         create_derived_value_artifact_schema(connection)
         create_recipe_application_workspace_schema(connection)
-        ensure_supporting_lookup_schema(connection)
-        self._remember_prepared_project_schema(connection)
+        create_supporting_lookup_schema(connection)
 
     def _ensure_workspace_database_schema(
         self,
@@ -635,47 +632,7 @@ class WorkspaceEngineSchemaMixin:
         stored_version = int(row[1])
         if stored_version != SCHEMA_VERSION:
             raise WorkspaceStateCompatibilityError(
-                "This project uses a different Impodo data contract and cannot "
+                "This workspace uses a different Impodo data contract and cannot "
                 "be opened by this build."
             )
-        schema_key = self._project_schema_file_key(connection)
-        if schema_key is None:
-            create_recipe_application_workspace_schema(connection)
-            ensure_supporting_lookup_schema(connection)
-            return
-        with self._project_schema_migration_lock:
-            if schema_key in self._prepared_project_schema_files:
-                return
-            create_recipe_application_workspace_schema(connection)
-            ensure_supporting_lookup_schema(connection)
-            self._prepared_project_schema_files.add(schema_key)
-
-    def _remember_prepared_project_schema(
-        self,
-        connection: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """Remember a workspace database initialized by this application process."""
-
-        schema_key = self._project_schema_file_key(connection)
-        if schema_key is None:
-            return
-        with self._project_schema_migration_lock:
-            self._prepared_project_schema_files.add(schema_key)
-
-    @staticmethod
-    def _project_schema_file_key(
-        connection: duckdb.DuckDBPyConnection,
-    ) -> tuple[str, int, int] | None:
-        """Identify one database file without invalidating the cache on writes."""
-
-        rows = connection.execute("PRAGMA database_list").fetchall()
-        database_file = next(
-            (str(row[2]) for row in rows if row[2]),
-            None,
-        )
-        if database_file is None:
-            return None
-        path = Path(database_file).resolve()
-        stat = path.stat()
-        return (str(path), int(stat.st_dev), int(stat.st_ino))
 

@@ -203,6 +203,7 @@ class ExecutionService:
         read_credential_binding_hash: str = "",
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
+        progress: Callable[[ExecutionRun], None] | None = None,
     ) -> ExecutionRun:
         self.authorization.require(
             actor,
@@ -287,6 +288,8 @@ class ExecutionService:
             ),
         )
         self.journal.start_run(project_id, run, actor=actor)
+        report_progress = progress or (lambda _run: None)
+        report_progress(run)
 
         metadata = {item.dataset: item for item in snapshot.datasets}
         by_source = {
@@ -319,6 +322,7 @@ class ExecutionService:
                     recorded,
                     "Not attempted after an uncertain Odoo response",
                 )
+                report_progress(replace(run, rows=tuple(recorded.values())))
                 continue
             creates = tuple(row for row in dataset_rows if row.disposition == "CREATE")
             updates = tuple(row for row in dataset_rows if row.disposition == "UPDATE")
@@ -359,6 +363,7 @@ class ExecutionService:
                             project_id, run.run_id, (outcome,)
                         )
                         recorded[row.row_id] = outcome
+                        report_progress(replace(run, rows=tuple(recorded.values())))
                     else:
                         prepared_rows.append((row, values, deferred))
                 if not prepared_rows:
@@ -403,6 +408,7 @@ class ExecutionService:
                             project_id, run.run_id, outcomes
                         )
                         recorded.update({item.row_id: item for item in outcomes})
+                        report_progress(replace(run, rows=tuple(recorded.values())))
                         stop_after_unknown = True
                         break
                     except OdooWriteRejected as error:
@@ -419,6 +425,7 @@ class ExecutionService:
                             project_id, run.run_id, outcomes
                         )
                         recorded.update({item.row_id: item for item in outcomes})
+                        report_progress(replace(run, rows=tuple(recorded.values())))
                         continue
                     outcomes = []
                     for (row, _values, deferred), identifier in zip(
@@ -450,6 +457,7 @@ class ExecutionService:
                         project_id, run.run_id, outcomes
                     )
                     recorded.update({item.row_id: item for item in outcomes})
+                    report_progress(replace(run, rows=tuple(recorded.values())))
                 if stop_after_unknown:
                     break
 
@@ -462,6 +470,7 @@ class ExecutionService:
                         recorded,
                         "Not attempted after an uncertain Odoo response",
                     )
+                    report_progress(replace(run, rows=tuple(recorded.values())))
                     continue
                 try:
                     record_id = self._find_row_id(
@@ -511,6 +520,7 @@ class ExecutionService:
                         )
                 self.journal.record_outcomes(project_id, run.run_id, (outcome,))
                 recorded[row.row_id] = outcome
+                report_progress(replace(run, rows=tuple(recorded.values())))
 
         if not stop_after_unknown:
             stop_after_unknown = self._apply_deferred_relationships(
@@ -525,6 +535,7 @@ class ExecutionService:
                 identity_cache,
                 executor,
             )
+            report_progress(replace(run, rows=tuple(recorded.values())))
 
         remaining = tuple(
             row
@@ -539,6 +550,7 @@ class ExecutionService:
                 recorded,
                 "Not attempted because an earlier dependency did not complete",
             )
+            report_progress(replace(run, rows=tuple(recorded.values())))
         statuses = {item.status for item in recorded.values()}
         final_status = (
             ExecutionRunStatus.OUTCOME_UNKNOWN
@@ -555,12 +567,14 @@ class ExecutionService:
                 else ExecutionRunStatus.COMPLETED
             )
         )
-        return self.journal.finish_run(
+        completed_run = self.journal.finish_run(
             project_id,
             run.run_id,
             final_status,
             actor=actor,
         )
+        report_progress(completed_run)
+        return completed_run
 
     @staticmethod
     def _validate_execution_scope(

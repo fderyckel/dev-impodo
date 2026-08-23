@@ -14,7 +14,7 @@ from ...workspace_state import (
 
 
 @dataclass(frozen=True, slots=True)
-class ProjectSetupStepView:
+class WorkspaceSetupStepView:
     """Render one compact step in the draft setup navigation."""
 
     step_id: str
@@ -27,7 +27,7 @@ class ProjectSetupStepView:
 
 
 @dataclass(frozen=True, slots=True)
-class ProjectSetupRecoveryView:
+class WorkspaceSetupRecoveryView:
     """Group exceptional confirmation blockers by their recovery page."""
 
     step_id: str
@@ -37,12 +37,12 @@ class ProjectSetupRecoveryView:
 
 
 @dataclass(frozen=True, slots=True)
-class ProjectSetupView:
+class WorkspaceSetupView:
     """Provide the setup navigation and the current page's useful blockers."""
 
-    steps: tuple[ProjectSetupStepView, ...]
+    steps: tuple[WorkspaceSetupStepView, ...]
     current_requirements: tuple[WorkspaceSetupRequirement, ...]
-    recovery_steps: tuple[ProjectSetupRecoveryView, ...]
+    recovery_steps: tuple[WorkspaceSetupRecoveryView, ...]
 
 
 _STEP_LABELS = {
@@ -51,15 +51,15 @@ _STEP_LABELS = {
 }
 
 _TEMPLATE_STEPS = {
-    "project_details.html": WorkspaceSetupStep.DETAILS,
-    "project_governance.html": WorkspaceSetupStep.GOVERNANCE,
-    "project_files.html": WorkspaceSetupStep.FILES,
-    "project_target.html": WorkspaceSetupStep.TARGET,
-    "project_review.html": WorkspaceSetupStep.REVIEW,
+    "workspace_details.html": WorkspaceSetupStep.DETAILS,
+    "workspace_governance.html": WorkspaceSetupStep.GOVERNANCE,
+    "workspace_files.html": WorkspaceSetupStep.FILES,
+    "workspace_target.html": WorkspaceSetupStep.TARGET,
+    "workspace_review.html": WorkspaceSetupStep.REVIEW,
 }
 
 
-def project_setup_step_order(
+def workspace_setup_step_order(
     project: WorkspaceState,
 ) -> tuple[WorkspaceSetupStep, ...]:
     """Return the setup sequence for the draft's selected source mode."""
@@ -71,17 +71,17 @@ def project_setup_step_order(
     )
 
 
-def build_project_setup_view(
+def build_workspace_setup_view(
     project: WorkspaceState,
     template_name: str,
-) -> ProjectSetupView:
+) -> WorkspaceSetupView:
     """Build one request-scoped setup view from the current project only."""
 
     requirements = workspace_setup_requirements(project)
     current_step = _TEMPLATE_STEPS.get(template_name)
-    order = project_setup_step_order(project)
-    step_views: list[ProjectSetupStepView] = []
-    recovery_views: list[ProjectSetupRecoveryView] = []
+    order = workspace_setup_step_order(project)
+    step_views: list[WorkspaceSetupStepView] = []
+    recovery_views: list[WorkspaceSetupRecoveryView] = []
     earlier_steps_complete = True
 
     for step in order:
@@ -109,7 +109,7 @@ def build_project_setup_view(
             href = _setup_step_url(project.project_id, step)
 
         step_views.append(
-            ProjectSetupStepView(
+            WorkspaceSetupStepView(
                 step_id=step.value,
                 label=_STEP_LABELS[step],
                 href=href,
@@ -121,7 +121,7 @@ def build_project_setup_view(
         )
         if step_requirements:
             recovery_views.append(
-                ProjectSetupRecoveryView(
+                WorkspaceSetupRecoveryView(
                     step_id=step.value,
                     label=_STEP_LABELS[step],
                     href=_setup_step_url(project.project_id, step),
@@ -133,7 +133,7 @@ def build_project_setup_view(
     current_requirements = tuple(
         item for item in requirements if item.step is current_step
     )
-    return ProjectSetupView(
+    return WorkspaceSetupView(
         steps=tuple(step_views),
         current_requirements=current_requirements,
         recovery_steps=tuple(recovery_views),
@@ -146,7 +146,7 @@ def blocking_setup_url(
 ) -> str | None:
     """Return the earliest incomplete page before ``requested_step``."""
 
-    order = project_setup_step_order(project)
+    order = workspace_setup_step_order(project)
     try:
         requested_index = order.index(requested_step)
     except ValueError:

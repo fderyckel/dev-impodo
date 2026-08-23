@@ -11,24 +11,21 @@ point-in-time implementation record, not a description of current routes or
 aggregate ownership.
 
 Phases R0 through R7, including the R4.5 clean-root consolidation, completed on
-2026-08-19. The active contracts are in the
-[Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
+2026-08-19. The [Recipe-first Phase R0
+contract](reusable-recipes-phase-r0-contracts.md) preserves the historical
+inputs; Migration Project M0 through M7 contracts are current.
 
 Product ownership replaced and removed the earlier project-series proposal with
 a Recipe-first architecture. The mapping contract v11 work completed on
 2026-08-18 remains valid foundation work.
-The aggregate, target, credential, qualification, and cutover boundaries are
-accepted in
+The aggregate, target, credential, qualification, and cutover boundaries were
+accepted at that time in the now-superseded
 [ADR-013](../decisions/README.md#adr-013--recipe-is-the-aggregate-root-and-target-bindings-are-application-specific).
 
-Until the definition of done in this plan passes, the authoritative
-[Impodo remaining work](remaining-work.md) defers the related/mixed 100,000-row
-qualification, general Odoo-source guarded updates, optional certification,
-general remote-production hardening, target-side gateway, and hosted
-composition tracks. Existing implemented limits and security controls remain
-in force; deferral is not permission to weaken them.
+The current [Impodo remaining work](remaining-work.md) owns all forward-looking
+priorities and deferrals.
 
-This plan is authoritative for the first complete workflow in which a data
+This plan historically governed the first complete workflow in which a data
 manager:
 
 1. authors a reusable Recipe with representative migration data;

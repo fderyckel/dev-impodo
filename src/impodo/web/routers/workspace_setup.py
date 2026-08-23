@@ -55,7 +55,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             )
         return _render(
             request,
-            "project_overview.html",
+            "workspace_overview.html",
             project=workspace,
         )
 
@@ -70,7 +70,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace.project_id}/target",
                 status_code=303,
             )
-        return _render(request, "project_files.html", project=workspace)
+        return _render(request, "workspace_files.html", project=workspace)
 
     @router.post("/workspaces/{workspace_id}/files")
     async def workspace_files(request: Request, workspace_id: str):
@@ -94,7 +94,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 request,
                 context,
                 workspace_id,
-                "project_files.html",
+                "workspace_files.html",
                 SourceIntakeError("Choose a CSV or XLSX file"),
             )
         added = 0
@@ -121,7 +121,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 request,
                 context,
                 workspace_id,
-                "project_files.html",
+                "workspace_files.html",
                 error,
             )
         finally:
@@ -137,7 +137,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
         try:
-            workspace = context.projects.register(
+            workspace = context.workspace_states.register(
                 workspace_id,
                 actor=context.actor,
                 expected_revision=_revision(form),
@@ -145,9 +145,9 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
         except WorkspaceRegistrationError as error:
             workspace = context.queries.get(workspace_id)
             template = (
-                "project_files.html"
+                "workspace_files.html"
                 if workspace.source_mode is SourceMode.FILE
-                else "project_review.html"
+                else "workspace_review.html"
             )
             return _project_error(
                 request,
@@ -164,9 +164,9 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_id,
                 (
-                    "project_files.html"
+                    "workspace_files.html"
                     if workspace.source_mode is SourceMode.FILE
-                    else "project_review.html"
+                    else "workspace_review.html"
                 ),
                 error,
                 problems=workspace_registration_problems(workspace),

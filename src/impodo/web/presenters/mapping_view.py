@@ -310,7 +310,7 @@ def _render_mapping(
         )
     return _render(
         request,
-        "project_mapping.html",
+        "workspace_mapping.html",
         project_id=project_id,
         project=context.queries.get(project_id),
         selection=selection,
@@ -453,7 +453,7 @@ def _render_mapping_field_catalog(
     view_build_ms = max(0.0, projection_ms - workspace_read_ms)
     render_started = perf_counter()
     template = request.app.state.templates.env.get_template(
-        "project_mapping.html"
+        "workspace_mapping.html"
     )
     block_name = f"{catalog_kind}_field_catalog"
     block = template.blocks.get(block_name)

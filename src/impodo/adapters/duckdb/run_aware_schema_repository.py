@@ -36,12 +36,16 @@ class RunAwareSchemaRepository:
             )
         return self.local.save_odoo_schema_catalog(workspace_id, catalog, actor=actor)
 
-    def rebind_odoo_schema_access(self, workspace_id, **kwargs):
+    def rebind_odoo_schema_access(self, workspace_id, catalog, **kwargs):
         if self.runs.get_workspace_target_schema(workspace_id) is not None:
             raise MigrationRunPlanningError(
                 "Refresh target evidence once from the integrated run"
             )
-        return self.local.rebind_odoo_schema_access(workspace_id, **kwargs)
+        return self.local.rebind_odoo_schema_access(
+            workspace_id,
+            catalog,
+            **kwargs,
+        )
 
     def get_schema_governance(self, workspace_id):
         return self.local.get_schema_governance(workspace_id)

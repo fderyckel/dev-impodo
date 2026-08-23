@@ -388,9 +388,9 @@ def _readiness_row(
     reason, action = _plain_guidance(code, decision.classification)
     field = issue.field if issue is not None and issue.field else ""
     field = source_labels.get((decision.dataset, field), field)
-    identity = " Â· ".join(
+    identity = " · ".join(
         _display_value(item) for item in decision.business_identity
-    ) or "â€”"
+    ) or "—"
     return ReadinessRow(
         dataset=decision.dataset,
         dataset_label=labels.get(decision.dataset, decision.dataset),

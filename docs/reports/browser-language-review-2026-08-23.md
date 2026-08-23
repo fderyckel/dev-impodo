@@ -20,9 +20,9 @@ the new shared concept-help partial and Concepts page.
 | `project_business_overview.html` | publish a Recipe revision | Workflow action | Two verbs described one data-manager action. | **Save a new Recipe version**. | Applied |
 | `project_new.html` | Project name | Core concept | Generic casing hid the approved product term. | **Data project name**. | Applied |
 | `base.html` and setup templates | Project | Core concept | Normal copy mixed an internal root name with the browser term. | **Data project**. | Applied |
-| `project_mapping.html` | recipe publication | Workflow action | Developer language appeared in a recovery message. | Save or reuse the Recipe. | Applied |
-| `project_odoo_capture_progress.html` | capture is published | Evidence boundary | Publication did not describe the data manager's result. | Impodo makes the data version current after capture finishes. | Applied |
-| `project_odoo_capture_selection.html` and `project_schema.html` | field catalog | Support detail | Technical collection language appeared in the main path. | **Odoo field list**; retain hashes in Support details. | Applied |
+| `workspace_mapping.html` | recipe publication | Workflow action | Developer language appeared in a recovery message. | Save or reuse the Recipe. | Applied |
+| `workspace_odoo_capture_progress.html` | capture is published | Evidence boundary | Publication did not describe the data manager's result. | Impodo makes the data version current after capture finishes. | Applied |
+| `workspace_odoo_capture_selection.html` and `workspace_schema.html` | field catalog | Support detail | Technical collection language appeared in the main path. | **Odoo field list**; retain hashes in Support details. | Applied |
 | `project_test_run_new.html` | Recipe revisions and application workspaces | Core concept | Internal run terms obscured the separate work areas. | **Recipe versions** and **Recipe work areas**. | Applied |
 | `project_integrated_run.html` | unioned requirements | Support detail | Implementation wording did not state the business result. | **Combined Odoo requirements**. | Applied |
 | `project_integrated_qualification.html` | raw internal status | Status | Internal state values lacked a decision meaning. | Selected, Qualified, Ready to qualify, or Current. | Applied |
@@ -39,16 +39,16 @@ the new shared concept-help partial and Concepts page.
   `_source_file_remove_form.html`, `_steps.html`, `base.html`, `concepts.html`,
   and `goodbye.html`.
 - Data project and workspace setup: `project_list.html`, `project_new.html`,
-  `project_business_overview.html`, `project_overview.html`,
-  `project_details.html`, `project_governance.html`, `project_files.html`,
-  `project_review.html`, and `project_target.html`.
-- Source and Odoo setup: `project_sources.html`, `project_datasets.html`,
-  `project_derived_entities.html`, `project_odoo_capture_progress.html`,
-  `project_odoo_capture_selection.html`, and `project_schema.html`.
-- Match, prepare, compare, and load: `project_mapping.html`,
-  `project_transformation_impact.html`, `project_prepare.html`,
-  `project_preparation_progress.html`, `project_normalization.html`,
-  `project_resolution.html`, `project_summary.html`, and `project_load.html`.
+  `project_business_overview.html`, `workspace_overview.html`,
+  `workspace_details.html`, `workspace_governance.html`, `workspace_files.html`,
+  `workspace_review.html`, and `workspace_target.html`.
+- Source and Odoo setup: `workspace_sources.html`, `workspace_datasets.html`,
+  `workspace_derived_entities.html`, `workspace_odoo_capture_progress.html`,
+  `workspace_odoo_capture_selection.html`, and `workspace_schema.html`.
+- Match, prepare, compare, and load: `workspace_mapping.html`,
+  `workspace_transformation_impact.html`, `workspace_prepare.html`,
+  `workspace_preparation_progress.html`, `workspace_normalization.html`,
+  `workspace_resolution.html`, `workspace_summary.html`, and `workspace_load.html`.
 - Integrated Test and Production: `project_test_run_new.html`,
   `project_integrated_run.html`, `project_integrated_qualification.html`,
   `project_production_run_new.html`, and `project_production_activation.html`.

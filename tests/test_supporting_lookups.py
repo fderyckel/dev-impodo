@@ -102,7 +102,7 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
         self.projects.save(
             changed,
             expected_revision=self.project.revision,
-            event_type="PROJECT_TARGET_UPDATED",
+            event_type="WORKSPACE_TARGET_UPDATED",
             event_detail="Target changed",
             actor=LOCAL_ACTOR,
         )

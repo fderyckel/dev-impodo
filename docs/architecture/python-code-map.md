@@ -10,8 +10,7 @@ status: current
 
 Impodo separates the Project business root from the technical workspace and
 from optional reusable Recipes. Begin with the actor action you are tracing,
-then follow the service to its exact repository. Do not infer ownership from
-the historical `project.duckdb` filename or `WorkspaceState` type name.
+then follow the service to its exact repository.
 
 ## Project-first composition
 
@@ -22,7 +21,7 @@ the historical `project.duckdb` filename or `WorkspaceState` type name.
 | Create a Project and first Authoring context | `MigrationProjectAuthoringService` | `migration_projects.py` router |
 | Own a complete source package | `DataVersion`, `DataVersionSourcePackage` | `data-version.duckdb` and DataVersion artifact directory |
 | Coordinate one target use | `MigrationRun` | registry `migration_run` projection |
-| Isolate current working evidence | `MigrationWorkspace` plus current workspace services | `workspace.duckdb`, contained `project.duckdb`, `/workspaces/{workspace_id}` |
+| Isolate current working evidence | `MigrationWorkspace` plus current workspace services | `workspace.duckdb`, contained `workspace-engine.duckdb`, `/workspaces/{workspace_id}` |
 | Supply mapping source contracts | `WorkspaceMappingSourceProjection` | bounded workspace source projection |
 | Compile reusable meaning | `RecipeCompiler.compile_workspace` | reads current workspace evidence only |
 | Publish optional Recipes | `RecipePublicationService` | `RecipeRepository`, protected Recipe store |
@@ -42,7 +41,7 @@ services.
 2. `MigrationProjectAuthoringService.create` creates a `MigrationProject`.
 3. It creates Authoring `DataVersion` 1 and an empty draft source package.
 4. It creates Authoring `MigrationRun` 1 and one open `MigrationWorkspace`.
-5. `ProjectService.provision_migration_workspace` initializes the existing
+5. `WorkspaceStateService.provision_migration_workspace` initializes the
    mapping engine under that exact workspace ID.
 6. Deterministic child operation IDs let the coordinator resume after a fault
    without creating duplicate roots.
@@ -149,17 +148,13 @@ Project identity, workspace identity, run identity, or cutover authority.
 
 | Stage | Main application service | Browser route prefix |
 | --- | --- | --- |
-| Setup | `ProjectService`, `SourceIntakeService` | `/workspaces/{workspace_id}` |
+| Setup | `WorkspaceStateService`, `SourceIntakeService` | `/workspaces/{workspace_id}` |
 | Source data | `SourceWorkspaceService`, `OdooCapturePublicationService` | `/workspaces/{workspace_id}/sources` |
 | Odoo data | `SchemaWorkspaceService` | `/workspaces/{workspace_id}/schema` |
 | Match data | `MappingWorkspaceService` | `/workspaces/{workspace_id}/mapping` |
 | Prepare data | `PreparationService`, `PreparationJobManager` | `/workspaces/{workspace_id}/prepare` |
 | Final review | `PreflightService` | `/workspaces/{workspace_id}/summary` |
 | Load and reconcile | `ExecutionService`, `ReconciliationService` | `/workspaces/{workspace_id}/load` |
-
-The route parameter is still named `project_id` in some contained engine
-functions. Its value is a MigrationWorkspace ID. New code should use
-`workspace_id`; it must not recreate a Project-as-workspace alias.
 
 ## Query and Odoo performance
 

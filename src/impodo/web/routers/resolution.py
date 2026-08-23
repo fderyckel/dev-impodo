@@ -37,7 +37,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
         pending_fields = sum(item.decision is None for item in review.fields)
         return _render(
             request,
-            "project_resolution.html",
+            "workspace_resolution.html",
             project=project,
             review=review,
             pending_pairs=pending_pairs,
