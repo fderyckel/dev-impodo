@@ -6,16 +6,16 @@ from uuid import UUID
 
 from ...access import Actor
 from ...domain.reconciliation import ReconciliationRun
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...workspace_errors import WorkspaceError
-from .database import DuckDbDatabase
+from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 
 
 class ReconciliationRepository(DuckDbRepository):
     """Own one immutable result for the current practical load."""
 
-    def __init__(self, database: DuckDbDatabase) -> None:
+    def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         super().__init__(database)
 
     def publish(
@@ -36,11 +36,11 @@ class ReconciliationRepository(DuckDbRepository):
             raise WorkspaceError("Verification result identifier is invalid") from error
         if report.project_id != project_id:
             raise WorkspaceError("Verification result belongs to another project")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -96,7 +96,7 @@ class ReconciliationRepository(DuckDbRepository):
                     "INSERT OR REPLACE INTO reconciliation_current VALUES (1, ?)",
                     [reconciliation_id],
                 )
-                revision = self._project_revision(connection)
+                revision = self._workspace_revision(connection)
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -134,11 +134,11 @@ class ReconciliationRepository(DuckDbRepository):
 
     def get(self, project_id: str, reconciliation_id: str) -> ReconciliationRun | None:
         canonical_id = str(UUID(reconciliation_id))
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT report_json FROM reconciliation_run
@@ -152,3 +152,4 @@ class ReconciliationRepository(DuckDbRepository):
         if report.project_id != project_id:
             raise WorkspaceError("Verification result belongs to another project")
         return report
+

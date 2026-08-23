@@ -17,13 +17,13 @@ from datetime import (
 import json
 
 
-from ...projects import (
+from ...workspace_state import (
     ApprovalStatus,
     DataClassification,
     ExportStatus,
     WorkspaceState,
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceMode,
     SourceFile,
 )
@@ -115,7 +115,7 @@ def _project_from_rows(
             )
             for row in source_rows
         ),
-        status=ProjectStatus(str(data["status"])),
+        status=WorkspaceStatus(str(data["status"])),
         revision=int(data["revision"]),
         created_at=datetime.fromisoformat(str(data["created_at"])),
         updated_at=datetime.fromisoformat(str(data["updated_at"])),
@@ -220,3 +220,4 @@ def _columnar_parameters(
     if not width or any(len(row) != width for row in rows):
         raise ValueError("DuckDB bulk rows must use one non-empty shape")
     return [[row[index] for row in rows] for index in range(width)]
+

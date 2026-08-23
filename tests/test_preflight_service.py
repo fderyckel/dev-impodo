@@ -42,7 +42,7 @@ from impodo.models import (
     canonical_json_text,
     target_identity_hash,
 )
-from impodo.projects import OdooConnectionMode
+from impodo.workspace_state import OdooConnectionMode
 from impodo.workspace_errors import WorkspaceError
 
 
@@ -331,3 +331,4 @@ class SnapshotProjectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

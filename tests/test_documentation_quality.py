@@ -31,7 +31,7 @@ class DocumentationQualityTests(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertIn(
-            "| Project and authoring workspace setup | yes | yes |",
+            "| Data project and authoring workspace setup | yes | yes |",
             first,
         )
         self.assertIn("| Load into Odoo | yes | yes |", first)
@@ -74,13 +74,13 @@ class DocumentationQualityTests(unittest.TestCase):
         self.assertTrue(
             resolve_code_reference(
                 ROOT,
-                "src/impodo/projects.py::ProjectService.register",
+                "src/impodo/workspace_state.py::WorkspaceStateService.register",
             )
         )
         self.assertFalse(
             resolve_code_reference(
                 ROOT,
-                "src/impodo/projects.py::ProjectService.not_a_method",
+                "src/impodo/workspace_state.py::WorkspaceStateService.not_a_method",
             )
         )
 
@@ -148,3 +148,4 @@ class DocumentationQualityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

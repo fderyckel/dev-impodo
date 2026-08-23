@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ...migration_foundation import MigrationFoundationError
 from ...migration_run_planning import RecipeDependency
-from ...project_recipes import ProjectRecipeError
+from ...recipes import RecipeError
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -38,7 +38,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             {
                 "csrf_token",
                 "operation_id",
-                "expected_project_revision",
+                "expected_workspace_revision",
                 "data_version_id",
                 "target_workspace_id",
                 "label",
@@ -73,8 +73,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
             result = context.run_planning.start_test_run(
                 project_id,
-                expected_project_revision=int(
-                    _text(form, "expected_project_revision")
+                expected_workspace_revision=int(
+                    _text(form, "expected_workspace_revision")
                 ),
                 data_version_id=_text(form, "data_version_id"),
                 recipe_revisions=selected,
@@ -90,7 +90,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
         except (
             MigrationFoundationError,
-            ProjectRecipeError,
+            RecipeError,
             TypeError,
             ValueError,
         ) as error:
@@ -147,7 +147,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         issues = context.run_planning.repository.list_run_issues(migration_run_id)
         recipes = {
             item.recipe_id: item
-            for item in context.project_recipes.list(project_id, actor=context.actor)
+            for item in context.recipes.list(project_id, actor=context.actor)
         }
         applications = {item.recipe_id: item for item in bundle.applications}
         ordered_applications = tuple(
@@ -214,7 +214,7 @@ def _render_test_run_form(
     data_version_by_id = {
         item.data_version_id: item for item in all_data_versions
     }
-    recipes = context.project_recipes.list(project_id, actor=context.actor)
+    recipes = context.recipes.list(project_id, actor=context.actor)
     workspaces = context.migration_workspaces.list_for_project(
         project_id,
         actor=context.actor,

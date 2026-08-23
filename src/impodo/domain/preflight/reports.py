@@ -21,7 +21,7 @@ from ...models import (
     Decision,
     PreflightResult,
 )
-from ...projects import WorkspaceState
+from ...workspace_state import WorkspaceState
 from ...quality import QualityRunSummary
 from ...normalization import NormalizationRunSummary
 from ...staging import StagingRunSummary
@@ -388,9 +388,9 @@ def _readiness_row(
     reason, action = _plain_guidance(code, decision.classification)
     field = issue.field if issue is not None and issue.field else ""
     field = source_labels.get((decision.dataset, field), field)
-    identity = " · ".join(
+    identity = " Â· ".join(
         _display_value(item) for item in decision.business_identity
-    ) or "—"
+    ) or "â€”"
     return ReadinessRow(
         dataset=decision.dataset,
         dataset_label=labels.get(decision.dataset, decision.dataset),
@@ -504,3 +504,4 @@ def _plain_guidance(
     if classification is Classification.AMBIGUOUS:
         return "More than one Odoo record matches.", "Review the matching records."
     return "This row cannot be processed safely.", "Review the row details."
+

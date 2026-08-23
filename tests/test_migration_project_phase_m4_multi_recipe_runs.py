@@ -28,7 +28,7 @@ from impodo.adapters.duckdb.migration_workspace_engine_database import (
 from impodo.adapters.duckdb.migration_workspace_state_repository import (
     MigrationWorkspaceStateRepository,
 )
-from impodo.adapters.duckdb.project_recipe_repository import ProjectRecipeRepository
+from impodo.adapters.duckdb.recipe_repository import RecipeRepository
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
 from impodo.adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
@@ -40,15 +40,15 @@ from impodo.application.migration_run_planning_service import (
     MigrationRunPlanningService,
 )
 from impodo.application.mapping_workspace_service import MappingWorkspaceService
-from impodo.application.project_recipe_application_compiler import (
-    ProjectRecipeApplicationCompiler,
-    ProjectRecipeApplicationAssessment,
-    ProjectRecipeMaterialization,
+from impodo.application.recipe_application_service import (
+    RecipeApplicationService,
+    RecipeApplicationAssessment,
+    RecipeMaterialization,
 )
-from impodo.application.project_recipe_publication_service import (
-    ProjectRecipePublicationService,
+from impodo.application.recipe_publication_service import (
+    RecipePublicationService,
 )
-from impodo.application.recipe_authoring_service import CompiledRecipeDefinition
+from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
 from impodo.data_version_sources import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
@@ -89,8 +89,8 @@ from impodo.migration_run_planning import (
 )
 from impodo.migration_runs import MigrationRunService
 from impodo.migration_workspaces import MigrationWorkspaceService
-from impodo.project_recipes import ProjectRecipeService
-from impodo.projects import ProjectService
+from impodo.recipes import RecipeService
+from impodo.workspace_state import WorkspaceStateService
 from impodo.secrets import MemorySecretStore
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -112,7 +112,7 @@ class SimulatedCrash(RuntimeError):
     pass
 
 
-class ProjectRecipeApplicationCompilerTests(unittest.TestCase):
+class RecipeApplicationServiceTests(unittest.TestCase):
     """Exercise the retained compiler with the accepted Customer envelope."""
 
     def test_customer_recipe_assesses_current_sources_target_and_references(self):
@@ -120,9 +120,9 @@ class ProjectRecipeApplicationCompilerTests(unittest.TestCase):
             (
                 ROOT
                 / "fixtures"
-                / "recipes"
-                / "phase-r0"
-                / "customer-recipe-v3.json"
+                / "migration-projects"
+                / "phase-m0"
+                / "customer-recipe-v1.json"
             ).read_text(encoding="utf-8")
         )["recipe"]
         reference = ReferenceDataSet(
@@ -226,7 +226,7 @@ class ProjectRecipeApplicationCompilerTests(unittest.TestCase):
             read_context_hash=content_hash("context"),
             connection_target_hash=content_hash("target"),
         )
-        compiler = ProjectRecipeApplicationCompiler(
+        compiler = RecipeApplicationService(
             sources=SimpleNamespace(),
             schemas=SimpleNamespace(),
             schema_workspace=SimpleNamespace(),
@@ -365,7 +365,7 @@ class ProjectRecipeApplicationCompilerTests(unittest.TestCase):
             categorical_coverage=SimpleNamespace(),
         )
         quality_seed = {}
-        materializing_compiler = ProjectRecipeApplicationCompiler(
+        materializing_compiler = RecipeApplicationService(
             sources=sources,
             schemas=schemas,
             schema_workspace=SimpleNamespace(govern=govern),
@@ -580,7 +580,7 @@ class M4Compiler:
             dataset_ids = (dataset.dataset_id,)
             bindings = {shape["logical_dataset_id"]: dataset.dataset_id}
         binding_hash = content_hash(bindings)
-        return ProjectRecipeApplicationAssessment(
+        return RecipeApplicationAssessment(
             dataset_ids=dataset_ids,
             source_bindings=bindings,
             parameter_values={},
@@ -612,7 +612,7 @@ class M4Compiler:
             mapping_hash = content_hash(
                 {"application_id": application_id, "workspace_id": workspace_id}
             )
-        return ProjectRecipeMaterialization(
+        return RecipeMaterialization(
             status=status,
             mapping_id=mapping_id,
             mapping_content_hash=mapping_hash,
@@ -651,7 +651,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             engine_database,
             self.foundation,
         )
-        self.workspace_states = ProjectService(
+        self.workspace_states = WorkspaceStateService(
             workspace_repository,
             self.authorization,
         )
@@ -673,13 +673,13 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
         self._replace_and_freeze(self.bundle.data_version, expected_package_revision=1)
         self.secret_store = MemorySecretStore()
         protected = ProtectedRecipeStore(self.root, self.secret_store)
-        recipe_repository = ProjectRecipeRepository(self.foundation, protected)
-        self.recipe_service = ProjectRecipeService(
+        recipe_repository = RecipeRepository(self.foundation, protected)
+        self.recipe_service = RecipeService(
             recipe_repository,
             self.authorization,
         )
         self.compiler = M4Compiler()
-        publication = ProjectRecipePublicationService(
+        publication = RecipePublicationService(
             recipe_repository,
             self.compiler,
             self.authorization,
@@ -707,7 +707,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
         self.test_data_version = self.data_versions.create(
             project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             purpose=DataVersionPurpose.TEST,
             label="Integrated Test export",
         )
@@ -733,7 +733,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             authorization=self.authorization,
         )
         self.schema = self._schema()
-        self.plan_project_revision = self.projects.get(
+        self.plan_workspace_revision = self.projects.get(
             self.bundle.project.project_id,
             actor=LOCAL_ACTOR,
         ).optimistic_revision
@@ -866,7 +866,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
     def _start(self, *, operation_id=None, fault=None, reference_bundle=None):
         return self.planning.start_test_run(
             self.bundle.project.project_id,
-            expected_project_revision=self.plan_project_revision,
+            expected_workspace_revision=self.plan_workspace_revision,
             data_version_id=self.test_data_version.data_version_id,
             recipe_revisions=self._selected(),
             dependencies=(
@@ -1184,3 +1184,5 @@ class MigrationProjectPhaseM4BrowserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

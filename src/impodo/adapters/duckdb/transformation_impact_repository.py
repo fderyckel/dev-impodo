@@ -16,7 +16,7 @@ from typing import (
 
 
 from ...access import Actor
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
@@ -46,11 +46,11 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> TransformationImpactSnapshot | None:
         """Return the current snapshot only when every input still matches."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT identity_hash, physical_selection_hash,
@@ -109,12 +109,12 @@ class TransformationImpactRepository(DuckDbRepository):
             current = self.get_transformation_impact_snapshot(project_id, identity)
             if current is not None:
                 return current
-            database_path = self.project_directory(project_id) / "project.duckdb"
+            database_path = self.workspace_directory(project_id) / "project.duckdb"
             if not database_path.is_file():
-                raise ProjectNotFoundError("Project not found")
+                raise WorkspaceStateNotFoundError("Project not found")
             created_at = datetime.now(timezone.utc)
             with self._connect(database_path) as connection:
-                self._ensure_project_database_schema(connection)
+                self._ensure_workspace_database_schema(connection)
                 connection.begin()
                 batch: list[list[object]] = []
                 ordinal = 0
@@ -257,11 +257,11 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> None:
         """Acknowledge one reviewable rule fact for the exact current snapshot."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             run = connection.execute(
                 """
                 SELECT identity_hash
@@ -321,11 +321,11 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> TransformationRuleReview | None:
         """Return review evidence only for the exact current mapping inputs."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             run = connection.execute(
                 """
                 SELECT identity_hash, mapping_content_hash,
@@ -370,11 +370,11 @@ class TransformationImpactRepository(DuckDbRepository):
             raise WorkspaceError("Transformation impact page size is invalid")
         if after is not None and before is not None:
             raise WorkspaceError("Choose only one transformation impact cursor")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             stored = connection.execute(
                 """
                 SELECT identity_hash
@@ -480,11 +480,11 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> Iterator[TransformationImpactRow]:
         """Stream all matching snapshot rows in deterministic order."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             stored = connection.execute(
                 """
                 SELECT identity_hash
@@ -614,3 +614,4 @@ class TransformationImpactRepository(DuckDbRepository):
                 [identity_hash],
             ).fetchall()
         )
+

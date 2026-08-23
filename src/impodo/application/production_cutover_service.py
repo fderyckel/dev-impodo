@@ -32,7 +32,7 @@ from ..migration_production import (
 from ..migration_runs import MigrationRunPurpose
 from ..models import OdooReadIdentity, OdooWriteIdentity
 from ..odoo_scope import OdooApiScope, OdooModelScope
-from ..projects import ProjectNotFoundError, SourceMode
+from ..workspace_state import WorkspaceStateNotFoundError, SourceMode
 
 
 class ProductionCutoverService:
@@ -67,7 +67,7 @@ class ProductionCutoverService:
         self,
         project_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         cutover_selection_id: str,
         label: str,
         export_as_of: str,
@@ -82,9 +82,9 @@ class ProductionCutoverService:
             cutover_selection_id,
             "cutover_selection_id",
         )
-        expected_project_revision = require_revision(
-            expected_project_revision,
-            "expected_project_revision",
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
         )
         clean_label = required_text(label, "label", maximum=200)
         clean_export_as_of = required_text(
@@ -156,7 +156,7 @@ class ProductionCutoverService:
         data_operation = self._child_operation(operation_id, "production-data")
         data_version = self._data_version(
             project_id,
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             parent_data_version_id=test_run.data_version_id,
             label=clean_label,
             export_as_of=clean_export_as_of,
@@ -188,7 +188,7 @@ class ProductionCutoverService:
         project = self.projects.get(project_id, actor=actor)
         run = self._run(
             project_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=data_version.data_version_id,
             label=clean_label,
             operation_id=self._child_operation(operation_id, "production-run"),
@@ -197,7 +197,7 @@ class ProductionCutoverService:
         project = self.projects.get(project_id, actor=actor)
         setup_workspace = self._workspace(
             project_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=data_version.data_version_id,
             migration_run_id=run.migration_run_id,
             label=f"{clean_label} data and target setup",
@@ -206,7 +206,7 @@ class ProductionCutoverService:
         )
         try:
             self.workspace_states.repository.get(setup_workspace.workspace_id)
-        except ProjectNotFoundError:
+        except WorkspaceStateNotFoundError:
             project = self.projects.get(project_id, actor=actor)
             self.workspace_states.provision_migration_workspace(
                 setup_workspace.workspace_id,
@@ -248,7 +248,7 @@ class ProductionCutoverService:
         project = self.projects.get(project_id, actor=actor)
         stored = self.production_runs.bind_setup(
             binding,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             operation_id=self._child_operation(operation_id, "bind-production-setup"),
             request_hash=content_hash(
                 {
@@ -279,7 +279,7 @@ class ProductionCutoverService:
         project_id: str,
         migration_run_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         target_schema,
         target_reference_bundle,
         read_credential_generation: str,
@@ -324,7 +324,7 @@ class ProductionCutoverService:
         )
         return self.run_planning.activate_production_run(
             project_id,
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             production_binding=binding,
             plan=plan,
             target_schema=target_schema,
@@ -521,7 +521,7 @@ class ProductionCutoverService:
         self,
         project_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         parent_data_version_id: str,
         label: str,
         export_as_of: str,
@@ -534,7 +534,7 @@ class ProductionCutoverService:
             return self.data_versions.create(
                 project_id,
                 actor=actor,
-                expected_project_revision=expected_project_revision,
+                expected_workspace_revision=expected_workspace_revision,
                 purpose=DataVersionPurpose.PRODUCTION,
                 label=label,
                 export_as_of=export_as_of,
@@ -552,7 +552,7 @@ class ProductionCutoverService:
         self,
         project_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         data_version_id: str,
         label: str,
         operation_id: str,
@@ -564,7 +564,7 @@ class ProductionCutoverService:
             return self.runs.create(
                 project_id,
                 actor=actor,
-                expected_project_revision=expected_project_revision,
+                expected_workspace_revision=expected_workspace_revision,
                 data_version_id=data_version_id,
                 purpose=MigrationRunPurpose.PRODUCTION,
                 label=label,
@@ -581,7 +581,7 @@ class ProductionCutoverService:
         self,
         project_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         data_version_id: str,
         migration_run_id: str,
         label: str,
@@ -596,7 +596,7 @@ class ProductionCutoverService:
             return self.migration_workspaces.create(
                 project_id,
                 actor=actor,
-                expected_project_revision=expected_project_revision,
+                expected_workspace_revision=expected_workspace_revision,
                 data_version_id=data_version_id,
                 migration_run_id=migration_run_id,
                 display_name=label,
@@ -614,3 +614,4 @@ class ProductionCutoverService:
     @staticmethod
     def _child_operation(operation_id: str, name: str) -> str:
         return str(uuid5(UUID(operation_id), name))
+

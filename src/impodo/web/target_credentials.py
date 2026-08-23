@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 from ..access import Actor
 from ..domain.serialization import content_hash
 from ..models import target_identity_hash
-from ..projects import WorkspaceState, ProjectService
+from ..workspace_state import WorkspaceState, WorkspaceStateService
 from ..secrets import SecretStore, SecretStoreError
 
 
@@ -254,7 +254,7 @@ def get_target_credential_status(
 
 
 def audit_stored_target_credential(
-    projects: ProjectService,
+    projects: WorkspaceStateService,
     project: WorkspaceState,
     role: TargetCredentialRole,
     credential: TargetCredential,
@@ -374,7 +374,7 @@ def _delete_target_credential(
 
 
 def audit_removed_target_credentials(
-    projects: ProjectService,
+    projects: WorkspaceStateService,
     project: WorkspaceState,
     receipts: tuple[TargetCredentialRemovalReceipt, ...],
     *,
@@ -453,3 +453,4 @@ def _connection_mode(project: WorkspaceState) -> str:
         if project.odoo_connection_mode is not None
         else ""
     )
+

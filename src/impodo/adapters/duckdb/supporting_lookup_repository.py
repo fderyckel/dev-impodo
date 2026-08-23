@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...access import Actor
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...supporting_lookups import SupportingLookupSnapshot
 from ...workspace_errors import WorkspaceError
 from .repository import DuckDbRepository
@@ -17,11 +17,11 @@ class SupportingLookupRepository(DuckDbRepository):
         project_id: str,
         lookup_key: str,
     ) -> SupportingLookupSnapshot | None:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT revision.snapshot_json
@@ -55,11 +55,11 @@ class SupportingLookupRepository(DuckDbRepository):
     ) -> None:
         if snapshot.project_id != project_id:
             raise WorkspaceError("Supporting lookup belongs to another project")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -88,7 +88,7 @@ class SupportingLookupRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="SUPPORTING_LOOKUP_CAPTURED",
                     detail=(
                         f"Saved {len(snapshot.choices)} portable choices for "
@@ -101,3 +101,4 @@ class SupportingLookupRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+

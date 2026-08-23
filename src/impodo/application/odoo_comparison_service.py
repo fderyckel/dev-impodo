@@ -44,7 +44,7 @@ from ..models import (
     canonical_json_bytes,
 )
 from ..planner import PreflightRequirementPlan
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 from ..source_snapshot_io import load_source_snapshot_table, validate_snapshot_for_dataset
 from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SourceSelection
 from ..workspace_errors import WorkspaceError
@@ -744,3 +744,4 @@ def _snapshot_time(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+

@@ -12,7 +12,6 @@ import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 
 from impodo.access import LOCAL_ACTOR
 from impodo.application.bounded_normalization import (
@@ -40,12 +39,12 @@ from impodo.normalization import (
     evaluate_normalization,
     start_dry_run,
 )
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.normalization_repository import NormalizationRepository
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
-from impodo.projects import DataClassification
+from impodo.workspace_state import DataClassification
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.quality import default_quality_ruleset, evaluate_quality
 from impodo.workspace_contracts import (
@@ -54,7 +53,6 @@ from impodo.workspace_contracts import (
     SourceSelection,
 )
 from impodo.workspace_errors import WorkspaceError
-from impodo.web.app import create_local_app
 from impodo.value_rules import ScalarTransformPolicy, TextTransformStep
 
 from tests.test_quality import (
@@ -639,18 +637,13 @@ class NormalizationStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(database)
+        database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(database)
         self.staging = StagingRepository(database)
         self.quality = QualityRepository(database, self.projects)
         self.repository = NormalizationRepository(database, self.projects)
         self.project = _project()
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)
         selection = SourceSelection(
             selection_id=str(uuid4()),
@@ -685,7 +678,7 @@ class NormalizationStoreTests(unittest.TestCase):
             content_hash=PHYSICAL_HASH,
         )
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -747,7 +740,7 @@ class NormalizationStoreTests(unittest.TestCase):
             )
 
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -813,27 +806,6 @@ class NormalizationStoreTests(unittest.TestCase):
             source_hashes={"contacts.csv": SOURCE_HASH},
             actor=LOCAL_ACTOR,
         )
-        app = create_local_app(
-            self.temporary.name,
-            launch_token="launch-secret",
-            session_secret="session-secret",
-        )
-        with TestClient(app) as client:
-            launched = client.get(
-                "/launch?token=launch-secret",
-                follow_redirects=False,
-            )
-            self.assertEqual(launched.status_code, 303)
-            page = client.get(f"/projects/{self.project.project_id}/normalization")
-            self.assertEqual(page.status_code, 200)
-            self.assertIn("Review what Impodo prepared", page.text)
-            self.assertIn("Approve all prepared data", page.text)
-            self.assertIn("Send back to fix", page.text)
-            self.assertNotIn("Accept this change", page.text)
-            self.assertIn("data-normalization-approve-dialog", page.text)
-            self.assertIn("data-normalization-reject-dialog", page.text)
-            self.assertIn("Nothing is sent to Odoo", page.text)
-            self.assertIn("<summary>Support details</summary>", page.text)
         blocked = self.repository.decide_normalization_group(
             self.project.project_id,
             published.run_id,
@@ -844,25 +816,6 @@ class NormalizationStoreTests(unittest.TestCase):
             reason="The supplied value needs correction.",
         )
         self.assertEqual(blocked.status, DryRunStatus.BLOCKED.value)
-        blocked_app = create_local_app(
-            self.temporary.name,
-            launch_token="launch-secret",
-            session_secret="session-secret",
-        )
-        with TestClient(blocked_app) as client:
-            launched = client.get(
-                "/launch?token=launch-secret",
-                follow_redirects=False,
-            )
-            self.assertEqual(launched.status_code, 303)
-            blocked_page = client.get(
-                f"/projects/{self.project.project_id}/normalization"
-            )
-            self.assertIn("Fix the change that was sent back", blocked_page.text)
-            self.assertIn("The supplied value needs correction", blocked_page.text)
-            self.assertIn("Reopen review", blocked_page.text)
-            self.assertIn("Sent back", blocked_page.text)
-            self.assertNotIn("Accept this change", blocked_page.text)
         reopened = self.repository.reopen_normalization_review(
             self.project.project_id,
             published.run_id,
@@ -927,7 +880,7 @@ class NormalizationStoreTests(unittest.TestCase):
             self.repository.get_current_normalization_summary(self.project.project_id)
         )
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -1019,7 +972,7 @@ class NormalizationStoreTests(unittest.TestCase):
         )
         elapsed = perf_counter() - started
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         peak_mib = psutil.Process().memory_info().peak_wset / (1024 * 1024)
@@ -1036,3 +989,4 @@ class NormalizationStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -24,7 +24,7 @@ from ..preparation_jobs import (
     PreparationPhase,
     PreparationWorkspace,
 )
-from ..projects import ProjectError
+from ..workspace_state import WorkspaceStateError
 from ..secrets import SecretStoreError
 from ..workspace_errors import WorkspaceError
 
@@ -330,7 +330,7 @@ def _run_preparation_worker(
         events.put(("cancelled",))
     except (
         ConnectorError,
-        ProjectError,
+        WorkspaceStateError,
         ReadinessError,
         SecretStoreError,
         WorkspaceError,
@@ -385,3 +385,4 @@ def _resolution_review_is_waiting(preparation: Any, project_id: str) -> bool:
         and review.summary.status == "REVIEW_REQUIRED"
         and review.candidates
     )
+

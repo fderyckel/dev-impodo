@@ -11,7 +11,7 @@ from ..models import OdooWriteIdentity
 from ..odoo_scope import OdooApiScope
 from ..odoo_writer import Json2WriteExecutor, OdooWriteExecutor
 from ..odoo_readback import Json2ReadbackReader, OdooReadbackReader
-from ..projects import WorkspaceState, ProjectError
+from ..workspace_state import WorkspaceState, WorkspaceStateError
 
 
 def _probe_write_identity(
@@ -22,7 +22,7 @@ def _probe_write_identity(
     """Probe the separate load credential against the exact reviewed scope."""
 
     if not api_key.strip():
-        raise ProjectError("Enter an Odoo API key for this load")
+        raise WorkspaceStateError("Enter an Odoo API key for this load")
     connector = Json2WriteIdentityConnector(
         target_record_read_config(
             Json2Config(
@@ -48,7 +48,7 @@ def _write_executor(
     """Bind the writer to the exact target and reviewed preview capability."""
 
     if not api_key.strip():
-        raise ProjectError("Enter an Odoo API key for this load")
+        raise WorkspaceStateError("Enter an Odoo API key for this load")
     return Json2WriteExecutor(
         Json2Config(
             base_url=project.odoo_base_url,
@@ -69,7 +69,7 @@ def _readback_reader(
     """Bind post-write verification to the same exact target."""
 
     if not api_key.strip():
-        raise ProjectError("Enter an Odoo API key to verify this load")
+        raise WorkspaceStateError("Enter an Odoo API key to verify this load")
     return Json2ReadbackReader(
         target_record_read_config(
             Json2Config(
@@ -82,3 +82,4 @@ def _readback_reader(
         ),
         scope,
     )
+

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Project details · Impodo{% endblock %}
+{% block title %}Data project details · Impodo{% endblock %}
 {% block content %}
   {% set step = "details" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Project setup · Project details</p>
+    <p class="eyebrow">Data project setup · Details</p>
     <h1>{{ project.name }}</h1>
     {% include "_setup_blockers.html" %}
     <form method="post" action="/workspaces/{{ project.project_id }}/details">
@@ -12,7 +12,7 @@
       <input type="hidden" name="revision" value="{{ project.revision }}">
       <div class="form-grid">
         <label>
-          Project name
+          Data project name
           <input name="name" maxlength="200" required value="{{ project.name }}">
         </label>
         <label>

@@ -4,7 +4,7 @@
   {% set step = "review" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Project setup · Confirm</p>
+    <p class="eyebrow">Data project setup · Confirm</p>
     <h1>Confirm the project setup</h1>
 
     {% if problems %}
@@ -40,7 +40,7 @@
     {% endif %}
 
     <dl class="summary-grid">
-      <div><dt>Project</dt><dd>{{ project.name }}</dd></div>
+      <div><dt>Data project</dt><dd>{{ project.name }}</dd></div>
       <div><dt>Source</dt><dd>{{ project.source_system }}</dd></div>
       <div><dt>Source method</dt><dd>{% if project.source_mode.value == "FILE" %}Governed files{% else %}Existing Odoo records{% endif %}</dd></div>
       {% if project.source_mode.value == "FILE" %}

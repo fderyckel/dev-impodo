@@ -42,7 +42,7 @@
 
   {% if not schema %}
     <section class="empty-state workflow-empty">
-      <h2>Capture the Odoo field catalog first</h2>
+      <h2>Load the Odoo field list first</h2>
       <p>The capture plan must be bound to authenticated, current Odoo schema evidence.</p>
       <a class="button primary" href="/workspaces/{{ project.project_id }}/schema">Choose Odoo record type</a>
     </section>
@@ -179,7 +179,7 @@
         <div><dt>Fields</dt><dd>{{ current_manifest.field_names|length }}</dd></div>
         <div><dt>Frozen</dt><dd><time datetime="{{ current_manifest.capture_finished_at.isoformat() }}">{{ current_manifest.capture_finished_at.strftime('%Y-%m-%d %H:%M UTC') }}</time></dd></div>
       </dl>
-      <p>This count comes from the published snapshot. Reopening this page reads only stored evidence and does not contact Odoo.</p>
+      <p>This count comes from the accepted Odoo snapshot. Reopening this page reads only saved evidence and does not contact Odoo.</p>
       <details class="technical-evidence">
         <summary>Support details</summary>
         <p>Manifest <code>{{ current_manifest.manifest_id }}</code></p>
@@ -193,7 +193,7 @@
 
   {% if capture_history %}
     <section class="form-card" aria-labelledby="capture-history-title">
-      <p class="eyebrow">Immutable audit history</p>
+      <p class="eyebrow">Protected history</p>
       <h2 id="capture-history-title">Frozen versions</h2>
       <div class="capture-history-list">
         {% for manifest in capture_history %}

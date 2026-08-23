@@ -6,8 +6,9 @@ import re
 
 from fastapi import Request
 
-from ...projects import WorkspaceState, ProjectStatus
+from ...workspace_state import WorkspaceState, WorkspaceStatus
 from ..context import WebContext
+from .concepts import CONCEPTS, CONCEPTS_BY_SLUG
 from .navigation import build_project_navigation
 from .setup import build_project_setup_view
 
@@ -35,7 +36,7 @@ def _render(
         )
     if (
         isinstance(project, WorkspaceState)
-        and project.status is ProjectStatus.DRAFT
+        and project.status is WorkspaceStatus.DRAFT
     ):
         setup_view = build_project_setup_view(project, template_name)
         context.setdefault("setup_steps", setup_view.steps)
@@ -69,6 +70,8 @@ def _render(
     values = {
         "csrf_token": request.session.get("csrf_token", ""),
         "flash": request.session.pop("flash", None),
+        "concepts": CONCEPTS,
+        "concepts_by_slug": CONCEPTS_BY_SLUG,
         **context,
     }
     return request.app.state.templates.TemplateResponse(
@@ -176,3 +179,4 @@ def _project_error(
 
 def _flash(request: Request, message: str) -> None:
     request.session["flash"] = message
+

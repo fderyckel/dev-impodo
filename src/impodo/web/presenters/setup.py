@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...projects import (
+from ...workspace_state import (
     WorkspaceState,
-    ProjectSetupRequirement,
-    ProjectSetupStep,
+    WorkspaceSetupRequirement,
+    WorkspaceSetupStep,
     SourceMode,
-    project_setup_requirements,
+    workspace_setup_requirements,
 )
 
 
@@ -23,7 +23,7 @@ class ProjectSetupStepView:
     current: bool
     status: str
     status_label: str
-    requirements: tuple[ProjectSetupRequirement, ...]
+    requirements: tuple[WorkspaceSetupRequirement, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +33,7 @@ class ProjectSetupRecoveryView:
     step_id: str
     label: str
     href: str
-    requirements: tuple[ProjectSetupRequirement, ...]
+    requirements: tuple[WorkspaceSetupRequirement, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,33 +41,33 @@ class ProjectSetupView:
     """Provide the setup navigation and the current page's useful blockers."""
 
     steps: tuple[ProjectSetupStepView, ...]
-    current_requirements: tuple[ProjectSetupRequirement, ...]
+    current_requirements: tuple[WorkspaceSetupRequirement, ...]
     recovery_steps: tuple[ProjectSetupRecoveryView, ...]
 
 
 _STEP_LABELS = {
-    ProjectSetupStep.FILES: "Source files",
-    ProjectSetupStep.TARGET: "Connect Odoo",
+    WorkspaceSetupStep.FILES: "Source files",
+    WorkspaceSetupStep.TARGET: "Connect Odoo",
 }
 
 _TEMPLATE_STEPS = {
-    "project_details.html": ProjectSetupStep.DETAILS,
-    "project_governance.html": ProjectSetupStep.GOVERNANCE,
-    "project_files.html": ProjectSetupStep.FILES,
-    "project_target.html": ProjectSetupStep.TARGET,
-    "project_review.html": ProjectSetupStep.REVIEW,
+    "project_details.html": WorkspaceSetupStep.DETAILS,
+    "project_governance.html": WorkspaceSetupStep.GOVERNANCE,
+    "project_files.html": WorkspaceSetupStep.FILES,
+    "project_target.html": WorkspaceSetupStep.TARGET,
+    "project_review.html": WorkspaceSetupStep.REVIEW,
 }
 
 
 def project_setup_step_order(
     project: WorkspaceState,
-) -> tuple[ProjectSetupStep, ...]:
+) -> tuple[WorkspaceSetupStep, ...]:
     """Return the setup sequence for the draft's selected source mode."""
 
     return (
-        (ProjectSetupStep.FILES,)
+        (WorkspaceSetupStep.FILES,)
         if project.source_mode is SourceMode.FILE
-        else (ProjectSetupStep.TARGET,)
+        else (WorkspaceSetupStep.TARGET,)
     )
 
 
@@ -77,7 +77,7 @@ def build_project_setup_view(
 ) -> ProjectSetupView:
     """Build one request-scoped setup view from the current project only."""
 
-    requirements = project_setup_requirements(project)
+    requirements = workspace_setup_requirements(project)
     current_step = _TEMPLATE_STEPS.get(template_name)
     order = project_setup_step_order(project)
     step_views: list[ProjectSetupStepView] = []
@@ -142,7 +142,7 @@ def build_project_setup_view(
 
 def blocking_setup_url(
     project: WorkspaceState,
-    requested_step: ProjectSetupStep,
+    requested_step: WorkspaceSetupStep,
 ) -> str | None:
     """Return the earliest incomplete page before ``requested_step``."""
 
@@ -151,7 +151,7 @@ def blocking_setup_url(
         requested_index = order.index(requested_step)
     except ValueError:
         return None
-    requirements = project_setup_requirements(project)
+    requirements = workspace_setup_requirements(project)
     for step in order[:requested_index]:
         if any(item.step is step for item in requirements):
             return (
@@ -161,5 +161,6 @@ def blocking_setup_url(
     return None
 
 
-def _setup_step_url(project_id: str, step: ProjectSetupStep) -> str:
+def _setup_step_url(project_id: str, step: WorkspaceSetupStep) -> str:
     return f"/workspaces/{project_id}/{step.value}"
+

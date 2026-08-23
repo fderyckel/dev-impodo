@@ -31,7 +31,7 @@ from defusedxml import ElementTree as SafeElementTree
 
 from .access import Actor, AuthorizationPolicy, Capability
 from .artifacts import ArtifactStore, ArtifactStoreError
-from .projects import ProjectError, ProjectStatus, SourceFile
+from .workspace_state import WorkspaceStateError, WorkspaceStatus, SourceFile
 from .source import (
     MAX_CELL_STRING_LENGTH,
     MAX_SOURCE_COLUMNS,
@@ -63,7 +63,7 @@ _PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
 
 
-class SourceInspectionError(ProjectError):
+class SourceInspectionError(WorkspaceStateError):
     """Raised when a governed source file cannot be cataloged safely."""
 
 
@@ -297,7 +297,7 @@ class SourceInspectionService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
-        if project.status is not ProjectStatus.REGISTERED:
+        if project.status is not WorkspaceStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before inspecting its sources"
             )
@@ -345,7 +345,7 @@ class SourceInspectionService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
-        if project.status is not ProjectStatus.REGISTERED:
+        if project.status is not WorkspaceStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before configuring its sources"
             )
@@ -1360,7 +1360,7 @@ def _render_value(value: Any) -> str | None:
 
 def _bounded_display(rendered: str) -> str:
     if len(rendered) > DISPLAY_VALUE_LIMIT:
-        return rendered[: DISPLAY_VALUE_LIMIT - 1] + "…"
+        return rendered[: DISPLAY_VALUE_LIMIT - 1] + "â€¦"
     return rendered
 
 
@@ -1527,3 +1527,4 @@ def _require_dataclass_fields(
         raise SourceInspectionError(
             f"Stored {label} does not match the current contract"
         )
+

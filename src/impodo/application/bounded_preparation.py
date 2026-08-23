@@ -60,7 +60,7 @@ from ..domain.staging.transformation_impact import (
 )
 from ..inspection import SourceFileCatalog
 from ..models import Issue, PreparedRecord, canonical_json_bytes
-from ..projects import WorkspaceState, SourceFile
+from ..workspace_state import WorkspaceState, SourceFile
 from ..source import (
     CompiledPreparedRowTransformer,
     SourceLoadError,
@@ -854,3 +854,4 @@ def _open_preparation_source(
             batch_size=BOUNDED_SOURCE_BATCH_SIZE,
         ) as source:
             yield source
+

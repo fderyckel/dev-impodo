@@ -10,16 +10,19 @@ shared:
     - .agents/skills/impodo-documentation/SKILL.md
   router_modules:
     - src/impodo/web/routers/lifecycle.py
+    - src/impodo/web/routers/concepts.py
   documents:
     - docs/README.md
     - docs/style-guide.md
     - docs/user/README.md
+    - docs/user/concepts.md
     - docs/developer/README.md
+    - docs/reports/browser-language-review-2026-08-23.md
 
 stages:
   - id: setup
     order: 0
-    label: Project and authoring workspace setup
+    label: Data project and authoring workspace setup
     navigation: false
     user_doc: docs/user/getting-started.md
     developer_doc: docs/developer/workflow/00-project-setup.md
@@ -43,14 +46,16 @@ stages:
       - src/impodo/data_versions.py::DataVersionService
       - src/impodo/migration_runs.py::MigrationRunService
       - src/impodo/migration_workspaces.py::MigrationWorkspaceService
-      - src/impodo/application/project_recipe_publication_service.py::ProjectRecipePublicationService
+      - src/impodo/application/recipe_publication_service.py::RecipePublicationService
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
-      - src/impodo/projects.py::ProjectService
-      - src/impodo/projects.py::ProjectService.register
-      - src/impodo/application/recipe_authoring_service.py::RecipeAuthoringService.compile_workspace
+      - src/impodo/workspace_state.py::WorkspaceStateService
+      - src/impodo/workspace_state.py::WorkspaceStateService.register
+      - src/impodo/application/recipe_compilation_service.py::RecipeCompiler.compile_workspace
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
       - src/impodo/web/presenters/navigation.py::build_project_navigation
+      - src/impodo/web/presenters/concepts.py::ConceptHelp
     tests:
+      - tests/test_concept_help.py
       - tests/test_migration_project_phase_m3_project_authoring.py
       - tests/test_project_security.py
       - tests/test_recipe_representative_shapes.py
@@ -111,7 +116,7 @@ stages:
       - src/impodo/web/templates/project_integrated_run.html
     code_references:
       - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService
-      - src/impodo/application/project_recipe_application_compiler.py::ProjectRecipeApplicationCompiler
+      - src/impodo/application/recipe_application_service.py::RecipeApplicationService
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository
       - src/impodo/adapters/duckdb/run_aware_schema_repository.py::RunAwareSchemaRepository
       - src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py::RunAwareAdvancedCoverageRepository

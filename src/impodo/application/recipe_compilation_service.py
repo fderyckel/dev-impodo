@@ -142,7 +142,7 @@ class _RecipeDraftBlocked(Exception):
         self.issue = issue
 
 
-class RecipeAuthoringService:
+class RecipeCompiler:
     """Compile one eligible workspace into portable Recipe meaning."""
 
     def __init__(

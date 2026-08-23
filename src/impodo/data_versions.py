@@ -97,7 +97,7 @@ class DataVersionRepository(Protocol):
         self,
         data_version: DataVersion,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
         actor: Actor,
@@ -134,7 +134,7 @@ class DataVersionService:
         project_id: str,
         *,
         actor: Actor,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         purpose: str | DataVersionPurpose,
         label: str,
         export_as_of: str = "",
@@ -178,9 +178,9 @@ class DataVersionService:
         )
         return self.repository.create_data_version(
             data_version,
-            expected_project_revision=require_revision(
-                expected_project_revision,
-                "expected_project_revision",
+            expected_workspace_revision=require_revision(
+                expected_workspace_revision,
+                "expected_workspace_revision",
             ),
             operation_id=operation_id or str(uuid4()),
             request_hash=request_hash,

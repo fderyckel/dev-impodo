@@ -23,7 +23,7 @@ from uuid import UUID, uuid4
 import duckdb
 
 from ...access import Actor
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...quality import (
     QUALITY_CONTRACT_VERSION,
     QUALITY_EVALUATOR_VERSION,
@@ -46,7 +46,7 @@ from ...quality import (
 from ...staging_contracts import CanonicalRow
 from ...workspace_errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
-from .database import DuckDbProjectDatabase
+from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository, ProjectAggregateReader
 
 
@@ -91,7 +91,7 @@ class QualityRepository(DuckDbRepository):
 
     def __init__(
         self,
-        database: DuckDbProjectDatabase,
+        database: DuckDbWorkspaceDatabase,
         projects: ProjectAggregateReader,
     ) -> None:
         super().__init__(database)
@@ -146,12 +146,12 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError(
                 "A data-check review date exceeds the project retention period"
             )
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         created_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 mapping = connection.execute(
@@ -232,7 +232,7 @@ class QualityRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="QUALITY_RULESET_PUBLISHED",
                     detail=(
                         f"version {ruleset.version}: "
@@ -270,12 +270,12 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Quality evidence no longer matches project ownership and retention"
             )
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         published_at = datetime.now(timezone.utc)
         run_id = str(uuid4())
         summary_counts = _quality_summary_counts(run)
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 staging = connection.execute(
@@ -520,7 +520,7 @@ class QualityRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="QUALITY_RUN_PUBLISHED",
                     detail=(
                         f"run {run_id}: {summary_counts['ready_count']} ready; "
@@ -558,11 +558,11 @@ class QualityRepository(DuckDbRepository):
     ) -> QualityRunSummary | None:
         """Return the current non-retired quality run's lifecycle projection."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT run.run_id, run.content_hash, run.staging_run_id,
@@ -588,11 +588,11 @@ class QualityRepository(DuckDbRepository):
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Quality run identifier is invalid") from error
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT content_hash, staging_run_id, staging_content_hash,
@@ -870,11 +870,11 @@ class QualityRepository(DuckDbRepository):
         filter_predicate = (
             " AND ".join(conditions) if conditions else "TRUE"
         )
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             current = connection.execute(
                 """
                 SELECT run.staging_run_id, projection.projection_json
@@ -1463,3 +1463,4 @@ def _quality_summary_counts(
         for item in run.source_accounting
     )
     return counts
+

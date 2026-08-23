@@ -9,20 +9,19 @@ import shutil
 from ...access import Actor
 from ...migration_foundation import MigrationConflictError
 from ...migration_workspaces import MigrationWorkspaceState
-from ...projects import (
+from ...workspace_state import (
     WorkspaceState,
-    ProjectError,
-    ProjectNotFoundError,
-    ProjectSummary,
+    WorkspaceStateError,
+    WorkspaceStateNotFoundError,
 )
 from .migration_foundation_repository import MigrationFoundationRepository
 from .migration_workspace_engine_database import MigrationWorkspaceEngineDatabase
-from .project_repository import ProjectRepository
+from .workspace_state_repository import WorkspaceStateRepository
 from .repository import DuckDbRepository
 
 
-class MigrationWorkspaceStateRepository(ProjectRepository):
-    """Reuse the mapping engine without a Recipe-first registry or Project shell."""
+class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
+    """Persist mapping-engine state for workspaces resolved by the registry."""
 
     _ENGINE_DIRECTORIES = (
         "inbox",
@@ -51,7 +50,7 @@ class MigrationWorkspaceStateRepository(ProjectRepository):
         creation_request_hash: str | None = None,
         actor: Actor,
     ) -> None:
-        raise ProjectError(
+        raise WorkspaceStateError(
             "A MigrationWorkspace engine cannot create a Recipe or Project root"
         )
 
@@ -60,8 +59,8 @@ class MigrationWorkspaceStateRepository(ProjectRepository):
 
         workspace = self.foundation.get_migration_workspace(project.project_id)
         if workspace.state is not MigrationWorkspaceState.OPEN:
-            raise ProjectError("A closed MigrationWorkspace cannot be initialized")
-        directory = self.project_directory(project.project_id)
+            raise WorkspaceStateError("A closed MigrationWorkspace cannot be initialized")
+        directory = self.workspace_directory(project.project_id)
         database_path = directory / "project.duckdb"
         if database_path.is_file():
             current = self.get(project.project_id)
@@ -78,7 +77,7 @@ class MigrationWorkspaceStateRepository(ProjectRepository):
                 created.append(child)
             (directory / "protected").chmod(0o700)
             with self._connect(database_path) as connection:
-                self._initialize_project_database(connection)
+                self._initialize_workspace_database(connection)
                 self._insert_project(connection, project)
                 self._insert_audit(
                     connection,
@@ -95,26 +94,23 @@ class MigrationWorkspaceStateRepository(ProjectRepository):
             raise
 
     def discard_unlinked(self, project_id: str) -> None:
-        raise ProjectError(
+        raise WorkspaceStateError(
             "MigrationWorkspace lifecycle is owned by the clean Project registry"
         )
 
     def get(self, project_id: str) -> WorkspaceState:
         self.foundation.get_migration_workspace(project_id)
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("MigrationWorkspace engine not found")
+            raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
         return self._get_project_unresolved(project_id)
 
     def assert_workspace_mutable(self, project_id: str) -> None:
         workspace = self.foundation.get_migration_workspace(project_id)
         if workspace.state is not MigrationWorkspaceState.OPEN:
-            raise ProjectError("This MigrationWorkspace is closed and read-only")
-
-    def list(self) -> tuple[ProjectSummary, ...]:
-        raise ProjectError("List business Projects through MigrationProjectService")
+            raise WorkspaceStateError("This MigrationWorkspace is closed and read-only")
 
     def record_credential_removal_receipt(
         self,
@@ -140,13 +136,4 @@ class MigrationWorkspaceStateRepository(ProjectRepository):
             ),
             actor=actor,
         )
-
-    def _update_registry(self, project: WorkspaceState, **_kwargs) -> None:
-        """The clean registry already owns every business projection."""
-
-    def _mark_registry_sync_pending(self, project_id: str, **_kwargs) -> None:
-        """Engine mutations commit inside one workspace database."""
-
-    def _clear_registry_sync_pending(self, project_id: str) -> None:
-        """There is no duplicate engine registry to synchronize."""
 

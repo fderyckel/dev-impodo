@@ -16,7 +16,7 @@ from impodo.inspection import (
     SourceInspectionOptions,
     inspect_source_file,
 )
-from impodo.projects import SourceFile
+from impodo.workspace_state import SourceFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -198,3 +198,4 @@ def _source_evidence(path: Path) -> SourceFile:
         sha256=sha256(data).hexdigest(),
         received_at=datetime.now(timezone.utc),
     )
+

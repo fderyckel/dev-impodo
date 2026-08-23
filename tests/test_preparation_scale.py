@@ -29,7 +29,6 @@ from impodo.application.bounded_preparation import BOUNDED_SOURCE_BATCH_SIZE
 from impodo.application.preparation_capability import (
     compile_preparation_capability,
 )
-from impodo.artifacts import LocalArtifactStore
 from impodo.domain.coverage import (
     CoverageApplicability,
     CoverageDeclaration,
@@ -76,9 +75,9 @@ from impodo.inspection import (
     SourceTableCatalog,
 )
 from impodo.intake import CHUNK_BYTES, MAX_SOURCE_BYTES
-from impodo.projects import (
+from impodo.workspace_state import (
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceFile,
 )
 from impodo import source as source_module
@@ -195,12 +194,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.root = Path(self.temporary.name)
-        self.artifacts = LocalArtifactStore(self.root)
-        self.app = create_local_app(
-            self.root,
-            artifact_store=self.artifacts,
-        )
+        self.app = create_local_app(self.root)
         self.context = self.app.state.context
+        self.artifacts = self.context.artifacts
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -664,7 +660,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         ending_mib = process.memory_info().rss / (1024 * 1024)
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
         peak_tree_mib = memory_sampler.peak_tree_bytes / (1024 * 1024)
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = (
+            self.context.preparation.staging.workspace_directory(project_id)
+            / "project.duckdb"
+        )
         source_snapshots = (
             self.context.preparation.sources.get_current_source_snapshots(project_id)
         )
@@ -1183,7 +1182,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         elapsed = perf_counter() - started
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
         ending_mib = process.memory_info().rss / (1024 * 1024)
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         database_mib = database_path.stat().st_size / (1024 * 1024)
         self.assertEqual(len(bounded.run.rows), PREPARATION_SCALE_ROWS)
         for forbidden_phase in (
@@ -1305,7 +1304,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
 
         def storage_evidence() -> dict[str, int]:
-            database_path = self.root / project_id / "project.duckdb"
+            database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
             with self.context.preparation.staging._connect(database_path) as connection:
                 connection.execute("CHECKPOINT")
                 database_size_row = connection.execute(
@@ -1326,7 +1325,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             }
 
         def vectorization_evidence() -> dict[str, object]:
-            database_path = self.root / project_id / "project.duckdb"
+            database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
             with self.context.preparation.staging._connect(database_path) as connection:
                 row = connection.execute(
                     """
@@ -1519,19 +1518,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         if column_count < 4 or mapped_field_count < 4:
             self.fail("The related fixture requires at least four columns")
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        with patch(
-            "impodo.projects.uuid4",
-            side_effect=(
-                _benchmark_uuid("project"),
-                _benchmark_uuid("recipe"),
-                _benchmark_uuid("data-version"),
-            ),
-        ):
-            project = self.context.projects.create_project(
-                actor=self.context.actor,
-                name="96k related Product/BOM preparation benchmark",
-                source_system="Deterministic related CSV fixtures",
-            )
+        project = self.context.project_authoring.create(
+            actor=self.context.actor,
+            display_name="96k related Product/BOM preparation benchmark",
+            source_mode="FILE",
+            creation_request_id=str(_benchmark_uuid("related-project-create")),
+            source_system_identity="Deterministic related CSV fixtures",
+        ).workspace_state
 
         fixture_specs = (
             (
@@ -1606,7 +1599,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
             intended_models=("product.template", "mrp.bom.line"),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=project.revision + 1,
             updated_at=benchmark_now,
             registered_at=benchmark_now,
@@ -1838,19 +1831,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         dirty: bool = False,
     ) -> tuple[str, str, int]:
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        with patch(
-            "impodo.projects.uuid4",
-            side_effect=(
-                _benchmark_uuid("project"),
-                _benchmark_uuid("recipe"),
-                _benchmark_uuid("data-version"),
-            ),
-        ):
-            project = self.context.projects.create_project(
-                actor=self.context.actor,
-                name="100k complete preparation benchmark",
-                source_system="Deterministic CSV fixture",
-            )
+        project = self.context.project_authoring.create(
+            actor=self.context.actor,
+            display_name="100k complete preparation benchmark",
+            source_mode="FILE",
+            creation_request_id=str(_benchmark_uuid("project-create")),
+            source_system_identity="Deterministic CSV fixture",
+        ).workspace_state
         source_path = self.root / "preparation-scale-input.csv"
         headers = _headers(column_count, PREPARATION_SCALE_WORKLOAD)
         with source_path.open("w", encoding="utf-8", newline="") as stream:
@@ -1901,7 +1888,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
             intended_models=(_target_model(PREPARATION_SCALE_WORKLOAD),),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=project.revision + 1,
             updated_at=now,
             registered_at=now,
@@ -2285,12 +2272,9 @@ class BoundedPreparationParityTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.root = Path(self.temporary.name)
-        self.artifacts = LocalArtifactStore(self.root)
-        self.app = create_local_app(
-            self.root,
-            artifact_store=self.artifacts,
-        )
+        self.app = create_local_app(self.root)
         self.context = self.app.state.context
+        self.artifacts = self.context.artifacts
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -2447,7 +2431,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         impact_batches = preparation_transport_batches["impacts"]
         self.assertEqual(impact_batches, [])
 
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             native_counts = connection.execute(
                 """
@@ -2512,7 +2496,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
         )
         self.assertEqual(quarantined_page.matching_count, 2)
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.quality.quality._connect(
             database_path
         ) as connection:
@@ -2575,7 +2559,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             stored_normalization.to_json(),
             expected_normalization.to_json(),
         )
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             sessions = connection.execute(
                 """
@@ -2670,7 +2654,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2708,7 +2692,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session = connection.execute(
                 "SELECT status, failure_code FROM preparation_session"
@@ -2808,7 +2792,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session = connection.execute(
                 "SELECT status, failure_code FROM preparation_session"
@@ -2853,7 +2837,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2899,7 +2883,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2954,7 +2938,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 actor=self.context.actor,
             )
 
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session_id = str(
                 connection.execute(
@@ -3027,7 +3011,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertIsNotNone(unchanged)
         assert unchanged is not None
         self.assertEqual(unchanged.run_id, current.run_id)
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             state = connection.execute(
                 """
@@ -3066,7 +3050,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertIsNone(
             self.context.preparation.staging.get_current_staging_summary(project_id)
         )
-        database_path = self.root / project_id / "project.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(project_id) / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             state = connection.execute(
                 """
@@ -3329,3 +3313,4 @@ def _installed_version(distribution: str) -> str:
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from ...access import Actor
 from ...domain.schema.governance import SchemaGovernance
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...workspace_contracts import (
     OdooModelCatalog,
     OdooSchemaCatalog,
@@ -127,11 +127,11 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Replace access provenance without invalidating semantic dependents."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 row = connection.execute(
@@ -179,7 +179,7 @@ class SchemaRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="ODOO_SCHEMA_ACCESS_REBOUND",
                     detail=(
                         f"{len(catalog.models)} permitted model(s); "
@@ -219,11 +219,11 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Append the next exact governance revision and invalidate dependents."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             schema_row = connection.execute(
                 """
                 SELECT catalog_json
@@ -259,7 +259,7 @@ class SchemaRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "Schema governance was modified by another request"
                 )
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -301,3 +301,4 @@ class SchemaRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+

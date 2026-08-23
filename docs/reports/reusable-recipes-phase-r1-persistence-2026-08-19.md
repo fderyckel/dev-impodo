@@ -74,9 +74,9 @@ Focused automated evidence covers:
 - deletion tombstone recovery and stable target enumeration.
 
 The primary executable evidence is
-[`tests/test_recipe_persistence.py`](../../tests/test_recipe_persistence.py),
+`tests/test_recipe_persistence.py` (removed by M7; retained in Git history),
 with the frozen semantic boundary retained in
-[`tests/test_recipe_phase_r0_contract.py`](../../tests/test_recipe_phase_r0_contract.py).
+`tests/test_recipe_phase_r0_contract.py` (removed by M7; retained in Git history).
 
 ## Next phase
 

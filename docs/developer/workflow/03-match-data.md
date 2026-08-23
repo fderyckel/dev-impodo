@@ -148,7 +148,7 @@ claim those results.
 | Rule-impact facts and fingerprints | [`transformation_impact.py`](../../../src/impodo/domain/staging/transformation_impact.py) |
 | Native rule-impact summary | [`polars_transformation.py`](../../../src/impodo/adapters/polars_transformation.py) |
 | Rule-impact persistence and acknowledgements | [`TransformationImpactRepository`](../../../src/impodo/adapters/duckdb/transformation_impact_repository.py) |
-| Optional Recipe compilation | [`RecipeAuthoringService`](../../../src/impodo/application/recipe_authoring_service.py) |
+| Optional Recipe compilation | [`RecipeCompiler`](../../../src/impodo/application/recipe_compilation_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
 
 ## Evidence and state

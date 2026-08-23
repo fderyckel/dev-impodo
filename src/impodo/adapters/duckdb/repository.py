@@ -7,8 +7,8 @@ from typing import Protocol
 import duckdb
 
 from ...access import Actor
-from ...projects import WorkspaceState
-from .database import DuckDbDatabase, DuckDbProjectDatabase
+from ...workspace_state import WorkspaceState
+from .database import DuckDbWorkspaceDatabase
 from .unit_of_work import DuckDbUnitOfWork
 
 
@@ -22,12 +22,12 @@ class DuckDbRepository:
     """Give concrete repositories the one shared infrastructure boundary.
 
     These methods deliberately forward rather than add business decisions.
-    Repository subclasses own SQL/evidence semantics; ``DuckDbDatabase`` owns
+    Repository subclasses own SQL/evidence semantics; the database owns
     connection policy, schema preparation, audit, invalidation, and unit-of-work
     setup.
     """
 
-    def __init__(self, database: DuckDbProjectDatabase) -> None:
+    def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         self._database = database
 
     @property
@@ -40,10 +40,10 @@ class DuckDbRepository:
     def _transformation_impact_lock(self):
         return self._database._transformation_impact_lock
 
-    def project_directory(self, project_id: str) -> Path:
+    def workspace_directory(self, project_id: str) -> Path:
         """Delegate contained project-directory validation to the database."""
 
-        return self._database.project_directory(project_id)
+        return self._database.workspace_directory(project_id)
 
     def unit_of_work(self, project_id: str) -> DuckDbUnitOfWork:
         """Return a project transaction reusable by collaborating repositories."""
@@ -87,19 +87,19 @@ class DuckDbRepository:
             invalidate=invalidate,
         )
 
-    def _initialize_project_database(
+    def _initialize_workspace_database(
         self,
         connection: duckdb.DuckDBPyConnection,
         *args,
         **kwargs,
     ) -> None:
-        self._database._initialize_project_database(connection, *args, **kwargs)
+        self._database._initialize_workspace_database(connection, *args, **kwargs)
 
-    def _ensure_project_database_schema(
+    def _ensure_workspace_database_schema(
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
-        self._database._ensure_project_database_schema(connection)
+        self._database._ensure_workspace_database_schema(connection)
 
     def _insert_workspace_audit(
         self,
@@ -145,19 +145,6 @@ class DuckDbRepository:
         self._database._invalidate_resolution(connection, **kwargs)
 
     @staticmethod
-    def _project_revision(connection: duckdb.DuckDBPyConnection) -> int:
-        return DuckDbProjectDatabase._project_revision(connection)
+    def _workspace_revision(connection: duckdb.DuckDBPyConnection) -> int:
+        return DuckDbWorkspaceDatabase._workspace_revision(connection)
 
-
-class DuckDbRegistryRepository(DuckDbRepository):
-    """Repository boundary that explicitly opts into the shared registry."""
-
-    def __init__(self, database: DuckDbDatabase) -> None:
-        super().__init__(database)
-        self._registry_database = database
-
-    @property
-    def registry_path(self) -> Path:
-        """Return the cross-project Recipe registry path."""
-
-        return self._registry_database.registry_path

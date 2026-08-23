@@ -579,7 +579,7 @@ class CutoverPlanService:
         project_id: str,
         migration_run_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         expected_evidence_hash: str,
         operation_id: str,
         actor: Actor,
@@ -598,9 +598,9 @@ class CutoverPlanService:
             Capability.CUTOVER_PLAN_QUALIFY,
             project_id=project_id,
         )
-        expected_project_revision = require_revision(
-            expected_project_revision,
-            "expected_project_revision",
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
         )
         expected_evidence_hash = require_hash(
             expected_evidence_hash,
@@ -611,7 +611,7 @@ class CutoverPlanService:
             project_id=project_id,
             migration_run_id=migration_run_id,
             integrated_evidence_hash=expected_evidence_hash,
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             actor=actor,
         )
         if committed is not None:
@@ -621,7 +621,7 @@ class CutoverPlanService:
         if (
             not review.can_qualify
             or review.integrated_evidence_hash != expected_evidence_hash
-            or project.optimistic_revision != expected_project_revision
+            or project.optimistic_revision != expected_workspace_revision
         ):
             raise MigrationConflictError(
                 "The integrated Test evidence changed; review it again"
@@ -634,7 +634,7 @@ class CutoverPlanService:
                 review.integrated_payload["target_binding_hash"]
             ),
             integrated_payload=dict(review.integrated_payload),
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             operation_id=operation_id,
             actor=actor,
             fault=fault,
@@ -645,16 +645,16 @@ class CutoverPlanService:
         project_id: str,
         qualification_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         actor: Actor,
     ) -> ProjectCutoverSelection:
         project_id = require_uuid(project_id, "project_id")
         qualification_id = require_uuid(qualification_id, "qualification_id")
         operation_id = require_uuid(operation_id, "operation_id")
-        expected_project_revision = require_revision(
-            expected_project_revision,
-            "expected_project_revision",
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
         )
         self.authorization.require(
             actor,
@@ -665,7 +665,7 @@ class CutoverPlanService:
             operation_id,
             project_id=project_id,
             qualification_id=qualification_id,
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             actor=actor,
         )
         if committed is not None:
@@ -674,11 +674,11 @@ class CutoverPlanService:
         if qualification.project_id != project_id:
             raise MigrationNotFoundError("CutoverPlan qualification not found")
         project = self.projects.get(project_id, actor=actor)
-        if project.optimistic_revision != expected_project_revision:
+        if project.optimistic_revision != expected_workspace_revision:
             raise MigrationConflictError("Project changed; reload and retry")
         return self.repository.select(
             qualification_id,
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             operation_id=operation_id,
             actor=actor,
         )

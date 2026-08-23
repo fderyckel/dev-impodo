@@ -87,7 +87,7 @@ from impodo.models import (
 )
 from impodo.models import canonical_json_text
 from impodo.odoo_readback import ReadbackRecord
-from impodo.projects import OdooConnectionMode, ProjectStatus, SourceMode
+from impodo.workspace_state import OdooConnectionMode, WorkspaceStatus, SourceMode
 from impodo.preparation_jobs import PreparationJobStatus, PreparationWorkspace
 from impodo.planner import PreflightRequirementPlan
 from impodo.recipes import DataVersionState
@@ -592,7 +592,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(project.odoo_base_url, "")
         self.assertEqual(project.odoo_database, "")
         config_bytes = str(self.config).encode()
-        for path in self.app.state.context.projects.repository.project_directory(
+        for path in self.app.state.context.projects.repository.workspace_directory(
             self.project_id
         ).rglob("*"):
             if path.is_file():
@@ -1040,7 +1040,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:18069",
             odoo_database=database,
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=project.revision + 1,
             updated_at=now,
             registered_at=now,
@@ -1209,7 +1209,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             odoo_base_url="https://remote.example.test",
             odoo_database="production",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=created.revision + 1,
             updated_at=now,
             registered_at=now,
@@ -1408,7 +1408,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         project = self.app.state.context.queries.get(project_id)
-        self.assertEqual(project.status, ProjectStatus.DRAFT)
+        self.assertEqual(project.status, WorkspaceStatus.DRAFT)
         resumed = self.client.get(
             f"/projects/{project_id}",
             follow_redirects=False,
@@ -1472,7 +1472,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-source-file-remove-dialog", files_page.text)
 
         wrong_path = (
-            context.projects.repository.project_directory(project.project_id)
+            context.projects.repository.workspace_directory(project.project_id)
             / "inbox"
             / wrong.stored_name
         )
@@ -1490,7 +1490,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         registered = replace(
             current,
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=current.revision + 1,
             updated_at=now,
             registered_at=now,
@@ -2080,7 +2080,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(len(self.secrets.values), 1)
 
         project = self.app.state.context.projects.repository.get(project_id)
-        project_dir = self.app.state.context.projects.repository.project_directory(project_id)
+        project_dir = self.app.state.context.projects.repository.workspace_directory(project_id)
         recipe_list = self.client.get("/recipes")
         self.assertIn(
             f'action="/recipes/{recipe_id}/delete"',
@@ -2153,7 +2153,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             source_system="Other",
         )
         repository = context.projects.repository
-        project_dir = repository.project_directory(project.project_id)
+        project_dir = repository.workspace_directory(project.project_id)
         database_path = project_dir / "project.duckdb"
         with repository._connect(database_path) as connection:
             connection.execute("DROP TABLE schema_version")
@@ -2343,7 +2343,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=2,
             updated_at=now,
             registered_at=now,
@@ -2405,7 +2405,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:18069",
             odoo_database="odoo19_local",
             intended_applications=("Contacts",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=2,
             updated_at=now,
             registered_at=now,
@@ -2728,14 +2728,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/schema",
         )
         project = self.app.state.context.projects.repository.get(project_id)
-        self.assertEqual(project.status, ProjectStatus.REGISTERED)
+        self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
         self.assertEqual(project.source_mode, SourceMode.ODOO)
         self.assertEqual(project.source_system, "Odoo")
         self.assertEqual(project.source_files, ())
         self.assertIsNone(project.export_date)
 
         schema_page = self.client.get(f"/projects/{project_id}/schema")
-        self.assertIn("Stage 1 of 6 · Odoo data", schema_page.text)
+        self.assertIn("Stage 1 of 6 Â· Odoo data", schema_page.text)
         self.assertIn("Choose the Odoo source record type", schema_page.text)
 
         refreshed = self._post(
@@ -3176,13 +3176,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             summary.text,
         )
         project = self.app.state.context.projects.repository.get(project_id)
-        self.assertEqual(project.status, ProjectStatus.REGISTERED)
+        self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
         self.assertIsNone(project.odoo_connection_mode)
         self.assertIsNone(project.export_date)
         self.assertEqual(project.data_manager, "")
         self.assertEqual(project.mapping_version, None)
         manifest = (
-            self.app.state.context.projects.repository.project_directory(project_id)
+            self.app.state.context.projects.repository.workspace_directory(project_id)
             / "audit"
             / f"project-registration-r{project.revision}.json"
         )
@@ -3192,7 +3192,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         source_discovery = self.client.get(registered.headers["location"])
         self.assertEqual(source_discovery.status_code, 200)
-        self.assertIn("Stage 1 of 6 · Source data", source_discovery.text)
+        self.assertIn("Stage 1 of 6 Â· Source data", source_discovery.text)
         self.assertIn('aria-current="step"', source_discovery.text)
         self.assertIn('aria-current="page"', source_discovery.text)
         self.assertIn("Check source files", source_discovery.text)
@@ -3276,12 +3276,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         datasets = self.client.get(f"/projects/{project_id}/datasets")
         self.assertEqual(datasets.status_code, 200)
-        self.assertIn("Stage 1 of 6 · Source data", datasets.text)
+        self.assertIn("Stage 1 of 6 Â· Source data", datasets.text)
         self.assertIn('aria-current="step"', datasets.text)
         self.assertIn('aria-current="page"', datasets.text)
         self.assertIn("Choose the tables to prepare", datasets.text)
         self.assertNotIn(
-            f" · {catalogs[0].tables[0].name}</strong>",
+            f" Â· {catalogs[0].tables[0].name}</strong>",
             datasets.text,
         )
         frozen = self.client.post(
@@ -3354,12 +3354,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/schema",
         )
         project = self.app.state.context.queries.get(project_id)
-        self.assertEqual(project.status, ProjectStatus.REGISTERED)
+        self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
         self.assertEqual(project.odoo_connection_mode, OdooConnectionMode.REMOTE)
         self.assertNotIn(
             b"super-secret-token",
             (
-                self.app.state.context.projects.repository.project_directory(project_id)
+                self.app.state.context.projects.repository.workspace_directory(project_id)
                 / "project.duckdb"
             ).read_bytes(),
         )
@@ -3368,10 +3368,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/derived-entities"
         )
         self.assertIn("Separate combined information", derived_page.text)
-        self.assertIn("Stage 1 of 6 · Optional source organization", derived_page.text)
+        self.assertIn("Stage 1 of 6 Â· Optional source organization", derived_page.text)
         self.assertIn("You are viewing Source data", derived_page.text)
         self.assertIn("Current data-version work:", derived_page.text)
-        self.assertIn("Stage 2 · Odoo data", derived_page.text)
+        self.assertIn("Stage 2 Â· Odoo data", derived_page.text)
         self.assertIn(
             "Saved rules are repeated consistently for every row",
             derived_page.text,
@@ -3598,7 +3598,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ],
         )
         model_page = self.client.get(refreshed_models.headers["location"])
-        self.assertIn("Stage 2 of 6 · Odoo data", model_page.text)
+        self.assertIn("Stage 2 of 6 Â· Odoo data", model_page.text)
         self.assertIn('aria-current="step"', model_page.text)
         self.assertIn('aria-current="page"', model_page.text)
         self.assertIn("Choose the Odoo data you need", model_page.text)
@@ -3729,7 +3729,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(governed.status_code, 303)
         mapping_page = self.client.get(governed.headers["location"])
         self.assertIn(
-            '<p class="eyebrow">Stage 3 of 6 · Match data</p>',
+            '<p class="eyebrow">Stage 3 of 6 Â· Match data</p>',
             mapping_page.text,
         )
         self.assertIn('aria-current="step"', mapping_page.text)
@@ -4127,7 +4127,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
         self.assertIn("Review rule effects", impact_page.text)
-        self.assertIn("Stage 3 of 6 · Rule review", impact_page.text)
+        self.assertIn("Stage 3 of 6 Â· Rule review", impact_page.text)
         self.assertIn('aria-current="step"', impact_page.text)
         self.assertIn('aria-current="page"', impact_page.text)
         self.assertIn("What each cleanup step did", impact_page.text)
@@ -4163,7 +4163,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         prepare_page = self.client.get(f"/projects/{project_id}/prepare")
         self.assertEqual(prepare_page.status_code, 200)
-        self.assertIn("Stage 4 of 6 · Prepare data", prepare_page.text)
+        self.assertIn("Stage 4 of 6 Â· Prepare data", prepare_page.text)
         self.assertIn("Prepare all source rows", prepare_page.text)
         self.assertIn(
             "Impodo prepares from the source copy stored inside this project",
@@ -4178,7 +4178,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         summary = self.client.get(f"/projects/{project_id}/summary")
         self.assertIn("Prepare and review data", summary.text)
-        self.assertIn("Uses Impodo’s stored local copy", summary.text)
+        self.assertIn("Uses Impodoâ€™s stored local copy", summary.text)
         checked = self.client.post(
             f"/projects/{project_id}/summary/check",
             data={"csrf_token": self.csrf},
@@ -4188,7 +4188,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(checked.status_code, 303)
         self.assertIn("/preparation/", checked.headers["location"])
         progress_page = self.client.get(checked.headers["location"])
-        self.assertIn("Stage 4 of 6 · Prepare data", progress_page.text)
+        self.assertIn("Stage 4 of 6 Â· Prepare data", progress_page.text)
         self.assertIn(
             "Impodo is preparing from its stored local copy",
             progress_page.text,
@@ -4310,7 +4310,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         project = self.app.state.context.projects.repository.get(project_id)
         source_artifact = (
-            self.app.state.context.projects.repository.project_directory(project_id)
+            self.app.state.context.projects.repository.workspace_directory(project_id)
             / "inbox"
             / project.source_files[0].stored_name
         )
@@ -4396,7 +4396,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         database_path = (
-            self.app.state.context.projects.repository.project_directory(project_id)
+            self.app.state.context.projects.repository.workspace_directory(project_id)
             / "project.duckdb"
         )
         staging_repository = self.app.state.context.preflight.staging
@@ -5004,10 +5004,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("data-value-match-dialog", page.text)
         self.assertIn("Match values", page.text)
-        self.assertIn("Choice field · 2 choice(s) captured from Odoo", page.text)
+        self.assertIn("Choice field Â· 2 choice(s) captured from Odoo", page.text)
         self.assertIn("Review source choices", page.text)
         self.assertIn("How must source choices be covered?", page.text)
-        self.assertIn("French (France) — fr_FR", page.text)
+        self.assertIn("French (France) â€” fr_FR", page.text)
         self.assertNotIn("datalist", page.text)
         mapping_script = self.client.get("/static/app.js")
         self.assertIn(
@@ -5283,7 +5283,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 database="odoo19_local",
             ),
         )
-        self.assertIn("Country code — recommended", page.text)
+        self.assertIn("Country code â€” recommended", page.text)
         self.assertIn(
             'value="odoo-standard:res.country:code" selected',
             page.text,
@@ -5397,8 +5397,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_reviewed_reference_matching_is_not_country_specific(self) -> None:
         for related_model, label in (
-            ("res.lang", "Language code — recommended"),
-            ("res.currency", "Currency code — recommended"),
+            ("res.lang", "Language code â€” recommended"),
+            ("res.currency", "Currency code â€” recommended"),
         ):
             with self.subTest(related_model=related_model):
                 project_id, _dataset, _business_key = self._mapping_ready_project(
@@ -5677,7 +5677,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             page.text.index('id="next-step-blockers"'),
             page.text.index('class="actions mapping-actions"'),
         )
-        self.assertIn("You cannot continue yet — 1 reason", page.text)
+        self.assertIn("You cannot continue yet â€” 1 reason", page.text)
         self.assertIn("large_contacts: Field 0000 needs attention", page.text)
         self.assertIn(
             "Required target field res.partner.field_0000 has no value provider.",
@@ -6308,7 +6308,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "sha256:not-a-digest"
         )
         database_path = (
-            context.projects.repository.project_directory(project_id) / "project.duckdb"
+            context.projects.repository.workspace_directory(project_id) / "project.duckdb"
         )
         with context.projects.repository._connect(database_path) as connection:
             connection.execute(
@@ -6717,7 +6717,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('aria-live="polite"', first_visit.text)
         impact_script = self.client.get("/static/app.js")
         self.assertIn("[data-transformation-impact-prepare]", impact_script.text)
-        self.assertIn("Preparing the comparison…", impact_script.text)
+        self.assertIn("Preparing the comparisonâ€¦", impact_script.text)
         with patch(
             "impodo.application.transformation_impact_service.stage_browser_mapping",
             side_effect=fake_stage,
@@ -6741,7 +6741,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Removed 1 space before the value and 1 space after the value.",
             first_page.text,
         )
-        self.assertIn("Showing 1–100 of 205", first_page.text)
+        self.assertIn("Showing 1â€“100 of 205", first_page.text)
         self.assertIn("Next 100", first_page.text)
         next_match = re.search(
             r'href="([^"]+after=[^"]+)"[^>]*>Next 100</a>',
@@ -6750,12 +6750,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNotNone(next_match)
         second_page = self.client.get(unescape(next_match.group(1)))
         self.assertEqual(second_page.text.count('class="impact-row'), 100)
-        self.assertIn("Showing 101–200 of 205", second_page.text)
+        self.assertIn("Showing 101â€“200 of 205", second_page.text)
         self.assertIn("Previous 100", second_page.text)
 
         invalid_page = self.client.get(f"{impact_url}?outcome=invalid")
         self.assertEqual(invalid_page.text.count('class="impact-row'), 100)
-        self.assertIn("Showing 1–100 of 102", invalid_page.text)
+        self.assertIn("Showing 1â€“100 of 102", invalid_page.text)
         invalid_csv = self.client.post(
             f"{impact_url}.csv",
             data={"csrf_token": self.csrf, "outcome": "invalid"},
@@ -6964,7 +6964,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             revision=2,
             updated_at=now,
             registered_at=now,
@@ -7369,3 +7369,4 @@ def _workbook_bytes() -> bytes:
     workbook.save(output)
     workbook.close()
     return output.getvalue()
+

@@ -10,11 +10,11 @@ from ...migration_foundation import (
     MigrationNotFoundError,
     require_uuid,
 )
-from .database import DuckDbProjectDatabase
+from .database import DuckDbWorkspaceDatabase
 from .migration_foundation_database import MigrationFoundationDatabase
 
 
-class MigrationWorkspaceEngineDatabase(DuckDbProjectDatabase):
+class MigrationWorkspaceEngineDatabase(DuckDbWorkspaceDatabase):
     """Place one mapping-engine database inside each clean workspace directory."""
 
     def __init__(
@@ -29,7 +29,7 @@ class MigrationWorkspaceEngineDatabase(DuckDbProjectDatabase):
         )
         self.foundation = foundation
 
-    def project_directory(self, project_id: str) -> Path:
+    def workspace_directory(self, project_id: str) -> Path:
         """Resolve the engine's historical key as a MigrationWorkspace ID."""
 
         try:
@@ -46,7 +46,7 @@ class MigrationWorkspaceEngineDatabase(DuckDbProjectDatabase):
         return self.foundation.workspace_directory(str(row[0]), workspace_id)
 
 
-class FixedMigrationWorkspaceEngineDatabase(DuckDbProjectDatabase):
+class FixedMigrationWorkspaceEngineDatabase(DuckDbWorkspaceDatabase):
     """Resolve one authorized workspace without opening the shared registry."""
 
     def __init__(
@@ -64,7 +64,7 @@ class FixedMigrationWorkspaceEngineDatabase(DuckDbProjectDatabase):
         self.business_project_id = require_uuid(project_id, "project_id")
         self.workspace_id = require_uuid(workspace_id, "workspace_id")
 
-    def project_directory(self, project_id: str) -> Path:
+    def workspace_directory(self, project_id: str) -> Path:
         if require_uuid(project_id, "workspace_id") != self.workspace_id:
             raise MigrationIdentifierConfusionError(
                 "The worker was asked to open another MigrationWorkspace"

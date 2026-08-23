@@ -247,7 +247,7 @@ project** when you are ready to begin.
 Impodo stores project data under `%LOCALAPPDATA%\Impodo\projects` by default.
 Do not move, rename, or delete active project folders outside Impodo.
 
-![The current empty Projects page after a fresh authenticated start, with New project as the next action.](../../images/user/01-project-list.png)
+![The current empty Data projects page after a fresh authenticated start, with New project as the next action.](../../images/user/01-project-list.png)
 
 If the browser does not open, keep the PowerShell window open and give its
 exact error to the person supporting the installation. Do not disable

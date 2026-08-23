@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError
-from ...projects import ProjectError
+from ...workspace_state import WorkspaceStateError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
@@ -52,7 +52,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         except (
             ConnectorError,
             LocalStackError,
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
         ) as error:
@@ -341,3 +341,4 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         )
 
     return router
+

@@ -1,6 +1,6 @@
 """Assemble the local browser application and all concrete dependencies.
 
-Migration stages: cross-cutting A–K. Layer: composition root.
+Migration stages: cross-cutting Aâ€“K. Layer: composition root.
 
 ``create_local_app`` connects DuckDB repositories, filesystem artifacts,
 application services, closed Odoo readers and writer, security middleware, and route
@@ -43,7 +43,7 @@ from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
-from ..application.recipe_authoring_service import RecipeAuthoringService
+from ..application.recipe_compilation_service import RecipeCompiler
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
@@ -55,12 +55,8 @@ from ..application.cutover_plan_service import (
     WorkspaceIntegratedQualificationEvidenceReader,
 )
 from ..application.production_cutover_service import ProductionCutoverService
-from ..application.project_recipe_application_compiler import (
-    ProjectRecipeApplicationCompiler,
-)
-from ..application.project_recipe_publication_service import (
-    ProjectRecipePublicationService,
-)
+from ..application.recipe_application_service import RecipeApplicationService
+from ..application.recipe_publication_service import RecipePublicationService
 from ..application.workspace_source_projection import (
     WorkspaceMappingSourceProjection,
 )
@@ -79,7 +75,6 @@ from ..artifacts import ArtifactStore, LocalArtifactStore
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
-from ..incompatible_project_storage import prepare_incompatible_project_storage
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import LocalOdooMetadataReader
 from ..local_stack import LocalStackService
@@ -95,7 +90,7 @@ from ..adapters.duckdb.migration_workspace_engine_database import (
 from ..adapters.duckdb.migration_workspace_state_repository import (
     MigrationWorkspaceStateRepository,
 )
-from ..adapters.duckdb.project_recipe_repository import ProjectRecipeRepository
+from ..adapters.duckdb.recipe_repository import RecipeRepository
 from ..adapters.duckdb.migration_run_planning_repository import (
     MigrationRunPlanningRepository,
 )
@@ -118,9 +113,11 @@ from ..adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepositor
 from ..adapters.duckdb.preflight_repository import PreflightRepository
 from ..adapters.duckdb.execution_repository import ExecutionRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
-from ..adapters.duckdb.recipe_authoring_repository import RecipeAuthoringRepository
-from ..adapters.duckdb.recipe_application_repository import (
-    RecipeApplicationRepository,
+from ..adapters.duckdb.recipe_compilation_repository import (
+    RecipeCompilationRepository,
+)
+from ..adapters.duckdb.recipe_quality_seed_repository import (
+    RecipeQualitySeedRepository,
 )
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
@@ -140,12 +137,12 @@ from ..adapters.protected_recipe_store import ProtectedRecipeStore
 from ..adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
 )
-from ..projects import (
+from ..workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectCompatibilityError,
-    ProjectNotFoundError,
-    ProjectService,
+    WorkspaceStateCompatibilityError,
+    WorkspaceStateNotFoundError,
+    WorkspaceStateService,
     SourceMode,
 )
 from ..data_version_sources import (
@@ -156,7 +153,7 @@ from ..data_versions import DataVersionService
 from ..migration_projects import MigrationProjectService
 from ..migration_runs import MigrationRunService
 from ..migration_workspaces import MigrationWorkspaceService
-from ..project_recipes import ProjectRecipeService, ProjectRecipeError
+from ..recipes import RecipeError, RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
 from ..migration_foundation import MigrationNotFoundError
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
@@ -187,6 +184,7 @@ from .target_credentials import (
 )
 from .target_writers import _probe_write_identity, _readback_reader, _write_executor
 from .routers.derived_entities import build_derived_entities_router
+from .routers.concepts import build_concepts_router
 from .routers.lifecycle import build_lifecycle_router
 from .routers.mapping import build_mapping_router
 from .routers.normalization import build_normalization_router
@@ -234,7 +232,7 @@ def create_local_app(
     odoo_capture_jobs_enabled: bool = True,
     duckdb_lock_wait_timeout_seconds: float = 0.0,
 ) -> FastAPI:
-    """Construct the loopback FastAPI application for migration Stages A–K.
+    """Construct the loopback FastAPI application for migration Stages Aâ€“K.
 
     Production defaults use per-project DuckDB repositories, local artifact
     storage, the credential vault, inline jobs, closed read-only Odoo adapters,
@@ -247,7 +245,6 @@ def create_local_app(
     function opens no project and contacts no Odoo target while composing.
     """
 
-    unavailable_projects = prepare_incompatible_project_storage(project_root)
     foundation_database = MigrationFoundationDatabase(
         project_root,
         lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
@@ -268,7 +265,7 @@ def create_local_app(
         database,
         foundation_repository,
     )
-    recipe_authoring_repository = RecipeAuthoringRepository(database)
+    recipe_compilation_repository = RecipeCompilationRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
     source_repository = SourceRepository(database, derived_entity_repository)
     local_schema_repository = SchemaRepository(database)
@@ -312,7 +309,7 @@ def create_local_app(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store),
     )
     production_run_repository = ProductionRunRepository(foundation_repository)
-    project_recipe_repository = ProjectRecipeRepository(
+    recipe_repository = RecipeRepository(
         foundation_repository,
         protected_recipe_store,
     )
@@ -347,7 +344,7 @@ def create_local_app(
         odoo_provenance_repository,
         resolved_artifacts,
     )
-    projects = ProjectService(project_repository, resolved_authorization)
+    projects = WorkspaceStateService(project_repository, resolved_authorization)
     migration_projects = MigrationProjectService(
         foundation_repository,
         resolved_authorization,
@@ -376,21 +373,21 @@ def create_local_app(
         source_packages,
         projects,
     )
-    recipe_compiler = RecipeAuthoringService(
+    recipe_compiler = RecipeCompiler(
         WorkspaceMappingSourceProjection(foundation_repository),
         mapping_repository,
         schema_repository,
         quality_repository,
         derived_entity_repository,
         advanced_coverage_repository,
-        recipe_authoring_repository,
+        recipe_compilation_repository,
     )
-    project_recipes = ProjectRecipeService(
-        project_recipe_repository,
+    recipes = RecipeService(
+        recipe_repository,
         resolved_authorization,
     )
-    recipe_publication = ProjectRecipePublicationService(
-        project_recipe_repository,
+    recipe_publication = RecipePublicationService(
+        recipe_repository,
         recipe_compiler,
         resolved_authorization,
     )
@@ -423,7 +420,7 @@ def create_local_app(
         categorical_coverage=categorical_coverage,
         transformation_impacts=transformation_impact_repository,
     )
-    project_recipe_application_compiler = ProjectRecipeApplicationCompiler(
+    recipe_application_service = RecipeApplicationService(
         sources=WorkspaceMappingSourceProjection(foundation_repository),
         schemas=schema_repository,
         schema_workspace=schema_workspace,
@@ -431,12 +428,12 @@ def create_local_app(
         preparation=derived_entity_repository,
         mappings=mapping_workspace,
         categorical=categorical_coverage,
-        application_state=RecipeApplicationRepository(database),
+        application_state=RecipeQualitySeedRepository(database),
     )
     run_planning = MigrationRunPlanningService(
         projects=migration_projects,
         data_versions=data_versions,
-        recipes=project_recipes,
+        recipes=recipes,
         repository=run_planning_repository,
         source_packages=source_packages,
         source_projections=WorkspaceSourceProjectionService(
@@ -444,7 +441,7 @@ def create_local_app(
             resolved_authorization,
         ),
         workspace_states=projects,
-        compiler=project_recipe_application_compiler,
+        compiler=recipe_application_service,
         cutover_plans=cutover_plan_repository,
         authorization=resolved_authorization,
     )
@@ -580,13 +577,12 @@ def create_local_app(
             quality_repository,
             transformation_impact_repository,
         ),
-        unavailable_projects=unavailable_projects,
         migration_projects=migration_projects,
         data_versions=data_versions,
         migration_runs=migration_runs,
         migration_workspaces=migration_workspaces,
         project_authoring=project_authoring,
-        project_recipes=project_recipes,
+        recipes=recipes,
         recipe_publication=recipe_publication,
         run_planning=run_planning,
         cutover_plans=cutover_plans,
@@ -704,34 +700,34 @@ def create_local_app(
         expected_host=expected_host,
     )
 
-    @app.exception_handler(ProjectNotFoundError)
-    async def project_not_found(_request: Request, _error: ProjectNotFoundError):
+    @app.exception_handler(WorkspaceStateNotFoundError)
+    async def project_not_found(_request: Request, _error: WorkspaceStateNotFoundError):
         return HTMLResponse("Project not found", status_code=404)
 
     @app.exception_handler(MigrationNotFoundError)
     async def migration_not_found(_request: Request, _error: MigrationNotFoundError):
         return HTMLResponse("Migration record not found", status_code=404)
 
-    @app.exception_handler(ProjectRecipeError)
-    async def project_recipe_error(_request: Request, error: ProjectRecipeError):
+    @app.exception_handler(RecipeError)
+    async def recipe_error(_request: Request, error: RecipeError):
         return HTMLResponse(str(error), status_code=422)
 
-    @app.exception_handler(ProjectCompatibilityError)
+    @app.exception_handler(WorkspaceStateCompatibilityError)
     async def project_incompatible(
         request: Request,
-        error: ProjectCompatibilityError,
+        error: WorkspaceStateCompatibilityError,
     ):
         return _render(
             request,
             "project_list.html",
             projects=context.migration_projects.list(actor=context.actor),
-            unavailable_projects=context.unavailable_projects,
             error=str(error),
             status_code=409,
         )
 
     for router in (
         build_lifecycle_router(context),
+        build_concepts_router(),
         build_migration_projects_router(context),
         build_integrated_runs_router(context),
         build_cutover_plans_router(context),
@@ -753,3 +749,4 @@ def create_local_app(
         app.include_router(router)
 
     return app
+

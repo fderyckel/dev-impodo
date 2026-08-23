@@ -8,12 +8,12 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from ...intake import SourceIntakeError
-from ...projects import (
-    ProjectError,
-    ProjectRegistrationError,
-    ProjectStatus,
+from ...workspace_state import (
+    WorkspaceStateError,
+    WorkspaceRegistrationError,
+    WorkspaceStatus,
     SourceMode,
-    registration_problems,
+    workspace_registration_problems,
 )
 from ..context import WebContext
 from ..forms import _revision, _secure_form
@@ -33,7 +33,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
         workspace = context.queries.get(workspace_id)
         destination = (
             "overview"
-            if workspace.status is ProjectStatus.REGISTERED
+            if workspace.status is WorkspaceStatus.REGISTERED
             else ("files" if workspace.source_mode is SourceMode.FILE else "target")
         )
         return RedirectResponse(
@@ -45,7 +45,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     async def workspace_overview(request: Request, workspace_id: str):
         require_session(request)
         workspace = context.queries.get(workspace_id)
-        if workspace.status is not ProjectStatus.REGISTERED:
+        if workspace.status is not WorkspaceStatus.REGISTERED:
             setup_page = (
                 "files" if workspace.source_mode is SourceMode.FILE else "target"
             )
@@ -111,7 +111,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 )
                 added += 1
                 expected_revision += 1
-        except ProjectError as error:
+        except WorkspaceStateError as error:
             if added:
                 error = SourceIntakeError(
                     f"Added {added} file{'s' if added != 1 else ''}. "
@@ -142,7 +142,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 expected_revision=_revision(form),
             )
-        except ProjectRegistrationError as error:
+        except WorkspaceRegistrationError as error:
             workspace = context.queries.get(workspace_id)
             template = (
                 "project_files.html"
@@ -157,7 +157,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 error,
                 problems=error.problems,
             )
-        except ProjectError as error:
+        except WorkspaceStateError as error:
             workspace = context.queries.get(workspace_id)
             return _project_error(
                 request,
@@ -169,7 +169,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                     else "project_review.html"
                 ),
                 error,
-                problems=registration_problems(workspace),
+                problems=workspace_registration_problems(workspace),
             )
         destination = "sources" if workspace.source_mode is SourceMode.FILE else "schema"
         return RedirectResponse(
@@ -178,3 +178,4 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
         )
 
     return router
+

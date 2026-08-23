@@ -1,21 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{{ project.display_name }} · Impodo{% endblock %}
 {% block content %}
+  {% from "_concept_help.html" import concept_help_link, concept_help_dialog with context %}
   <div class="page-heading project-overview-heading">
     <div>
       <p class="eyebrow">Data project</p>
       <h1>{{ project.display_name }}</h1>
       <p>{{ project.migration_purpose }}</p>
     </div>
-    <span class="status {% if project.status.value == 'DRAFT' %}draft{% else %}registered{% endif %}">{{ project.status.value|title }}</span>
+    <span class="status {% if project.status.value == 'DRAFT' %}draft{% else %}registered{% endif %}">{% if project.status.value == 'DRAFT' %}Setup{% else %}Ready{% endif %}</span>
   </div>
 
   {% if authoring_workspace %}
     <section class="next-action-card current">
       <div>
-        <p class="eyebrow">Authoring workspace</p>
+        <div class="eyebrow-with-help">
+          <p class="eyebrow">Authoring workspace</p>
+          {{ concept_help_link("workspace", "Explain why this workspace uses one data version") }}
+        </div>
         <h2>Continue preparing and matching the sample data</h2>
-        <p>This workspace belongs to DataVersion {{ authoring_data_version.version_number }}. You may complete this as one-off work without publishing a Recipe.</p>
+        <p>This workspace uses Data version {{ authoring_data_version.version_number }}. You can complete this migration once without saving a Recipe.</p>
       </div>
       <a class="button primary" href="/workspaces/{{ authoring_workspace.workspace_id }}/overview">Open workspace</a>
     </section>
@@ -26,7 +30,7 @@
       <div>
         <p class="eyebrow">Integrated Test</p>
         <h2>Apply selected Recipes together</h2>
-        <p>Choose exact Recipe revisions for one accepted Test data version. Impodo checks their dependency order and overlapping Odoo writes before it creates separate application workspaces.</p>
+        <p>Choose exact Recipe versions for one accepted Test data version. Impodo checks their required order and overlapping Odoo changes before it creates separate Recipe work areas.</p>
       </div>
       <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/new">Plan integrated Test</a>
     </section>
@@ -44,7 +48,7 @@
             <div class="overview-stage-number">{{ run.run_number }}</div>
             <div class="overview-stage-copy">
               <h3>{{ run.label }}</h3>
-              <p>{{ run.state.value|title }} · One run-level Odoo target</p>
+              <p>{% if run.state.value == 'READY' %}Complete{% else %}Current{% endif %} · One shared Odoo target</p>
               <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Test run</a>
             </div>
           </li>
@@ -58,7 +62,7 @@
       <div>
         <p class="eyebrow">Production rollout</p>
         <h2>Prepare the latest data separately</h2>
-        <p>The selected Cutover plan supplies the tested Recipe meaning only. Production starts with new source data, target access, comparison, approval, and verification.</p>
+        <p>The selected Cutover plan supplies the tested Recipe versions and order only. Production starts with new source data, Odoo access, comparison, approval, and verification.</p>
       </div>
       <a class="button primary" href="/projects/{{ project.project_id }}/production-runs/new">Start Production setup</a>
     </section>
@@ -77,7 +81,7 @@
             <div class="overview-stage-number">{{ loop.index }}</div>
             <div class="overview-stage-copy">
               <h3>{{ production_run.label }}</h3>
-              <p>{{ binding.state.value|title }} &middot; Cutover plan revision {{ binding.cutover_plan_revision }} &middot; Latest export {{ production_data.export_as_of }}</p>
+              <p>{% if binding.state.value == 'ACTIVE' %}Complete{% else %}Current{% endif %} &middot; Cutover plan version {{ binding.cutover_plan_revision }} &middot; Latest export {{ production_data.export_as_of }}</p>
               {% if binding.state.value == 'SETUP' %}
                 <a class="button primary" href="/projects/{{ project.project_id }}/production-runs/{{ binding.migration_run_id }}/activate">Continue Production setup</a>
               {% else %}
@@ -92,13 +96,13 @@
 
   <section class="overview-stage-list">
     <div class="section-heading">
-      <div><p class="eyebrow">Source packages</p><h2>Data versions</h2></div>
+      <div><p class="eyebrow">Source deliveries</p><h2>Data versions</h2></div>
     </div>
     <ol class="overview-stages">
       {% for version in data_versions %}
         <li class="overview-stage {% if version.state.value == 'FROZEN' %}complete{% else %}current{% endif %}">
           <div class="overview-stage-number">{{ version.version_number }}</div>
-          <div class="overview-stage-copy"><h3>{{ version.label }}</h3><p>{{ version.purpose.value|title }} · {{ version.state.value|title }}</p></div>
+          <div class="overview-stage-copy"><h3>{{ version.label }}</h3><p>{{ version.purpose.value|title }} · {% if version.state.value == 'FROZEN' %}Accepted{% else %}Current{% endif %}</p></div>
         </li>
       {% endfor %}
     </ol>
@@ -108,8 +112,11 @@
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Optional reuse</p>
-        <h2 id="project-recipes-title">Recipes</h2>
-        <p>A Recipe saves reusable transformation rules. It does not own this Project, its data package, or its workspace.</p>
+        <div class="heading-with-help">
+          <h2 id="project-recipes-title">Recipes</h2>
+          {{ concept_help_link("recipe", "Explain what a Recipe saves") }}
+        </div>
+        <p>A Recipe saves reusable preparation, matching, relationship, and checking rules. The data project continues to keep its data versions and workspaces; saving a Recipe does not copy or move them.</p>
       </div>
     </div>
     {% if recipes %}
@@ -130,7 +137,7 @@
                   <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
                   <input type="hidden" name="display_name" value="{{ recipe.display_name }}">
                   <input type="hidden" name="business_purpose" value="{{ recipe.business_purpose }}">
-                  <button class="button secondary" type="submit">Publish new revision</button>
+                  <button class="button secondary" type="submit">Save a new Recipe version</button>
                 </form>
               {% endif %}
             </div>
@@ -138,7 +145,7 @@
         {% endfor %}
       </ol>
     {% else %}
-      <p>No Recipe has been saved. The Project and workspace remain fully usable.</p>
+      <p>No Recipe has been saved. The data project and workspace remain fully usable.</p>
     {% endif %}
 
     {% if recipe_draft and recipe_draft.can_publish %}
@@ -160,4 +167,6 @@
       </div>
     {% endif %}
   </section>
+  {{ concept_help_dialog("workspace") }}
+  {{ concept_help_dialog("recipe") }}
 {% endblock %}

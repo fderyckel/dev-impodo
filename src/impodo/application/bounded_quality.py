@@ -15,7 +15,7 @@ import json
 from typing import overload
 
 from ..domain.staging.preparation_session import StoredCanonicalStagingRun
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 from ..quality import (
     MANDATORY_QUALITY_FAMILIES,
     QualityError,
@@ -1260,3 +1260,4 @@ def materialize_staging_run(
         evaluator_version=staging.evaluator_version,
         contract_version=staging.contract_version,
     )
+

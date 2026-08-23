@@ -78,7 +78,7 @@ The intentionally changed surfaces are:
 
 ## Verification
 
-[`tests/test_recipe_application.py`](../../tests/test_recipe_application.py)
+`tests/test_recipe_application.py` (removed by M7; retained in Git history)
 proves exact same-ish source binding, renamed-column override behavior,
 target/credential invalidation, parameter pinning, persistent categorical
 blocks, preparation rebuilding, fresh mapping creation, protected evidence,

@@ -103,7 +103,7 @@ bookmark or share that address.
 
 Select **New project** and enter:
 
-- Project name: **Odoo 19 training migration**
+- Data project name: **Odoo 19 training migration**
 - Source: **Use files**
 
 Add all related files, then select **Use these files and continue**. Impodo does
@@ -123,14 +123,14 @@ The six stages are the data manager's main route:
 Use the next action shown on the overview. Avoid jumping ahead through sidebar
 links when an earlier stage still needs attention.
 
-You can complete all six stages as one-off Project work. If these
-transformation rules will be useful again, return to the Project overview and
-publish them as a Recipe revision. Recipe publication does not move the
-DataVersion, source files, Odoo credentials, comparison, approval, or load
+You can complete all six stages as one-off data project work. If these
+transformation rules will be useful again, return to the data project overview and
+save them as a Recipe version. Saving a Recipe does not move the
+data version, source files, Odoo credentials, comparison, approval, or load
 evidence into the Recipe.
 
-Applying one or several published Recipe revisions to an already accepted Test
-DataVersion is available from **Plan integrated Test**. It creates fresh,
+Applying one or several saved Recipe versions to an already accepted Test
+data version is available from **Plan integrated Test**. It creates fresh,
 isolated application drafts. Execution, qualification, rollout selection, and
 Production application are not part of that current M4 planning flow.
 

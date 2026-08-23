@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Start Production setup &middot; Impodo{% endblock %}
 {% block content %}
+  {% from "_concept_help.html" import concept_help_link, concept_help_dialog with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{{ project.display_name }}</p>
@@ -11,14 +12,20 @@
 
   {% if not selection %}
     <section class="notice" aria-labelledby="selection-required">
-      <h2 id="selection-required">Select a qualified Cutover plan first</h2>
-      <p>Complete Integrated Test qualification and select its exact plan revision as the rollout candidate.</p>
+      <div class="heading-with-help">
+        <h2 id="selection-required">Select a qualified Cutover plan first</h2>
+        {{ concept_help_link("cutover-plan", "Explain what a Cutover plan preserves") }}
+      </div>
+      <p>Complete Integrated Test qualification and select its exact plan version as the rollout candidate.</p>
     </section>
   {% else %}
     <section class="form-card">
       <p class="eyebrow">Selected rollout candidate</p>
-      <h2>Cutover plan revision {{ selection.cutover_plan_revision }}</h2>
-      <p>This qualification identifies tested reusable meaning. Starting setup does not authorize an Odoo write.</p>
+      <div class="heading-with-help">
+        <h2>Cutover plan version {{ selection.cutover_plan_revision }}</h2>
+        {{ concept_help_link("cutover-plan", "Explain what a Cutover plan preserves") }}
+      </div>
+      <p>This qualification identifies the tested Recipe versions, order, and controls. Starting setup does not authorize an Odoo write.</p>
     </section>
     <form method="post" action="/projects/{{ project.project_id }}/production-runs/new" class="form-card">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -44,4 +51,5 @@
       </div>
     </form>
   {% endif %}
+  {{ concept_help_dialog("cutover-plan") }}
 {% endblock %}

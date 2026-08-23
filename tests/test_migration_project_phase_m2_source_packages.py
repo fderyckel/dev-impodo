@@ -145,7 +145,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
         self.data_version = self.data_versions.create(
             self.project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=self.project.optimistic_revision,
+            expected_workspace_revision=self.project.optimistic_revision,
             purpose="AUTHORING",
             label="Representative source package",
         )
@@ -321,7 +321,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
         run = self.runs.create(
             project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=self.data_version.data_version_id,
             purpose="AUTHORING",
             label="Authoring run",
@@ -330,7 +330,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
         customer = self.workspaces.create(
             project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=self.data_version.data_version_id,
             migration_run_id=run.migration_run_id,
             display_name="Customer workspace",
@@ -339,7 +339,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
         product = self.workspaces.create(
             project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=self.data_version.data_version_id,
             migration_run_id=run.migration_run_id,
             display_name="Product workspace",
@@ -779,3 +779,4 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

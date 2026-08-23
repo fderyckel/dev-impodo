@@ -10,7 +10,7 @@ status: current
 
 Describe how every approved source table becomes an Odoo record, including
 identity, values, transformations, and relationships. In authoring, this is
-the reusable meaning that can be published as a Recipe revision.
+the reusable rules that can be saved as a Recipe version.
 
 ## Before you start
 
@@ -72,10 +72,10 @@ classification decision.
 ### When reusable rules are ready
 
 Complete and submit the Authoring mapping through the normal checks. Return to
-the Project overview only after its source, schema, mapping, and quality
+the data project overview only after its source, schema, mapping, and quality
 evidence is current. If the workspace is eligible, you can save the rules as a
-new Recipe or publish a successor revision. Applying those Recipes to later
-DataVersions belongs to the next implementation phase.
+new Recipe or save a new version. Applying those Recipes to later data
+versions happens through a fresh Test or Production work area.
 
 ### When the source is captured from Odoo
 
@@ -89,7 +89,7 @@ is off by default. A field can be approved only when its original value was
 captured and Odoo metadata identifies it as a safe stored, writable scalar.
 Confirming these choices still does not contact or change Odoo.
 
-![Current source and Odoo identity choices inside a fictional Project workspace.](../../images/user/10-mapping-identity.png)
+![Current source and Odoo identity choices inside a fictional data project workspace.](../../images/user/10-mapping-identity.png)
 
 ![Current field-value and cleanup controls for a fictional Contact mapping.](../../images/user/11-mapping-fields.png)
 
@@ -111,14 +111,14 @@ Confirming these choices still does not contact or change Odoo.
 
 ## What Complete means
 
-The exact checked mapping revision is confirmed for this DataVersion and the
+The exact checked mapping is confirmed for this data version and the
 stage shows **Complete**. Saving a Recipe is a later, separate action on the
-Project overview and is not required for one-off work.
+data project overview and is not required for one-off work.
 
 ## What changes and what does not
 
 Saving or confirming a mapping stores instructions and review evidence in the
-current data version. It does not edit frozen source data, publish a Recipe by
+current data version. It does not edit accepted source data, save a Recipe by
 itself, authorize a load, or write to Odoo.
 
 ## Needs attention
@@ -140,7 +140,7 @@ matches** again.
 Changes to source evidence, Odoo fields, business keys, mapping choices, field
 approvals, or transformation rules require a new mapping check and
 confirmation. A previously prepared or compared result must not be reused
-after such a change. Changing reusable meaning requires a new Recipe revision
+after such a change. Changing reusable rules requires a new Recipe version
 and a new Test qualification before rollout.
 
 ## Next stage

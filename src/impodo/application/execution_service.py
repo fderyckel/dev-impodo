@@ -37,7 +37,7 @@ from ..odoo_writer import (
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
-from ..projects import WorkspaceState, OdooConnectionMode, SourceMode
+from ..workspace_state import WorkspaceState, OdooConnectionMode, SourceMode
 from ..workspace_errors import WorkspaceError
 from .preflight_service import PreflightService
 
@@ -1536,3 +1536,4 @@ def _domain_cache_key(
     domain: tuple[tuple[str, str, Any], ...],
 ) -> str:
     return canonical_json_text({"model": model, "domain": domain})
+

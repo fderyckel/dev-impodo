@@ -3,7 +3,7 @@
 Layer: web route. The router selects a configured local or remote closed
 reader, obtains target-bound snapshots, and delegates their validation to
 ``SchemaWorkspaceService``. It also routes the exact permitted-model scope
-through ``ProjectService``. No generic Odoo method or write is exposed.
+through ``WorkspaceStateService``. No generic Odoo method or write is exposed.
 
 See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
@@ -18,7 +18,7 @@ from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ...projects import WorkspaceState, ProjectError
+from ...workspace_state import WorkspaceState, WorkspaceStateError
 from ...secrets import SecretStoreError
 from ...workspace_contracts import OdooSchemaCatalog, SchemaOrigin
 from ...workspace_errors import WorkspaceError
@@ -177,7 +177,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             catalog = await _refresh_model_catalog(context, project)
         except (
             ConnectorError,
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
         ) as error:
@@ -215,7 +215,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     model for model in permitted_models if model not in available
                 ]
                 if unknown:
-                    raise ProjectError(
+                    raise WorkspaceStateError(
                         f"{unknown[0]} is not in the refreshed Odoo model catalogue"
                     )
             saved_project = context.projects.update_schema_scope(
@@ -224,7 +224,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 expected_revision=_revision(form),
                 permitted_models=permitted_models,
             )
-        except ProjectError as error:
+        except WorkspaceStateError as error:
             return _render_schema(
                 request,
                 context,
@@ -242,7 +242,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 await _capture_selected_schema(context, saved_project)
             except (
                 ConnectorError,
-                ProjectError,
+                WorkspaceStateError,
                 SecretStoreError,
                 WorkspaceError,
             ) as error:
@@ -271,7 +271,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             await _capture_selected_schema(context, project)
         except (
             ConnectorError,
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
         ) as error:
@@ -315,7 +315,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 ),
                 actor=context.actor,
             )
-        except (ProjectError, WorkspaceError) as error:
+        except (WorkspaceStateError, WorkspaceError) as error:
             return _render_schema(
                 request,
                 context,
@@ -446,3 +446,4 @@ def build_schema_router(context: WebContext) -> APIRouter:
         )
 
     return router
+

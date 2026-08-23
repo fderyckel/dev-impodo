@@ -19,7 +19,7 @@ from .inspection import (
     SourceInspectionOptions,
     inspect_source_file,
 )
-from .projects import SourceFile
+from .workspace_state import SourceFile
 from .source import SourceLoadError, validate_source_file
 
 
@@ -330,3 +330,4 @@ def _windows_kernel32() -> Any:
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
     return kernel32
+

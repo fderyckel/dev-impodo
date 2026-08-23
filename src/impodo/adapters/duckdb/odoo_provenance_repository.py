@@ -20,10 +20,10 @@ from ...domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from ...projects import ProjectNotFoundError, ProjectStatus, SourceMode
+from ...workspace_state import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
-from .database import DuckDbProjectDatabase
+from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 
 
@@ -32,7 +32,7 @@ class OdooProvenanceRepository(DuckDbRepository):
 
     def __init__(
         self,
-        database: DuckDbProjectDatabase,
+        database: DuckDbWorkspaceDatabase,
         artifacts: ArtifactStore,
         *,
         history_quota_bytes: int | None = None,
@@ -84,9 +84,9 @@ class OdooProvenanceRepository(DuckDbRepository):
             != manifest.data_size_bytes
         ):
             raise WorkspaceError("Odoo values artifact size is inconsistent")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
 
         candidate_path = self._candidate_path(project_id, manifest.manifest_id)
         final_path = self._artifact_path(project_id, manifest.provenance_storage_key)
@@ -96,15 +96,15 @@ class OdooProvenanceRepository(DuckDbRepository):
         published = False
         try:
             with self._connect(database_path) as connection:
-                self._ensure_project_database_schema(connection)
+                self._ensure_workspace_database_schema(connection)
                 project = connection.execute(
                     "SELECT source_mode, status, revision FROM project"
                 ).fetchone()
                 if project is None:
-                    raise ProjectNotFoundError("Project not found")
+                    raise WorkspaceStateNotFoundError("Project not found")
                 if (
                     str(project[0]) != SourceMode.ODOO.value
-                    or str(project[1]) != ProjectStatus.REGISTERED.value
+                    or str(project[1]) != WorkspaceStatus.REGISTERED.value
                 ):
                     raise WorkspaceError(
                         "Only registered Odoo-source projects can publish a capture"
@@ -404,11 +404,11 @@ class OdooProvenanceRepository(DuckDbRepository):
 
         if not reason.strip() or len(reason) > 200:
             raise WorkspaceError("Odoo provenance invalidation reason is invalid")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             exists = connection.execute(
                 """
                 SELECT manifest_id
@@ -418,7 +418,7 @@ class OdooProvenanceRepository(DuckDbRepository):
             ).fetchone()
             if exists is None:
                 return False
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute("DELETE FROM odoo_capture_manifest_current")
@@ -454,11 +454,11 @@ class OdooProvenanceRepository(DuckDbRepository):
 
         if now.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
                 """
                 SELECT manifest_id, provenance_storage_key, data_storage_key
@@ -474,7 +474,7 @@ class OdooProvenanceRepository(DuckDbRepository):
             if not rows:
                 return 0
             expired_data_keys = {str(row[2]) for row in rows}
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.executemany(
@@ -566,7 +566,7 @@ class OdooProvenanceRepository(DuckDbRepository):
         root = (
             self._protected_root_resolver(project_id)
             if self._protected_root_resolver is not None
-            else self.project_directory(project_id) / "protected"
+            else self.workspace_directory(project_id) / "protected"
         )
         if root.is_symlink():
             raise WorkspaceError("Protected Odoo evidence directory is unsafe")
@@ -644,3 +644,4 @@ def _validate_complete_capture(
         raise WorkspaceError(
             "Odoo values, provenance, and source snapshot bindings are inconsistent"
         )
+

@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Plan integrated Test &middot; Impodo{% endblock %}
 {% block content %}
+  {% from "_concept_help.html" import concept_help_link, concept_help_dialog with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{{ project.display_name }}</p>
-      <h1>Plan an integrated Test run</h1>
-      <p>Select the exact Recipe revisions that should use one accepted Test data version and one reviewed Odoo target.</p>
+      <div class="heading-with-help">
+        <h1>Plan an integrated Test run</h1>
+        {{ concept_help_link("test-run", "Explain what an Integrated Test run proves") }}
+      </div>
+      <p>Select the exact Recipe versions that should use one accepted Test data version and one reviewed Odoo target.</p>
     </div>
   </div>
 
@@ -54,8 +58,8 @@
       </label>
 
       <fieldset>
-        <legend>Recipe revisions</legend>
-        <p>Each selected Recipe receives a separate workspace. The published revision remains unchanged.</p>
+        <legend>Recipe versions</legend>
+        <p>Each selected Recipe receives a separate work area. The saved Recipe version remains unchanged.</p>
         {% for recipe in recipes %}
           {% set value = recipe.recipe_id ~ ':' ~ recipe.current_recipe_revision %}
           <label class="checkbox-row">
@@ -73,7 +77,7 @@
       {% if recipes|length > 1 %}
         <fieldset>
           <legend>Required order</legend>
-          <p>Select an order only when one Recipe must finish and reconcile before another begins.</p>
+          <p>Select an order only when one Recipe must finish and pass verification before another begins.</p>
           {% for before in recipes %}
             {% for after in recipes %}
               {% if before.recipe_id != after.recipe_id %}
@@ -103,4 +107,5 @@
       </div>
     </form>
   {% endif %}
+  {{ concept_help_dialog("test-run") }}
 {% endblock %}

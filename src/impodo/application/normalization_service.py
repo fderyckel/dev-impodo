@@ -20,7 +20,7 @@ from ..normalization import (
     StoredNormalizationEvaluation,
     evaluate_normalization,
 )
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 from ..quality import QualityRun, QualityRunSummary, StoredQualityRun
 from ..staging import StagingRunSummary
 from ..staging_contracts import CanonicalStagingRun
@@ -275,3 +275,4 @@ class NormalizationService:
             source_hashes=source_hashes,
             actor=actor,
         )
+

@@ -10,11 +10,11 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.application.bounded_quality import (
     build_bounded_quality_run,
     materialize_staging_run,
@@ -32,7 +32,7 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
 )
 from impodo.models import LogicalReference, PreparedRecord, canonical_json_bytes
-from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityRuleFamily,
@@ -62,8 +62,8 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(database)
+        database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(database)
         self.repository = PreparationSessionRepository(database)
         now = datetime.now(timezone.utc)
         self.project = WorkspaceState(
@@ -77,15 +77,10 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.bindings = PreparationSessionBindings(
             mapping_id="mapping:contacts",
             mapping_version=1,
@@ -223,7 +218,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             )
         )
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -620,7 +615,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             patch.object(self.repository, "_connect", counting_connect),
             patch.object(
                 self.repository,
-                "_ensure_project_database_schema",
+                "_ensure_workspace_database_schema",
                 return_value=None,
             ),
         ):
@@ -756,3 +751,4 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

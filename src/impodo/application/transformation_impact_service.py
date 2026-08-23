@@ -21,7 +21,7 @@ from ..domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 from ..workspace_contracts import MappingWorkingDraft, SourceSelection
 from ..workspace_errors import WorkspaceError
 from .preparation_service import stage_browser_mapping
@@ -284,3 +284,4 @@ class TransformationImpactService:
             rule_fingerprint,
             actor=actor,
         )
+

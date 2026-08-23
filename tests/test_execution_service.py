@@ -33,7 +33,7 @@ from impodo.odoo_writer import (
 )
 from impodo.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.connectors import Json2Config
-from impodo.projects import OdooConnectionMode, SourceMode
+from impodo.workspace_state import OdooConnectionMode, SourceMode
 from impodo.web.target_writers import _write_executor
 from impodo.workspace_errors import WorkspaceError
 
@@ -2026,3 +2026,4 @@ class TargetWriterFactoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

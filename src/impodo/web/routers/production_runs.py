@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ...connectors import ConnectorError
 from ...migration_foundation import MigrationFoundationError
-from ...projects import SourceMode
+from ...workspace_state import SourceMode
 from ...secrets import SecretStoreError
 from ..context import WebContext
 from ..forms import _secure_form, _text
@@ -48,7 +48,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             {
                 "csrf_token",
                 "cutover_selection_id",
-                "expected_project_revision",
+                "expected_workspace_revision",
                 "export_as_of",
                 "label",
                 "operation_id",
@@ -57,8 +57,8 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         try:
             bundle = context.production_runs.start_setup(
                 project_id,
-                expected_project_revision=int(
-                    _text(form, "expected_project_revision")
+                expected_workspace_revision=int(
+                    _text(form, "expected_workspace_revision")
                 ),
                 cutover_selection_id=_text(form, "cutover_selection_id"),
                 label=_text(form, "label"),
@@ -121,7 +121,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         view = _activation_view(context, project_id, migration_run_id)
         allowed = {
             "csrf_token",
-            "expected_project_revision",
+            "expected_workspace_revision",
             "operation_id",
             "remember_write_api_key",
             "write_api_key",
@@ -190,8 +190,8 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             context.production_runs.activate(
                 project_id,
                 migration_run_id,
-                expected_project_revision=int(
-                    _text(form, "expected_project_revision")
+                expected_workspace_revision=int(
+                    _text(form, "expected_workspace_revision")
                 ),
                 target_schema=target_schema,
                 target_reference_bundle=target_references,
@@ -306,12 +306,12 @@ def _activation_view(context, project_id, migration_run_id):
     )
     recipes = {
         item.recipe_id: item
-        for item in context.project_recipes.list(project_id, actor=context.actor)
+        for item in context.recipes.list(project_id, actor=context.actor)
     }
     parameters = []
     controls = []
     for recipe_index, selection in enumerate(plan.selected_revisions):
-        envelope = context.project_recipes.read_revision(
+        envelope = context.recipes.read_revision(
             selection.recipe_id,
             selection.recipe_revision,
             actor=context.actor,
@@ -392,3 +392,4 @@ def _submitted_values(form, definitions):
         if value or item["definition"].get("required"):
             result.setdefault(item["recipe_id"], {})[logical_id] = value
     return result
+

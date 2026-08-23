@@ -1,6 +1,6 @@
 """Expose read-only Odoo comparison and its review artifacts.
 
-Migration stage: H — read-only target preflight. Layer: web route.
+Migration stage: H â€” read-only target preflight. Layer: web route.
 
 The compare action supplies
 :class:`impodo.application.preflight_service.PreflightService` with a
@@ -19,7 +19,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
-from ...projects import OdooConnectionMode, ProjectError
+from ...workspace_state import OdooConnectionMode, WorkspaceStateError
 from ...domain.errors import ReadinessError
 from ...application.preflight_service import MANIFEST_NAME
 from ...application.odoo_read_failures import (
@@ -213,7 +213,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         except (
             ArtifactStoreError,
             ConnectorError,
-            ProjectError,
+            WorkspaceStateError,
             ReadinessError,
             SecretStoreError,
             WorkspaceError,
@@ -359,3 +359,4 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         )
 
     return router
+

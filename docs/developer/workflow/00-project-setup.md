@@ -4,7 +4,7 @@ stage: setup
 status: current
 ---
 
-# Project and authoring workspace setup
+# Data project and authoring workspace setup
 
 ## Responsibility
 
@@ -60,9 +60,9 @@ Odoo package and materializes the workspace references.
 
 ## Optional publication
 
-The Project overview asks `ProjectRecipePublicationService` for one readiness
+The Project overview asks `RecipePublicationService` for one readiness
 projection. When eligible, the data manager can save a new Recipe or publish a
-successor revision. `ProjectRecipeRepository` stores the protected payload and
+successor revision. `RecipeRepository` stores the protected payload and
 registry revision through a recoverable operation. It leaves all Project and
 DataVersion identities unchanged.
 
@@ -95,6 +95,25 @@ workspace-store or protected-payload read inside a list loop. Connection checks
 remain purpose-specific and do not perform model discovery. Mapping,
 preparation, comparison, and Odoo access remain batched rather than per row.
 
+## Data-manager concept help
+
+The browser uses the common terms **data project**, **data version**,
+**workspace**, **Recipe**, **Recipe version**, **Test run**, **Recipe work
+area**, **Cutover plan**, and **Production run**. Internal class and persistence
+names remain valid in developer contracts but do not appear in the normal
+browser path.
+
+`ConceptHelp` is immutable presentation data shared by `/concepts` and the
+contextual dialog macro. The route requires the existing local session but does
+not open the registry, a workspace store, a protected Recipe payload, or an
+Odoo boundary. The data project list still performs one bounded summary query;
+help content is never fetched once per project or once per icon.
+
+Each contextual control is a normal deep link before JavaScript enhancement.
+The generic listener opens the matching native dialog when supported and
+returns focus to the link after close. The full page, dialog, and related links
+therefore use one reviewed registry without adding a database or N+1 path.
+
 ## Code references
 
 | Role | Code |
@@ -103,16 +122,19 @@ preparation, comparison, and Odoo access remain batched rather than per row.
 | Workspace setup routes | [`workspace_setup.py`](../../../src/impodo/web/routers/workspace_setup.py) |
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
 | Clean roots | [`MigrationProjectService`](../../../src/impodo/migration_projects.py), [`DataVersionService`](../../../src/impodo/data_versions.py), [`MigrationRunService`](../../../src/impodo/migration_runs.py), [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) |
-| Contained engine | [`ProjectService`](../../../src/impodo/projects.py) and `ProjectService.register` |
+| Contained engine | [`WorkspaceStateService`](../../../src/impodo/workspace_state.py) and `WorkspaceStateService.register` |
 | Source ownership cutover | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
-| Optional compilation and publication | [`RecipeAuthoringService.compile_workspace`](../../../src/impodo/application/recipe_authoring_service.py), [`ProjectRecipePublicationService`](../../../src/impodo/application/project_recipe_publication_service.py) |
+| Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Navigation | [`build_project_navigation`](../../../src/impodo/web/presenters/navigation.py) |
+| Data-manager concept registry | [`ConceptHelp`](../../../src/impodo/web/presenters/concepts.py) |
+| Read-only Concepts route | [`concepts.py`](../../../src/impodo/web/routers/concepts.py) |
 | Browser composition | [`app.py`](../../../src/impodo/web/app.py) |
 
 ## Verification
 
 - [`tests/test_migration_project_phase_m3_project_authoring.py`](../../../tests/test_migration_project_phase_m3_project_authoring.py)
+- [`tests/test_concept_help.py`](../../../tests/test_concept_help.py)
 - [`tests/test_project_security.py`](../../../tests/test_project_security.py)
 - [`tests/test_odoo_connection_service.py`](../../../tests/test_odoo_connection_service.py)
 - [`tests/test_odoo_capture_jobs.py`](../../../tests/test_odoo_capture_jobs.py)

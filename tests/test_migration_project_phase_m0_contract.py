@@ -24,9 +24,9 @@ FIXTURE = (
 RETAINED_RECIPE_FIXTURE = (
     ROOT
     / "fixtures"
-    / "recipes"
-    / "phase-r0"
-    / "customer-recipe-v3.json"
+    / "migration-projects"
+    / "phase-m0"
+    / "customer-recipe-v1.json"
 )
 HASH = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
@@ -637,3 +637,4 @@ class MigrationProjectPhaseM0ContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

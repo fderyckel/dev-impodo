@@ -47,7 +47,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         self.qualification = self.m5_fixture.service.qualify(
             self.test_bundle.run.project_id,
             self.test_bundle.run.migration_run_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             expected_evidence_hash=str(review.integrated_evidence_hash),
             operation_id=str(uuid4()),
             actor=LOCAL_ACTOR,
@@ -59,7 +59,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         self.selection = self.m5_fixture.service.select(
             self.test_bundle.run.project_id,
             self.qualification.qualification_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             operation_id=str(uuid4()),
             actor=LOCAL_ACTOR,
         )
@@ -89,7 +89,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         )
         return self.production.start_setup(
             project.project_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             cutover_selection_id=self.selection.cutover_selection_id,
             label="Production rollout 2026-08-23",
             export_as_of="2026-08-23T00:00:00Z",
@@ -170,7 +170,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         return self.production.activate(
             setup.run.project_id,
             setup.run.migration_run_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             target_schema=schema,
             target_reference_bundle=None,
             read_credential_generation=schema.read_credential_binding_hash,
@@ -412,3 +412,4 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

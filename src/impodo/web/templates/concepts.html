@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}How Impodo organizes your migration &middot; Impodo{% endblock %}
+{% block body_class %}concepts-page{% endblock %}
+{% block content %}
+  <div class="page-heading concepts-heading">
+    <div>
+      <p class="eyebrow">Concepts</p>
+      <h1>How Impodo organizes your migration</h1>
+      <p>Understand what Impodo keeps, what you can reuse, and why Test and Production remain separate.</p>
+    </div>
+  </div>
+
+  <section class="concept-model" aria-labelledby="concept-model-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">The small picture</p>
+        <h2 id="concept-model-title">One data project keeps four kinds of work together</h2>
+      </div>
+    </div>
+    <div class="concept-model-root">
+      <strong>Data project</strong>
+      <span>One migration effort</span>
+    </div>
+    <div class="concept-model-branches">
+      <a href="#data-version"><strong>Data versions</strong><span>Complete source deliveries</span></a>
+      <a href="#workspace"><strong>Workspaces</strong><span>Working areas that use one data version</span></a>
+      <a href="#recipe"><strong>Optional Recipes</strong><span>Reusable rules without source rows or access</span></a>
+      <a href="#test-run"><strong>Runs</strong><span>Test or Production outcomes</span></a>
+    </div>
+  </section>
+
+  <section class="concept-example concept-page-example" aria-labelledby="customer-example-title">
+    <p class="eyebrow">Example</p>
+    <h2 id="customer-example-title">A Customer migration from sample data to Production</h2>
+    <p>
+      The Customer migration project starts with a small Authoring data version. You prepare it in a workspace and save a Customer Recipe because the same rules will be useful again. The Test run uses a separate Test data version. The Production run later uses the latest customer export and separate Odoo access.
+    </p>
+    <p>
+      The Recipe supplies reusable rules, but it supplies none of the Test or Production data, credentials, approvals, or results.
+    </p>
+    <p><strong>For you, this means:</strong> You can complete one migration without saving a Recipe. Save one only when you expect to reuse the rules with another suitable delivery.</p>
+  </section>
+
+  <section class="concept-list" aria-label="Impodo concepts">
+    {% for concept in concepts %}
+      <article class="concept-card" id="{{ concept.slug }}" tabindex="-1">
+        <p class="eyebrow">{{ concept.term }}</p>
+        <h2>{{ concept.title }}</h2>
+        <p>{{ concept.definition }}</p>
+        <p>{{ concept.relationship }}</p>
+        <p>{{ concept.exclusion }}</p>
+        <div class="concept-card-details">
+          <p><strong>Example:</strong> {{ concept.example }}</p>
+          <p><strong>For you, this means:</strong> {{ concept.practical_effect }}</p>
+          <nav class="concept-related" aria-label="Concepts related to {{ concept.term }}">
+            <strong>Related:</strong>
+            {% for related_slug in concept.related_slugs %}
+              {% set related = concepts_by_slug[related_slug] %}
+              <a href="#{{ related.slug }}">{{ related.term }}</a>{% if not loop.last %}<span aria-hidden="true">&middot;</span>{% endif %}
+            {% endfor %}
+          </nav>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="next-action-card ready">
+    <div>
+      <p class="eyebrow">Next action</p>
+      <h2>Return to your migration work</h2>
+      <p>Open an existing data project, or create a new one for a separate migration effort.</p>
+    </div>
+    <a class="button primary" href="/projects">View data projects</a>
+  </section>
+{% endblock %}

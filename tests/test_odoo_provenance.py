@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from hashlib import sha256
 from pathlib import Path
+import os
 import stat
 import tempfile
 import unittest
@@ -18,12 +19,12 @@ from impodo.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.odoo_provenance_repository import (
     OdooProvenanceRepository,
 )
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.protected_odoo_provenance import (
@@ -50,10 +51,10 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from impodo.projects import (
+from impodo.workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceMode,
 )
 from impodo.secrets import MemorySecretStore, SecretStoreError
@@ -78,8 +79,8 @@ class OdooProvenanceTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(self.database)
+        self.database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(self.database)
         derived = DerivedEntityRepository(self.database)
         self.sources = SourceRepository(self.database, derived)
         self.schemas = SchemaRepository(self.database)
@@ -110,17 +111,12 @@ class OdooProvenanceTests(unittest.TestCase):
             odoo_base_url="https://odoo.example.test",
             odoo_database="production",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=self.now,
             created_at=self.now,
             updated_at=self.now,
         )
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         schema = OdooSchemaCatalog(
             project_id=self.project.project_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
@@ -212,11 +208,12 @@ class OdooProvenanceTests(unittest.TestCase):
         encrypted = artifact.read_bytes()
         self.assertNotIn(self.now.date().isoformat().encode("ascii"), encrypted)
         self.assertNotIn((41).to_bytes(8, "big"), encrypted)
-        self.assertEqual(stat.S_IMODE(artifact.stat().st_mode), 0o600)
-        self.assertEqual(
-            stat.S_IMODE((artifact.parents[1]).stat().st_mode),
-            0o700,
-        )
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(artifact.stat().st_mode), 0o600)
+            self.assertEqual(
+                stat.S_IMODE((artifact.parents[1]).stat().st_mode),
+                0o700,
+            )
         origin_fields = {item.name for item in fields(OdooOriginBatch)}
         self.assertEqual(
             origin_fields,
@@ -673,3 +670,4 @@ class OdooProvenanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

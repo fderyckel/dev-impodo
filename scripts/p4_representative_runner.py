@@ -48,7 +48,7 @@ from impodo.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.odoo_writer import Json2WriteExecutor
 from impodo.planner import plan_metadata_requests, plan_record_requests
 from impodo.profile import load_profile
-from impodo.projects import OdooConnectionMode
+from impodo.workspace_state import OdooConnectionMode
 from impodo.source import PreparedBundle, prepare_sources
 
 
@@ -582,3 +582,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -7,10 +7,10 @@ from impodo.application.odoo_connection_service import (
     OdooConnectionTestService,
 )
 from impodo.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from impodo.projects import (
+from impodo.workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectError,
+    WorkspaceStateError,
     SourceMode,
 )
 
@@ -82,7 +82,7 @@ class OdooConnectionTestServiceTests(unittest.TestCase):
         )
 
     def test_write_access_is_not_conflated_with_read_connection_testing(self) -> None:
-        with self.assertRaisesRegex(ProjectError, "load confirmation"):
+        with self.assertRaisesRegex(WorkspaceStateError, "load confirmation"):
             self.service.test_read(
                 self.project,
                 "write-key",
@@ -94,3 +94,4 @@ class OdooConnectionTestServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

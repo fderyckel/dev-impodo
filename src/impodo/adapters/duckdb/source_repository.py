@@ -26,7 +26,7 @@ from ...domain.source_snapshot import (
 )
 from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES, OdooCaptureSelection
 from ...inspection import SourceFileCatalog, SourceInspectionError
-from ...projects import ProjectNotFoundError, ProjectStatus, SourceMode
+from ...workspace_state import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
 from ...workspace_contracts import (
     SourceConfiguration,
     SourceDataset,
@@ -34,7 +34,7 @@ from ...workspace_contracts import (
     OdooSchemaCatalog,
 )
 from ...workspace_errors import WorkspaceError
-from .database import DuckDbProjectDatabase
+from .database import DuckDbWorkspaceDatabase
 from .derived_entity_repository import DerivedEntityRepository
 from .repository import DuckDbRepository
 
@@ -49,7 +49,7 @@ class SourceRepository(DuckDbRepository):
 
     def __init__(
         self,
-        database: DuckDbProjectDatabase,
+        database: DuckDbWorkspaceDatabase,
         derived_entities: DerivedEntityRepository,
     ) -> None:
         super().__init__(database)
@@ -61,11 +61,11 @@ class SourceRepository(DuckDbRepository):
     ) -> tuple[SourceFileCatalog, ...]:
         """Load source catalogs in the same order as registered source files."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
                 """
                 SELECT catalog.catalog_json
@@ -86,11 +86,11 @@ class SourceRepository(DuckDbRepository):
         """Atomically replace the complete hash-bound catalog set."""
 
         catalog_set = tuple(catalogs)
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             source_rows = connection.execute(
                 "SELECT file_id, sha256 FROM source_file"
             ).fetchall()
@@ -107,7 +107,7 @@ class SourceRepository(DuckDbRepository):
                 "SELECT revision FROM project"
             ).fetchone()
             if revision_row is None:
-                raise ProjectNotFoundError("Project not found")
+                raise WorkspaceStateNotFoundError("Project not found")
 
             connection.begin()
             try:
@@ -166,11 +166,11 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Replace one catalog and invalidate every dependent source decision."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             source = connection.execute(
                 "SELECT sha256 FROM source_file WHERE file_id = ?",
                 [catalog.file_id],
@@ -179,7 +179,7 @@ class SourceRepository(DuckDbRepository):
                 raise SourceInspectionError(
                     "Source catalog does not match the registered project file"
                 )
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -245,11 +245,11 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Confirm one exact catalog and invalidate selection/mapping/staging."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT source_sha256, catalog_json
@@ -266,7 +266,7 @@ class SourceRepository(DuckDbRepository):
                 or catalog.content_hash != configuration.catalog_hash
             ):
                 raise WorkspaceError("Source confirmation does not match its catalog")
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -359,20 +359,20 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Append a schema/identity-bound plan and advance its pointer atomically."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             project = connection.execute(
                 "SELECT source_mode, status FROM project"
             ).fetchone()
             if project is None:
-                raise ProjectNotFoundError("Project not found")
+                raise WorkspaceStateNotFoundError("Project not found")
             if (
                 str(project[0]) != SourceMode.ODOO.value
-                or str(project[1]) != ProjectStatus.REGISTERED.value
+                or str(project[1]) != WorkspaceStatus.REGISTERED.value
             ):
                 raise WorkspaceError(
                     "Only registered Odoo-source projects can save a capture plan"
@@ -427,7 +427,7 @@ class SourceRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "Odoo capture selection was modified by another request"
                 )
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             try:
                 connection.execute(
                     """
@@ -600,12 +600,12 @@ class SourceRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
-            revision = self._project_revision(connection)
+            self._ensure_workspace_database_schema(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 for snapshot in snapshots:
@@ -700,3 +700,4 @@ def _snapshot_matches_dataset(
         and snapshot.row_count == dataset.row_count
         and snapshot.schema == expected_schema
     )
+

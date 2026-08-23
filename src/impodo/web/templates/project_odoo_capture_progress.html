@@ -11,7 +11,7 @@
       <div>
         <p class="eyebrow">Stage 2 of 6 · Odoo source data</p>
         <h1>Freezing {{ project.name }}</h1>
-        <p>You can leave this page. A new version becomes current only after the complete capture is published.</p>
+        <p>You can leave this page. Impodo makes the new data version current only after the complete capture finishes.</p>
       </div>
       <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% elif job.status.value == 'SUCCEEDED' %}ready{% else %}review{% endif %}" data-odoo-capture-state>
         {% if job.status.value == 'SUCCEEDED' %}Frozen{% elif job.status.value == 'FAILED' %}Could not finish{% elif job.status.value == 'CANCELLED' %}Stopped{% else %}In progress{% endif %}
@@ -32,7 +32,10 @@
         <span data-odoo-capture-rows>{% if job.completed_rows %}{{ "{:,}".format(job.completed_rows) }} records read{% else %}No record page completed yet{% endif %}</span>
       </div>
       <p class="muted" data-odoo-capture-accounting>{{ job.page_count }} page(s) · {{ "{:,}".format(job.response_bytes) }} response bytes · {{ "{:,}".format(job.normalized_bytes) }} normalized bytes</p>
-      <p class="muted">Progress uses counters produced by the same bounded page stream. It does not run an extra count, scan, serialization, or hash pass.</p>
+      <details class="technical-evidence">
+        <summary>Support details</summary>
+        <p>Progress uses counters produced by the same bounded page stream. It does not run an extra count, scan, serialization, or hash pass.</p>
+      </details>
     </section>
 
     <section class="next-action-card blocked" data-odoo-capture-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
@@ -63,7 +66,7 @@
     </section>
 
     <div class="capture-progress-actions" data-odoo-capture-active {% if not active %}hidden{% endif %}>
-      <a class="button secondary" href="/projects">Work on another Project</a>
+      <a class="button secondary" href="/projects">Work on another data project</a>
       <form method="post" action="/workspaces/{{ job.project_id }}/sources/odoo-capture/{{ job.job_id }}/cancel">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button secondary" type="submit" {% if job.cancel_requested %}disabled{% endif %} data-odoo-capture-cancel>

@@ -58,7 +58,7 @@ class MigrationRunPlanningRepository:
         applications: tuple[PlannedRecipeApplication, ...],
         target_schema: OdooSchemaCatalog,
         reference_bundle: ReferenceBundle | None,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
         actor: Actor,
@@ -86,7 +86,7 @@ class MigrationRunPlanningRepository:
             owner_id=run.migration_run_id,
             kind=MigrationOperationKind.MIGRATION_RUN_PLAN,
             request_hash=require_hash(request_hash, "request_hash"),
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail=detail,
             actor=actor,
         )
@@ -102,7 +102,7 @@ class MigrationRunPlanningRepository:
             applications=stored[3],
             target_schema=stored[4],
             reference_bundle=stored[5],
-            expected_project_revision=int(intent.expected_revision or 0),
+            expected_workspace_revision=int(intent.expected_revision or 0),
             operation_id=operation_id,
             actor=actor,
         )
@@ -128,7 +128,7 @@ class MigrationRunPlanningRepository:
         applications: tuple[PlannedRecipeApplication, ...],
         target_schema: OdooSchemaCatalog,
         reference_bundle: ReferenceBundle | None,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
         actor: Actor,
@@ -157,7 +157,7 @@ class MigrationRunPlanningRepository:
             owner_id=run.migration_run_id,
             kind=MigrationOperationKind.PRODUCTION_RUN_ACTIVATE,
             request_hash=require_hash(request_hash, "request_hash"),
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail=detail,
             actor=actor,
         )
@@ -227,7 +227,7 @@ class MigrationRunPlanningRepository:
             applications=stored[3],
             target_schema=stored[4],
             reference_bundle=stored[5],
-            expected_project_revision=int(intent.expected_revision or 0),
+            expected_workspace_revision=int(intent.expected_revision or 0),
             operation_id=intent.operation_id,
             actor=actor,
         )
@@ -703,7 +703,7 @@ class MigrationRunPlanningRepository:
         applications: tuple[PlannedRecipeApplication, ...],
         target_schema: OdooSchemaCatalog,
         reference_bundle: ReferenceBundle | None,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         actor: Actor,
     ) -> None:
@@ -716,10 +716,10 @@ class MigrationRunPlanningRepository:
                     [run.migration_run_id],
                 ).fetchone()
                 if existing is None:
-                    self.foundation._assert_project_revision(
+                    self.foundation._assert_workspace_revision(
                         connection,
                         run.project_id,
-                        expected_project_revision,
+                        expected_workspace_revision,
                     )
                     self._validate_context(
                         connection,
@@ -756,10 +756,10 @@ class MigrationRunPlanningRepository:
                         target_schema=target_schema,
                         reference_bundle=reference_bundle,
                     )
-                    next_project_revision = self.foundation._advance_project(
+                    next_workspace_revision = self.foundation._advance_project(
                         connection,
                         run.project_id,
-                        expected_project_revision,
+                        expected_workspace_revision,
                         run.updated_at,
                     )
                     self.foundation._insert_event(
@@ -771,7 +771,7 @@ class MigrationRunPlanningRepository:
                         event_type="INTEGRATED_TEST_RUN_PLANNED",
                         detail={
                             "application_count": len(applications),
-                            "project_revision": next_project_revision,
+                            "project_revision": next_workspace_revision,
                             "requirement_plan_hash": requirement_plan.content_hash,
                         },
                         actor=actor,
@@ -942,7 +942,7 @@ class MigrationRunPlanningRepository:
         applications: tuple[PlannedRecipeApplication, ...],
         target_schema: OdooSchemaCatalog,
         reference_bundle: ReferenceBundle | None,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         actor: Actor,
     ) -> None:
@@ -962,10 +962,10 @@ class MigrationRunPlanningRepository:
                     )
                     connection.commit()
                     return
-                self.foundation._assert_project_revision(
+                self.foundation._assert_workspace_revision(
                     connection,
                     run.project_id,
-                    expected_project_revision,
+                    expected_workspace_revision,
                 )
                 current_run = connection.execute(
                     "SELECT project_id, data_version_id, purpose, state, "
@@ -1072,7 +1072,7 @@ class MigrationRunPlanningRepository:
                 project_revision = self.foundation._advance_project(
                     connection,
                     run.project_id,
-                    expected_project_revision,
+                    expected_workspace_revision,
                     run.updated_at,
                 )
                 self.foundation._insert_event(

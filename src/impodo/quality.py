@@ -18,7 +18,7 @@ import json
 from typing import AbstractSet, Any, Iterable, Mapping, Sequence
 
 from .models import LogicalReference, canonical_json_bytes, portable_value
-from .projects import WorkspaceState
+from .workspace_state import WorkspaceState
 from .domain.resolution import EffectiveDataset
 from .domain.coverage import ReferenceBundle
 from .staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun, StagingDisposition
@@ -1944,3 +1944,4 @@ def _require_hash(value: str, label: str) -> None:
         int(value[7:], 16)
     except ValueError as error:
         raise ValueError(f"{label} must be a canonical sha256 hash") from error
+

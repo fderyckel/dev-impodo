@@ -8,7 +8,7 @@ status: current
 
 ## Goal
 
-Compare every eligible prepared row in the current Project DataVersion with
+Compare every eligible prepared row in the current data version with
 fresh Odoo evidence and decide whether the proposed outcome is safe to take to
 the load stage.
 
@@ -56,16 +56,15 @@ Final review shows the action that owns the problem:
 Every recovery panel confirms that nothing was changed in Odoo and that your
 saved work is unchanged.
 
-## How Recipe publication relates to this work
+## How saving a Recipe relates to this work
 
-Comparison evidence is never part of a Recipe. A Recipe revision can preserve
+Comparison evidence is never part of a Recipe. A Recipe version can preserve
 the reusable transformation rules authored in this workspace, but this
-DataVersion keeps ownership of its source, preparation, target comparison,
+data version keeps its source, preparation, target comparison,
 approval, and load evidence.
 
-Applying one or several published Recipe revisions to replacement rollout data
-belongs to the next implementation phase. It will still require a new
-DataVersion and fresh Odoo evidence.
+Applying one or several saved Recipe versions to replacement rollout data
+still requires a new data version and fresh Odoo evidence.
 
 ## What to check
 
@@ -83,13 +82,13 @@ a hard stop until the identity or target evidence is corrected.
 
 The current report is **Ready** with no ambiguous or blocked rows and remains
 bound to the exact prepared and target evidence. The load stage can become
-available for the current DataVersion.
+available for the current data version.
 
 ## What changes and what does not
 
-Comparison reads Odoo and stores review evidence for this DataVersion. It
-does not write to Odoo, publish a Recipe, or authorize another run.
-Downloading a workbook or package does not authorize execution.
+Comparison reads Odoo and stores review evidence for this data version. It
+does not write to Odoo, save a Recipe, or authorize another run.
+Downloading a workbook or review result does not authorize execution.
 
 ## Needs attention
 

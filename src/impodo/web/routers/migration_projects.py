@@ -9,8 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ...data_versions import DataVersionPurpose
 from ...migration_foundation import MigrationFoundationError
-from ...project_recipes import ProjectRecipeError
-from ...projects import SourceMode
+from ...recipes import RecipeError
+from ...workspace_state import SourceMode
 from ..context import WebContext
 from ..forms import _form_values, _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -29,7 +29,6 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
             request,
             "project_list.html",
             projects=context.migration_projects.list(actor=context.actor),
-            unavailable_projects=context.unavailable_projects,
         )
 
     @router.get("/projects/new", response_class=HTMLResponse)
@@ -115,7 +114,7 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 operation_id=_text(form, "operation_id"),
                 actor=context.actor,
             )
-        except (MigrationFoundationError, ProjectRecipeError, ValueError) as error:
+        except (MigrationFoundationError, RecipeError, ValueError) as error:
             return _render_project_overview(
                 request,
                 context,
@@ -149,7 +148,7 @@ def _render_project_overview(
         project_id,
         actor=context.actor,
     )
-    recipes = context.project_recipes.list(project_id, actor=context.actor)
+    recipes = context.recipes.list(project_id, actor=context.actor)
     cutover_selection = context.cutover_plans.repository.current_selection(project_id)
     production_bindings = context.production_runs.production_runs.list_for_project(
         project_id
@@ -207,3 +206,4 @@ def _render_project_overview(
         error=error,
         status_code=status_code,
     )
+

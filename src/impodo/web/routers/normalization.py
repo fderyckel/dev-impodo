@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...domain.errors import ReadinessError
-from ...projects import ProjectError, SourceMode
+from ...workspace_state import WorkspaceStateError, SourceMode
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
@@ -76,7 +76,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 expected_version=int(str(form["lifecycle_version"])),
                 actor=context.actor,
             )
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return _render_normalization(
                 request,
                 context,
@@ -107,7 +107,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 reason="Reopened by the data manager after a sent-back change.",
             )
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return _render_normalization(
                 request,
                 context,
@@ -138,9 +138,9 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         try:
             reason = str(form["reason"]).strip()
             if not reason:
-                raise ProjectError("Explain what needs fixing before continuing")
+                raise WorkspaceStateError("Explain what needs fixing before continuing")
             if len(reason) > 1000:
-                raise ProjectError("The explanation is too long")
+                raise WorkspaceStateError("The explanation is too long")
             await run_in_threadpool(
                 context.normalization.decide_group,
                 project_id,
@@ -151,7 +151,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 reason=reason,
             )
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return _render_normalization(
                 request,
                 context,
@@ -181,7 +181,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 expected_version=int(str(form["lifecycle_version"])),
                 actor=context.actor,
             )
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return _render_normalization(
                 request,
                 context,
@@ -206,3 +206,4 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         )
 
     return router
+

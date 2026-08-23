@@ -23,9 +23,9 @@ from ..migration_foundation import (
 from ..migration_projects import MigrationProject, MigrationProjectService
 from ..migration_runs import MigrationRun, MigrationRunPurpose, MigrationRunService
 from ..migration_workspaces import MigrationWorkspace, MigrationWorkspaceService
-from ..projects import (
-    ProjectNotFoundError,
-    ProjectService,
+from ..workspace_state import (
+    WorkspaceStateNotFoundError,
+    WorkspaceStateService,
     SourceMode,
     WorkspaceState,
 )
@@ -52,7 +52,7 @@ class MigrationProjectAuthoringService:
         runs: MigrationRunService,
         migration_workspaces: MigrationWorkspaceService,
         source_packages: DataVersionSourcePackageService,
-        workspace_states: ProjectService,
+        workspace_states: WorkspaceStateService,
     ) -> None:
         self.projects = projects
         self.data_versions = data_versions
@@ -152,7 +152,7 @@ class MigrationProjectAuthoringService:
             workspace_state = self.workspace_states.repository.get(
                 workspace.workspace_id
             )
-        except ProjectNotFoundError:
+        except WorkspaceStateNotFoundError:
             workspace_state = self.workspace_states.provision_migration_workspace(
                 workspace.workspace_id,
                 actor=actor,
@@ -191,7 +191,7 @@ class MigrationProjectAuthoringService:
             return self.data_versions.create(
                 project.project_id,
                 actor=actor,
-                expected_project_revision=project.optimistic_revision,
+                expected_workspace_revision=project.optimistic_revision,
                 purpose=DataVersionPurpose.AUTHORING,
                 label=f"{project.display_name} authoring data",
                 operation_id=operation_id,
@@ -215,7 +215,7 @@ class MigrationProjectAuthoringService:
             return self.runs.create(
                 project.project_id,
                 actor=actor,
-                expected_project_revision=project.optimistic_revision,
+                expected_workspace_revision=project.optimistic_revision,
                 data_version_id=data_version.data_version_id,
                 purpose=MigrationRunPurpose.AUTHORING,
                 label=f"{project.display_name} authoring run",
@@ -241,7 +241,7 @@ class MigrationProjectAuthoringService:
             return self.migration_workspaces.create(
                 project.project_id,
                 actor=actor,
-                expected_project_revision=project.optimistic_revision,
+                expected_workspace_revision=project.optimistic_revision,
                 data_version_id=data_version.data_version_id,
                 migration_run_id=run.migration_run_id,
                 display_name=f"{project.display_name} mapping workspace",
@@ -253,3 +253,4 @@ class MigrationProjectAuthoringService:
             operation_id,
             actor=actor,
         )
+

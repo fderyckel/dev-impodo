@@ -7,11 +7,11 @@ import tempfile
 import unittest
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.access import LOCAL_ACTOR
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.execution_repository import ExecutionRepository
 from impodo.adapters.duckdb.reconciliation_repository import ReconciliationRepository
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.domain.execution import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
@@ -24,7 +24,7 @@ from impodo.domain.reconciliation import (
     ReconciliationRun,
     ReconciliationRunStatus,
 )
-from impodo.projects import ProjectService
+from impodo.workspace_state import WorkspaceState
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,20 +36,18 @@ class ExecutionRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(self.database)
+        self.database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(self.database)
         self.repository = ExecutionRepository(self.database)
         self.reconciliation = ReconciliationRepository(self.database)
-        self.project = ProjectService(
-            self.projects,
-            CapabilityAuthorizationPolicy(),
-        ).create_project(
-            actor=LOCAL_ACTOR,
+        self.project = WorkspaceState(
+            project_id=str(uuid4()),
             name="Execution journal",
             source_system="CSV",
         )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.preflight_id = str(uuid4())
-        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
         with self.projects._connect(path) as connection:
             connection.execute(
                 """
@@ -155,7 +153,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
             finished,
         )
         self.assertEqual(finished.batch_rows, 10)
-        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
         with self.projects._connect(path) as connection:
             events = connection.execute(
                 """
@@ -280,3 +278,4 @@ class ExecutionRepositoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

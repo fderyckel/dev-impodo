@@ -72,17 +72,17 @@ class ComparisonRecoveryPresenterTests(unittest.TestCase):
             (
                 OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
                 OdooReadRecoveryKind.REFRESH_ODOO_DATA,
-                "/projects/project-1/schema",
+                "/workspaces/project-1/schema",
             ),
             (
                 OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
                 OdooReadRecoveryKind.REVIEW_FIELD_MATCH,
-                "/projects/project-1/mapping",
+                "/workspaces/project-1/mapping",
             ),
             (
                 OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
                 OdooReadRecoveryKind.PREPARE_AGAIN,
-                "/projects/project-1/prepare",
+                "/workspaces/project-1/prepare",
             ),
         )
 

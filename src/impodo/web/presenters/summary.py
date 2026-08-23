@@ -26,7 +26,7 @@ from ...domain.staging.scale import (
     browser_evaluation_scale,
 )
 from ...local_stack import LocalStackError, LocalStackStatus
-from ...projects import WorkspaceState, OdooConnectionMode, SourceMode
+from ...workspace_state import WorkspaceState, OdooConnectionMode, SourceMode
 from ...reporting import WORKBOOK_NAME
 from ...workspace_errors import WorkspaceError
 from ..constants import (
@@ -667,3 +667,4 @@ def _require_local_stack_stop(
             status_code=403,
             detail="Not authorized to stop the local Odoo stack",
         ) from error
+

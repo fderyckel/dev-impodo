@@ -13,7 +13,7 @@ meaning. Read the [Project lifecycle contract](contracts/project-lifecycle.md)
 and [Recipe publication contract](contracts/recipe-lifecycle.md) before
 changing identity, persistence, or publication behavior.
 
-Then read [Project and authoring workspace setup](workflow/00-project-setup.md) and
+Then read [Data project and authoring workspace setup](workflow/00-project-setup.md) and
 follow the implemented workspace stages:
 
 1. [Source data](workflow/01-source-data.md)

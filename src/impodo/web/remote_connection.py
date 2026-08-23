@@ -18,7 +18,7 @@ from ..application.odoo_read_failures import (
 )
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..application.odoo_connection_service import OdooConnectionPurpose
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 
 
 class RemoteConnectionLevel(str, Enum):
@@ -476,3 +476,4 @@ def _support_http_status(support_code: str) -> int | None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+

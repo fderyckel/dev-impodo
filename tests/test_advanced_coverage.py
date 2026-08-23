@@ -13,8 +13,8 @@ from impodo.access import Capability, LOCAL_ACTOR
 from impodo.adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
-from impodo.adapters.duckdb.database import DuckDbDatabase
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.domain.coverage import (
@@ -81,7 +81,7 @@ from impodo.staging_contracts import (
     StagingDatasetRole,
     StagingReconciliation,
 )
-from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -872,7 +872,7 @@ class AdvancedQualityTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=NOW,
         )
         rows = (
@@ -1298,8 +1298,8 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(self.database)
+        self.database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(self.database)
         self.staging = StagingRepository(self.database)
         self.repository = AdvancedCoverageRepository(self.database)
         self.quality = QualityRepository(self.database, self.projects)
@@ -1314,15 +1314,10 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=NOW,
         )
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
@@ -1353,7 +1348,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             content_hash=HASH_A,
         )
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -1480,7 +1475,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         )
 
         restarted = AdvancedCoverageRepository(
-            DuckDbDatabase(self.temporary.name)
+            DuckDbWorkspaceDatabase(self.temporary.name)
         )
         restored = restarted.get_current_effective_dataset(self.project.project_id)
         self.assertIsNotNone(restored)
@@ -1489,7 +1484,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         self.assertEqual(frozen.lifecycle_version, 2)
         self.assertEqual(frozen.decision_count, 1)
         database_path = (
-            restarted.project_directory(self.project.project_id) / "project.duckdb"
+            restarted.workspace_directory(self.project.project_id) / "project.duckdb"
         )
         with restarted._connect(database_path) as connection:
             compact_rows = connection.execute(
@@ -1628,3 +1623,4 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

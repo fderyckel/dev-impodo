@@ -40,7 +40,7 @@ from .models import (
     UniqueConstraintMetadata,
     target_identity_hash,
 )
-from .projects import WorkspaceState, OdooConnectionMode
+from .workspace_state import WorkspaceState, OdooConnectionMode
 
 
 _OUTPUT_MARKER = "__IMPODO_LOCAL_ODOO_JSON__"
@@ -799,3 +799,4 @@ finally:
 def _indent(value: str, spaces: int) -> str:
     prefix = " " * spaces
     return "\n".join(f"{prefix}{line}" if line else line for line in value.splitlines())
+

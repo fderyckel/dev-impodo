@@ -502,7 +502,7 @@ class DataVersionSourceRepository(Protocol):
 
 
 class WorkspaceSourceProjectionRepository(Protocol):
-    def workspace_project_id(self, workspace_id: str) -> str: ...
+    def project_id_for_workspace(self, workspace_id: str) -> str: ...
 
     def create_workspace_source_projection(
         self,
@@ -905,7 +905,7 @@ class WorkspaceSourceProjectionService:
         self.authorization.require(
             actor,
             Capability.MIGRATION_WORKSPACE_EDIT,
-            project_id=self.repository.workspace_project_id(workspace_id),
+            project_id=self.repository.project_id_for_workspace(workspace_id),
         )
         cleaned = tuple(
             sorted(

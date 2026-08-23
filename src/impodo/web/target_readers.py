@@ -34,7 +34,7 @@ from ..domain.schema.governance import BusinessKeyDefinition
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..planner import PreflightRequirementPlan
-from ..projects import WorkspaceState, OdooConnectionMode, ProjectError, SourceMode
+from ..workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStateError, SourceMode
 from ..reference_keys import (
     REFERENCE_POLICY_HASH,
     GovernedReferenceRequest,
@@ -88,7 +88,7 @@ def _target_json2_config(
     """Build the one archived-inclusive context for target-side reads."""
 
     if project.odoo_connection_mode is None:
-        raise ProjectError("Configure the Odoo target before reading it")
+        raise WorkspaceStateError("Configure the Odoo target before reading it")
     return target_record_read_config(
         Json2Config(
             base_url=project.odoo_base_url,
@@ -106,7 +106,7 @@ def _source_capture_reader(
     """Build the one governed JSON-2 business-record capture adapter."""
 
     if project.odoo_connection_mode is None:
-        raise ProjectError("Configure the Odoo target before source capture")
+        raise WorkspaceStateError("Configure the Odoo target before source capture")
     return Json2OdooSourceCapture(
         Json2Config(
             base_url=project.odoo_base_url,
@@ -124,7 +124,7 @@ def _test_connection(
     """Identify the exact database without discovering models or fields."""
 
     if project.odoo_connection_mode is None:
-        raise ProjectError("Choose Local Odoo or Remote Odoo")
+        raise WorkspaceStateError("Choose Local Odoo or Remote Odoo")
     connector = Json2ReadConnector(_target_json2_config(project, api_key))
     return connector.get_target_fingerprint()
 
@@ -137,7 +137,7 @@ def _probe_read_identity(
     """Run the fixed remote principal/context/model-read probe."""
 
     if project.odoo_connection_mode is None:
-        raise ProjectError("Configure the Odoo target before identity probing")
+        raise WorkspaceStateError("Configure the Odoo target before identity probing")
     connector = Json2ReadConnector(_target_json2_config(project, api_key))
     return connector.probe_read_identity(models)
 
@@ -187,9 +187,9 @@ def _read_schema(project: WorkspaceState, api_key: str) -> MetadataSnapshot:
     """Read all fields once per explicitly permitted Odoo model."""
 
     if project.odoo_connection_mode is None:
-        raise ProjectError("Configure the Odoo target before schema capture")
+        raise WorkspaceStateError("Configure the Odoo target before schema capture")
     if not project.intended_models:
-        raise ProjectError("Add at least one permitted technical Odoo model")
+        raise WorkspaceStateError("Add at least one permitted technical Odoo model")
     connector = Json2ReadConnector(_target_json2_config(project, api_key))
     return connector.get_model_metadata(
         tuple(
@@ -211,7 +211,7 @@ def _read_model_catalog(
     """Read lightweight persistent-model choices from the exact Odoo target."""
 
     if project.odoo_connection_mode is None:
-        raise ProjectError("Configure the Odoo target before model discovery")
+        raise WorkspaceStateError("Configure the Odoo target before model discovery")
     connector = Json2ReadConnector(_target_json2_config(project, api_key))
     return connector.get_records(
         (
@@ -951,3 +951,4 @@ def _snapshot_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+

@@ -25,7 +25,7 @@ from ..normalization import (
     NormalizationRunSummary,
     StoredNormalizationEvaluation,
 )
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 from ..quality import (
     QualityRuleSet,
     QualityRun,
@@ -561,3 +561,4 @@ class PreflightRepository(Protocol):
     ) -> ReadinessRowPage:
         """Return a validated, filtered page of portable decision rows."""
         ...
+

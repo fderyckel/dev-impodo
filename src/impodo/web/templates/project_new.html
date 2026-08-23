@@ -4,19 +4,19 @@
   <section class="form-card narrow">
     <p class="eyebrow">New data project</p>
     <h1>What migration are you managing?</h1>
-    <p>Impodo creates the first authoring data package and workspace. It does not create a Recipe.</p>
+    <p>Impodo creates the first Authoring data version and workspace. It does not create a Recipe.</p>
     <form method="post" action="/projects/new" data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="creation_request_id" value="{{ values.get('creation_request_id', '') }}">
       <label>
-        Project name
+        Data project name
         <input name="display_name" maxlength="200" required value="{{ values.get('display_name', '') }}">
         <small>For example: Thailand customer rollout.</small>
       </label>
       <label>
         Migration purpose <span class="optional">Optional</span>
         <textarea name="migration_purpose" maxlength="2000">{{ values.get('migration_purpose', '') }}</textarea>
-        <small>What this Project must deliver. Impodo provides a simple default when left blank.</small>
+        <small>What this data project must deliver. Impodo provides a simple default when left blank.</small>
       </label>
       <fieldset>
         <legend>Where is the source data?</legend>
@@ -42,4 +42,3 @@
     </form>
   </section>
 {% endblock %}
-

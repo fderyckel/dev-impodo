@@ -23,11 +23,11 @@ from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid5
 
 from impodo.access import LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.application.bounded_quality import (
     build_bounded_quality_run,
     materialize_staging_run,
@@ -42,7 +42,7 @@ from impodo.domain.staging.preparation_session import (
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactReport
 from impodo.models import LogicalReference, PreparedRecord, canonical_json_bytes
-from impodo.projects import OdooConnectionMode, ProjectStatus, WorkspaceState
+from impodo.workspace_state import OdooConnectionMode, WorkspaceStatus, WorkspaceState
 from impodo.quality import QualityDisposition, default_quality_ruleset, evaluate_quality
 from impodo.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
@@ -259,8 +259,8 @@ def _run_child(
 
     with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as directory:
         root = Path(directory)
-        database = DuckDbDatabase(root)
-        projects = ProjectRepository(database)
+        database = DuckDbWorkspaceDatabase(root)
+        projects = WorkspaceStateRepository(database)
         repository = PreparationSessionRepository(database)
         project = _project(products, bom_lines)
         projects.create(project, actor=LOCAL_ACTOR)
@@ -407,7 +407,7 @@ def _project(products: int, bom_lines: int) -> WorkspaceState:
         odoo_base_url="http://127.0.0.1:8069",
         odoo_database="odoo19_local",
         intended_models=("product.product", "mrp.bom.line"),
-        status=ProjectStatus.REGISTERED,
+        status=WorkspaceStatus.REGISTERED,
         registered_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
@@ -650,3 +650,4 @@ def _worktree_dirty() -> bool:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

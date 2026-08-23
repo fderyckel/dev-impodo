@@ -34,6 +34,36 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   setupBlockers?.focus();
 
+  const conceptDialogTriggers = new WeakMap();
+  for (const trigger of document.querySelectorAll(
+    "[data-concept-help-trigger]"
+  )) {
+    trigger.addEventListener("click", (event) => {
+      const dialogId = trigger.getAttribute("aria-controls");
+      const dialog = dialogId ? document.getElementById(dialogId) : null;
+      if (!dialog || typeof dialog.showModal !== "function") {
+        return;
+      }
+      event.preventDefault();
+      conceptDialogTriggers.set(dialog, trigger);
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    });
+  }
+
+  for (const dialog of document.querySelectorAll(
+    "[data-concept-help-dialog]"
+  )) {
+    dialog.addEventListener("close", () => {
+      const trigger = conceptDialogTriggers.get(dialog);
+      if (trigger?.isConnected) {
+        window.requestAnimationFrame(() => trigger.focus());
+      }
+      conceptDialogTriggers.delete(dialog);
+    });
+  }
+
   const sidebar = document.querySelector("#app-sidebar");
   const sidebarToggle = document.querySelector("[data-sidebar-toggle]");
   const sidebarToggleLabel = document.querySelector(

@@ -10,9 +10,9 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
@@ -44,7 +44,7 @@ from impodo.inspection import (
     SourceTableCatalog,
 )
 from impodo.models import canonical_json_bytes
-from impodo.projects import WorkspaceState, ProjectStatus, SourceFile
+from impodo.workspace_state import WorkspaceState, WorkspaceStatus, SourceFile
 from impodo.staging_contracts import StagingDisposition
 from impodo.source_snapshot_io import (
     SourceSnapshotPublisher,
@@ -65,8 +65,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.root = Path(self.temporary.name)
-        self.database = DuckDbDatabase(self.root)
-        self.projects = ProjectRepository(self.database)
+        self.database = DuckDbWorkspaceDatabase(self.root)
+        self.projects = WorkspaceStateRepository(self.database)
         self.derived = DerivedEntityRepository(self.database)
         self.repository = SourceRepository(self.database, self.derived)
         self.artifacts = LocalArtifactStore(self.root)
@@ -160,7 +160,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
         database_path = (
-            sessions.project_directory(project.project_id) / "project.duckdb"
+            sessions.workspace_directory(project.project_id) / "project.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(
@@ -310,7 +310,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
         )
         database_path = (
-            sessions.project_directory(project.project_id) / "project.duckdb"
+            sessions.workspace_directory(project.project_id) / "project.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(
@@ -653,7 +653,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         ) as path:
             table = load_source_snapshot_table(path, snapshot)
         row = table.rows[0]
-        self.assertEqual(row.values["Text"], "Ångström 東京")
+        self.assertEqual(row.values["Text"], "Ã…ngstrÃ¶m æ±äº¬")
         self.assertIs(row.values["Boolean"], True)
         self.assertEqual(row.values["Integer"], 9_007_199_254_740_991)
         self.assertEqual(row.values["Float"], 12.5)
@@ -836,15 +836,10 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             project_id=str(uuid4()),
             name="Snapshot ingestion",
             source_system="CSV",
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(
-            project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(project, actor=LOCAL_ACTOR)
         stored = self.artifacts.store_source(
             project.project_id,
             artifact_id=str(uuid4()),
@@ -925,7 +920,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         worksheet.append(headers)
         worksheet.append(
             (
-                "Ångström 東京",
+                "Ã…ngstrÃ¶m æ±äº¬",
                 True,
                 9_007_199_254_740_991,
                 12.5,
@@ -941,15 +936,10 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             project_id=str(uuid4()),
             name="XLSX snapshot ingestion",
             source_system="XLSX",
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(
-            project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(project, actor=LOCAL_ACTOR)
         stored = self.artifacts.store_source(
             project.project_id,
             artifact_id=str(uuid4()),
@@ -1137,3 +1127,4 @@ def _direct_mapping(selection) -> MappingDefinition:
 
 if __name__ == "__main__":
     unittest.main()
+

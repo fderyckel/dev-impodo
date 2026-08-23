@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...domain.errors import ReadinessError
-from ...projects import ProjectError
+from ...workspace_state import WorkspaceStateError
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
@@ -75,7 +75,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 reason=str(form["reason"]),
             )
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, project_id, error=str(error), status_code=422)
         _flash(
             request,
@@ -136,7 +136,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 reason=str(form["reason"]),
             )
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, project_id, error=str(error), status_code=422)
         _flash(request, "Surviving field value selected.")
         return RedirectResponse(f"/workspaces/{project_id}/resolution", status_code=303)
@@ -174,7 +174,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 reason=str(form["reason"]),
             )
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, project_id, error=str(error), status_code=422)
         _flash(request, "Corrected survivor value recorded for this review.")
         return RedirectResponse(f"/workspaces/{project_id}/resolution", status_code=303)
@@ -196,7 +196,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
             job = enqueue_preparation(context, project_id)
-        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, project_id, error=str(error), status_code=422)
         _flash(request, "Duplicate review approved. Preparation is continuing.")
         return RedirectResponse(
@@ -205,3 +205,4 @@ def build_resolution_router(context: WebContext) -> APIRouter:
         )
 
     return router
+

@@ -27,7 +27,7 @@ from ..domain.source_snapshot import SourceSnapshot
 from ..inspection import SourceFileCatalog
 from ..migration_foundation import MigrationFoundationError
 from ..migration_workspaces import MigrationWorkspaceService
-from ..projects import ProjectService
+from ..workspace_state import WorkspaceStateService
 from ..workspace_contracts import SourceConfiguration, SourceSelection
 
 
@@ -36,7 +36,7 @@ class WorkspaceDataVersionSourceService:
 
     def __init__(
         self,
-        workspace_states: ProjectService,
+        workspace_states: WorkspaceStateService,
         workspace_sources,
         data_versions: DataVersionService,
         migration_workspaces: MigrationWorkspaceService,
@@ -368,3 +368,4 @@ class WorkspaceDataVersionSourceService:
     @staticmethod
     def _operation(selection_id: str, name: str) -> str:
         return str(uuid5(UUID(selection_id), name))
+

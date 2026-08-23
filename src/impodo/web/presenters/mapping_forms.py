@@ -44,7 +44,7 @@ from ...value_rules import (
     TextTransformStep,
 )
 from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
-from ...projects import WorkspaceState, ProjectStatus
+from ...workspace_state import WorkspaceState, WorkspaceStatus
 from ...reference_keys import standard_reference_key
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
@@ -1281,9 +1281,10 @@ def _draft_or_redirect(
     project_id: str,
 ) -> WorkspaceState | RedirectResponse:
     project = context.queries.get(project_id)
-    if project.status is not ProjectStatus.DRAFT:
+    if project.status is not WorkspaceStatus.DRAFT:
         return RedirectResponse(
             f"/workspaces/{project.project_id}/summary",
             status_code=303,
         )
     return project
+

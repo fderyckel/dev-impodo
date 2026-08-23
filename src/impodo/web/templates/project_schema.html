@@ -286,7 +286,7 @@
   {% if schema %}
     {% if schema.origin.value == 'LOCAL_MANUAL' %}
       <div class="notice warning">
-        This field catalog was entered manually for local development. Validate it against Odoo with an authenticated live capture before submitting a mapping.
+        This Odoo field list was entered manually for local development. Check it against Odoo with an authenticated live capture before confirming the field matches.
       </div>
     {% endif %}
     {% if project.source_mode.value == 'ODOO' and not selection %}

@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Integrated qualification · Impodo{% endblock %}
 {% block content %}
+  {% from "_concept_help.html" import concept_help_link, concept_help_dialog with context %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">{{ project.display_name }} · Cutover plan revision {{ review.plan.version }}</p>
+      <div class="eyebrow-with-help">
+        <p class="eyebrow">{{ project.display_name }} · Cutover plan version {{ review.plan.version }}</p>
+        {{ concept_help_link("cutover-plan", "Explain what a Cutover plan preserves") }}
+      </div>
       <h1>Integrated Test qualification</h1>
-      <p>Confirm that every Recipe application used the exact plan, completed successfully, and was verified in the required order. This review does not authorize Production.</p>
+      <p>Confirm that every Recipe work area used the exact plan, completed successfully, and was verified in the required order. This review does not authorize Production.</p>
     </div>
-    <span class="status {% if review.state.value in ('QUALIFIED', 'SELECTED') %}registered{% elif review.state.value == 'READY' %}ready{% else %}draft{% endif %}">{{ review.state.value|replace('_', ' ')|title }}</span>
+    <span class="status {% if review.state.value in ('QUALIFIED', 'SELECTED') %}registered{% elif review.state.value == 'READY' %}ready{% else %}draft{% endif %}">{% if review.state.value == 'SELECTED' %}Selected{% elif review.state.value == 'QUALIFIED' %}Qualified{% elif review.state.value == 'READY' %}Ready to qualify{% else %}Current{% endif %}</span>
   </div>
 
   {% if error %}<div class="notice error"><strong>{{ error }}</strong></div>{% endif %}
@@ -17,19 +21,19 @@
       <div>
         <p class="eyebrow">Exact candidate</p>
         <h2 id="plan-title">What this qualification pins</h2>
-        <p>{{ review.applications|length }} Recipe application{% if review.applications|length != 1 %}s{% endif %}, their saved revisions, one Test target, shared controls, and the dependency order.</p>
+        <p>{{ review.applications|length }} Recipe work area{% if review.applications|length != 1 %}s{% endif %}, their saved Recipe versions, one Test target, shared controls, and the required order.</p>
       </div>
     </div>
     <dl class="summary-list">
-      <div><dt>Plan revision</dt><dd>{{ review.plan.version }}</dd></div>
-      <div><dt>Recipe revisions</dt><dd>{{ review.plan.selected_revisions|length }}</dd></div>
+      <div><dt>Plan version</dt><dd>{{ review.plan.version }}</dd></div>
+      <div><dt>Recipe versions</dt><dd>{{ review.plan.selected_revisions|length }}</dd></div>
       <div><dt>Dependencies</dt><dd>{{ review.plan.dependencies|length }}</dd></div>
       <div><dt>Shared controls</dt><dd>{{ review.plan.shared_control_ids|length }}</dd></div>
     </dl>
   </section>
 
   {% if project_issues %}
-    <section class="notice error" aria-label="Project checks needing attention">
+    <section class="notice error" aria-label="Data project checks needing attention">
       {% for issue in project_issues %}
         <strong>{{ issue.message }}</strong>
         <p>{{ issue.recovery_action }}</p>
@@ -41,7 +45,7 @@
     <div class="section-heading">
       <div>
         <p class="eyebrow">Required order</p>
-        <h2 id="applications-title">Application evidence</h2>
+        <h2 id="applications-title">Recipe work area evidence</h2>
       </div>
     </div>
     <ol class="overview-stages">
@@ -65,7 +69,7 @@
                 <p>{{ issue.recovery_action }}</p>
               </div>
             {% endfor %}
-            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open application workspace</a>
+            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open Recipe work area</a>
           </div>
         </li>
       {% endfor %}
@@ -78,7 +82,7 @@
         <div>
           <p class="eyebrow">Explicit confirmation</p>
           <h2 id="confirm-title">Qualify this exact integrated Test</h2>
-          <p>A change to a selected Recipe revision or dependency creates a new plan revision that must be tested again.</p>
+          <p>A change to a selected Recipe version or required order creates a new plan version that must be tested again.</p>
         </div>
       </div>
       <form method="post" action="/projects/{{ project.project_id }}/runs/{{ review.migration_run_id }}/qualification">
@@ -116,4 +120,5 @@
   <div class="actions">
     <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ review.migration_run_id }}">Back to Test run</a>
   </div>
+  {{ concept_help_dialog("cutover-plan") }}
 {% endblock %}

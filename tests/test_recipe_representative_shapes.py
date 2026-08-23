@@ -8,7 +8,7 @@ import unittest
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
-from impodo.application.recipe_authoring_service import RecipeAuthoringService
+from impodo.application.recipe_compilation_service import RecipeCompiler
 from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.derived_entities import DerivedEntityPlan, RelatedDatasetRule
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
@@ -36,7 +36,6 @@ from impodo.domain.schema.governance import (
 )
 from impodo.domain.source_binding import DerivedSourceBinding
 from impodo.quality import default_quality_ruleset
-from impodo.recipes import DataVersion, DataVersionPurpose, DataVersionState, Recipe
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -174,36 +173,6 @@ def _publish(
         schema_hash=governance.content_hash,
         datasets=tuple(item.name for item in mapping_selection.datasets),
     )
-    recipe_id = str(uuid4())
-    data_version_id = str(uuid4())
-    recipe = Recipe(
-        recipe_id=recipe_id,
-        display_name="Representative Recipe",
-        business_purpose="Representative Recipe qualification",
-        data_classification="INTERNAL",
-        retention_days=90,
-        current_recipe_revision=None,
-        current_data_version_id=data_version_id,
-        cutover_candidate_id=None,
-        optimistic_revision=1,
-        created_at=now,
-        updated_at=now,
-    )
-    data_version = DataVersion(
-        data_version_id=data_version_id,
-        recipe_id=recipe_id,
-        version_number=1,
-        workspace_project_id=project_id,
-        parent_data_version_id=None,
-        purpose=DataVersionPurpose.AUTHORING,
-        state=DataVersionState.ACTIVE,
-        pinned_recipe_revision=None,
-        label="Representative authoring data",
-        export_as_of_date=None,
-        parameter_values_hash=None,
-        created_at=now,
-        sealed_at=None,
-    )
     evidence = Evidence(
         selection=mapping_selection,
         base_selection=base_selection,
@@ -215,7 +184,7 @@ def _publish(
         preparation=preparation,
         parameter_definitions=RecipeParameterDefinitions(parameters),
     )
-    service = RecipeAuthoringService(
+    service = RecipeCompiler(
         evidence,
         evidence,
         evidence,

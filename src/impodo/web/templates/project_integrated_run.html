@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ bundle.run.label }} · Impodo{% endblock %}
 {% block content %}
+  {% from "_concept_help.html" import concept_help_link, concept_help_dialog with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">
@@ -8,9 +9,9 @@
         {% if bundle.run.purpose.value == 'PRODUCTION' %}Production rollout{% else %}Integrated Test{% endif %}
       </p>
       <h1>{{ bundle.run.label }}</h1>
-      <p>{{ progress.total_applications }} isolated Recipe application{% if progress.total_applications != 1 %}s{% endif %} use one accepted data version and one reviewed Odoo target.</p>
+      <p>{{ progress.total_applications }} separate Recipe work area{% if progress.total_applications != 1 %}s{% endif %} use one accepted data version and one reviewed Odoo target.</p>
     </div>
-    <span class="status {% if bundle.run.state.value == 'READY' %}registered{% else %}draft{% endif %}">{{ bundle.run.state.value|title }}</span>
+    <span class="status {% if bundle.run.state.value == 'READY' %}registered{% else %}draft{% endif %}">{% if bundle.run.state.value == 'READY' %}Complete{% else %}Current{% endif %}</span>
   </div>
 
   <section class="form-card" aria-labelledby="run-context-title">
@@ -24,23 +25,23 @@
       <div><dt>Target database</dt><dd>{{ target_schema.database }}</dd></div>
       <div><dt>Odoo version</dt><dd>{{ target_schema.odoo_version }}</dd></div>
       <div><dt>Required models</dt><dd>{{ bundle.requirement_plan.model_requirements|length }}</dd></div>
-      <div><dt>Application workspaces</dt><dd>{{ progress.total_applications }}</dd></div>
+      <div><dt>Recipe work areas</dt><dd>{{ progress.total_applications }}</dd></div>
     </dl>
   </section>
 
   <section class="form-card" aria-labelledby="qualification-title">
     <div class="section-heading">
       <div>
-        <p class="eyebrow">Cutover plan revision {{ plan_revision.version }}</p>
+        <p class="eyebrow">Cutover plan version {{ plan_revision.version }}</p>
         {% if bundle.run.purpose.value == 'PRODUCTION' %}
-          <h2 id="qualification-title">Qualified meaning selected for rollout</h2>
-          <p>This Production run pins the exact selected Cutover Plan and qualified Test meaning. Its data, Odoo target, credentials, comparison, approval, load, and reconciliation remain fresh Production evidence.</p>
+          <h2 id="qualification-title">Tested plan selected for this rollout</h2>
+          <p>This Production run uses the exact selected Cutover plan and tested Recipe versions. Its data, Odoo target, credentials, comparison, approval, load, and verification remain fresh Production evidence.</p>
         {% elif qualification %}
           <h2 id="qualification-title">Integrated Test qualification</h2>
-          <p>This exact plan revision and Test run are qualified{% if selection and selection.qualification_id == qualification.qualification_id %} and selected as the rollout candidate{% endif %}.</p>
+          <p>This exact plan version and Test run are qualified{% if selection and selection.qualification_id == qualification.qualification_id %} and selected as the rollout candidate{% endif %}.</p>
         {% else %}
           <h2 id="qualification-title">Integrated Test qualification</h2>
-          <p>Review all application outcomes together after every load has been verified in the required order.</p>
+          <p>Review all Recipe work area outcomes together after every load has been verified in the required order.</p>
         {% endif %}
       </div>
     </div>
@@ -53,8 +54,11 @@
     <div class="section-heading">
       <div>
         <p class="eyebrow">Validated order</p>
-        <h2 id="application-order-title">Recipe applications</h2>
-        <p>An application keeps its own mapping and evidence. A completed application never shares mutable state with the next one.</p>
+        <div class="heading-with-help">
+          <h2 id="application-order-title">Recipe work areas</h2>
+          {{ concept_help_link("recipe-work-area", "Explain why each Recipe has a separate work area") }}
+        </div>
+        <p>Each work area keeps its own mapping and evidence. A completed work area cannot silently change the next one.</p>
       </div>
     </div>
     <ol class="overview-stages">
@@ -65,14 +69,14 @@
           <div class="overview-stage-number">{{ loop.index }}</div>
           <div class="overview-stage-copy">
             <h3>{{ recipe.display_name }} · Recipe v{{ application.recipe_revision }}</h3>
-            <p>{{ application.status.value|replace('_', ' ')|title }} · Separate application workspace</p>
+            <p>{{ application.status.value|replace('_', ' ')|title }} · Separate Recipe work area</p>
             {% if application_issues %}
               <div class="notice">
                 <strong>{{ application_issues[0].message }}</strong>
                 <p>{{ application_issues[0].recovery_action }}</p>
               </div>
             {% endif %}
-            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open application workspace</a>
+            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open Recipe work area</a>
           </div>
         </li>
       {% endfor %}
@@ -83,7 +87,7 @@
     <div class="section-heading">
       <div>
         <p class="eyebrow">Shared Odoo review</p>
-        <h2 id="requirements-title">Unioned requirements</h2>
+        <h2 id="requirements-title">Combined Odoo requirements</h2>
       </div>
     </div>
     <ul>
@@ -94,6 +98,7 @@
   </section>
 
   <div class="actions">
-    <a class="button secondary" href="/projects/{{ project.project_id }}">Back to Project</a>
+    <a class="button secondary" href="/projects/{{ project.project_id }}">Back to data project</a>
   </div>
+  {{ concept_help_dialog("recipe-work-area") }}
 {% endblock %}

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from keyring.errors import KeyringError
 
-from impodo.projects import WorkspaceState, OdooConnectionMode
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode
 from impodo.secrets import (
     CredentialVault,
     MemorySecretStore,
@@ -429,3 +429,4 @@ class TargetCredentialTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

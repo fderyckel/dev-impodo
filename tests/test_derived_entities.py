@@ -35,11 +35,11 @@ from impodo.domain.schema.governance import (
     SchemaGovernance,
 )
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
-from impodo.projects import WorkspaceState, ProjectStatus
+from impodo.workspace_state import WorkspaceState, WorkspaceStatus
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -478,8 +478,8 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(database)
+        database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(database)
         self.derived_entities = DerivedEntityRepository(database)
         self.sources = SourceRepository(database, self.derived_entities)
         now = datetime.now(timezone.utc)
@@ -490,15 +490,10 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             data_manager="Data Manager",
             functional_owner="Functional Owner",
             business_unit="Example Business Unit",
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.selection, self.catalog = _source_evidence(
             project_id=self.project.project_id
         )
@@ -747,3 +742,4 @@ def _schema_field(
 
 if __name__ == "__main__":
     unittest.main()
+

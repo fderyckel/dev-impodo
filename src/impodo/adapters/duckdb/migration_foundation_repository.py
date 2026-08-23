@@ -260,7 +260,7 @@ class MigrationFoundationRepository:
         self,
         data_version: DataVersion,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
         actor: Actor,
@@ -273,7 +273,7 @@ class MigrationFoundationRepository:
             owner_id=data_version.data_version_id,
             kind=MigrationOperationKind.DATA_VERSION_CREATE,
             request_hash=request_hash,
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail={"data_version": self._data_version_dict(data_version)},
             actor=actor,
         )
@@ -310,7 +310,7 @@ class MigrationFoundationRepository:
         stored = self._data_version_from_dict(dict(intent.detail["data_version"]))
         return self.create_data_version(
             stored,
-            expected_project_revision=int(intent.expected_revision or 0),
+            expected_workspace_revision=int(intent.expected_revision or 0),
             operation_id=intent.operation_id,
             request_hash=intent.request_hash,
             actor=actor,
@@ -715,7 +715,7 @@ class MigrationFoundationRepository:
         self,
         run: MigrationRun,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
         actor: Actor,
@@ -728,7 +728,7 @@ class MigrationFoundationRepository:
             owner_id=run.migration_run_id,
             kind=MigrationOperationKind.MIGRATION_RUN_CREATE,
             request_hash=request_hash,
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail={"migration_run": self._run_dict(run)},
             actor=actor,
         )
@@ -761,7 +761,7 @@ class MigrationFoundationRepository:
         stored = self._run_from_dict(dict(intent.detail["migration_run"]))
         return self.create_migration_run(
             stored,
-            expected_project_revision=int(intent.expected_revision or 0),
+            expected_workspace_revision=int(intent.expected_revision or 0),
             operation_id=intent.operation_id,
             request_hash=intent.request_hash,
             actor=actor,
@@ -852,7 +852,7 @@ class MigrationFoundationRepository:
         self,
         workspace: MigrationWorkspace,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
         actor: Actor,
@@ -865,7 +865,7 @@ class MigrationFoundationRepository:
             owner_id=workspace.workspace_id,
             kind=MigrationOperationKind.MIGRATION_WORKSPACE_CREATE,
             request_hash=request_hash,
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail={"migration_workspace": self._workspace_dict(workspace)},
             actor=actor,
         )
@@ -904,7 +904,7 @@ class MigrationFoundationRepository:
         )
         return self.create_migration_workspace(
             stored,
-            expected_project_revision=int(intent.expected_revision or 0),
+            expected_workspace_revision=int(intent.expected_revision or 0),
             operation_id=intent.operation_id,
             request_hash=intent.request_hash,
             actor=actor,
@@ -1179,7 +1179,7 @@ class MigrationFoundationRepository:
             )
         return projection
 
-    def workspace_project_id(self, workspace_id: str) -> str:
+    def project_id_for_workspace(self, workspace_id: str) -> str:
         return self._get_workspace_registry(workspace_id).project_id
 
     def get_workspace_source_projection(
@@ -1272,7 +1272,7 @@ class MigrationFoundationRepository:
                     [data_version.data_version_id],
                 ).fetchone()
                 if existing is None:
-                    self._assert_project_revision(
+                    self._assert_workspace_revision(
                         connection,
                         data_version.project_id,
                         intent.expected_revision,
@@ -1342,7 +1342,7 @@ class MigrationFoundationRepository:
                     [run.migration_run_id],
                 ).fetchone()
                 if existing is None:
-                    self._assert_project_revision(
+                    self._assert_workspace_revision(
                         connection,
                         run.project_id,
                         intent.expected_revision,
@@ -1408,7 +1408,7 @@ class MigrationFoundationRepository:
                     [workspace.workspace_id],
                 ).fetchone()
                 if existing is None:
-                    self._assert_project_revision(
+                    self._assert_workspace_revision(
                         connection,
                         workspace.project_id,
                         intent.expected_revision,
@@ -1632,7 +1632,7 @@ class MigrationFoundationRepository:
         ).fetchone() is None:
             self._raise_missing_identity(connection, project_id)
 
-    def _assert_project_revision(
+    def _assert_workspace_revision(
         self,
         connection: duckdb.DuckDBPyConnection,
         project_id: str,

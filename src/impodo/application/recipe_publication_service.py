@@ -1,4 +1,4 @@
-"""Compile an eligible Authoring workspace into an optional Project Recipe."""
+"""Compile an eligible Authoring workspace into an optional Recipe."""
 
 from __future__ import annotations
 
@@ -9,13 +9,14 @@ from uuid import uuid4
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..domain.serialization import content_hash
 from ..migration_foundation import FaultInjector, require_revision, require_uuid
-from ..project_recipes import (
-    ProjectRecipe,
-    ProjectRecipeError,
-    ProjectRecipeRepository,
+from ..recipes import (
+    Recipe,
+    RecipeDraftIssue,
+    RecipeError,
     RecipePublication,
+    RecipeRepository,
 )
-from .recipe_authoring_service import CompiledRecipeDefinition, RecipeDraftIssue
+from .recipe_compilation_service import CompiledRecipeDefinition
 
 
 class WorkspaceRecipeCompiler(Protocol):
@@ -26,13 +27,13 @@ class WorkspaceRecipeCompiler(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class ProjectRecipeDraft:
+class RecipeDraft:
     """Explain whether one workspace can currently publish reusable rules."""
 
     project_id: str
     data_version_id: str
     workspace_id: str
-    recipe: ProjectRecipe | None
+    recipe: Recipe | None
     next_recipe_revision: int
     compiled: CompiledRecipeDefinition | None
     issues: tuple[RecipeDraftIssue, ...]
@@ -42,12 +43,12 @@ class ProjectRecipeDraft:
         return self.compiled is not None and not self.issues
 
 
-class ProjectRecipePublicationService:
-    """Keep Recipe publication optional and subordinate to Project ownership."""
+class RecipePublicationService:
+    """Publish optional Recipes without moving source or run ownership."""
 
     def __init__(
         self,
-        repository: ProjectRecipeRepository,
+        repository: RecipeRepository,
         compiler: WorkspaceRecipeCompiler,
         authorization: AuthorizationPolicy,
     ) -> None:
@@ -63,7 +64,7 @@ class ProjectRecipePublicationService:
         workspace_id: str,
         actor: Actor,
         recipe_id: str | None = None,
-    ) -> ProjectRecipeDraft:
+    ) -> RecipeDraft:
         project_id = require_uuid(project_id, "project_id")
         data_version_id = require_uuid(data_version_id, "data_version_id")
         workspace_id = require_uuid(workspace_id, "workspace_id")
@@ -76,9 +77,9 @@ class ProjectRecipePublicationService:
         if recipe_id is not None:
             recipe = self.repository.get_recipe(require_uuid(recipe_id, "recipe_id"))
             if recipe.project_id != project_id:
-                raise ProjectRecipeError("Recipe belongs to another Project")
+                raise RecipeError("Recipe belongs to another Project")
         compiled, issues = self.compiler.compile_workspace(workspace_id)
-        return ProjectRecipeDraft(
+        return RecipeDraft(
             project_id=project_id,
             data_version_id=data_version_id,
             workspace_id=workspace_id,
@@ -119,10 +120,8 @@ class ProjectRecipePublicationService:
         if not draft.can_publish or draft.compiled is None:
             if draft.issues:
                 issue = draft.issues[0]
-                raise ProjectRecipeError(
-                    f"{issue.message} {issue.recovery_action}"
-                )
-            raise ProjectRecipeError("Workspace is not ready to publish a Recipe")
+                raise RecipeError(f"{issue.message} {issue.recovery_action}")
+            raise RecipeError("Workspace is not ready to publish a Recipe")
         if draft.recipe is not None:
             expected_recipe_revision = require_revision(
                 expected_recipe_revision or 0,
@@ -167,4 +166,3 @@ class ProjectRecipePublicationService:
             actor=actor,
             fault=fault,
         )
-

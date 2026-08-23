@@ -55,24 +55,24 @@ from ..migration_workspaces import (
     MigrationWorkspace,
     MigrationWorkspaceState,
 )
-from ..project_recipes import ProjectRecipe, ProjectRecipeService
-from ..projects import ProjectNotFoundError, ProjectService, SourceMode
+from ..recipes import Recipe, RecipeService
+from ..workspace_state import WorkspaceStateNotFoundError, WorkspaceStateService, SourceMode
 from ..workspace_contracts import OdooSchemaCatalog, SourceSelection
-from .project_recipe_application_compiler import (
-    ProjectRecipeApplicationAssessment,
-    ProjectRecipeApplicationCompiler,
+from .recipe_application_service import (
+    RecipeApplicationAssessment,
+    RecipeApplicationService,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewedRecipeApplication:
-    recipe: ProjectRecipe
+    recipe: Recipe
     selection: RecipeRevisionSelection
     definition: Mapping[str, object]
     requirements: tuple[OdooModelRequirement, ...]
     reference_requirements: tuple[ReferenceRequirement, ...]
     write_claims: tuple[tuple[str, str], ...]
-    assessment: ProjectRecipeApplicationAssessment
+    assessment: RecipeApplicationAssessment
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,12 +101,12 @@ class MigrationRunPlanningService:
         *,
         projects: MigrationProjectService,
         data_versions: DataVersionService,
-        recipes: ProjectRecipeService,
+        recipes: RecipeService,
         repository,
         source_packages,
         source_projections: WorkspaceSourceProjectionService,
-        workspace_states: ProjectService,
-        compiler: ProjectRecipeApplicationCompiler,
+        workspace_states: WorkspaceStateService,
+        compiler: RecipeApplicationService,
         cutover_plans,
         authorization: AuthorizationPolicy,
     ) -> None:
@@ -458,7 +458,7 @@ class MigrationRunPlanningService:
         self,
         project_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         data_version_id: str,
         recipe_revisions: tuple[tuple[str, int], ...],
         dependencies: tuple[RecipeDependency, ...],
@@ -476,9 +476,9 @@ class MigrationRunPlanningService:
 
         project_id = require_uuid(project_id, "project_id")
         operation_id = require_uuid(operation_id, "operation_id")
-        expected_project_revision = require_revision(
-            expected_project_revision,
-            "expected_project_revision",
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
         )
         clean_label = required_text(label, "label", maximum=200)
         credential_generation = required_text(
@@ -636,7 +636,7 @@ class MigrationRunPlanningService:
             applications=planned,
             target_schema=run_target_schema,
             reference_bundle=run_reference_bundle,
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             operation_id=operation_id,
             request_hash=request_hash,
             actor=actor,
@@ -676,7 +676,7 @@ class MigrationRunPlanningService:
         self,
         project_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         production_binding: ProductionRunBinding,
         plan: CutoverPlanRevision,
         target_schema: OdooSchemaCatalog,
@@ -696,9 +696,9 @@ class MigrationRunPlanningService:
 
         project_id = require_uuid(project_id, "project_id")
         operation_id = require_uuid(operation_id, "operation_id")
-        expected_project_revision = require_revision(
-            expected_project_revision,
-            "expected_project_revision",
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
         )
         read_credential_generation = required_text(
             read_credential_generation,
@@ -950,7 +950,7 @@ class MigrationRunPlanningService:
             applications=planned,
             target_schema=run_target_schema,
             reference_bundle=run_reference_bundle,
-            expected_project_revision=expected_project_revision,
+            expected_workspace_revision=expected_workspace_revision,
             operation_id=operation_id,
             request_hash=request_hash,
             actor=actor,
@@ -1229,7 +1229,7 @@ class MigrationRunPlanningService:
     ) -> None:
         try:
             current = self.workspace_states.repository.get(workspace.workspace_id)
-        except ProjectNotFoundError:
+        except WorkspaceStateNotFoundError:
             source_mode = (
                 SourceMode.FILE
                 if package.origin is SourcePackageOrigin.FILE
@@ -1451,3 +1451,4 @@ class MigrationRunPlanningService:
     @staticmethod
     def _child_operation(operation_id: str, name: str) -> str:
         return str(uuid5(UUID(operation_id), name))
+

@@ -950,12 +950,11 @@ with exact bound evidence.
 
 **Evidence:** the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md),
-active [Customer Recipe v3
-fixture](../../fixtures/recipes/phase-r0/customer-recipe-v3.json),
-[Test-to-Production acceptance
-fixture](../../fixtures/recipes/phase-r0/acceptance-contract.json), and focused
-[contract test](../../tests/test_recipe_phase_r0_contract.py) freeze and verify
+the former `fixtures/recipes/phase-r0/customer-recipe-v3.json`,
+`fixtures/recipes/phase-r0/acceptance-contract.json`, and
+`tests/test_recipe_phase_r0_contract.py` freeze and verify
 the gate. This phase intentionally makes no browser or runtime behavior change.
+M7 removed these superseded files; Git history retains the point-in-time evidence.
 
 ### Phase R1 - Add Recipe root, lineage, and protected persistence
 
@@ -976,12 +975,11 @@ and project IDs cannot be confused; interruption recovery is deterministic.
 
 **Evidence:** the
 [Phase R1 implementation report](../reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
-and focused
-[`test_recipe_persistence`](../../tests/test_recipe_persistence.py) suite cover
+and the former `test_recipe_persistence` suite cover
 registry-only listing, disjoint identity resolution, encrypted
 protected storage, project linkage and sealing, runtime publication guards,
 and fault recovery for publication, DataVersion creation, qualification, and
-cutover selection.
+cutover selection. M7 removed that superseded suite; Git history retains it.
 
 ### Phase R2 - Create, author, and publish a Customer Recipe
 
@@ -1028,12 +1026,11 @@ a fresh exact MappingDefinition without copying old evidence.
 
 **Evidence:** the
 [Phase R3 implementation report](../reports/reusable-recipes-phase-r3-test-application-2026-08-19.md)
-and focused
-[`test_recipe_application`](../../tests/test_recipe_application.py) suite cover
+and the former `test_recipe_application` suite cover
 fresh Test DataVersions, exact TargetBindings, same-ish source binding,
 structural preparation, categorical blockers, target and credential drift,
 mapping-bound quality seeds, fresh MappingWorkingDraft creation, and protected
-application evidence.
+application evidence. M7 removed that superseded suite; Git history retains it.
 
 ### Phase R4 - Fine-tune and qualify on Test Odoo
 
@@ -1053,13 +1050,12 @@ changed v4 inherits that status.
 
 **Evidence:** the
 [Phase R4 implementation report](../reports/reusable-recipes-phase-r4-test-qualification-2026-08-19.md),
-focused
-[`test_recipe_qualification`](../../tests/test_recipe_qualification.py),
-[`test_recipe_qualification_web`](../../tests/test_recipe_qualification_web.py),
+the former `test_recipe_qualification` and `test_recipe_qualification_web` suites,
 and registry persistence tests cover exact Test readiness, immutable protected
 qualification, explicit outcome confirmation, stale target credentials,
 current-revision-only status, explicit rollout-candidate selection, and the
-focused Recipe UI layered over the existing six-stage workspace.
+focused Recipe UI layered over the existing six-stage workspace. M7 removed
+those superseded suites; Git history retains them.
 
 ### Phase R4.5 - Consolidate the clean Recipe root
 

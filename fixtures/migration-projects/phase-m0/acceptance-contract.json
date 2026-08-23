@@ -4,7 +4,7 @@
   "implementation_status": "ARCHITECTURE_CONTRACT_ONLY",
   "retained_recipe_envelope": {
     "recipe_contract_version": 2,
-    "canonical_fixture": "fixtures/recipes/phase-r0/customer-recipe-v3.json",
+    "canonical_fixture": "fixtures/migration-projects/phase-m0/customer-recipe-v1.json",
     "envelope_fields": [
       "compatibility_hints",
       "payload_hash",

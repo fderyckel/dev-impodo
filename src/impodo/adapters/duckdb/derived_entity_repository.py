@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from ...access import Actor
 from ...derived_entities import DerivedEntityPlan
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
 from .repository import DuckDbRepository
@@ -57,11 +57,11 @@ class DerivedEntityRepository(DuckDbRepository):
     ) -> None:
         """Append one exact plan revision and invalidate mapping/staging."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             selection_row = connection.execute(
                 "SELECT selection_json FROM source_selection WHERE singleton_id = 1"
             ).fetchone()
@@ -94,7 +94,7 @@ class DerivedEntityRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "The derived-entity plan was modified by another request"
                 )
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -135,3 +135,4 @@ class DerivedEntityRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+

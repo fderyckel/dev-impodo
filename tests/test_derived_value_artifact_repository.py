@@ -10,12 +10,12 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.invalidation import EvidenceInvalidationMixin
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.domain.derived_value_artifact import (
     DerivedValueArtifact,
     DerivedValueInput,
@@ -27,7 +27,7 @@ from impodo.domain.staging.preparation_session import (
     PreparationSessionStatus,
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactReport
-from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
 from impodo.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
@@ -58,8 +58,8 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(self.database)
+        self.database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(self.database)
         self.repository = PreparationSessionRepository(self.database)
         self.project = WorkspaceState(
             project_id=str(uuid4()),
@@ -72,15 +72,10 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
             intended_models=("product.template",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=NOW,
         )
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.bindings = PreparationSessionBindings(
             mapping_id="mapping:products",
             mapping_version=1,
@@ -270,7 +265,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         )
         self._finalize(session.session_id)
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -407,7 +402,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         )
         self._finalize_and_publish(session.session_id)
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -544,3 +539,4 @@ def _empty_impact_report() -> TransformationImpactReport:
 
 if __name__ == "__main__":
     unittest.main()
+

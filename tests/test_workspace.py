@@ -40,19 +40,19 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.mapping_field_catalog_repository import (
     MappingFieldCatalogRepository,
 )
 from impodo.adapters.duckdb.mapping_repository import MappingRepository
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
-from impodo.projects import (
+from impodo.workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceMode,
     SourceFile,
 )
@@ -82,9 +82,9 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
+        database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.database = database
-        self.project_repository = ProjectRepository(database)
+        self.project_repository = WorkspaceStateRepository(database)
         derived_entity_repository = DerivedEntityRepository(database)
         self.derived_entity_repository = derived_entity_repository
         self.source_repository = SourceRepository(
@@ -117,15 +117,10 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             odoo_database="odoo19_local",
             intended_applications=("Contacts",),
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.project_repository.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.project_repository.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.project = replace(
             self.project,
             source_files=(self.source,),
@@ -384,7 +379,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             governance,
         )
         database_path = (
-            self.schema_repository.project_directory(self.project.project_id)
+            self.schema_repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.schema_repository._connect(database_path) as connection:
@@ -1388,3 +1383,4 @@ def _model_catalog_snapshot() -> RecordSnapshot:
         },
         complete=True,
     )
+

@@ -16,7 +16,7 @@ from datetime import (
 import duckdb
 
 from ...access import Actor
-from ...projects import WorkspaceState
+from ...workspace_state import WorkspaceState
 
 
 
@@ -83,3 +83,4 @@ class AuditMixin:
                 actor.identity.display_name,
             ],
         )
+

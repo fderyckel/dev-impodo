@@ -43,7 +43,7 @@ from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...data_versions import DataVersionState
 from ...inspection import SourceInspectionError, SourceInspectionOptions
 from ...migration_foundation import MigrationFoundationError
-from ...projects import ProjectError, ProjectStatus, SourceMode
+from ...workspace_state import WorkspaceStateError, WorkspaceStatus, SourceMode
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ..security import require_session
@@ -82,7 +82,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
         require_session(request)
         project = context.queries.get(project_id)
-        if project.status is not ProjectStatus.REGISTERED:
+        if project.status is not WorkspaceStatus.REGISTERED:
             return RedirectResponse(
                 f"/workspaces/{project.project_id}/details",
                 status_code=303,
@@ -142,7 +142,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 expected_revision=_revision(form),
             )
-        except ProjectError as error:
+        except WorkspaceStateError as error:
             return _render_source_file_error(
                 request,
                 context,
@@ -173,7 +173,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token", "revision", "source_file"})
         project = context.queries.get(project_id)
         if (
-            project.status is not ProjectStatus.REGISTERED
+            project.status is not WorkspaceStatus.REGISTERED
             or project.source_mode is not SourceMode.FILE
         ):
             raise HTTPException(status_code=400, detail="Source upload is unavailable")
@@ -184,7 +184,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 "sources",
-                ProjectError("Choose a CSV or XLSX file"),
+                WorkspaceStateError("Choose a CSV or XLSX file"),
             )
         try:
             added = await run_in_threadpool(
@@ -195,7 +195,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 display_name=upload.filename,
                 stream=upload.file,
             )
-        except ProjectError as error:
+        except WorkspaceStateError as error:
             return _render_source_file_error(
                 request,
                 context,
@@ -297,7 +297,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 credential,
                 actor=context.actor,
             )
-        except (ProjectError, SecretStoreError, WorkspaceError) as error:
+        except (WorkspaceStateError, SecretStoreError, WorkspaceError) as error:
             return _render_odoo_capture_selection(
                 request,
                 context,
@@ -389,7 +389,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         except (
             ConnectorError,
             OdooCaptureJobStateError,
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
         ) as error:
@@ -944,3 +944,4 @@ def _odoo_capture_job_payload(job: OdooCaptureJob) -> dict[str, object]:
             else ""
         ),
     }
+

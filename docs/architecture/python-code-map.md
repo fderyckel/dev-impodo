@@ -17,16 +17,17 @@ the historical `project.duckdb` filename or `WorkspaceState` type name.
 
 | Responsibility | Domain or application boundary | Persistence or browser boundary |
 | --- | --- | --- |
+| Explain data-manager concepts | immutable `ConceptHelp` presentation registry | authenticated read-only `/concepts` route and shared dialog macro |
 | List and read Projects | `migration_projects.py` | `MigrationFoundationRepository`, `/projects` |
 | Create a Project and first Authoring context | `MigrationProjectAuthoringService` | `migration_projects.py` router |
 | Own a complete source package | `DataVersion`, `DataVersionSourcePackage` | `data-version.duckdb` and DataVersion artifact directory |
 | Coordinate one target use | `MigrationRun` | registry `migration_run` projection |
 | Isolate current working evidence | `MigrationWorkspace` plus current workspace services | `workspace.duckdb`, contained `project.duckdb`, `/workspaces/{workspace_id}` |
 | Supply mapping source contracts | `WorkspaceMappingSourceProjection` | bounded workspace source projection |
-| Compile reusable meaning | `RecipeAuthoringService.compile_workspace` | reads current workspace evidence only |
-| Publish optional Recipes | `ProjectRecipePublicationService` | `ProjectRecipeRepository`, protected Recipe store |
+| Compile reusable meaning | `RecipeCompiler.compile_workspace` | reads current workspace evidence only |
+| Publish optional Recipes | `RecipePublicationService` | `RecipeRepository`, protected Recipe store |
 | Plan an integrated Test run | `MigrationRunPlanningService` | `MigrationRunPlanningRepository`, Project run routes |
-| Materialize a fresh Recipe application | `ProjectRecipeApplicationCompiler` | one isolated workspace and run-aware target projections |
+| Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
 | Version and qualify an integrated plan | `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
 | Run selected meaning with latest data | `ProductionCutoverService` | `ProductionRunRepository`, Production run routes, shared workspace engine |
 
@@ -47,6 +48,12 @@ services.
    without creating duplicate roots.
 
 The four identities are distinct and no Recipe row is created.
+
+The global `/concepts` page is intentionally outside this creation trace. It
+renders the static `ConceptHelp` registry and does not open the Project
+registry, workspace evidence, Recipe payloads, or Odoo. Contextual help uses
+the same registry, so adding help beside a Project row must not add a per-row
+query.
 
 ## Source acceptance trace
 
@@ -69,11 +76,11 @@ No source row or source artifact is copied into the clean workspace store.
 
 ## Recipe publication trace
 
-1. The Project overview asks `ProjectRecipePublicationService.draft` whether
+1. The Project overview asks `RecipePublicationService.draft` whether
    the authoring workspace is eligible.
-2. `RecipeAuthoringService` compiles portable semantic meaning and validates
+2. `RecipeCompiler` compiles portable semantic meaning and validates
    the exact envelope contract in `domain/recipe_envelope.py`.
-3. `ProjectRecipeRepository` reserves an owner-specific operation intent.
+3. `RecipeRepository` reserves an owner-specific operation intent.
 4. It writes the authenticated payload to the protected Recipe store.
 5. One registry transaction creates the Recipe identity and revision 1, or
    appends a successor revision with optimistic concurrency.
@@ -94,7 +101,7 @@ Project identity, workspace identity, run identity, or cutover authority.
 4. `MigrationRunPlanningRepository.provision_integrated_run` creates the run,
    target binding, applications, and distinct workspaces in one restart-safe
    operation.
-5. `ProjectRecipeApplicationCompiler` selects each application's DataVersion
+5. `RecipeApplicationService` selects each application's DataVersion
    datasets and builds fresh mapping evidence through the existing mapping
    service.
 6. The run page reads status and issues through bounded registry queries and

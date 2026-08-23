@@ -163,7 +163,7 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         qualification = self.service.qualify(
             run.run.project_id,
             run.run.migration_run_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             expected_evidence_hash=str(review.integrated_evidence_hash),
             operation_id=qualification_operation_id,
             actor=LOCAL_ACTOR,
@@ -171,7 +171,7 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         replayed_qualification = self.service.qualify(
             run.run.project_id,
             run.run.migration_run_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             expected_evidence_hash=str(review.integrated_evidence_hash),
             operation_id=qualification_operation_id,
             actor=LOCAL_ACTOR,
@@ -198,14 +198,14 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         selection = self.service.select(
             run.run.project_id,
             qualification.qualification_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             operation_id=selection_operation_id,
             actor=LOCAL_ACTOR,
         )
         replayed_selection = self.service.select(
             run.run.project_id,
             qualification.qualification_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             operation_id=selection_operation_id,
             actor=LOCAL_ACTOR,
         )
@@ -229,7 +229,7 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         self.service.qualify(
             first.run.project_id,
             first.run.migration_run_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             expected_evidence_hash=str(review.integrated_evidence_hash),
             operation_id=str(uuid4()),
             actor=LOCAL_ACTOR,
@@ -237,7 +237,7 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         project = self.fixture.projects.get(first.run.project_id, actor=LOCAL_ACTOR)
         second = self.fixture.planning.start_test_run(
             first.run.project_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=self.fixture.test_data_version.data_version_id,
             recipe_revisions=self.fixture._selected(),
             dependencies=(),
@@ -278,7 +278,7 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
             self.service.qualify(
                 run.run.project_id,
                 run.run.migration_run_id,
-                expected_project_revision=project.optimistic_revision,
+                expected_workspace_revision=project.optimistic_revision,
                 expected_evidence_hash=str(review.integrated_evidence_hash),
                 operation_id=operation_id,
                 actor=LOCAL_ACTOR,
@@ -287,7 +287,7 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         recovered = self.service.qualify(
             run.run.project_id,
             run.run.migration_run_id,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             expected_evidence_hash=str(review.integrated_evidence_hash),
             operation_id=operation_id,
             actor=LOCAL_ACTOR,
@@ -351,3 +351,4 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

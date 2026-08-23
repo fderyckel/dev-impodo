@@ -25,17 +25,17 @@ from impodo.adapters.duckdb.migration_workspace_engine_database import (
 from impodo.adapters.duckdb.migration_workspace_state_repository import (
     MigrationWorkspaceStateRepository,
 )
-from impodo.adapters.duckdb.project_recipe_repository import (
-    ProjectRecipeRepository,
+from impodo.adapters.duckdb.recipe_repository import (
+    RecipeRepository,
 )
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
 from impodo.application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
-from impodo.application.project_recipe_publication_service import (
-    ProjectRecipePublicationService,
+from impodo.application.recipe_publication_service import (
+    RecipePublicationService,
 )
-from impodo.application.recipe_authoring_service import CompiledRecipeDefinition
+from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
 from impodo.data_version_sources import DataVersionSourcePackageService
 from impodo.data_versions import DataVersionService, DataVersionState
 from impodo.domain.serialization import content_hash
@@ -50,7 +50,7 @@ from impodo.migration_projects import MigrationProjectService
 from impodo.migration_runs import MigrationRunService
 from impodo.migration_workspaces import MigrationWorkspaceService
 from impodo.inspection import inspect_source_file
-from impodo.projects import ProjectService
+from impodo.workspace_state import WorkspaceStateService
 from impodo.secrets import MemorySecretStore
 from impodo.web.app import create_local_app
 from impodo.workspace_contracts import (
@@ -132,7 +132,7 @@ class MigrationProjectPhaseM3Tests(unittest.TestCase):
             engine_database,
             self.foundation,
         )
-        self.workspace_states = ProjectService(
+        self.workspace_states = WorkspaceStateService(
             self.workspace_repository,
             self.authorization,
         )
@@ -151,12 +151,12 @@ class MigrationProjectPhaseM3Tests(unittest.TestCase):
             self.root,
             MemorySecretStore(),
         )
-        self.recipe_repository = ProjectRecipeRepository(
+        self.recipe_repository = RecipeRepository(
             self.foundation,
             protected,
         )
         self.compiler = FixedCompiler()
-        self.publication = ProjectRecipePublicationService(
+        self.publication = RecipePublicationService(
             self.recipe_repository,
             self.compiler,
             self.authorization,
@@ -388,7 +388,10 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
         self.assertRegex(created.headers["location"], r"^/projects/[0-9a-f-]{36}$")
         overview = self.client.get(created.headers["location"])
         self.assertEqual(overview.status_code, 200)
-        self.assertIn("You may complete this as one-off work", overview.text)
+        self.assertIn(
+            "You can complete this migration once without saving a Recipe",
+            overview.text,
+        )
         summaries = self.app.state.context.migration_projects.list(
             actor=self.app.state.context.actor
         )
@@ -447,6 +450,51 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
             ).project_id,
             created.project.project_id,
         )
+
+    def test_project_list_scrolls_after_five_projects(self) -> None:
+        context = self.app.state.context
+        for number in range(5):
+            context.migration_projects.create(
+                actor=context.actor,
+                display_name=f"Project {number + 1}",
+                migration_purpose="Verify the bounded Project list",
+                source_system_identity="Fictional ERP",
+            )
+
+        five_projects = self.client.get("/projects")
+
+        self.assertEqual(five_projects.status_code, 200)
+        self.assertIn('class="project-list-scroll"', five_projects.text)
+        self.assertNotIn(
+            'class="project-list-scroll is-scrollable"',
+            five_projects.text,
+        )
+
+        context.migration_projects.create(
+            actor=context.actor,
+            display_name="Project 6",
+            migration_purpose="Verify the bounded Project list",
+            source_system_identity="Fictional ERP",
+        )
+        six_projects = self.client.get("/projects")
+
+        self.assertEqual(six_projects.status_code, 200)
+        self.assertIn(
+            'class="project-list-scroll is-scrollable"',
+            six_projects.text,
+        )
+        self.assertIn('role="region"', six_projects.text)
+        self.assertIn(
+            'aria-label="Project rows. Scroll to see more projects."',
+            six_projects.text,
+        )
+        self.assertIn('tabindex="0"', six_projects.text)
+        self.assertEqual(six_projects.text.count('class="project-row"'), 6)
+
+        styles = self.client.get("/static/app.css")
+        self.assertEqual(styles.status_code, 200)
+        self.assertIn(".project-list-scroll.is-scrollable", styles.text)
+        self.assertIn("max-block-size: 460px", styles.text)
 
     def test_file_acceptance_freezes_data_version_and_projects_references(self) -> None:
         context = self.app.state.context
@@ -633,3 +681,5 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

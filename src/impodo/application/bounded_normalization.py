@@ -26,7 +26,7 @@ from ..normalization import (
     compile_normalization_review_policy,
     normalization_change_language,
 )
-from ..projects import DataClassification, WorkspaceState
+from ..workspace_state import DataClassification, WorkspaceState
 from ..quality import (
     QualityOutcomePolicy,
     StoredQualityRun,
@@ -362,3 +362,4 @@ def build_bounded_normalization_evaluation(
         changed_record_count=changed_record_count,
         effective_dataset_hash=staging_content_hash,
     )
+

@@ -51,7 +51,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
             {
                 "csrf_token",
                 "operation_id",
-                "expected_project_revision",
+                "expected_workspace_revision",
                 "expected_evidence_hash",
             },
         )
@@ -59,8 +59,8 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
             context.cutover_plans.qualify(
                 project_id,
                 migration_run_id,
-                expected_project_revision=int(
-                    _text(form, "expected_project_revision")
+                expected_workspace_revision=int(
+                    _text(form, "expected_workspace_revision")
                 ),
                 expected_evidence_hash=_text(form, "expected_evidence_hash"),
                 operation_id=_text(form, "operation_id"),
@@ -96,7 +96,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
             {
                 "csrf_token",
                 "operation_id",
-                "expected_project_revision",
+                "expected_workspace_revision",
                 "qualification_id",
             },
         )
@@ -104,8 +104,8 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
             context.cutover_plans.select(
                 project_id,
                 _text(form, "qualification_id"),
-                expected_project_revision=int(
-                    _text(form, "expected_project_revision")
+                expected_workspace_revision=int(
+                    _text(form, "expected_workspace_revision")
                 ),
                 operation_id=_text(form, "operation_id"),
                 actor=context.actor,
@@ -149,7 +149,7 @@ def _render_qualification(
     current = context.migration_projects.get(project_id, actor=context.actor)
     recipes = {
         item.recipe_id: item
-        for item in context.project_recipes.list(project_id, actor=context.actor)
+        for item in context.recipes.list(project_id, actor=context.actor)
     }
     evidence = {item.application_id: item for item in review.evidence}
     issues = {
@@ -172,7 +172,7 @@ def _render_qualification(
         evidence=evidence,
         issues=issues,
         project_issues=project_issues,
-        expected_project_revision=current.optimistic_revision,
+        expected_workspace_revision=current.optimistic_revision,
         operation_id=str(uuid4()),
         error=error,
         status_code=status_code,

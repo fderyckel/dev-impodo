@@ -10,7 +10,7 @@ from ..domain.mapping.artifacts import MappingRevision
 from ..domain.resolution import EffectiveDataset
 from ..domain.staging.preparation_session import StoredCanonicalStagingRun
 from ..domain.coverage import ReferenceBundle
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 from ..quality import (
     QualityError,
     QualityRule,
@@ -323,3 +323,4 @@ class QualityService:
         if isinstance(quality_run, StoredQualityRun):
             quality_run = quality_run.with_content_hash(summary.content_hash)
         return quality_run, summary
+

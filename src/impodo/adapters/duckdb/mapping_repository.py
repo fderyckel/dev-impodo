@@ -29,7 +29,7 @@ from ...domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -74,11 +74,11 @@ class MappingRepository(DuckDbRepository):
 
         if draft.project_id != project_id:
             raise WorkspaceError("Working draft belongs to another project")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             selection_row = connection.execute(
                 """
                 SELECT selection_json
@@ -185,7 +185,7 @@ class MappingRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "The working draft was modified by another request"
                 )
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -296,11 +296,11 @@ class MappingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Checked working draft does not match its revision"
             )
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -337,7 +337,7 @@ class MappingRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "The mapping or working draft was modified by another request"
                     )
-                revision_number = self._project_revision(connection)
+                revision_number = self._workspace_revision(connection)
                 connection.execute(
                     """
                     INSERT INTO mapping_revision
@@ -439,11 +439,11 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Append revalidation only when its mapping content hash matches."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT mapping_id, content_hash
@@ -501,11 +501,11 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Append a submission only when validation and warnings match exactly."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT revision.content_hash, validation.validation_hash,
@@ -548,7 +548,7 @@ class MappingRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "Mapping submission has not passed its validation gate"
                 )
-            revision = self._project_revision(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -584,3 +584,4 @@ class MappingRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+

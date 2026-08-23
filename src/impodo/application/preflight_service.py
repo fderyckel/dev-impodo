@@ -1,6 +1,6 @@
 """Stage-H orchestration over approved, frozen source-side evidence.
 
-``PreflightService.compare`` verifies and adapts current Stages D–G evidence,
+``PreflightService.compare`` verifies and adapts current Stages Dâ€“G evidence,
 builds bounded read requirements, invokes a caller-supplied read-only target
 reader, runs the shared comparison engine, and publishes a portable report plus
 protected snapshots. It never reloads source files and exposes no Odoo write.
@@ -45,7 +45,7 @@ from ..domain.odoo_comparison import OdooComparisonArtifact
 from ..engine import PreflightEngine
 from ..models import canonical_json_bytes, target_identity_hash
 from ..planner import PreflightRequirementPlan, plan_preflight_requirements
-from ..projects import SourceMode
+from ..workspace_state import SourceMode
 from ..staging import StagingRunSummary
 from ..workspace_errors import WorkspaceError
 from .readiness_ports import (
@@ -806,3 +806,4 @@ def _snapshot_matches_report(
             "UPDATE": report.update_count,
         }
     )
+

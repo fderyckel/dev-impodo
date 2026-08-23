@@ -20,6 +20,7 @@ categories, and bills of materials, use the
 ## Installation and focused guides
 
 - [Install Impodo on Windows](installation/windows.md)
+- [Understand data projects, data versions, workspaces, and Recipes](concepts.md)
 - [Connect to Odoo on this computer](guides/local-odoo.md)
 - [Prepare related tables](guides/related-tables.md)
 - [Plan an integrated multi-Recipe Test run](guides/integrated-test-runs.md)
@@ -31,6 +32,6 @@ Implementation details are kept in the paired developer pages.
 
 Stage screenshots use isolated fictional workspaces and contain no operational
 or customer data. Recipe-first setup screenshots were removed when the
-Project-first browser replaced that lifecycle.
+data-project-first browser replaced that lifecycle.
 
-![The current empty Projects list makes one-off Project work the starting point and keeps Recipe reuse optional.](../images/user/01-project-list.png)
+![The current empty data projects list makes one-off work the starting point and keeps Recipe reuse optional.](../images/user/01-project-list.png)

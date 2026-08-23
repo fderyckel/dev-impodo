@@ -30,7 +30,6 @@ SEMANTIC_FORBIDDEN_KEYS = frozenset(
         "source_artifact_hash",
         "target_binding_id",
         "token",
-        "workspace_project_id",
     }
 )
 SEMANTIC_FIELDS = frozenset(

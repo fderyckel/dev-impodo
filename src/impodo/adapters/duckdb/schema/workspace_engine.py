@@ -1,4 +1,4 @@
-"""Creation and exact validation of current project DuckDB files."""
+"""Creation and exact validation of current workspace-engine DuckDB files."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import duckdb
 
-from ....projects import ProjectCompatibilityError
+from ....workspace_state import WorkspaceStateCompatibilityError
 from ..constants import SCHEMA_GENERATION, SCHEMA_VERSION
 from .advanced_coverage import create_advanced_coverage_schema
 from .derived_value_artifact import create_derived_value_artifact_schema
@@ -15,7 +15,9 @@ from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
-from .recipe_workspace import ensure_recipe_workspace_schema
+from .recipe_application_workspace import (
+    create_recipe_application_workspace_schema,
+)
 from .supporting_lookup import ensure_supporting_lookup_schema
 from .source_snapshot import create_source_snapshot_schema
 
@@ -26,10 +28,10 @@ _UNSUPPORTED_PROJECT_MESSAGE = (
 )
 
 
-class ProjectSchemaMixin:
+class WorkspaceEngineSchemaMixin:
     """Create the current schema and reject incompatible project databases."""
 
-    def _initialize_project_database(
+    def _initialize_workspace_database(
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
@@ -608,11 +610,11 @@ class ProjectSchemaMixin:
         create_source_snapshot_schema(connection)
         create_prepared_snapshot_schema(connection)
         create_derived_value_artifact_schema(connection)
-        ensure_recipe_workspace_schema(connection)
+        create_recipe_application_workspace_schema(connection)
         ensure_supporting_lookup_schema(connection)
         self._remember_prepared_project_schema(connection)
 
-    def _ensure_project_database_schema(
+    def _ensure_workspace_database_schema(
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
@@ -627,24 +629,24 @@ class ProjectSchemaMixin:
                 """
             ).fetchone()
         except duckdb.Error as error:
-            raise ProjectCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE) from error
+            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE) from error
         if row is None or str(row[0]) != SCHEMA_GENERATION:
-            raise ProjectCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE)
+            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE)
         stored_version = int(row[1])
         if stored_version != SCHEMA_VERSION:
-            raise ProjectCompatibilityError(
+            raise WorkspaceStateCompatibilityError(
                 "This project uses a different Impodo data contract and cannot "
                 "be opened by this build."
             )
         schema_key = self._project_schema_file_key(connection)
         if schema_key is None:
-            ensure_recipe_workspace_schema(connection)
+            create_recipe_application_workspace_schema(connection)
             ensure_supporting_lookup_schema(connection)
             return
         with self._project_schema_migration_lock:
             if schema_key in self._prepared_project_schema_files:
                 return
-            ensure_recipe_workspace_schema(connection)
+            create_recipe_application_workspace_schema(connection)
             ensure_supporting_lookup_schema(connection)
             self._prepared_project_schema_files.add(schema_key)
 
@@ -676,3 +678,4 @@ class ProjectSchemaMixin:
         path = Path(database_file).resolve()
         stat = path.stat()
         return (str(path), int(stat.st_dev), int(stat.st_ino))
+

@@ -4,7 +4,7 @@ Layer: application service at the artifact boundary.
 
 ``SourceIntakeService.accept`` is called by the project setup router. It streams
 an upload through the ``ArtifactStore`` and isolated file validator, then asks
-``ProjectService`` to attach the resulting size/hash evidence. The original
+``WorkspaceStateService`` to attach the resulting size/hash evidence. The original
 display name is never used as the storage key. Early-stage removal first retires
 the governed database reference and then deletes its opaque stored bytes.
 
@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from .access import Actor
 from .artifacts import ArtifactStore, ArtifactStoreError
-from .projects import ProjectError, ProjectService, SourceFile
+from .workspace_state import WorkspaceStateError, WorkspaceStateService, SourceFile
 from .source import SourceLoadError
 from .source_worker import validate_source_file_isolated
 
@@ -30,7 +30,7 @@ CHUNK_BYTES = 1024 * 1024
 ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
 
 
-class SourceIntakeError(ProjectError):
+class SourceIntakeError(WorkspaceStateError):
     """Raised when an uploaded source file is unsafe or unsupported."""
 
 
@@ -44,7 +44,7 @@ class SourceIntakeService:
 
     def __init__(
         self,
-        projects: ProjectService,
+        projects: WorkspaceStateService,
         artifacts: ArtifactStore,
     ) -> None:
         self.projects = projects
@@ -68,7 +68,7 @@ class SourceIntakeService:
         Raises:
             SourceIntakeError: If the name, format, size, bytes, or artifact
                 operation is unsafe or unsupported.
-            ProjectError: If project authorization, lifecycle, or optimistic
+            WorkspaceStateError: If project authorization, lifecycle, or optimistic
                 revision validation rejects the attachment.
         """
 
@@ -145,3 +145,4 @@ def _safe_display_name(value: str) -> str:
     if any(ord(character) < 32 for character in name):
         raise SourceIntakeError("Source filename contains control characters")
     return name
+

@@ -106,7 +106,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
         return self.data_versions.create(
             project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             purpose="AUTHORING",
             label="Representative export",
             operation_id=operation_id,
@@ -124,7 +124,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
         return self.runs.create(
             project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=data_version.data_version_id,
             purpose="AUTHORING",
             label="Authoring run",
@@ -144,7 +144,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
         return self.workspaces.create(
             project.project_id,
             actor=LOCAL_ACTOR,
-            expected_project_revision=project.optimistic_revision,
+            expected_workspace_revision=project.optimistic_revision,
             data_version_id=data_version.data_version_id,
             migration_run_id=run.migration_run_id,
             display_name="Customer authoring",
@@ -316,7 +316,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
             self.data_versions.create(
                 project.project_id,
                 actor=denied,
-                expected_project_revision=project.optimistic_revision,
+                expected_workspace_revision=project.optimistic_revision,
                 purpose="AUTHORING",
                 label="Denied",
             )
@@ -326,7 +326,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
             self.runs.create(
                 project.project_id,
                 actor=denied,
-                expected_project_revision=project.optimistic_revision,
+                expected_workspace_revision=project.optimistic_revision,
                 data_version_id=data_version.data_version_id,
                 purpose="AUTHORING",
                 label="Denied",
@@ -337,7 +337,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
             self.workspaces.create(
                 project.project_id,
                 actor=denied,
-                expected_project_revision=project.optimistic_revision,
+                expected_workspace_revision=project.optimistic_revision,
                 data_version_id=data_version.data_version_id,
                 migration_run_id=run.migration_run_id,
                 display_name="Denied",
@@ -595,7 +595,7 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
             self.runs.create(
                 second.project_id,
                 actor=LOCAL_ACTOR,
-                expected_project_revision=second.optimistic_revision,
+                expected_workspace_revision=second.optimistic_revision,
                 data_version_id=first_data.data_version_id,
                 purpose="AUTHORING",
                 label="Cross-Project run",
@@ -707,3 +707,4 @@ class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

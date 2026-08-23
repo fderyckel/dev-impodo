@@ -9,13 +9,13 @@ from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
-from ...projects import (
+from ...workspace_state import (
     OdooConnectionMode,
-    ProjectError,
-    ProjectSetupStep,
-    ProjectStatus,
+    WorkspaceStateError,
+    WorkspaceSetupStep,
+    WorkspaceStatus,
     SourceMode,
-    project_setup_requirements_for_step,
+    workspace_setup_requirements_for_step,
 )
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
@@ -173,21 +173,21 @@ def build_target_router(context: WebContext) -> APIRouter:
     async def project_target_form(request: Request, project_id: str):
         require_session(request)
         project = context.queries.get(project_id)
-        if project.status is ProjectStatus.CLOSED:
+        if project.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
                 f"/workspaces/{project.project_id}/summary",
                 status_code=303,
             )
         if (
-            project.status is ProjectStatus.DRAFT
+            project.status is WorkspaceStatus.DRAFT
             and project.source_mode is SourceMode.FILE
         ):
             return RedirectResponse(
                 f"/workspaces/{project.project_id}/files",
                 status_code=303,
             )
-        if project.status is ProjectStatus.DRAFT:
-            blocked = blocking_setup_url(project, ProjectSetupStep.TARGET)
+        if project.status is WorkspaceStatus.DRAFT:
+            blocked = blocking_setup_url(project, WorkspaceSetupStep.TARGET)
             if blocked is not None:
                 return RedirectResponse(blocked, status_code=303)
         return _render_target(
@@ -380,21 +380,21 @@ def build_target_router(context: WebContext) -> APIRouter:
             },
         )
         current = context.queries.get(project_id)
-        if current.status is ProjectStatus.CLOSED:
+        if current.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
                 f"/workspaces/{current.project_id}/summary",
                 status_code=303,
             )
         if (
-            current.status is ProjectStatus.DRAFT
+            current.status is WorkspaceStatus.DRAFT
             and current.source_mode is SourceMode.FILE
         ):
             return RedirectResponse(
                 f"/workspaces/{current.project_id}/files",
                 status_code=303,
             )
-        if current.status is ProjectStatus.DRAFT:
-            blocked = blocking_setup_url(current, ProjectSetupStep.TARGET)
+        if current.status is WorkspaceStatus.DRAFT:
+            blocked = blocking_setup_url(current, WorkspaceSetupStep.TARGET)
             if blocked is not None:
                 return RedirectResponse(blocked, status_code=303)
         purpose = _connection_purpose(current)
@@ -537,7 +537,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
         except (
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             ConnectorError,
             LocalStackError,
@@ -568,9 +568,9 @@ def build_target_router(context: WebContext) -> APIRouter:
                 status_code=422,
                 open_local_stack=local_test_requested,
             )
-        if project_setup_requirements_for_step(
+        if workspace_setup_requirements_for_step(
             project,
-            ProjectSetupStep.TARGET,
+            WorkspaceSetupStep.TARGET,
         ):
             return _render_target(
                 request,
@@ -605,14 +605,14 @@ def build_target_router(context: WebContext) -> APIRouter:
                 error="Enter a read-only Odoo API key before continuing.",
                 status_code=422,
             )
-        if project.status is ProjectStatus.DRAFT:
+        if project.status is WorkspaceStatus.DRAFT:
             try:
                 project = context.projects.register(
                     project.project_id,
                     actor=context.actor,
                     expected_revision=project.revision,
                 )
-            except ProjectError as error:
+            except WorkspaceStateError as error:
                 return _render_target(
                     request,
                     context,
@@ -630,7 +630,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)
-        if project.status is ProjectStatus.CLOSED:
+        if project.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
                 f"/workspaces/{project.project_id}/summary",
                 status_code=303,
@@ -668,3 +668,4 @@ def build_target_router(context: WebContext) -> APIRouter:
         )
 
     return router
+

@@ -8,7 +8,7 @@ status: current
 
 ## Goal
 
-Choose the Odoo 19 record types and fields needed by the current Project
+Choose the Odoo 19 record types and fields needed by the current data project
 version, and confirm how Impodo can identify one existing record.
 
 ## Before you start
@@ -40,20 +40,20 @@ the bounded reference values needed for matching and Final review. It does not
 turn that supporting record type into data that the project will create or
 update.
 
-![Current Odoo record-type selection for a fictional Project workspace.](../../images/user/08-odoo-models.png)
+![Current Odoo record-type selection for a fictional data project workspace.](../../images/user/08-odoo-models.png)
 
 ![Current confirmed matching rule for finding one existing Odoo Contact.](../../images/user/08b-odoo-business-keys.png)
 
 ## How Recipes reuse this work
 
-The published Recipe keeps the portable Odoo target contract: required models,
+The saved Recipe keeps the portable Odoo target contract: required models,
 fields, selection codes, relationships, and matching meaning. It does not keep
 the server address, database, API key, live schema snapshot, or numeric Odoo
 record IDs.
 
-Each later DataVersion must connect its own target, use a fresh read-only key,
-and capture current Odoo details. Applying Recipes to later DataVersions is not
-available until the multi-Recipe phase. Recipe publication never copies the
+Each later data version must connect its own target, use a fresh read-only key,
+and capture current Odoo details. Applying Recipes to later data versions uses
+fresh work areas and target evidence. Saving a Recipe never copies the
 current target evidence.
 
 ## What to check
@@ -79,7 +79,7 @@ selection.
 ## What changes and what does not
 
 This stage reads and stores target metadata for this data version. It does not
-create or update Odoo records, publish a Recipe revision, or reuse a Test
+create or update Odoo records, save a Recipe version, or reuse a Test
 credential in Production. Confirming a business key does not prove that every
 current value is unique; the later comparison checks current target evidence.
 
@@ -95,7 +95,7 @@ instead of guessing field definitions.
 Changing model scope, recapturing fields, or changing a business key
 invalidates dependent mapping and review evidence in this data version.
 Recheck the next stages against the new captured schema. A target change does
-not rewrite an already published Recipe revision.
+not rewrite an already saved Recipe version.
 
 ## Next stage
 

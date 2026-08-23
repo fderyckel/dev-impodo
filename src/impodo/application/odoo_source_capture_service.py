@@ -20,7 +20,7 @@ from ..domain.odoo_source_capture import (
     require_not_cancelled,
 )
 from ..models import FieldMetadata, OdooReadIdentity, ProtectedOdooReadContext
-from ..projects import WorkspaceState, ProjectStatus, SourceMode
+from ..workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
 from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SchemaOrigin
 from ..workspace_errors import WorkspaceError
 
@@ -247,7 +247,7 @@ class OdooSourceCaptureService:
         )
         project = self._projects.get(project_id)
         if (
-            project.status is not ProjectStatus.REGISTERED
+            project.status is not WorkspaceStatus.REGISTERED
             or project.source_mode is not SourceMode.ODOO
         ):
             raise WorkspaceError(
@@ -337,3 +337,4 @@ def _same_field(stored: SchemaField, live: FieldMetadata) -> bool:
         and stored.digits == live.digits
         and stored.currency_field == live.currency_field
     )
+

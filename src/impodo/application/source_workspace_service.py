@@ -40,7 +40,7 @@ from ..inspection import (
     SourceInspectionError,
     SourceTableCatalog,
 )
-from ..projects import WorkspaceState, ProjectStatus, SourceMode
+from ..workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
 from ..source import SourceLoadError
 from ..source_snapshot_io import (
     SourceSnapshotPublisher,
@@ -206,7 +206,7 @@ class SourceWorkspaceService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
-        if project.status is not ProjectStatus.REGISTERED:
+        if project.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before selecting Odoo source records"
             )
@@ -435,7 +435,7 @@ class SourceWorkspaceService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
-        if project.status is not ProjectStatus.REGISTERED:
+        if project.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before selecting datasets"
             )
@@ -641,3 +641,4 @@ def _dataset_key(file_id: str, table_key: str) -> str:
 
     digest = sha256(f"{file_id}\0{table_key}".encode("utf-8")).hexdigest()
     return f"dataset:{digest[:24]}"
+

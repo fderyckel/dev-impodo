@@ -8,14 +8,14 @@ import unittest
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.supporting_lookup_repository import (
     SupportingLookupRepository,
 )
 from impodo.application.supporting_lookup_service import SupportingLookupService
 from impodo.models import target_identity_hash
-from impodo.projects import WorkspaceState, OdooConnectionMode
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode
 from impodo.supporting_lookups import SupportingLookupChoice
 
 
@@ -26,8 +26,8 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(database)
+        database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(database)
         self.repository = SupportingLookupRepository(database)
         self.service = SupportingLookupService(
             self.repository,
@@ -44,12 +44,7 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
             intended_models=("res.partner",),
             updated_at=self.now,
         )
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.target_hash = target_identity_hash(
             connection_mode="REMOTE",
             base_url=self.project.odoo_base_url,
@@ -155,3 +150,4 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

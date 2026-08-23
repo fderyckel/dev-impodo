@@ -10,12 +10,12 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.models import BusinessReference, LogicalReference
-from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
 from impodo.staging import StagingRunStatus
 from impodo.staging_contracts import (
     CanonicalControlTotal,
@@ -46,8 +46,8 @@ class CanonicalStagingStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(database)
+        database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(database)
         self.repository = StagingRepository(database)
         now = datetime.now(timezone.utc)
         self.project = WorkspaceState(
@@ -61,15 +61,10 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
@@ -103,7 +98,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             content_hash=PHYSICAL_HASH,
         )
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -164,7 +159,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertIsNotNone(restored)
         self.assertEqual(restored.to_json(), run.to_json())
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -293,7 +288,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             second.run_id,
         )
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -380,7 +375,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         )
         self.assertEqual(current.run_id, first.run_id)
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -422,7 +417,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             )
         )
         database_path = (
-            self.repository.project_directory(self.project.project_id)
+            self.repository.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -543,3 +538,4 @@ def _run(project_id: str, *, value: str, row_token: str) -> CanonicalStagingRun:
         reconciliation=StagingReconciliation.from_rows((row,)),
         compiled_plan_hash=MAPPING_HASH,
     )
+

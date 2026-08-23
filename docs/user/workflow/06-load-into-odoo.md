@@ -8,15 +8,15 @@ status: current
 
 ## Goal
 
-Explicitly load the exact reviewed plan for the current Project DataVersion
+Explicitly load the exact reviewed plan for the current data version
 into its approved Odoo 19 target, then verify the recorded outcome.
 
 ## Before you start
 
-The current final review must be **Ready**. Confirm the DataVersion purpose,
+The current final review must be **Ready**. Confirm the data version purpose,
 target, exact write totals, dependency order, writable fields, and required API
 key. This key authorizes only the reviewed target operation; it does not grant
-authority to another Project, DataVersion, or future rollout.
+authority to another data project, data version, or future rollout.
 
 ## Steps in Impodo
 
@@ -35,14 +35,14 @@ authority to another Project, DataVersion, or future rollout.
 
 ![Current Confirm and load screen with the separate write-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
 
-## How Recipe publication relates to the verified outcome
+## How saving a Recipe relates to the verified outcome
 
-Loading does not create, change, or publish a Recipe. If you publish the
-workspace's reusable rules, the resulting Recipe revision still does not own
+Loading does not create, change, or save a Recipe. If you save the
+workspace's reusable rules, the resulting Recipe version still does not own
 this execution or its read-back evidence.
 
-Applying published rules to replacement rollout data belongs to the next
-implementation phase. That future run must start with a new DataVersion and
+Applying saved rules to replacement rollout data requires a fresh run. That
+run must start with a new data version and
 must not inherit this run's files, server settings, credentials, comparison,
 approval, execution, or read-back evidence.
 
@@ -64,7 +64,7 @@ alone is not completion evidence.
 ## What changes and what does not
 
 This is the workflow stage that can create or update Odoo records. It does not
-provide whole-migration rollback, publish a Recipe, or carry write authority
+provide whole-migration rollback, save a Recipe, or carry write authority
 into another run. Unchanged and blocked rows are not written.
 
 ## Needs attention
@@ -84,9 +84,9 @@ changed stage and regenerate the evidence for this data version.
 ## Next stage
 
 Keep the execution journal, reconciliation result, and approved review package
-with the Project record. Resolve any fallout before considering the
-DataVersion complete. You may separately publish the reusable transformation
-rules from the Project overview; that action does not change this load record.
+with the data project. Resolve any fallout before considering the data version
+complete. You may separately save the reusable transformation rules from the
+data project overview; that action does not change this load record.
 
 ## Related documentation
 

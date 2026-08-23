@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from starlette.concurrency import run_in_threadpool
 from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
-from ...projects import ProjectError
+from ...workspace_state import WorkspaceStateError
 from ...domain.errors import ReadinessError
 from ...domain.mapping.contracts import TargetFieldHandling
 from ...domain.staging.transformation_impact import TransformationImpactFilter
@@ -246,7 +246,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         except (
             ArtifactStoreError,
             ConnectorError,
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             SourceLoadError,
             WorkspaceError,
@@ -883,3 +883,4 @@ def _require_mapping_idle(context: WebContext, project_id: str) -> None:
                 "to finish before reviewing or changing field matches."
             ),
         )
+

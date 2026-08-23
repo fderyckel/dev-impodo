@@ -28,10 +28,10 @@ from ..domain.schema.governance import (
 )
 from ..models import OdooReadIdentity, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
-from ..projects import (
+from ..workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceMode,
 )
 from ..workspace_contracts import (
@@ -171,7 +171,7 @@ class SchemaWorkspaceService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
-        if project.status is not ProjectStatus.REGISTERED:
+        if project.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before discovering Odoo models"
             )
@@ -508,7 +508,7 @@ class SchemaWorkspaceService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
-        if project.status is not ProjectStatus.REGISTERED:
+        if project.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before capturing Odoo schema"
             )
@@ -840,3 +840,4 @@ def _split_module_names(value: object) -> tuple[str, ...]:
             }
         )
     )
+

@@ -10,7 +10,7 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import FormData
 
 from ..domain.mapping.contracts import ValueMapping
-from ..projects import ProjectError
+from ..workspace_state import WorkspaceStateError
 from ..workspace_errors import WorkspaceError
 from .constants import (
     MAPPING_MAX_FORM_FIELDS,
@@ -187,7 +187,7 @@ def _revision(form: FormData) -> int:
     try:
         return int(_text(form, "revision"))
     except ValueError as error:
-        raise ProjectError("Invalid project revision") from error
+        raise WorkspaceStateError("Invalid project revision") from error
 
 
 def _text(form: FormData, name: str) -> str:
@@ -240,3 +240,4 @@ def _optional_int(value: str) -> int | None:
         return int(value)
     except ValueError as error:
         raise WorkspaceError("Invalid mapping parent version") from error
+

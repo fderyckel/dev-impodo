@@ -21,7 +21,7 @@ import duckdb
 
 from ...access import Actor
 from ...artifacts import ArtifactStore, LocalArtifactStore
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...staging import StagingRunStatus, StagingRunSummary
 from ...staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
@@ -74,9 +74,9 @@ class StagingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared data must be regenerated with the current evaluator"
             )
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         published_at = datetime.now(timezone.utc)
         pending_run_id = getattr(run.rows, "canonical_run_id", None)
         if pending_run_id is None:
@@ -89,7 +89,7 @@ class StagingRepository(DuckDbRepository):
                     "Pending prepared-data run identifier is invalid"
                 ) from error
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 mapping = connection.execute(
@@ -308,7 +308,7 @@ class StagingRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="CANONICAL_STAGING_PUBLISHED",
                     detail=(
                         f"run {run_id}: {len(run.rows)} prepared row(s); "
@@ -429,11 +429,11 @@ class StagingRepository(DuckDbRepository):
     ) -> StagingRunSummary | None:
         """Return the summary selected by the current published-run pointer."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT run.run_id, run.content_hash, run.mapping_id,
@@ -464,11 +464,11 @@ class StagingRepository(DuckDbRepository):
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Prepared-data run identifier is invalid") from error
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT content_hash, mapping_id, physical_selection_hash,
@@ -767,3 +767,4 @@ class StagingRepository(DuckDbRepository):
                 for item in json.loads(str(row[11]))
             ),
         )
+

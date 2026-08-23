@@ -17,7 +17,7 @@ from impodo.models import (
     TargetFingerprint,
     target_identity_hash,
 )
-from impodo.projects import WorkspaceState, OdooConnectionMode
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode
 from impodo.planner import PreflightRequirementPlan, ReferenceReadRequirement
 from impodo.secrets import MemorySecretStore
 from impodo.web.target_credentials import (
@@ -368,3 +368,4 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

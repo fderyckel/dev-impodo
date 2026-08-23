@@ -1,7 +1,7 @@
-"""Shared hardened DuckDB boundary for registry and per-project databases.
+"""Shared hardened DuckDB boundary for workspace-engine databases.
 
-``DuckDbDatabase`` owns connection configuration, schema preparation, contained
-project paths, transaction factories, audit helpers, and downstream
+``DuckDbWorkspaceDatabase`` owns connection configuration, schema preparation,
+workspace paths, transaction factories, audit helpers, and downstream
 invalidation. Concrete repositories are thin responsibility-specific adapters
 over this shared boundary; they do not open differently configured databases.
 """
@@ -17,21 +17,20 @@ from uuid import UUID
 import duckdb
 
 from ...access import Actor
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from .audit import AuditMixin
 from .invalidation import EvidenceInvalidationMixin
-from .schema.project import ProjectSchemaMixin
-from .schema.registry import ensure_registry_schema
+from .schema.workspace_engine import WorkspaceEngineSchemaMixin
 from .unit_of_work import (
     DuckDbConnectionFactory,
     DuckDbUnitOfWork,
 )
 
 
-class DuckDbProjectDatabase(
-    ProjectSchemaMixin, EvidenceInvalidationMixin, AuditMixin
+class DuckDbWorkspaceDatabase(
+    WorkspaceEngineSchemaMixin, EvidenceInvalidationMixin, AuditMixin
 ):
-    """Project-scoped DuckDB connection, schema, and transaction boundary.
+    """Workspace-scoped DuckDB connection, schema, and transaction boundary.
 
     The root contains UUID-named project directories and databases. DuckDB
     external access and extension loading are disabled by the connection
@@ -56,29 +55,29 @@ class DuckDbProjectDatabase(
         self._prepared_project_schema_files: set[tuple[str, int, int]] = set()
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def project_directory(self, project_id: str) -> Path:
+    def workspace_directory(self, project_id: str) -> Path:
         """Return the contained UUID directory for a validated project ID."""
 
         try:
             canonical = str(UUID(project_id))
         except (ValueError, AttributeError) as error:
-            raise ProjectNotFoundError("Invalid project identifier") from error
+            raise WorkspaceStateNotFoundError("Invalid project identifier") from error
         candidate = self.root / canonical
         target = candidate.resolve()
         if target != candidate or target.parent != self.root:
-            raise ProjectNotFoundError("Invalid project identifier")
+            raise WorkspaceStateNotFoundError("Invalid project identifier")
         return target
 
     def unit_of_work(self, project_id: str) -> DuckDbUnitOfWork:
         """Return one project-scoped transaction shared by collaborating ports."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         return DuckDbUnitOfWork(
             self.connection_factory,
             database_path,
-            prepare=self._ensure_project_database_schema,
+            prepare=self._ensure_workspace_database_schema,
         )
 
     def _read_json_rows(
@@ -87,11 +86,11 @@ class DuckDbProjectDatabase(
         query: str,
         parameters: list[object] | None = None,
     ) -> tuple[str, ...]:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             rows = connection.execute(query, parameters or []).fetchall()
         return tuple(str(row[0]) for row in rows)
 
@@ -122,12 +121,12 @@ class DuckDbProjectDatabase(
         }
         if (table, value_column) not in permitted:
             raise ValueError("Unsupported workspace table")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
-            revision = self._project_revision(connection)
+            self._ensure_workspace_database_schema(connection)
+            revision = self._workspace_revision(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -169,10 +168,10 @@ class DuckDbProjectDatabase(
                 raise
 
     @staticmethod
-    def _project_revision(connection: duckdb.DuckDBPyConnection) -> int:
+    def _workspace_revision(connection: duckdb.DuckDBPyConnection) -> int:
         row = connection.execute("SELECT revision FROM project").fetchone()
         if row is None:
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         return int(row[0])
 
     @contextmanager
@@ -180,20 +179,3 @@ class DuckDbProjectDatabase(
         with self.connection_factory.connect(path) as connection:
             yield connection
 
-
-class DuckDbDatabase(DuckDbProjectDatabase):
-    """Full local-app database boundary including the Recipe registry."""
-
-    def __init__(
-        self,
-        root: str | Path,
-        *,
-        lock_wait_timeout_seconds: float = 0.0,
-    ) -> None:
-        super().__init__(
-            root,
-            lock_wait_timeout_seconds=lock_wait_timeout_seconds,
-        )
-        self.registry_path = self.root / "registry.duckdb"
-        with self._connect(self.registry_path) as connection:
-            ensure_registry_schema(connection)

@@ -375,7 +375,7 @@ class CategoricalCoverageTests(unittest.TestCase):
     def test_v11_parser_rejects_unknown_nested_fields(self) -> None:
         payload = self.definition.to_dict()
         payload["datasets"][0]["fields"][0]["legacy_guess"] = True
-        with self.assertRaisesRegex(ValueError, "contract v11"):
+        with self.assertRaisesRegex(ValueError, "contract v12"):
             MappingDefinition.from_dict(payload)
 
         payload = self.definition.to_dict()

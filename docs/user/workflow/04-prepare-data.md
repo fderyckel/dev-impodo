@@ -13,7 +13,7 @@ check data quality, and resolve findings before comparing anything with Odoo.
 
 ## Before you start
 
-The exact mapping revision must be checked and confirmed. Do not start while a
+The exact mapping version must be checked and confirmed. Do not start while a
 source, schema, key, or transformation decision is still changing.
 
 ## Steps in Impodo
@@ -28,13 +28,13 @@ source, schema, key, or transformation decision is still changing.
    decisions when they are present.
 7. Approve the resolved prepared data only when no required decision remains.
 
-![Current prepared-data review inside a fictional Project workspace.](../../images/user/15-prepared-data-review.png)
+![Current prepared-data review inside a fictional data project workspace.](../../images/user/15-prepared-data-review.png)
 
 ## How Recipes reuse this work
 
 A Recipe reuses confirmed preparation rules, not a prepared snapshot. Every
-DataVersion must run preparation again from its own frozen source and current
-mapping confirmation. M4 creates a separate fresh workspace and mapping draft
+data version must run preparation again from its own accepted source and current
+mapping confirmation. An Integrated Test creates a separate Recipe work area and mapping draft
 for each Recipe in an integrated Test plan; earlier prepared rows are not
 copied into it.
 
@@ -60,8 +60,8 @@ current file data version.
 
 ## What changes and what does not
 
-Preparation publishes local canonical evidence. It does not call Odoo, change
-the frozen source, modify the Recipe revision, or copy prepared rows between
+Preparation saves protected prepared-data evidence. It does not call Odoo, change
+the accepted source, modify the Recipe version, or copy prepared rows between
 data versions. Merge and normalization decisions affect the prepared result,
 not the original evidence.
 
@@ -73,7 +73,7 @@ may be retried only after its recorded outcome is understood.
 
 ## What makes this work stale
 
-Any change to source evidence, Odoo schema, business keys, mapping revision,
+Any change to source evidence, Odoo schema, business keys, mapping version,
 parameters, controls, or required resolution invalidates the prepared result.
 Run preparation again instead of modifying stored artifacts.
 

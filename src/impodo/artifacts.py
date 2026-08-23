@@ -800,6 +800,8 @@ class LocalArtifactStore:
 
     def _source_snapshot_root(self, project_id: str, *, create: bool) -> Path:
         project = self._project_directory(project_id)
+        if create:
+            project.mkdir(exist_ok=True)
         snapshots = project / "snapshots"
         if snapshots.is_symlink():
             raise ArtifactStoreError("Project snapshots must not be a symbolic link")
@@ -858,6 +860,8 @@ class LocalArtifactStore:
 
     def _prepared_snapshot_root(self, project_id: str, *, create: bool) -> Path:
         project = self._project_directory(project_id)
+        if create:
+            project.mkdir(exist_ok=True)
         snapshots = project / "snapshots"
         if snapshots.is_symlink():
             raise ArtifactStoreError("Project snapshots must not be a symbolic link")
@@ -916,6 +920,8 @@ class LocalArtifactStore:
 
     def _derived_value_root(self, project_id: str, *, create: bool) -> Path:
         project = self._project_directory(project_id)
+        if create:
+            project.mkdir(exist_ok=True)
         snapshots = project / "snapshots"
         if snapshots.is_symlink():
             raise ArtifactStoreError("Project snapshots must not be a symbolic link")
@@ -1015,6 +1021,8 @@ class LocalArtifactStore:
         ):
             raise ArtifactStoreError("Invalid report artifact name")
         project = self._project_directory(project_id)
+        if create:
+            project.mkdir(exist_ok=True)
         reports = project / "reports"
         if reports.is_symlink():
             raise ArtifactStoreError("Project reports must not be a symbolic link")

@@ -172,7 +172,7 @@
         <details class="source-preparation-choice" {% if loop.first and not source_view.has_split %}open{% endif %}>
           <summary>
             <span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows - {{ dataset.columns|length }} fields</small></span>
-            {% if source_view.has_split %}<span class="status registered">SPLIT READY</span>{% endif %}
+            {% if source_view.has_split %}<span class="status registered">Complete</span>{% endif %}
           </summary>
           {% if source_view.has_split %}
             <div class="notice success">This source already has a reviewed related-table setup. Remove that setup above before replacing it.</div>

@@ -15,7 +15,7 @@ from ...derived_entities import (
 from ...domain.mapping.artifacts import MappingRevision
 from ...domain.schema.governance import SchemaGovernance
 from ...inspection import SourceFileCatalog
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -34,12 +34,12 @@ class MappingFieldCatalogRepository(DuckDbRepository):
     ) -> MappingFieldCatalogSnapshot:
         """Return one coherent snapshot while opening DuckDB only once."""
 
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
 
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 selection_json = self._optional_json(
@@ -180,3 +180,4 @@ class MappingFieldCatalogRepository(DuckDbRepository):
                 for rule in plan.rules
             )
         )
+

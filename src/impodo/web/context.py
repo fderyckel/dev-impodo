@@ -1,6 +1,6 @@
 """Name the dependencies available to every local browser route.
 
-Migration stages: cross-cutting A–K. Layer: web dependency container.
+Migration stages: cross-cutting Aâ€“K. Layer: web dependency container.
 
 :func:`impodo.web.app.create_local_app` constructs ``WebContext`` once and
 passes it to each router builder. Routes use the typed services and closed
@@ -38,9 +38,7 @@ from ..application.migration_run_planning_service import (
 )
 from ..application.cutover_plan_service import CutoverPlanService
 from ..application.production_cutover_service import ProductionCutoverService
-from ..application.project_recipe_publication_service import (
-    ProjectRecipePublicationService,
-)
+from ..application.recipe_publication_service import RecipePublicationService
 from ..application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
 )
@@ -62,7 +60,6 @@ from ..connectors import (
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
-from ..incompatible_project_storage import UnavailableProjectSummary
 from ..jobs import JobDispatcher
 from ..local_odoo_reader import (
     LocalOdooMetadataReader,
@@ -72,12 +69,12 @@ from ..models import OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
 from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
 from ..odoo_scope import OdooApiScope
-from ..projects import WorkspaceState, ProjectService
+from ..workspace_state import WorkspaceState, WorkspaceStateService
 from ..data_versions import DataVersionService
 from ..migration_projects import MigrationProjectService
 from ..migration_runs import MigrationRunService
 from ..migration_workspaces import MigrationWorkspaceService
-from ..project_recipes import ProjectRecipeService
+from ..recipes import RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
 from ..secrets import SecretStore
 from .remote_connection import RemoteConnectionStatusService
@@ -128,19 +125,18 @@ class WebContext:
     """
 
     queries: BrowserQueryService
-    unavailable_projects: tuple[UnavailableProjectSummary, ...]
     migration_projects: MigrationProjectService
     data_versions: DataVersionService
     migration_runs: MigrationRunService
     migration_workspaces: MigrationWorkspaceService
     project_authoring: MigrationProjectAuthoringService
-    project_recipes: ProjectRecipeService
-    recipe_publication: ProjectRecipePublicationService
+    recipes: RecipeService
+    recipe_publication: RecipePublicationService
     run_planning: MigrationRunPlanningService
     cutover_plans: CutoverPlanService
     production_runs: ProductionCutoverService
     data_version_source_projection: WorkspaceDataVersionSourceService
-    projects: ProjectService
+    projects: WorkspaceStateService
     intake: SourceIntakeService
     inspections: SourceInspectionService
     sources: SourceWorkspaceService
@@ -180,3 +176,4 @@ class WebContext:
     local_odoo_reader: LocalOdooMetadataReader
     odoo_connection_tests: OdooConnectionTestService
     remote_connections: RemoteConnectionStatusService
+

@@ -140,7 +140,7 @@ sample is valid Test evidence.
 | --- | --- |
 | Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/migration_run_planning.py) |
 | Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/migration_run_planning_service.py) |
-| Fresh Recipe compiler adapter | [`ProjectRecipeApplicationCompiler`](../../../src/impodo/application/project_recipe_application_compiler.py) |
+| Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
 | Run-owned schema projection | [`RunAwareSchemaRepository`](../../../src/impodo/adapters/duckdb/run_aware_schema_repository.py) |
 | Run-owned reference projection | [`RunAwareAdvancedCoverageRepository`](../../../src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py) |

@@ -9,12 +9,12 @@ status: current
 ## Goal
 
 Confirm the exact records and columns that Impodo may prepare, then freeze
-them as evidence for the current Project DataVersion.
+them as evidence for the current data version.
 
 ## Before you start
 
-The current DataVersion must be registered. For files, use the complete CSV
-or XLSX package for this authoring work and know which
+The current data version must be available. For files, use the complete CSV
+or XLSX delivery for this authoring work and know which
 worksheets, tables, or ranges belong to the migration. For an Odoo source,
 first complete the eligible-field capture described in
 [Odoo data](02-odoo-data.md).
@@ -45,19 +45,19 @@ version.
 The Odoo-source route reads selected business records; it does not authorize a
 write back to Odoo.
 
-![Current source inspection inside a fictional Project workspace.](../../images/user/04-source-inspection.png)
+![Current source inspection inside a fictional data project workspace.](../../images/user/04-source-inspection.png)
 
 ![Current frozen table choices and the next Odoo-data action in that data version.](../../images/user/05-frozen-tables.png)
 
 ## How Recipes reuse this work
 
 The exact files, rows, hashes, and frozen snapshots belong only to this data
-version. A published Recipe retains the reusable source shape and logical
+version. A saved Recipe retains the reusable source shape and logical
 table and column bindings, not the source records.
 
-Every later DataVersion must therefore start clean and accept its complete
-replacement package again. An integrated Test run can select different
-logical datasets from one already accepted Test DataVersion for several
+Every later data version must therefore start clean and accept its complete
+replacement delivery again. An integrated Test run can select different
+logical datasets from one already accepted Test data version for several
 Recipes; it still never reuses the Authoring rows as current Test evidence.
 
 ## What to check
@@ -72,13 +72,13 @@ Recipes; it still never reuses the Authoring rows as current Test evidence.
 ## What Complete means
 
 Impodo shows the source stage as frozen or complete and the next stage becomes
-available. Every selected dataset is bound to immutable evidence for this
+available. Every selected dataset is bound to protected evidence for this
 data version.
 
 ## What changes and what does not
 
 Freezing creates a governed snapshot for preparation. It does not modify the
-original file or Odoo records, publish a Recipe revision, or copy evidence
+original file or Odoo records, save a Recipe version, or copy evidence
 from another data version. Optional related-table rules create a plan; they do
 not rewrite the frozen source.
 
@@ -87,7 +87,7 @@ not rewrite the frozen source.
 Stop when a file hash has changed, a worksheet is missing, headings are wrong,
 or the Odoo capture is broader than intended. Before table freeze, replace an
 incorrect file. Never replace frozen evidence in place. If the migration scope
-is wrong, create a correctly scoped Project.
+is wrong, create a correctly scoped data project.
 
 For combined source information, use the
 [related-table authoring guide](../guides/related-tables.md)
@@ -98,7 +98,7 @@ instead of manually altering the project database.
 A changed source file, table choice, Odoo selection, or related-table plan
 changes this data version's source evidence. Downstream schema, mapping,
 preparation, and review evidence must be regenerated when Impodo invalidates
-them. Earlier data-version evidence remains immutable history.
+them. Earlier data-version evidence remains protected history.
 
 ## Next stage
 

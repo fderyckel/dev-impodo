@@ -12,7 +12,7 @@ from impodo.local_odoo_reader import (
     LocalShellResult,
 )
 from impodo.local_stack import LocalStackProfile
-from impodo.projects import (
+from impodo.workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
 )
@@ -342,3 +342,4 @@ def _result(payload: dict[str, object]) -> LocalShellResult:
 
 if __name__ == "__main__":
     unittest.main()
+

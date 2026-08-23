@@ -1,6 +1,6 @@
 """Orchestrate target-independent preparation and review evidence.
 
-Migration stages: E–G — normalize/validate, canonical staging, and symbolic
+Migration stages: Eâ€“G â€” normalize/validate, canonical staging, and symbolic
 relationship preparation. Layer: application service.
 
 ``PreparationService.prepare`` is called by the preparation browser route. It
@@ -47,7 +47,7 @@ from ..inspection import SourceFileCatalog
 from ..domain.mapping.contracts import MappingDefinition
 from ..normalization import NormalizationRunSummary
 from ..preparation_jobs import PreparationPhase
-from ..projects import WorkspaceState
+from ..workspace_state import WorkspaceState
 from ..source import SourceTable, load_selected_source_table
 from ..source_snapshot_io import (
     load_source_snapshot_table,
@@ -666,3 +666,4 @@ def _load_browser_source_tables(
                 source_display_name=source_file.display_name,
             )
     return loaded
+

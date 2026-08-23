@@ -29,7 +29,7 @@ from .domain.mapping.contracts import (
 )
 from .domain.serialization import CanonicalJsonObjectHasher
 from .models import canonical_json_bytes
-from .projects import DataClassification, WorkspaceState
+from .workspace_state import DataClassification, WorkspaceState
 from .quality import (
     QualityOutcomePolicy,
     QualityRun,
@@ -1181,7 +1181,7 @@ def _policy_manifest(mappings: Mapping[str, DatasetMapping]) -> list[dict[str, A
 
 
 def _protected_display(value: str, *, restricted: bool) -> str:
-    if not restricted or value in {"", "—", "Invalid"}:
+    if not restricted or value in {"", "â€”", "Invalid"}:
         return value
     return "Hidden for restricted data"
 
@@ -1246,3 +1246,4 @@ def _require_hash(value: str, label: str) -> None:
         int(value[7:], 16)
     except ValueError as error:
         raise ValueError(f"{label} is invalid") from error
+

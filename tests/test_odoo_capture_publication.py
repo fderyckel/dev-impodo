@@ -9,10 +9,10 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
@@ -54,10 +54,10 @@ from impodo.models import (
     ProtectedOdooReadContext,
     TargetFingerprint,
 )
-from impodo.projects import (
+from impodo.workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceMode,
 )
 from impodo.secrets import MemorySecretStore
@@ -83,9 +83,9 @@ class OdooCapturePublicationTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.root = ROOT / ".tmp" / f"ocp-{uuid4()}"
         self.root.mkdir()
-        self.database = DuckDbDatabase(self.root)
+        self.database = DuckDbWorkspaceDatabase(self.root)
         self.artifacts = LocalArtifactStore(self.root)
-        self.projects = ProjectRepository(self.database)
+        self.projects = WorkspaceStateRepository(self.database)
         self.sources = SourceRepository(
             self.database,
             DerivedEntityRepository(self.database),
@@ -98,12 +98,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.secrets = MemorySecretStore()
         self.now = datetime.now(timezone.utc)
         self.project = _project(self.now)
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         self.schema = _schema(self.project.project_id, self.now)
         self.schemas.save_odoo_schema_catalog(
             self.project.project_id,
@@ -243,7 +238,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.assertEqual(
             tuple(
                 (
-                    self.database.project_directory(self.project.project_id)
+                    self.database.workspace_directory(self.project.project_id)
                     / "protected"
                 ).rglob("*.iprv")
             ),
@@ -397,7 +392,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         )
         values = {
             "boolean": (False, None),
-            "text": ("", "Café 東京 😀"),
+            "text": ("", "CafÃ© æ±äº¬ ðŸ˜€"),
             "integer": (0, 42),
             "date": (date(2026, 8, 12), None),
             "datetime": (self.now, self.now + timedelta(seconds=1)),
@@ -643,7 +638,7 @@ def _project(now: datetime) -> WorkspaceState:
         odoo_base_url="https://odoo.example.test",
         odoo_database="production",
         intended_models=("res.partner",),
-        status=ProjectStatus.REGISTERED,
+        status=WorkspaceStatus.REGISTERED,
         registered_at=now,
         created_at=now,
         updated_at=now,
@@ -733,3 +728,4 @@ def _selection(
 
 if __name__ == "__main__":
     unittest.main()
+

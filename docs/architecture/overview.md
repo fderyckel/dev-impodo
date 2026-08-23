@@ -200,9 +200,9 @@ repository call per source row.
 | Project-native creation | `application/migration_project_authoring_service.py` |
 | DataVersion source ownership | `data_version_sources.py`, `application/workspace_data_version_source_service.py` |
 | Mapping read projection | `application/workspace_source_projection.py` |
-| Optional Recipe publication | `project_recipes.py`, `application/project_recipe_publication_service.py`, `adapters/duckdb/project_recipe_repository.py` |
+| Optional Recipe publication | `recipes.py`, `application/recipe_publication_service.py`, `adapters/duckdb/recipe_repository.py` |
 | Integrated Test planning | `migration_run_planning.py`, `application/migration_run_planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
-| Fresh Recipe application | `application/project_recipe_application_compiler.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |
+| Fresh Recipe application | `application/recipe_application_service.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |
 | Browser composition | `web/app.py`, `web/routers/migration_projects.py`, `web/routers/integrated_runs.py`, `web/routers/workspace_setup.py` |
 
 ## Related documentation

@@ -1,14 +1,14 @@
-"""Persist editable Recipe authoring inputs in the contained workspace."""
+"""Persist editable Recipe compilation inputs in one workspace."""
 
 from __future__ import annotations
 
 from ...access import Actor
 from ...domain.recipe_parameters import RecipeParameterDefinitions
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from .repository import DuckDbRepository
 
 
-class RecipeAuthoringRepository(DuckDbRepository):
+class RecipeCompilationRepository(DuckDbRepository):
     """Store custom parameter declarations until Recipe publication."""
 
     def get_parameter_definitions(
@@ -36,12 +36,12 @@ class RecipeAuthoringRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
-            revision = self._project_revision(connection)
+            self._ensure_workspace_database_schema(connection)
+            revision = self._workspace_revision(connection)
             connection.execute(
                 """
                 INSERT OR REPLACE INTO recipe_parameter_definitions
@@ -59,3 +59,4 @@ class RecipeAuthoringRepository(DuckDbRepository):
                 ),
                 actor=actor,
             )
+

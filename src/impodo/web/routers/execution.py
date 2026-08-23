@@ -24,7 +24,7 @@ from ...odoo_readback import OdooReadbackError
 from ...models import OdooReadIdentity, OdooWriteIdentity
 from ...migration_foundation import MigrationConflictError
 from ...migration_production import ProductionRunError
-from ...projects import WorkspaceState, OdooConnectionMode, ProjectError
+from ...workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStateError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
@@ -462,7 +462,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             MigrationConflictError,
             ProductionRunError,
             OdooWriteError,
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
         ) as error:
@@ -501,7 +501,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         except (
             ConnectorError,
             OdooReadbackError,
-            ProjectError,
+            WorkspaceStateError,
             WorkspaceError,
         ) as error:
             _flash(
@@ -609,7 +609,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             AuthorizationError,
             ConnectorError,
             OdooReadbackError,
-            ProjectError,
+            WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
         ) as error:
@@ -687,3 +687,4 @@ def _flash_reconciliation(request: Request, report) -> None:
             request,
             f"Verified {report.verified_count} row(s) against Odoo.",
         )
+

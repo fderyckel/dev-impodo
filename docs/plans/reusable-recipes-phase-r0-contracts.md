@@ -47,9 +47,9 @@ necessary refactoring:
   boundaries.
 
 The active deterministic fixture is
-[`fixtures/recipes/phase-r0/acceptance-contract.json`](../../fixtures/recipes/phase-r0/acceptance-contract.json).
+`fixtures/recipes/phase-r0/acceptance-contract.json` (removed by M7; retained in Git history).
 Its executable gate is
-[`tests/test_recipe_phase_r0_contract.py`](../../tests/test_recipe_phase_r0_contract.py).
+`tests/test_recipe_phase_r0_contract.py` (removed by M7; retained in Git history).
 
 ## 2. Identity and ownership
 

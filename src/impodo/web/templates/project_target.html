@@ -7,7 +7,7 @@
   <section class="form-card">
     {% set is_recipe_test = migration_context and migration_context.data_version_purpose == 'TEST' %}
     {% set is_recipe_production = migration_context and migration_context.data_version_purpose == 'PRODUCTION' %}
-    <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Project source{% else %}Odoo data{% endif %}</p>
+    <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Data project source{% else %}Odoo data{% endif %}</p>
     <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% elif is_odoo_source %}Connect the Odoo source{% else %}Connect the Odoo destination{% endif %}</h1>
     {% include "_setup_blockers.html" %}
     <p>

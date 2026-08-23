@@ -26,7 +26,7 @@ from ..domain.odoo_provenance import (
     OdooOriginBatch,
     OdooProvenanceBinding,
 )
-from ..projects import WorkspaceState, ProjectRepository, SourceMode
+from ..workspace_state import WorkspaceState, WorkspaceStateRepository, SourceMode
 from ..models import canonical_json_bytes
 from ..secrets import SecretStore, SecretStoreError
 from ..workspace_errors import WorkspaceError
@@ -91,7 +91,7 @@ class OdooProvenanceService:
 
     def __init__(
         self,
-        projects: ProjectRepository,
+        projects: WorkspaceStateRepository,
         selections: OdooCaptureSelectionReader,
         provenance: OdooProvenanceStore,
         secrets: SecretStore,
@@ -422,3 +422,4 @@ def _comparison_binding(
             "run_id": run_id,
         }
     )
+

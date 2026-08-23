@@ -60,10 +60,10 @@ from impodo.models import (
     TargetFingerprint,
     target_identity_hash,
 )
-from impodo.projects import (
+from impodo.workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceFile,
 )
 from impodo.application.preparation_service import (
@@ -1105,7 +1105,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                     received_at=now,
                 ),
             ),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
         return (
@@ -1272,7 +1272,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                     received_at=now,
                 ),
             ),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
         return (
@@ -1402,3 +1402,4 @@ def _column_profile(ordinal: int, name: str, distinct: int) -> SourceColumnProfi
 
 if __name__ == "__main__":
     unittest.main()
+

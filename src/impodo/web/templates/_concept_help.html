@@ -1,0 +1,64 @@
+{% macro concept_help_link(slug, accessible_name="") -%}
+  {% set concept = concepts_by_slug[slug] %}
+  <a
+    class="concept-help-link"
+    href="/concepts#{{ concept.slug }}"
+    aria-label="{{ accessible_name or ('Explain ' ~ concept.term|lower) }}"
+    aria-haspopup="dialog"
+    aria-controls="concept-help-dialog-{{ concept.slug }}"
+    data-concept-help-trigger="{{ concept.slug }}"
+  >
+    <svg class="ui-icon" aria-hidden="true" focusable="false">
+      <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#question-circle"></use>
+    </svg>
+  </a>
+{%- endmacro %}
+
+{% macro concept_help_dialog(slug) -%}
+  {% set concept = concepts_by_slug[slug] %}
+  <dialog
+    class="concept-help-dialog"
+    id="concept-help-dialog-{{ concept.slug }}"
+    aria-labelledby="concept-help-title-{{ concept.slug }}"
+    aria-describedby="concept-help-definition-{{ concept.slug }}"
+    data-concept-help-dialog="{{ concept.slug }}"
+  >
+    <div class="dialog-heading">
+      <div>
+        <p class="eyebrow">Impodo concept</p>
+        <h2 id="concept-help-title-{{ concept.slug }}">{{ concept.title }}</h2>
+        <p id="concept-help-definition-{{ concept.slug }}">{{ concept.definition }}</p>
+      </div>
+      <form method="dialog">
+        <button class="dialog-close" type="submit" aria-label="Close concept explanation">&times;</button>
+      </form>
+    </div>
+
+    <div class="concept-help-body">
+      <p>{{ concept.relationship }}</p>
+      <p>{{ concept.exclusion }}</p>
+      <div class="concept-example">
+        <strong>Example</strong>
+        <p>{{ concept.example }}</p>
+      </div>
+      <nav class="concept-related" aria-label="Related concepts">
+        <strong>Related concepts</strong>
+        {% for related_slug in concept.related_slugs %}
+          {% set related = concepts_by_slug[related_slug] %}
+          <a href="/concepts#{{ related.slug }}">{{ related.term }}</a>{% if not loop.last %}<span aria-hidden="true">&middot;</span>{% endif %}
+        {% endfor %}
+      </nav>
+      <div class="concept-practical-effect">
+        <strong>For you, this means</strong>
+        <p>{{ concept.practical_effect }}</p>
+      </div>
+    </div>
+
+    <div class="dialog-actions">
+      <a class="button secondary" href="/concepts#{{ concept.slug }}">See all concepts</a>
+      <form method="dialog">
+        <button class="button primary" type="submit">Close</button>
+      </form>
+    </div>
+  </dialog>
+{%- endmacro %}

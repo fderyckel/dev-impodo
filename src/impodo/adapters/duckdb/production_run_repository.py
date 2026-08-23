@@ -31,7 +31,7 @@ class ProductionRunRepository:
         self,
         binding: ProductionRunBinding,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
         actor: Actor,
@@ -47,7 +47,7 @@ class ProductionRunRepository:
             owner_id=binding.migration_run_id,
             kind=MigrationOperationKind.PRODUCTION_RUN_SETUP,
             request_hash=require_hash(request_hash, "request_hash"),
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail={"binding": binding.to_dict()},
             actor=actor,
         )
@@ -64,10 +64,10 @@ class ProductionRunRepository:
                     [stored.migration_run_id],
                 ).fetchone()
                 if existing is None:
-                    self.foundation._assert_project_revision(
+                    self.foundation._assert_workspace_revision(
                         connection,
                         stored.project_id,
-                        expected_project_revision,
+                        expected_workspace_revision,
                     )
                     self._validate_setup(connection, stored)
                     self.foundation._assert_identity_available(
@@ -104,7 +104,7 @@ class ProductionRunRepository:
                     project_revision = self.foundation._advance_project(
                         connection,
                         stored.project_id,
-                        expected_project_revision,
+                        expected_workspace_revision,
                         stored.created_at,
                     )
                     self.foundation._insert_event(

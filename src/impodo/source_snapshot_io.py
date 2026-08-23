@@ -40,7 +40,7 @@ from .domain.source_snapshot import (
 )
 from .domain.source_binding import require_file_source
 from .inspection import SourceFileCatalog, SourceTableCatalog
-from .projects import WorkspaceState, SourceFile
+from .workspace_state import WorkspaceState, SourceFile
 from .source import (
     SelectedSourceBatchStream,
     SourceLoadError,
@@ -745,3 +745,4 @@ def _workspace_regular_file_bytes(workspace: Path) -> int:
         for path in workspace.rglob("*")
         if path.is_file() and not path.is_symlink()
     )
+

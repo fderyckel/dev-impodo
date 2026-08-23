@@ -32,7 +32,7 @@ from ...domain.serialization import canonical_json
 from ...workspace_errors import WorkspaceError
 from ...workspace_contracts import OdooSchemaCatalog, SourceSelection
 from .constants import RESOLUTION_ROW_BATCH_SIZE
-from .database import DuckDbProjectDatabase
+from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 
 
@@ -54,7 +54,7 @@ class ResolutionRunSummary:
 class AdvancedCoverageRepository(DuckDbRepository):
     """Store advanced input revisions and immutable reviewed effective data."""
 
-    def __init__(self, database: DuckDbProjectDatabase) -> None:
+    def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         super().__init__(database)
 
     def save_coverage_scope(
@@ -68,9 +68,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         _require(actor, Capability.COVERAGE_SCOPE)
         if scope.project_id != project_id or scope.approved_by != actor.identity:
             raise WorkspaceError("Coverage scope approval identity is invalid")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 selected = connection.execute(
@@ -115,7 +115,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="COVERAGE_SCOPE_APPROVED",
                     detail=f"version {scope.version}: {scope.content_hash}",
                     actor=actor,
@@ -149,9 +149,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         _require(actor, Capability.COVERAGE_SCOPE)
         if bundle.project_id != project_id:
             raise WorkspaceError("Reference bundle belongs to another project")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -174,7 +174,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="REFERENCE_BUNDLE_PUBLISHED",
                     detail=f"{len(bundle.datasets)} list(s): {bundle.content_hash}",
                     actor=actor,
@@ -212,9 +212,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
             for kind in dataset.value_kinds.values()
         ):
             return bundle
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT mapping.revision_json, schema.catalog_json
@@ -252,9 +252,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         _require(actor, Capability.COVERAGE_SCOPE)
         if policy.project_id != project_id:
             raise WorkspaceError("Resolution policy belongs to another project")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 bindings = connection.execute(
@@ -311,7 +311,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="RESOLUTION_POLICY_PUBLISHED",
                     detail=f"version {policy.version}: {policy.content_hash}",
                     actor=actor,
@@ -346,9 +346,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         _require(actor, Capability.RESOLUTION_DECIDE)
         if evaluation.project_id != project_id:
             raise WorkspaceError("Resolution evaluation belongs to another project")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 upstream = connection.execute(
@@ -427,7 +427,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="RESOLUTION_EVALUATED",
                     detail=(
                         f"{len(evaluation.candidates)} candidate(s), "
@@ -456,9 +456,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         _require(actor, Capability.RESOLUTION_DECIDE)
         if decision.actor != actor.identity:
             raise WorkspaceError("Resolution decision identity is invalid")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -508,7 +508,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="RESOLUTION_DECISION_RECORDED",
                     detail=f"{decision.kind.value}: {decision.group_id}",
                     actor=actor,
@@ -549,9 +549,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         _require(actor, Capability.RESOLUTION_APPROVE)
         if effective.project_id != project_id:
             raise WorkspaceError("Effective dataset belongs to another project")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -625,7 +625,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 )
                 self._insert_workspace_audit(
                     connection,
-                    revision=self._project_revision(connection),
+                    revision=self._workspace_revision(connection),
                     event_type="EFFECTIVE_DATASET_FROZEN",
                     detail=(
                         f"{effective.reconciliation.effective_rows} row(s): "
@@ -643,9 +643,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         return summary
 
     def get_current_effective_dataset(self, project_id: str) -> EffectiveDataset | None:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT run.project_id, run.staging_content_hash, run.policy_hash,
@@ -709,9 +709,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         project_id: str,
         run_id: str,
     ) -> ResolutionEvaluation | None:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT project_id, staging_content_hash, policy_hash,
@@ -756,9 +756,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         project_id: str,
         run_id: str,
     ) -> ResolutionRunSummary | None:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT run.run_id, run.staging_run_id, run.evaluation_hash,
@@ -793,9 +793,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> ResolutionRunSummary | None:
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 "SELECT run_id FROM resolution_current WHERE singleton_id = 1"
             ).fetchone()

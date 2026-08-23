@@ -41,10 +41,10 @@ from impodo.models import (
     ProtectedOdooReadContext,
     TargetFingerprint,
 )
-from impodo.projects import (
+from impodo.workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
-    ProjectStatus,
+    WorkspaceStatus,
     SourceMode,
 )
 from impodo.workspace_contracts import (
@@ -373,7 +373,7 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             odoo_base_url="https://odoo.example.test",
             odoo_database="production",
             intended_models=("res.partner",),
-            status=ProjectStatus.REGISTERED,
+            status=WorkspaceStatus.REGISTERED,
         )
         self.projects = _ProjectReader(self.project)
         self.selections = _SelectionReader(self.selection)
@@ -696,3 +696,4 @@ def _rows(count: int) -> list[dict[str, object]]:
 
 if __name__ == "__main__":
     unittest.main()
+

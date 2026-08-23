@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
 from ...preparation_jobs import PreparationJob
-from ...projects import WorkspaceState, ProjectStatus, SourceMode
+from ...workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 
@@ -144,7 +144,7 @@ def build_project_navigation(
             viewed_page_label = "Verify result"
         else:
             viewed_page_label = "Check changes"
-    if current_project.status is not ProjectStatus.REGISTERED:
+    if current_project.status is not WorkspaceStatus.REGISTERED:
         stages = _locked_stages(current_project.project_id)
         setup_page = (
             "files"
@@ -1079,3 +1079,4 @@ def _locked_stages(
         if stage_id == after:
             include = True
     return tuple(stages)
+

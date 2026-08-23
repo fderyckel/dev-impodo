@@ -14,16 +14,16 @@ from ...domain.execution import (
     ExecutionRunStatus,
     MAX_CREATE_BATCH_ROWS,
 )
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...workspace_errors import WorkspaceError
-from .database import DuckDbDatabase
+from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 
 
 class ExecutionRepository(DuckDbRepository):
     """Own the target-specific row journal and current execution pointer."""
 
-    def __init__(self, database: DuckDbDatabase) -> None:
+    def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         super().__init__(database)
 
     def start_run(
@@ -49,11 +49,11 @@ class ExecutionRepository(DuckDbRepository):
             or any(item.status is not ExecutionRowStatus.PLANNED for item in run.rows)
         ):
             raise WorkspaceError("Execution run is invalid")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -136,7 +136,7 @@ class ExecutionRepository(DuckDbRepository):
                     "INSERT OR REPLACE INTO execution_current VALUES (1, ?)",
                     [canonical_run_id],
                 )
-                revision = self._project_revision(connection)
+                revision = self._workspace_revision(connection)
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -185,9 +185,9 @@ class ExecutionRepository(DuckDbRepository):
             for item in rows
         ):
             raise WorkspaceError("Execution outcome is invalid")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 for item in rows:
@@ -243,9 +243,9 @@ class ExecutionRepository(DuckDbRepository):
         if status is ExecutionRunStatus.RUNNING:
             raise WorkspaceError("Execution completion status is invalid")
         canonical_run_id = str(UUID(run_id))
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -271,7 +271,7 @@ class ExecutionRepository(DuckDbRepository):
                     """,
                     [status.value, completed_at.isoformat(), canonical_run_id],
                 )
-                revision = self._project_revision(connection)
+                revision = self._workspace_revision(connection)
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -308,11 +308,11 @@ class ExecutionRepository(DuckDbRepository):
 
     def get_run(self, project_id: str, run_id: str) -> ExecutionRun | None:
         canonical_run_id = str(UUID(run_id))
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT snapshot_hash, snapshot_root_hash, preflight_run_id,
@@ -358,3 +358,4 @@ class ExecutionRepository(DuckDbRepository):
             write_permission_hash=str(header[12] or ""),
             write_context_hash=str(header[13] or ""),
         )
+

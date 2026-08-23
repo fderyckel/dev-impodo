@@ -7,6 +7,8 @@
   {%- endmacro %}
   {% set current_path = request.url.path %}
   {% set navigation = project_navigation if project_navigation is defined else none %}
+  {% set projects_active = not navigation and current_path == "/projects" %}
+  {% set concepts_active = current_path == "/concepts" %}
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -56,23 +58,33 @@
         </div>
         <nav class="sidebar-nav" aria-label="Impodo workflow">
           <a
-            class="sidebar-link{% if not navigation %} active{% endif %}"
+            class="sidebar-link{% if projects_active %} active{% endif %}"
             href="/projects"
             title="All projects"
-            {% if not navigation %}aria-current="page"{% endif %}
+            {% if projects_active %}aria-current="page"{% endif %}
           >
             {{ app_icon("folder") }}
             <span class="nav-label">All projects</span>
           </a>
 
+          <a
+            class="sidebar-link{% if concepts_active %} active{% endif %}"
+            href="/concepts"
+            title="How Impodo organizes your migration"
+            {% if concepts_active %}aria-current="page"{% endif %}
+          >
+            {{ app_icon("question-circle") }}
+            <span class="nav-label">Concepts</span>
+          </a>
+
           {% if navigation %}
             <div class="sidebar-project-context">
-              <span class="sidebar-project-label">Current Project</span>
+              <span class="sidebar-project-label">Current data project</span>
               {% if migration_context is defined %}
                 <a
                   class="sidebar-current-recipe-link"
                   href="/projects/{{ migration_context.project_id }}"
-                  aria-label="Open Project overview: {{ navigation.project_name }}"
+                  aria-label="Open data project overview: {{ navigation.project_name }}"
                   {% if request.url.path == '/projects/' ~ migration_context.project_id %}aria-current="page"{% endif %}
                 >
                   <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
@@ -186,7 +198,7 @@
         <div class="page-shell">
           {% if navigation and navigation.registered %}
             <nav class="project-breadcrumb" aria-label="Current location">
-              <a href="/projects">Projects</a>
+              <a href="/projects">Data projects</a>
               <span aria-hidden="true">/</span>
               {% if migration_context is defined %}
                 <a href="/projects/{{ migration_context.project_id }}">{{ navigation.project_name }}</a>

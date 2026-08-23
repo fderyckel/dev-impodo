@@ -99,7 +99,7 @@ class CutoverPlanRepository:
             stored_revision = self._revision_from_dict(
                 dict(existing_intent.detail["plan_revision"])
             )
-            expected_project_revision = int(existing_intent.expected_revision or 0)
+            expected_workspace_revision = int(existing_intent.expected_revision or 0)
             created_plan = bool(existing_intent.detail["created_plan"])
         else:
             project = self.foundation.get_project(project_id)
@@ -158,7 +158,7 @@ class CutoverPlanRepository:
                 detail=detail,
                 actor=actor,
             )
-            expected_project_revision = int(existing_intent.expected_revision or 0)
+            expected_workspace_revision = int(existing_intent.expected_revision or 0)
 
         self.foundation._fault(fault, "INTENT_RESERVED")
         bound_at = utc_now()
@@ -171,10 +171,10 @@ class CutoverPlanRepository:
                     [migration_run_id],
                 ).fetchone()
                 if binding is None:
-                    self.foundation._assert_project_revision(
+                    self.foundation._assert_workspace_revision(
                         connection,
                         project_id,
-                        expected_project_revision,
+                        expected_workspace_revision,
                     )
                     if created_plan:
                         connection.execute(
@@ -226,7 +226,7 @@ class CutoverPlanRepository:
                     next_revision = self.foundation._advance_project(
                         connection,
                         project_id,
-                        expected_project_revision,
+                        expected_workspace_revision,
                         bound_at,
                     )
                     self.foundation._insert_event(
@@ -269,7 +269,7 @@ class CutoverPlanRepository:
         application_evidence: tuple[ApplicationQualificationEvidence, ...],
         target_binding_hash: str,
         integrated_payload: Mapping[str, object],
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         actor: Actor,
         fault: FaultInjector | None = None,
@@ -278,9 +278,9 @@ class CutoverPlanRepository:
 
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
         operation_id = require_uuid(operation_id, "operation_id")
-        expected_project_revision = require_revision(
-            expected_project_revision,
-            "expected_project_revision",
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
         )
         target_binding_hash = require_hash(
             target_binding_hash,
@@ -327,7 +327,7 @@ class CutoverPlanRepository:
             owner_id=plan.cutover_plan_id,
             kind=MigrationOperationKind.CUTOVER_PLAN_QUALIFICATION,
             request_hash=request_hash,
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail=detail,
             actor=actor,
         )
@@ -365,7 +365,7 @@ class CutoverPlanRepository:
                     [qualification_id],
                 ).fetchone()
                 if existing is None:
-                    self.foundation._assert_project_revision(
+                    self.foundation._assert_workspace_revision(
                         connection,
                         plan.project_id,
                         int(intent.expected_revision or 0),
@@ -484,7 +484,7 @@ class CutoverPlanRepository:
         self,
         qualification_id: str,
         *,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         operation_id: str,
         actor: Actor,
     ) -> ProjectCutoverSelection:
@@ -492,9 +492,9 @@ class CutoverPlanRepository:
 
         qualification = self.get_qualification(qualification_id)
         operation_id = require_uuid(operation_id, "operation_id")
-        expected_project_revision = require_revision(
-            expected_project_revision,
-            "expected_project_revision",
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
         )
         selection_id = str(uuid5(UUID(operation_id), "project-cutover-selection"))
         selection_hash = content_hash(
@@ -521,7 +521,7 @@ class CutoverPlanRepository:
             owner_id=qualification.cutover_plan_id,
             kind=MigrationOperationKind.PROJECT_CUTOVER_SELECTION,
             request_hash=selection_hash,
-            expected_revision=expected_project_revision,
+            expected_revision=expected_workspace_revision,
             detail={
                 "qualification_id": qualification.qualification_id,
                 "selection_id": selection_id,
@@ -540,7 +540,7 @@ class CutoverPlanRepository:
                     [selection_id],
                 ).fetchone()
                 if existing is None:
-                    self.foundation._assert_project_revision(
+                    self.foundation._assert_workspace_revision(
                         connection,
                         qualification.project_id,
                         int(intent.expected_revision or 0),
@@ -839,7 +839,7 @@ class CutoverPlanRepository:
         project_id: str,
         migration_run_id: str,
         integrated_evidence_hash: str,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         actor: Actor,
     ) -> CutoverPlanQualification | None:
         """Return one exact committed replay before mutable evidence review."""
@@ -850,7 +850,7 @@ class CutoverPlanRepository:
         if (
             intent.kind is not MigrationOperationKind.CUTOVER_PLAN_QUALIFICATION
             or intent.project_id != project_id
-            or intent.expected_revision != expected_project_revision
+            or intent.expected_revision != expected_workspace_revision
             or intent.actor.issuer != actor.identity.issuer
             or intent.actor.subject_id != actor.identity.subject_id
         ):
@@ -876,7 +876,7 @@ class CutoverPlanRepository:
         *,
         project_id: str,
         qualification_id: str,
-        expected_project_revision: int,
+        expected_workspace_revision: int,
         actor: Actor,
     ) -> ProjectCutoverSelection | None:
         """Return one exact committed rollout-selection replay."""
@@ -887,7 +887,7 @@ class CutoverPlanRepository:
         if (
             intent.kind is not MigrationOperationKind.PROJECT_CUTOVER_SELECTION
             or intent.project_id != project_id
-            or intent.expected_revision != expected_project_revision
+            or intent.expected_revision != expected_workspace_revision
             or intent.actor.issuer != actor.identity.issuer
             or intent.actor.subject_id != actor.identity.subject_id
             or str(intent.detail["qualification_id"]) != qualification_id

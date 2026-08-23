@@ -15,7 +15,7 @@ from ...business_keys import (
     selectable_business_key_fields,
 )
 from ...derived_entities import DerivedEntityRule
-from ...projects import WorkspaceState
+from ...workspace_state import WorkspaceState
 from ...workspace_contracts import (
     OdooModelCatalog,
     OdooModelSummary,
@@ -477,3 +477,4 @@ def _schema_key_views(
             }
         )
     return tuple(views)
+

@@ -14,8 +14,8 @@ from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
 from impodo.models import Issue, LogicalReference, PreparedRecord
-from impodo.adapters.duckdb.database import DuckDbDatabase
-from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.application.bounded_quality import (
@@ -31,7 +31,7 @@ from impodo.domain.compiler import compile_profile_document
 from impodo.planner import plan_record_requests
 from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bundle
 from impodo.profile import load_profile
-from impodo.projects import WorkspaceState, OdooConnectionMode, ProjectStatus
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
 from impodo.quality import (
     QualityDisposition,
     QualityOutcomePolicy,
@@ -1105,17 +1105,12 @@ class QualityStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
-        self.projects = ProjectRepository(database)
+        database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.projects = WorkspaceStateRepository(database)
         self.staging = StagingRepository(database)
         self.quality = QualityRepository(database, self.projects)
         self.project = _project()
-        self.projects.create(
-            self.project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=LOCAL_ACTOR,
-        )
+        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)
         selection = SourceSelection(
             selection_id=str(uuid4()),
@@ -1142,7 +1137,7 @@ class QualityStoreTests(unittest.TestCase):
             ),
             content_hash=PHYSICAL_HASH,
         )
-        database_path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        database_path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
         with self.projects._connect(database_path) as connection:
             connection.execute("INSERT INTO source_selection VALUES (1, ?)", [selection.to_json()])
             connection.execute(
@@ -1264,7 +1259,7 @@ class QualityStoreTests(unittest.TestCase):
         )
 
         database_path = (
-            self.projects.project_directory(self.project.project_id)
+            self.projects.workspace_directory(self.project.project_id)
             / "project.duckdb"
         )
         with self.quality._connect(database_path) as connection:
@@ -1461,7 +1456,7 @@ class QualityStoreTests(unittest.TestCase):
             self.staging.get_current_staging_summary(self.project.project_id).run_id,
             staging.run_id,
         )
-        database_path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        database_path = self.projects.workspace_directory(self.project.project_id) / "project.duckdb"
         with self.projects._connect(database_path) as connection:
             lifecycle = connection.execute(
                 "SELECT status, retired_reason FROM quality_run WHERE run_id = ?",
@@ -1490,7 +1485,7 @@ def _project() -> WorkspaceState:
         odoo_base_url="http://127.0.0.1:8069",
         odoo_database="odoo19_local",
         intended_models=("res.partner",),
-        status=ProjectStatus.REGISTERED,
+        status=WorkspaceStatus.REGISTERED,
         registered_at=now,
     )
 
@@ -1697,3 +1692,4 @@ def _prepared_record(row: CanonicalRow) -> PreparedRecord:
 
 if __name__ == "__main__":
     unittest.main()
+

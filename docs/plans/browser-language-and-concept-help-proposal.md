@@ -2,8 +2,9 @@
 
 ## Status and authority
 
-**Status:** Proposal for review. No browser behavior described in this document
-is implemented yet.
+**Status:** Implemented on 2026-08-23. The canonical language, shared Concepts
+page, contextual dialogs, Project/workspace and run-language audits,
+documentation, and current visual evidence are in place.
 
 **Proposal date:** 2026-08-23.
 
@@ -323,9 +324,9 @@ The initial implementation is ready only when:
   pass; and
 - affected pages receive keyboard, narrow-screen, and 1440x1024 visual review.
 
-## 13. Decisions requested
+## 13. Decisions adopted
 
-Please review these three decisions before implementation:
+The implementation adopts these three decisions:
 
 1. Use the recommended hybrid of a permanent concepts page and sparse
    contextual dialogs.
@@ -334,6 +335,11 @@ Please review these three decisions before implementation:
    of the normal path.
 3. Use **save** for the data manager's Recipe action and reserve **publish** for
    developer and support material.
+
+Implementation evidence is recorded in the
+[browser language review](../reports/browser-language-review-2026-08-23.md),
+the [data-manager Concepts guide](../user/concepts.md), and
+`tests/test_concept_help.py`.
 
 ## Related current authority
 

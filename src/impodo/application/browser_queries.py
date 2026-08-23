@@ -1,6 +1,6 @@
 """Expose read-only current-evidence projections to browser presenters.
 
-Migration stages: cross-cutting A–H. ``BrowserQueryService`` deliberately
+Migration stages: cross-cutting Aâ€“H. ``BrowserQueryService`` deliberately
 contains transparent forwarding methods: it gives routes one typed read facade
 without mixing queries into command services or exposing DuckDB directly.
 These one-line forwarders are documented by their repository port and return
@@ -26,7 +26,7 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
 )
 from ..inspection import SourceFileCatalog
-from ..projects import WorkspaceState, ProjectSummary
+from ..workspace_state import WorkspaceState
 from ..quality import QualityReviewPage, QualityRuleSet
 from ..workspace_contracts import (
     MappingWorkingDraft,
@@ -42,9 +42,8 @@ from .mapping_field_catalog_query import (
 
 
 class ProjectQueryRepository(Protocol):
-    """Read current project aggregates and lightweight list projections."""
+    """Read current mutable workspace state."""
 
-    def list(self) -> tuple[ProjectSummary, ...]: ...
     def get(self, project_id: str) -> WorkspaceState: ...
     def has_audit_event(self, project_id: str, event_type: str) -> bool: ...
 
@@ -180,9 +179,6 @@ class BrowserQueryService:
         self._mapping_field_catalogs = mapping_field_catalogs
         self._quality = quality
         self._transformation_impacts = transformation_impacts
-
-    def list(self) -> tuple[ProjectSummary, ...]:
-        return self._projects.list()
 
     def get(self, project_id: str) -> WorkspaceState:
         return self._projects.get(project_id)
@@ -327,3 +323,4 @@ class BrowserQueryService:
         return self._transformation_impacts.iter_transformation_impact_rows(
             project_id, identity, filters
         )
+

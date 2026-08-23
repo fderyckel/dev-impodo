@@ -717,6 +717,18 @@ h3 {
   box-shadow: 0 8px 24px rgba(41, 44, 40, .08);
 }
 
+.project-list-scroll.is-scrollable {
+  max-block-size: 460px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+
+.project-list-scroll.is-scrollable:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: -3px;
+}
+
 .project-list-heading,
 .project-row {
   display: grid;
@@ -3803,6 +3815,12 @@ a.impact-card:focus-visible,
     display: none;
   }
 
+  .project-list-scroll.is-scrollable {
+    max-block-size: none;
+    overflow-y: visible;
+    scrollbar-gutter: auto;
+  }
+
   .project-row {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: .75rem 1rem;
@@ -3957,5 +3975,241 @@ a.impact-card:focus-visible,
   *::after {
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+
+.heading-with-help,
+.eyebrow-with-help {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.heading-with-help h1,
+.heading-with-help h2,
+.eyebrow-with-help .eyebrow {
+  margin-bottom: 0;
+}
+
+.concept-help-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.concept-help-link:hover {
+  background: var(--impodo-soft);
+  color: var(--impodo-charcoal-dark);
+}
+
+.concept-help-link:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.concept-help-dialog {
+  width: min(660px, calc(100vw - 2rem));
+  max-height: min(760px, calc(100vh - 2rem));
+  margin: auto;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 24px 64px rgba(41, 44, 40, .28);
+  color: var(--ink);
+  padding: 1.5rem;
+}
+
+.concept-help-dialog::backdrop {
+  background: rgba(41, 44, 40, .58);
+}
+
+.concept-help-dialog form {
+  margin: 0;
+}
+
+.concept-help-body {
+  display: grid;
+  gap: .8rem;
+  margin-top: 1.25rem;
+}
+
+.concept-help-body > p,
+.concept-example p,
+.concept-practical-effect p {
+  margin: 0;
+}
+
+.concept-example,
+.concept-practical-effect {
+  padding: 1rem;
+  border-left: 4px solid var(--impodo-grey-light);
+  background: var(--impodo-soft);
+}
+
+.concept-practical-effect {
+  border-left-color: var(--brand);
+  background: var(--accent);
+}
+
+.concept-related {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  align-items: baseline;
+}
+
+.concepts-heading {
+  min-width: 0;
+  max-width: 880px;
+}
+
+.concepts-heading h1,
+.concept-model h2,
+.concept-page-example h2,
+.concept-card h2 {
+  overflow-wrap: anywhere;
+}
+
+.concept-model,
+.concept-page-example {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 1.5rem;
+}
+
+.concept-model-root {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  max-width: 360px;
+  min-width: 0;
+  margin: 0 auto 1.25rem;
+  border: 2px solid var(--brand);
+  border-radius: 6px;
+  background: var(--accent);
+  padding: 1rem;
+  text-align: center;
+}
+
+.concept-model-root strong {
+  font-size: 1.15rem;
+}
+
+.concept-model-root span,
+.concept-model-branches span {
+  color: var(--muted);
+}
+
+.concept-model-branches {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+  gap: .75rem;
+}
+
+.concept-model-branches a {
+  display: grid;
+  min-width: 0;
+  gap: .2rem;
+  min-height: 110px;
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  padding: 1rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.concept-model-branches a:hover {
+  border-color: var(--impodo-grey);
+  background: var(--impodo-soft);
+}
+
+.concept-page-example h2 {
+  margin-top: 0;
+}
+
+.concept-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.concept-card {
+  min-width: 0;
+  max-width: 100%;
+  scroll-margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 1.5rem;
+}
+
+.concept-card:target,
+.concept-card:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 3px;
+}
+
+.concept-card h2 {
+  margin-top: 0;
+}
+
+.concept-card-details {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: .25rem;
+}
+
+@media (max-width: 860px) {
+  .concept-model-branches,
+  .concept-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .concept-model-branches a {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .concepts-page .page-shell {
+    width: calc(100% - 2rem);
+    max-width: calc(100vw - 2rem);
+  }
+
+  .concepts-heading h1 {
+    font-size: clamp(2.25rem, 11vw, 3.2rem);
+  }
+
+  .concept-model,
+  .concept-page-example,
+  .concept-card {
+    padding: 1rem;
+  }
+
+  .concept-help-dialog {
+    padding: 1rem;
+  }
+
+  .concept-help-dialog .dialog-actions,
+  .concept-help-dialog .dialog-actions form,
+  .concept-help-dialog .dialog-actions .button {
+    width: 100%;
   }
 }

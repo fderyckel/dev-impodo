@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Callable
 
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from ..projects import WorkspaceState, OdooConnectionMode, ProjectError
+from ..workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStateError
 
 
 class OdooConnectionPurpose(StrEnum):
@@ -36,7 +36,7 @@ class OdooConnectionIdentity:
     @classmethod
     def from_project(cls, project: WorkspaceState) -> "OdooConnectionIdentity":
         if project.odoo_connection_mode is None:
-            raise ProjectError("Choose Local Odoo or Remote Odoo")
+            raise WorkspaceStateError("Choose Local Odoo or Remote Odoo")
         return cls(
             connection_mode=project.odoo_connection_mode,
             base_url=project.odoo_base_url,
@@ -87,7 +87,7 @@ class OdooConnectionTestService:
         """Test identity and authentication without model/schema discovery."""
 
         if purpose is OdooConnectionPurpose.TARGET_WRITE:
-            raise ProjectError("Use the write-access check at load confirmation")
+            raise WorkspaceStateError("Use the write-access check at load confirmation")
         connection = OdooConnectionIdentity.from_project(project)
         fingerprint = self._fingerprint_probe(project, api_key)
         read_identity = self._read_identity_probe(
@@ -101,4 +101,5 @@ class OdooConnectionTestService:
             fingerprint=fingerprint,
             read_identity=read_identity,
         )
+
 

@@ -32,11 +32,11 @@ from ...domain.preflight.reports import (
     ReadinessRowPage,
 )
 from ...models import canonical_json_text, target_identity_hash
-from ...projects import ProjectNotFoundError
+from ...workspace_state import WorkspaceStateNotFoundError
 from ...workspace_errors import WorkspaceError
 from .constants import PREFLIGHT_ROW_BATCH_SIZE
-from .database import DuckDbDatabase
-from .project_repository import ProjectRepository
+from .database import DuckDbWorkspaceDatabase
+from .workspace_state_repository import WorkspaceStateRepository
 from .repository import DuckDbRepository
 
 
@@ -50,8 +50,8 @@ class PreflightRepository(DuckDbRepository):
 
     def __init__(
         self,
-        database: DuckDbDatabase,
-        projects: ProjectRepository,
+        database: DuckDbWorkspaceDatabase,
+        projects: WorkspaceStateRepository,
     ) -> None:
         super().__init__(database)
         self._projects = projects
@@ -143,11 +143,11 @@ class PreflightRepository(DuckDbRepository):
             or decision_count < 0
         ):
             raise WorkspaceError("Readiness snapshot evidence is invalid")
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
                 target = connection.execute(
@@ -254,7 +254,7 @@ class PreflightRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Approve the prepared data before saving an Odoo comparison"
                     )
-                revision = self._project_revision(connection)
+                revision = self._workspace_revision(connection)
                 connection.execute(
                     """
                     INSERT INTO readiness_run (
@@ -470,11 +470,11 @@ class PreflightRepository(DuckDbRepository):
             clauses.append("dataset = ?")
             parameters.append(dataset)
         where = " AND ".join(clauses)
-        database_path = self.project_directory(project_id) / "project.duckdb"
+        database_path = self.workspace_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
+            raise WorkspaceStateNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_database_schema(connection)
             count_row = connection.execute(
                 f"SELECT COUNT(*) FROM preflight_decision WHERE {where}",
                 parameters,
@@ -504,3 +504,4 @@ class PreflightRepository(DuckDbRepository):
             page=bounded_page,
             page_count=page_count,
         )
+

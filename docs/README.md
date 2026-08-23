@@ -16,9 +16,11 @@ or **MAY** rule, the normative rule wins.
 
 ## Workflow terminology
 
-**Project setup** creates the Project, Authoring DataVersion, run, and
-workspace before the six workspace stages. A Recipe is optional reusable
-meaning published after eligible authoring work:
+**Data project setup** creates the data project, Authoring data version, run,
+and workspace before the six workspace stages. A Recipe is optional reusable
+rules saved after eligible authoring work. The
+[data-manager Concepts page](user/concepts.md) explains these relationships in
+the same language as the browser:
 
 1. **Source data**
 2. **Odoo data**
