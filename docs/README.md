@@ -68,6 +68,10 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
+- [Browser language and concept help proposal](plans/browser-language-and-concept-help-proposal.md)
+  — proposed canonical browser vocabulary, data-manager concepts page,
+  contextual help dialogs, complete HTML copy review, and accessibility and
+  performance acceptance gates. This behavior is not yet implemented.
 - [Impodo remaining work](plans/remaining-work.md) — the authoritative
   forward-looking roadmap. Migration Project ownership, optional reusable
   Recipes, Project-owned data packages, and integrated multi-Recipe cutover

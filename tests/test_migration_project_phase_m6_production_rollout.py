@@ -334,9 +334,16 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
                 303,
             )
             response = client.get(f"/projects/{setup.run.project_id}")
+            activation = client.get(
+                f"/projects/{setup.run.project_id}/production-runs/"
+                f"{setup.run.migration_run_id}/activate"
+            )
         self.assertEqual(response.status_code, 200)
         self.assertIn("Production rollout", response.text)
         self.assertIn("separate", response.text.casefold())
+        self.assertEqual(activation.status_code, 200)
+        self.assertIn("Review Production readiness", activation.text)
+        self.assertIn("Production Odoo evidence needs attention", activation.text)
 
     def test_activation_recovers_after_registry_commit_before_workspace_stores(self):
         setup = self._start_setup()
@@ -346,6 +353,38 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
 
         def fault(stage):
             if stage == "REGISTRY_COMMITTED":
+                raise m4.SimulatedCrash(stage)
+
+        with self.assertRaises(m4.SimulatedCrash):
+            self._activate(
+                setup,
+                schema,
+                operation_id=operation_id,
+                fault=fault,
+            )
+        recovered = self._activate(
+            setup,
+            schema,
+            operation_id=operation_id,
+        )
+
+        self.assertEqual(
+            {item.status.value for item in recovered.applications},
+            {"READY"},
+        )
+        self.assertEqual(
+            self.fixture.foundation.get_operation_intent(operation_id).state.value,
+            "COMMITTED",
+        )
+
+    def test_activation_retry_reuses_reserved_meaning_before_registry_commit(self):
+        setup = self._start_setup()
+        self._accept_latest_data(setup)
+        schema = self._production_schema(setup)
+        operation_id = str(uuid4())
+
+        def fault(stage):
+            if stage == "INTENT_RESERVED":
                 raise m4.SimulatedCrash(stage)
 
         with self.assertRaises(m4.SimulatedCrash):

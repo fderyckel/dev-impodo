@@ -136,6 +136,12 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         run = context.migration_runs.get(migration_run_id, actor=context.actor)
         if run.project_id != project.project_id:
             return HTMLResponse("MigrationRun not found", status_code=404)
+        if run.purpose.value == "PRODUCTION" and run.target_binding_id is None:
+            return RedirectResponse(
+                f"/projects/{project_id}/production-runs/"
+                f"{migration_run_id}/activate",
+                status_code=303,
+            )
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
         progress = context.run_planning.repository.progress(migration_run_id)
         issues = context.run_planning.repository.list_run_issues(migration_run_id)

@@ -21,6 +21,7 @@ from ..migration_foundation import (
     require_revision,
     require_uuid,
     required_text,
+    utc_now,
 )
 from ..migration_production import (
     ProductionRunBinding,
@@ -242,7 +243,7 @@ class ProductionCutoverService:
             parameter_values_hash=None,
             control_values_hash=None,
             activation_evidence_hash=None,
-            created_at=run.created_at,
+            created_at=utc_now(),
         )
         project = self.projects.get(project_id, actor=actor)
         stored = self.production_runs.bind_setup(
@@ -448,7 +449,9 @@ class ProductionCutoverService:
             or not write_credential_generation
         ):
             raise ProductionRunError(
-                "Production target or identity changed, or comparison used an older read key; refresh comparison, and start a new Production setup if the identity or context changed"
+                "Production target or identity changed, or comparison used an "
+                "older read key; refresh comparison, and start a new Production "
+                "setup if the identity or context changed"
             )
 
     def credential_workspace(self, workspace_id: str, *, actor: Actor):

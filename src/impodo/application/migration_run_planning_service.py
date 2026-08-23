@@ -352,7 +352,8 @@ class MigrationRunPlanningService:
         package = self.source_packages.repository.get_source_package(data_version_id)
         if package is None or package.content_hash != data_version.source_package_hash:
             raise MigrationRunPlanningError(
-                f"The {purpose.value.title()} DataVersion source evidence is missing or inconsistent"
+                f"The {purpose.value.title()} DataVersion source evidence is "
+                "missing or inconsistent"
             )
         normalized = tuple(
             sorted(
@@ -424,7 +425,8 @@ class MigrationRunPlanningService:
                 self._block(
                     "RUN_TARGET_IDENTITY_MISSING",
                     "The selected Odoo evidence has no exact target identity.",
-                    f"Capture current Odoo 19 evidence before starting the {purpose.value.title()} run.",
+                    "Capture current Odoo 19 evidence before starting the "
+                    f"{purpose.value.title()} run.",
                     tuple(selected_ids),
                 )
             )
