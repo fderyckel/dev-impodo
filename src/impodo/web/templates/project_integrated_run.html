@@ -3,7 +3,10 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">{{ project.display_name }} · Integrated Test</p>
+      <p class="eyebrow">
+        {{ project.display_name }} ·
+        {% if bundle.run.purpose.value == 'PRODUCTION' %}Production rollout{% else %}Integrated Test{% endif %}
+      </p>
       <h1>{{ bundle.run.label }}</h1>
       <p>{{ progress.total_applications }} isolated Recipe application{% if progress.total_applications != 1 %}s{% endif %} use one accepted data version and one reviewed Odoo target.</p>
     </div>
@@ -29,15 +32,21 @@
     <div class="section-heading">
       <div>
         <p class="eyebrow">Cutover plan revision {{ plan_revision.version }}</p>
-        <h2 id="qualification-title">Integrated Test qualification</h2>
-        {% if qualification %}
+        {% if bundle.run.purpose.value == 'PRODUCTION' %}
+          <h2 id="qualification-title">Qualified meaning selected for rollout</h2>
+          <p>This Production run pins the exact selected Cutover Plan and qualified Test meaning. Its data, Odoo target, credentials, comparison, approval, load, and reconciliation remain fresh Production evidence.</p>
+        {% elif qualification %}
+          <h2 id="qualification-title">Integrated Test qualification</h2>
           <p>This exact plan revision and Test run are qualified{% if selection and selection.qualification_id == qualification.qualification_id %} and selected as the rollout candidate{% endif %}.</p>
         {% else %}
+          <h2 id="qualification-title">Integrated Test qualification</h2>
           <p>Review all application outcomes together after every load has been verified in the required order.</p>
         {% endif %}
       </div>
     </div>
-    <a class="button" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/qualification">Review integrated qualification</a>
+    {% if bundle.run.purpose.value != 'PRODUCTION' %}
+      <a class="button" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/qualification">Review integrated qualification</a>
+    {% endif %}
   </section>
 
   <section class="overview-stage-list" aria-labelledby="application-order-title">

@@ -17,7 +17,14 @@ _UUID_DIRECTORY = re.compile(
     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z"
 )
 _KNOWN_FILES = frozenset({"registry.duckdb", "registry.duckdb.wal"})
-_KNOWN_DIRECTORIES = frozenset({"projects", ".recipes-protected"})
+_KNOWN_DIRECTORIES = frozenset(
+    {
+        ".project-evidence-protected",
+        ".recipes-protected",
+        "artifacts",
+        "projects",
+    }
+)
 _QUARANTINE_DIRECTORY = ".impodo-development-reset"
 
 

@@ -105,8 +105,10 @@ integrated Test run over several exact Recipe revisions and create fresh,
 isolated application drafts. M5 binds that run to an immutable CutoverPlan
 revision, requires ordered execution and verified read-back in every
 application, publishes exact integrated qualification, and records rollout
-selection separately. Production application remains a later phase. The
-Project-owned flow does not restore the superseded Recipe-owned lifecycle.
+selection separately. M6 applies that exact selected meaning to a fresh
+Production DataVersion and different Odoo 19 target with independent
+credentials and evidence. The Project-owned flow does not restore the
+superseded Recipe-owned lifecycle.
 
 ## Integrated Test run boundary
 
@@ -135,6 +137,20 @@ projections. Changing selected Recipe meaning or dependency order appends a
 new unqualified plan revision. Selecting a qualified revision records only a
 rollout candidate and grants no Production authority.
 
+## Production rollout boundary
+
+A selected candidate can start a setup-only Production run. The setup creates
+a fresh complete DataVersion, run, and workspace but no target binding or
+write authority. Activation rechecks current source coverage, plan meaning,
+Odoo compatibility, controls, write ownership, and separate read/write
+credential evidence before creating isolated application workspaces.
+
+Production uses the same compiler, source projections, run-level target
+capture, workspace stages, execution journal, and reconciliation service as
+Integrated Test. It copies no Test rows, credentials, mappings, comparisons,
+approvals, or outcomes. The current selection and credential authority are
+checked again before writer construction.
+
 ## Persistence layout
 
 ```text
@@ -149,13 +165,14 @@ rollout candidate and grants no Production authority.
 ```
 
 The registry stores bounded Project, DataVersion, run target and requirement,
-Recipe application, workspace, Recipe, issue, and operation projections. The
+Production activation, Recipe application, workspace, Recipe, issue, and
+operation projections. The
 DataVersion database stores the source package. The small workspace database
 stores exact source references. `project.duckdb` is the contained current
 mapping engine state; its historical filename is not a Project aggregate
 identity.
 
-Impodo opens only the exact M4 registry generation and unchanged exact M2
+Impodo opens only the exact M6 registry generation and unchanged exact M2
 DataVersion/workspace-store generations. Earlier development or Recipe-first
 storage is rejected without mutation and requires the reviewed development
 reset. There is no upgrade, adoption, backfill, alias, or dual-write path.

@@ -1,4 +1,4 @@
-"""Plan and provision one Project-owned Test run for several Recipes."""
+"""Plan Project-owned Test and Production runs for several Recipes."""
 
 from __future__ import annotations
 
@@ -18,13 +18,22 @@ from ..domain.serialization import content_hash
 from ..domain.coverage import ReferenceBundle
 from ..migration_foundation import (
     FaultInjector,
-    MigrationFoundationError,
     require_revision,
     require_uuid,
     required_text,
     utc_now,
 )
-from ..migration_cutover import CutoverWriteOwnership
+from ..migration_cutover import (
+    CutoverPlanRevision,
+    CutoverWriteOwnership,
+    PROJECT_SHARED_CONTROL_IDS,
+)
+from ..migration_production import ProductionRunBinding, ProductionRunError
+from ..migration_production import (
+    ProductionRunBindingState,
+    activation_evidence_hash,
+)
+from ..models import OdooWriteIdentity
 from ..migration_projects import MigrationProjectService
 from ..migration_run_planning import (
     IntegratedRunBundle,
@@ -85,7 +94,7 @@ class IntegratedRunReview:
 
 
 class MigrationRunPlanningService:
-    """Own M4 validation, isolated provisioning, and compiler orchestration."""
+    """Own integrated run validation, isolation, and compiler orchestration."""
 
     def __init__(
         self,
@@ -127,6 +136,174 @@ class MigrationRunPlanningService:
     ) -> IntegratedRunReview:
         """Validate dependency and write ownership before provisioning."""
 
+        return self._review_run(
+            project_id,
+            data_version_id=data_version_id,
+            recipe_revisions=recipe_revisions,
+            dependencies=dependencies,
+            target_schema=target_schema,
+            target_reference_bundle=target_reference_bundle,
+            parameter_values=parameter_values,
+            control_values=control_values,
+            purpose=DataVersionPurpose.TEST,
+            required_target_workspace_id=None,
+            actor=actor,
+        )
+
+    def review_production_run(
+        self,
+        project_id: str,
+        *,
+        production_binding: ProductionRunBinding,
+        plan: CutoverPlanRevision,
+        target_schema: OdooSchemaCatalog,
+        target_reference_bundle: ReferenceBundle | None,
+        test_connection_target_hash: str,
+        parameter_values: Mapping[str, Mapping[str, object]] | None,
+        control_values: Mapping[str, Mapping[str, str]] | None,
+        shared_control_values: Mapping[str, bool],
+        actor: Actor,
+    ) -> IntegratedRunReview:
+        """Review fresh rollout evidence against exact qualified plan meaning."""
+
+        if (
+            production_binding.project_id != project_id
+            or production_binding.cutover_plan_id != plan.cutover_plan_id
+            or production_binding.cutover_plan_revision != plan.version
+            or production_binding.plan_content_hash != plan.content_hash
+        ):
+            raise ProductionRunError(
+                "Production setup does not match the selected CutoverPlan"
+            )
+        review = self._review_run(
+            project_id,
+            data_version_id=production_binding.data_version_id,
+            recipe_revisions=tuple(
+                (item.recipe_id, item.recipe_revision)
+                for item in plan.selected_revisions
+            ),
+            dependencies=plan.dependencies,
+            target_schema=target_schema,
+            target_reference_bundle=target_reference_bundle,
+            parameter_values=parameter_values,
+            control_values=control_values,
+            purpose=DataVersionPurpose.PRODUCTION,
+            required_target_workspace_id=production_binding.setup_workspace_id,
+            actor=actor,
+        )
+        issues = list(review.planning_issues)
+        if target_schema.connection_target_hash == test_connection_target_hash:
+            issues.append(
+                self._block(
+                    "PRODUCTION_TARGET_NOT_INDEPENDENT",
+                    "Production uses the same Odoo target as Integrated Test.",
+                    "Capture the compatible Odoo 19 Production database instead.",
+                    tuple(item.recipe_id for item in plan.selected_revisions),
+                )
+            )
+        try:
+            odoo_major = int(str(target_schema.odoo_version).split(".", 1)[0])
+        except ValueError:
+            odoo_major = -1
+        if odoo_major != 19 or target_schema.origin.value != "LIVE_API":
+            issues.append(
+                self._block(
+                    "PRODUCTION_TARGET_EVIDENCE_UNSUPPORTED",
+                    "Production target evidence is not a current live Odoo 19 capture.",
+                    "Capture the Production Odoo 19 fields and supporting lists again.",
+                    tuple(item.recipe_id for item in plan.selected_revisions),
+                )
+            )
+        if self._semantic_requirement_hash(review) != plan.requirement_plan_hash:
+            issues.append(
+                self._block(
+                    "PRODUCTION_PLAN_MEANING_CHANGED",
+                    "The current Recipe requirements no longer match the qualified plan.",
+                    "Publish and qualify a new CutoverPlan revision.",
+                    tuple(item.recipe_id for item in plan.selected_revisions),
+                )
+            )
+        current_ownership = tuple(
+            sorted(
+                CutoverWriteOwnership(
+                    recipe_id=item.selection.recipe_id,
+                    model=model,
+                    field=field,
+                )
+                for item in review.applications
+                for model, field in item.write_claims
+            )
+        )
+        if current_ownership != plan.write_ownership:
+            issues.append(
+                self._block(
+                    "PRODUCTION_WRITE_OWNERSHIP_CHANGED",
+                    "Current Recipe write ownership differs from the qualified plan.",
+                    "Publish and qualify the corrected CutoverPlan before Production.",
+                    tuple(item.recipe_id for item in plan.selected_revisions),
+                )
+            )
+        if set(shared_control_values) != set(PROJECT_SHARED_CONTROL_IDS):
+            issues.append(
+                self._block(
+                    "PRODUCTION_SHARED_CONTROLS_INCOMPLETE",
+                    "The Production run does not contain every Project control.",
+                    "Review package completeness and integrated reconciliation controls.",
+                    tuple(item.recipe_id for item in plan.selected_revisions),
+                )
+            )
+        elif not shared_control_values[
+            "control:project.package_completeness"
+        ]:
+            issues.append(
+                self._block(
+                    "PRODUCTION_PACKAGE_INCOMPLETE",
+                    "The latest Production delivery is not confirmed complete.",
+                    "Accept the complete Production data version before activation.",
+                    tuple(item.recipe_id for item in plan.selected_revisions),
+                )
+            )
+        if shared_control_values.get(
+            "control:project.integrated_reconciliation"
+        ):
+            issues.append(
+                self._block(
+                    "PRODUCTION_RECONCILIATION_PREMATURE",
+                    "Production reconciliation was marked complete before execution.",
+                    "Leave it pending until every application is verified.",
+                    tuple(item.recipe_id for item in plan.selected_revisions),
+                )
+            )
+        return replace(
+            review,
+            planning_issues=tuple(
+                sorted(
+                    {
+                        content_hash(item.to_dict()): item
+                        for item in issues
+                    }.values(),
+                    key=lambda item: (item.code, item.recipe_ids),
+                )
+            ),
+        )
+
+    def _review_run(
+        self,
+        project_id: str,
+        *,
+        data_version_id: str,
+        recipe_revisions: tuple[tuple[str, int], ...],
+        dependencies: tuple[RecipeDependency, ...],
+        target_schema: OdooSchemaCatalog,
+        target_reference_bundle: ReferenceBundle | None,
+        parameter_values: Mapping[str, Mapping[str, object]] | None,
+        control_values: Mapping[str, Mapping[str, str]] | None,
+        purpose: DataVersionPurpose,
+        required_target_workspace_id: str | None,
+        actor: Actor,
+    ) -> IntegratedRunReview:
+        """Validate one Test or Production plan without creating workspaces."""
+
         project_id = require_uuid(project_id, "project_id")
         data_version_id = require_uuid(data_version_id, "data_version_id")
         self.authorization.require(
@@ -138,12 +315,23 @@ class MigrationRunPlanningService:
         target_workspace = self.repository.foundation.get_migration_workspace(
             require_uuid(target_schema.project_id, "target evidence workspace_id")
         )
+        target_data_version = self.data_versions.repository.get_data_version(
+            target_workspace.data_version_id
+        )
         if (
             target_workspace.project_id != project_id
             or target_workspace.recipe_application_id is not None
+            or (
+                purpose is DataVersionPurpose.TEST
+                and target_data_version.purpose is DataVersionPurpose.PRODUCTION
+            )
+            or (
+                required_target_workspace_id is not None
+                and target_workspace.workspace_id != required_target_workspace_id
+            )
         ):
             raise MigrationRunPlanningError(
-                "Choose reviewed Odoo evidence from this Project's authoring workspace"
+                "Choose reviewed Odoo evidence from this run's setup workspace"
             )
         if (
             target_reference_bundle is not None
@@ -155,16 +343,16 @@ class MigrationRunPlanningService:
         data_version = self.data_versions.get(data_version_id, actor=actor)
         if (
             data_version.project_id != project.project_id
-            or data_version.purpose is not DataVersionPurpose.TEST
+            or data_version.purpose is not purpose
             or data_version.state is not DataVersionState.FROZEN
         ):
             raise MigrationRunPlanningError(
-                "Choose one accepted Test DataVersion from this Project"
+                f"Choose one accepted {purpose.value.title()} DataVersion from this Project"
             )
         package = self.source_packages.repository.get_source_package(data_version_id)
         if package is None or package.content_hash != data_version.source_package_hash:
             raise MigrationRunPlanningError(
-                "The Test DataVersion source evidence is missing or inconsistent"
+                f"The {purpose.value.title()} DataVersion source evidence is missing or inconsistent"
             )
         normalized = tuple(
             sorted(
@@ -177,7 +365,7 @@ class MigrationRunPlanningService:
         )
         if not normalized or len({item[0] for item in normalized}) != len(normalized):
             raise MigrationRunPlanningError(
-                "Select one revision from each Recipe used by this Test run"
+                f"Select one revision from each Recipe used by this {purpose.value.title()} run"
             )
         source_selection = self._package_selection(package)
         supplied_parameters = parameter_values or {}
@@ -236,7 +424,7 @@ class MigrationRunPlanningService:
                 self._block(
                     "RUN_TARGET_IDENTITY_MISSING",
                     "The selected Odoo evidence has no exact target identity.",
-                    "Capture current Odoo 19 evidence before starting the Test run.",
+                    f"Capture current Odoo 19 evidence before starting the {purpose.value.title()} run.",
                     tuple(selected_ids),
                 )
             )
@@ -452,19 +640,399 @@ class MigrationRunPlanningService:
             actor=actor,
             fault=fault,
         )
-        package = self.source_packages.repository.get_source_package(data_version_id)
+        committed = self._materialize_applications(
+            bundle,
+            review=review,
+            operation_id=operation_id,
+            ready_event_type="INTEGRATED_TEST_RUN_READY",
+            target_workspace_state=self.workspace_states.repository.get(
+                target_schema.project_id
+            ),
+            actor=actor,
+        )
+        self.cutover_plans.ensure_for_run(
+            project_id=project_id,
+            migration_run_id=committed.run.migration_run_id,
+            requirement_plan=committed.requirement_plan,
+            write_ownership=tuple(
+                sorted(
+                    CutoverWriteOwnership(
+                        recipe_id=item.selection.recipe_id,
+                        model=model,
+                        field=field,
+                    )
+                    for item in review.applications
+                    for model, field in item.write_claims
+                )
+            ),
+            operation_id=self._child_operation(operation_id, "cutover-plan"),
+            actor=actor,
+        )
+        return committed
+
+    def activate_production_run(
+        self,
+        project_id: str,
+        *,
+        expected_project_revision: int,
+        production_binding: ProductionRunBinding,
+        plan: CutoverPlanRevision,
+        target_schema: OdooSchemaCatalog,
+        target_reference_bundle: ReferenceBundle | None,
+        test_connection_target_hash: str,
+        read_credential_generation: str,
+        write_identity: OdooWriteIdentity,
+        write_credential_generation: str,
+        parameter_values: Mapping[str, Mapping[str, object]] | None,
+        control_values: Mapping[str, Mapping[str, str]] | None,
+        shared_control_values: Mapping[str, bool],
+        operation_id: str,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> IntegratedRunBundle:
+        """Activate one setup run through the existing application compiler."""
+
+        project_id = require_uuid(project_id, "project_id")
+        operation_id = require_uuid(operation_id, "operation_id")
+        expected_project_revision = require_revision(
+            expected_project_revision,
+            "expected_project_revision",
+        )
+        read_credential_generation = required_text(
+            read_credential_generation,
+            "read_credential_generation",
+            maximum=300,
+        )
+        write_credential_generation = required_text(
+            write_credential_generation,
+            "write_credential_generation",
+            maximum=300,
+        )
+        if read_credential_generation != target_schema.read_credential_binding_hash:
+            raise ProductionRunError(
+                "The Production schema belongs to another read credential generation"
+            )
+        if read_credential_generation == write_credential_generation:
+            raise ProductionRunError(
+                "Production read and write credentials must remain separate"
+            )
+        if (
+            write_identity.target_hash != target_schema.connection_target_hash
+            or write_identity.context_hash != target_schema.read_context_hash
+        ):
+            raise ProductionRunError(
+                "The Production write credential does not match the reviewed target context"
+            )
+        required_write_models = {
+            item.model for item in plan.write_ownership
+        }
+        if not required_write_models.issubset(set(write_identity.writable_models)):
+            raise ProductionRunError(
+                "The Production write credential cannot update every planned Odoo model"
+            )
+        self.authorization.require(
+            actor,
+            Capability.PRODUCTION_RUN_ACTIVATE,
+            project_id=project_id,
+        )
+        review = self.review_production_run(
+            project_id,
+            production_binding=production_binding,
+            plan=plan,
+            target_schema=target_schema,
+            target_reference_bundle=target_reference_bundle,
+            test_connection_target_hash=test_connection_target_hash,
+            parameter_values=parameter_values,
+            control_values=control_values,
+            shared_control_values=shared_control_values,
+            actor=actor,
+        )
+        if not review.can_start:
+            first = next(item for item in review.planning_issues if item.blocks)
+            raise ProductionRunError(f"{first.message} {first.recovery_action}")
+        if production_binding.state is ProductionRunBindingState.ACTIVE:
+            self._assert_activation_retry_matches(
+                production_binding,
+                target_schema=target_schema,
+                read_credential_generation=read_credential_generation,
+                write_identity=write_identity,
+                write_credential_generation=write_credential_generation,
+                parameter_values=parameter_values,
+                control_values=control_values,
+                shared_control_values=shared_control_values,
+            )
+            resumed = self.repository.resume_production_activation(
+                operation_id,
+                actor=actor,
+                fault=fault,
+            )
+            return self._materialize_applications(
+                resumed,
+                review=review,
+                operation_id=operation_id,
+                ready_event_type="PRODUCTION_RUN_READY",
+                target_workspace_state=self.workspace_states.repository.get(
+                    production_binding.setup_workspace_id
+                ),
+                actor=actor,
+            )
+        if production_binding.state is not ProductionRunBindingState.SETUP:
+            raise ProductionRunError("Production run activation is inconsistent")
+        current_run = self.repository.foundation.get_migration_run(
+            production_binding.migration_run_id
+        )
+        if (
+            current_run.project_id != project_id
+            or current_run.data_version_id != production_binding.data_version_id
+            or current_run.purpose is not MigrationRunPurpose.PRODUCTION
+            or current_run.cutover_selection_id
+            != production_binding.cutover_selection_id
+            or current_run.target_binding_id is not None
+        ):
+            raise ProductionRunError(
+                "Production run changed before activation; reload its setup"
+            )
+        now = utc_now()
+        target_binding_id = self._child_operation(operation_id, "target-binding")
+        run = replace(
+            current_run,
+            target_binding_id=target_binding_id,
+            optimistic_revision=current_run.optimistic_revision + 1,
+            updated_at=now,
+        )
+        required_reference_names = {
+            item.name for item in review.reference_requirements
+        }
+        captured_reference_datasets = tuple(
+            item
+            for item in (
+                target_reference_bundle.datasets
+                if target_reference_bundle is not None
+                else ()
+            )
+            if item.name in required_reference_names
+        )
+        run_reference_bundle = (
+            ReferenceBundle(
+                project_id=run.migration_run_id,
+                datasets=captured_reference_datasets,
+            )
+            if captured_reference_datasets
+            else None
+        )
+        required_models = {item.model for item in review.model_requirements}
+        run_target_schema = replace(
+            target_schema,
+            project_id=run.migration_run_id,
+            models=tuple(
+                item for item in target_schema.models if item.name in required_models
+            ),
+            content_hash=content_hash(
+                {
+                    "migration_run_id": run.migration_run_id,
+                    "purpose": "PRODUCTION",
+                    "requirements": [
+                        item.to_dict() for item in review.model_requirements
+                    ],
+                    "source_schema_hash": target_schema.content_hash,
+                }
+            ),
+        )
+        target = RunTargetBinding(
+            target_binding_id=target_binding_id,
+            project_id=project_id,
+            migration_run_id=run.migration_run_id,
+            environment="PRODUCTION",
+            connection_target_hash=target_schema.connection_target_hash,
+            credential_role="READ",
+            credential_generation=read_credential_generation,
+            principal_hash=target_schema.read_principal_hash,
+            permission_hash=target_schema.read_permission_hash,
+            context_hash=target_schema.read_context_hash,
+            schema_dependency_hash=run_target_schema.content_hash,
+            reference_snapshot_hashes=tuple(
+                item.content_hash for item in captured_reference_datasets
+            ),
+            created_at=now,
+        )
+        requirement_plan = MigrationRunRequirementPlan(
+            migration_run_id=run.migration_run_id,
+            project_id=project_id,
+            data_version_id=run.data_version_id,
+            target_binding_id=target_binding_id,
+            selected_revisions=tuple(
+                item.selection for item in review.applications
+            ),
+            dependencies=review.dependencies,
+            model_requirements=review.model_requirements,
+            reference_requirements=review.reference_requirements,
+            application_order=review.application_order,
+            created_at=now,
+        )
+        planned = tuple(
+            self._planned_application(
+                item,
+                run=run,
+                target=target,
+                now=now,
+            )
+            for item in review.applications
+        )
+        parameter_hash = content_hash(parameter_values or {})
+        control_hash = content_hash(
+            {
+                "recipe_controls": control_values or {},
+                "shared_controls": dict(shared_control_values),
+            }
+        )
+        write_identity_values = {
+            "context_hash": write_identity.context_hash,
+            "observed_at": write_identity.observed_at,
+            "permission_hash": write_identity.permission_hash,
+            "principal_hash": write_identity.principal_hash,
+            "readable_models": sorted(set(write_identity.readable_models)),
+            "target_hash": write_identity.target_hash,
+            "writable_models": sorted(set(write_identity.writable_models)),
+        }
+        evidence_hash = activation_evidence_hash(
+            binding=production_binding,
+            target_binding_hash=target.content_hash,
+            requirement_plan_hash=requirement_plan.content_hash,
+            write_identity=write_identity_values,
+            parameter_values_hash=parameter_hash,
+            control_values_hash=control_hash,
+        )
+        active_binding = replace(
+            production_binding,
+            state=ProductionRunBindingState.ACTIVE,
+            target_binding_id=target_binding_id,
+            read_credential_generation=read_credential_generation,
+            write_credential_generation=write_credential_generation,
+            write_principal_hash=write_identity.principal_hash,
+            write_permission_hash=write_identity.permission_hash,
+            write_context_hash=write_identity.context_hash,
+            parameter_values_hash=parameter_hash,
+            control_values_hash=control_hash,
+            activation_evidence_hash=evidence_hash,
+            activated_at=now,
+        )
+        request_hash = content_hash(
+            {
+                "control_values": control_values or {},
+                "cutover_selection_id": production_binding.cutover_selection_id,
+                "data_version_id": run.data_version_id,
+                "parameter_values": parameter_values or {},
+                "production_setup_hash": production_binding.content_hash,
+                "project_id": project_id,
+                "read_credential_generation": read_credential_generation,
+                "reference_bundle": (
+                    run_reference_bundle.to_portable_dict()
+                    if run_reference_bundle is not None
+                    else None
+                ),
+                "shared_control_values": dict(shared_control_values),
+                "target_schema_hash": run_target_schema.content_hash,
+                "write_credential_generation": write_credential_generation,
+                "write_identity": {
+                    key: value
+                    for key, value in write_identity_values.items()
+                    if key != "observed_at"
+                },
+            }
+        )
+        bundle = self.repository.activate_production_run(
+            run=run,
+            production_binding=active_binding,
+            target_binding=target,
+            requirement_plan=requirement_plan,
+            applications=planned,
+            target_schema=run_target_schema,
+            reference_bundle=run_reference_bundle,
+            expected_project_revision=expected_project_revision,
+            operation_id=operation_id,
+            request_hash=request_hash,
+            actor=actor,
+            fault=fault,
+        )
+        return self._materialize_applications(
+            bundle,
+            review=review,
+            operation_id=operation_id,
+            ready_event_type="PRODUCTION_RUN_READY",
+            target_workspace_state=self.workspace_states.repository.get(
+                production_binding.setup_workspace_id
+            ),
+            actor=actor,
+        )
+
+    def _assert_activation_retry_matches(
+        self,
+        binding: ProductionRunBinding,
+        *,
+        target_schema: OdooSchemaCatalog,
+        read_credential_generation: str,
+        write_identity: OdooWriteIdentity,
+        write_credential_generation: str,
+        parameter_values: Mapping[str, Mapping[str, object]] | None,
+        control_values: Mapping[str, Mapping[str, str]] | None,
+        shared_control_values: Mapping[str, bool],
+    ) -> None:
+        """Reject reuse of an activation identity with changed authority."""
+
+        target = self.repository.get_target_binding(binding.migration_run_id)
+        parameter_hash = content_hash(parameter_values or {})
+        control_hash = content_hash(
+            {
+                "recipe_controls": control_values or {},
+                "shared_controls": dict(shared_control_values),
+            }
+        )
+        if (
+            target.connection_target_hash != target_schema.connection_target_hash
+            or target.principal_hash != target_schema.read_principal_hash
+            or target.permission_hash != target_schema.read_permission_hash
+            or target.context_hash != target_schema.read_context_hash
+            or binding.read_credential_generation != read_credential_generation
+            or binding.write_credential_generation != write_credential_generation
+            or binding.write_principal_hash != write_identity.principal_hash
+            or binding.write_permission_hash != write_identity.permission_hash
+            or binding.write_context_hash != write_identity.context_hash
+            or binding.parameter_values_hash != parameter_hash
+            or binding.control_values_hash != control_hash
+        ):
+            raise ProductionRunError(
+                "Production activation was already recorded with different evidence"
+            )
+
+    def _materialize_applications(
+        self,
+        bundle: IntegratedRunBundle,
+        *,
+        review: IntegratedRunReview,
+        operation_id: str,
+        ready_event_type: str,
+        target_workspace_state,
+        actor: Actor,
+    ) -> IntegratedRunBundle:
+        """Use the same source projection and mapping compiler for Test/Production."""
+
+        package = self.source_packages.repository.get_source_package(
+            bundle.run.data_version_id
+        )
         if package is None:
-            raise MigrationRunPlanningError("Test DataVersion source package is missing")
+            raise MigrationRunPlanningError("DataVersion source package is missing")
         reviewed = {item.selection.recipe_id: item for item in review.applications}
         workspace_by_id = {item.workspace_id: item for item in bundle.workspaces}
-        project = self.projects.get(project_id, actor=actor)
+        project = self.projects.get(bundle.run.project_id, actor=actor)
         stored_applications = []
         for application in bundle.applications:
             item = reviewed[application.recipe_id]
             workspace = workspace_by_id[application.workspace_id]
             if item.assessment.dataset_ids:
-                projection = self.source_projections.repository.get_workspace_source_projection(
-                    workspace.workspace_id
+                projection = (
+                    self.source_projections.repository.get_workspace_source_projection(
+                        workspace.workspace_id
+                    )
                 )
                 if projection is None:
                     self.source_projections.materialize(
@@ -481,6 +1049,7 @@ class MigrationRunPlanningService:
                 workspace,
                 project=project,
                 package=package,
+                target_workspace_state=target_workspace_state,
                 actor=actor,
             )
             materialized = self.compiler.materialize(
@@ -513,31 +1082,16 @@ class MigrationRunPlanningService:
             )
             if current.state is MigrationRunState.DRAFT:
                 self.repository.foundation.save_migration_run(
-                    replace(current, state=MigrationRunState.READY, updated_at=utc_now()),
+                    replace(
+                        current,
+                        state=MigrationRunState.READY,
+                        updated_at=utc_now(),
+                    ),
                     expected_revision=current.optimistic_revision,
-                    event_type="INTEGRATED_TEST_RUN_READY",
+                    event_type=ready_event_type,
                     actor=actor,
                 )
-        committed = self.repository.commit_provisioning(operation_id)
-        self.cutover_plans.ensure_for_run(
-            project_id=project_id,
-            migration_run_id=committed.run.migration_run_id,
-            requirement_plan=committed.requirement_plan,
-            write_ownership=tuple(
-                sorted(
-                    CutoverWriteOwnership(
-                        recipe_id=item.selection.recipe_id,
-                        model=model,
-                        field=field,
-                    )
-                    for item in review.applications
-                    for model, field in item.write_claims
-                )
-            ),
-            operation_id=self._child_operation(operation_id, "cutover-plan"),
-            actor=actor,
-        )
-        return committed
+        return self.repository.commit_provisioning(operation_id)
 
     def target_schema_from_workspace(
         self,
@@ -644,7 +1198,10 @@ class MigrationRunPlanningService:
             data_version_id=run.data_version_id,
             migration_run_id=run.migration_run_id,
             recipe_application_id=application_id,
-            display_name=f"{item.recipe.display_name} Test application",
+            display_name=(
+                f"{item.recipe.display_name} "
+                f"{run.purpose.value.title()} application"
+            ),
             state=MigrationWorkspaceState.OPEN,
             optimistic_revision=1,
             created_at=now,
@@ -665,27 +1222,50 @@ class MigrationRunPlanningService:
         *,
         project,
         package: DataVersionSourcePackage,
+        target_workspace_state,
         actor: Actor,
     ) -> None:
         try:
-            self.workspace_states.repository.get(workspace.workspace_id)
-            return
+            current = self.workspace_states.repository.get(workspace.workspace_id)
         except ProjectNotFoundError:
-            pass
-        source_mode = (
-            SourceMode.FILE
-            if package.origin is SourcePackageOrigin.FILE
-            else SourceMode.ODOO
-        )
-        self.workspace_states.provision_migration_workspace(
-            workspace.workspace_id,
-            actor=actor,
-            name=workspace.display_name,
-            source_system=project.source_system_identity,
-            source_mode=source_mode,
-            data_classification=project.data_classification.value,
-            retention_days=project.retention_days,
-        )
+            source_mode = (
+                SourceMode.FILE
+                if package.origin is SourcePackageOrigin.FILE
+                else SourceMode.ODOO
+            )
+            current = self.workspace_states.provision_migration_workspace(
+                workspace.workspace_id,
+                actor=actor,
+                name=workspace.display_name,
+                source_system=project.source_system_identity,
+                source_mode=source_mode,
+                data_classification=project.data_classification.value,
+                retention_days=project.retention_days,
+            )
+        if (
+            target_workspace_state.odoo_connection_mode is not None
+            and (
+                current.odoo_connection_mode
+                != target_workspace_state.odoo_connection_mode
+                or current.odoo_base_url != target_workspace_state.odoo_base_url
+                or current.odoo_database != target_workspace_state.odoo_database
+                or current.intended_applications
+                != target_workspace_state.intended_applications
+                or current.intended_models != target_workspace_state.intended_models
+            )
+        ):
+            self.workspace_states.update_target(
+                current.project_id,
+                actor=actor,
+                expected_revision=current.revision,
+                odoo_connection_mode=(
+                    target_workspace_state.odoo_connection_mode.value
+                ),
+                odoo_base_url=target_workspace_state.odoo_base_url,
+                odoo_database=target_workspace_state.odoo_database,
+                intended_applications=target_workspace_state.intended_applications,
+                intended_models=target_workspace_state.intended_models,
+            )
 
     @staticmethod
     def _package_selection(package: DataVersionSourcePackage) -> SourceSelection:
@@ -754,6 +1334,29 @@ class MigrationRunPlanningService:
                         )
                     )
         return tuple(sorted(by_name.values()))
+
+    @staticmethod
+    def _semantic_requirement_hash(review: IntegratedRunReview) -> str:
+        """Match the reusable requirement meaning stored by CutoverPlan M5."""
+
+        return content_hash(
+            {
+                "application_order": list(review.application_order),
+                "contract_version": 1,
+                "dependencies": [
+                    item.to_dict() for item in review.dependencies
+                ],
+                "model_requirements": [
+                    item.to_dict() for item in review.model_requirements
+                ],
+                "reference_requirements": [
+                    item.to_dict() for item in review.reference_requirements
+                ],
+                "selected_revisions": [
+                    item.selection.to_dict() for item in review.applications
+                ],
+            }
+        )
 
     @staticmethod
     def _write_collision_issues(applications, issues) -> None:

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Review Production readiness &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ project.display_name }} &middot; Cutover plan revision {{ plan.version }}</p>
+      <h1>Review Production readiness</h1>
+      <p>Confirm that the latest data and Production Odoo access are independent from Integrated Test before Impodo creates the application workspaces.</p>
+    </div>
+    <span class="status {% if binding.state.value == 'ACTIVE' %}registered{% else %}draft{% endif %}">{{ binding.state.value|title }}</span>
+  </div>
+
+  <section class="form-card" aria-labelledby="fresh-evidence-title">
+    <div class="section-heading"><div><p class="eyebrow">Fresh evidence</p><h2 id="fresh-evidence-title">Production setup checks</h2></div></div>
+    <dl class="summary-list">
+      <div><dt>Latest data version</dt><dd>{{ data_version.label }} &middot; {{ data_version.state.value|title }}</dd></div>
+      <div><dt>Production Odoo review</dt><dd>{% if target_ready %}Complete{% else %}Needs attention{% endif %}</dd></div>
+      <div><dt>Read-only access</dt><dd>{{ read_status.label }}</dd></div>
+      <div><dt>Write access</dt><dd>{{ write_status.label }}</dd></div>
+    </dl>
+    {% if data_version.state.value != 'FROZEN' %}
+      <div class="notice"><strong>Accept the complete latest delivery.</strong><p>Open the setup workspace, confirm every required file and table, and accept the Production data version.</p></div>
+    {% endif %}
+    {% if not target_ready %}
+      <div class="notice"><strong>Production Odoo evidence needs attention.</strong><p>{{ target_error }}</p></div>
+    {% endif %}
+    <div class="actions"><a class="button secondary" href="/workspaces/{{ setup_workspace.workspace_id }}/overview">Open setup workspace</a></div>
+  </section>
+
+  {% if binding.state.value == 'ACTIVE' %}
+    <section class="next-action-card current"><div><p class="eyebrow">Ready</p><h2>Production applications were created</h2><p>Each application must still prepare, compare, receive approval, load, and reconcile using its own fresh evidence.</p></div><a class="button primary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Production run</a></section>
+  {% elif data_version.state.value == 'FROZEN' and target_ready and read_status.available %}
+    <form method="post" action="/projects/{{ project.project_id }}/production-runs/{{ run.migration_run_id }}/activate" class="form-card">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="operation_id" value="{{ operation_id }}">
+      <input type="hidden" name="expected_project_revision" value="{{ project.optimistic_revision }}">
+
+      {% if parameters %}<fieldset><legend>Values for this delivery</legend>{% for item in parameters %}<label>{{ item.recipe_name }} &middot; {{ item.definition.label or item.definition.logical_parameter_id }}<input name="{{ item.field_name }}" {% if item.definition.required %}required{% endif %}></label>{% endfor %}</fieldset>{% endif %}
+      {% if controls %}<fieldset><legend>Recipe controls</legend>{% for item in controls %}<label>{{ item.recipe_name }} &middot; {{ item.definition.label or item.definition.logical_control_id }}<input name="{{ item.field_name }}" {% if item.definition.required %}required{% endif %}></label>{% endfor %}</fieldset>{% endif %}
+
+      <label>
+        Separate Production write API key
+        <input type="password" name="write_api_key" autocomplete="new-password" {% if not write_status.available %}required{% endif %}>
+        <span class="hint">Impodo checks the exact planned Odoo models without writing a record. The read-only key is never used as a fallback.</span>
+      </label>
+      <label class="checkbox-row"><input type="checkbox" name="remember_write_api_key"><span>Save this write key in Windows Credential Manager</span></label>
+      <div class="notice"><strong>No Test evidence is promoted.</strong><p>Activation rechecks source shapes, uncovered values, target fields, references, parameters, controls, credentials, dependencies, and write ownership. Every Production application starts without comparison, approval, execution, or reconciliation evidence.</p></div>
+      <div class="actions"><button class="button primary" type="submit">Create Production applications</button><a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a></div>
+    </form>
+  {% endif %}
+{% endblock %}

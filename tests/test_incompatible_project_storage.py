@@ -112,6 +112,65 @@ class IncompatibleProjectStorageTests(unittest.TestCase):
         with self.assertRaises(MigrationStorageCompatibilityError):
             MigrationFoundationDatabase(self.root)
 
+    def test_successive_foundation_generation_is_preserved_with_older_cards(
+        self,
+    ) -> None:
+        legacy_project_id = str(uuid4())
+        foundation_project_id = str(uuid4())
+        _write_known_legacy_root(
+            self.root,
+            (
+                (
+                    legacy_project_id,
+                    "Original rehearsal",
+                    "REGISTERED",
+                    8,
+                    "2026-08-21T10:48:26+00:00",
+                ),
+            ),
+        )
+        self.assertEqual(
+            len(prepare_incompatible_project_storage(self.root)),
+            1,
+        )
+        _write_prior_foundation_root(
+            self.root,
+            foundation_project_id,
+            "Newer customer draft",
+        )
+
+        summaries = prepare_incompatible_project_storage(self.root)
+
+        self.assertEqual(
+            {item.display_name for item in summaries},
+            {"Original rehearsal", "Newer customer draft"},
+        )
+        archives = tuple((self.root / ".impodo-development-reset").iterdir())
+        self.assertEqual(len(archives), 2)
+        foundation_archive = next(
+            archive for archive in archives if (archive / "projects").is_dir()
+        )
+        self.assertTrue(
+            (
+                foundation_archive
+                / "projects"
+                / foundation_project_id
+                / "workspace-evidence.txt"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                foundation_archive
+                / ".project-evidence-protected"
+                / "protected.txt"
+            ).is_file()
+        )
+        self.assertTrue(
+            (foundation_archive / "artifacts" / "artifact.txt").is_file()
+        )
+        self.assertFalse((self.root / "registry.duckdb").exists())
+        self.assertFalse((self.root / "projects").exists())
+
     def test_projects_page_explains_why_an_older_project_is_unavailable(self) -> None:
         project_id = str(uuid4())
         _write_known_legacy_root(
@@ -210,3 +269,56 @@ def _write_known_legacy_root(
                 "INSERT INTO project VALUES (?, ?, ?, ?, ?)",
                 [project_id, name, status, revision, updated_at],
             )
+
+
+def _write_prior_foundation_root(
+    root: Path,
+    project_id: str,
+    display_name: str,
+) -> None:
+    with duckdb.connect(str(root / "registry.duckdb")) as connection:
+        connection.execute(
+            """
+            CREATE TABLE schema_version (
+                singleton_id INTEGER PRIMARY KEY,
+                generation VARCHAR NOT NULL,
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO schema_version VALUES (1, ?, 1)",
+            ["impodo-migration-registry-2026-08-m5"],
+        )
+        connection.execute(
+            """
+            CREATE TABLE migration_project (
+                project_id VARCHAR PRIMARY KEY,
+                display_name VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                optimistic_revision INTEGER NOT NULL,
+                updated_at VARCHAR NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO migration_project VALUES (?, ?, 'DRAFT', 4, ?)",
+            [
+                project_id,
+                display_name,
+                "2026-08-22T23:54:49+00:00",
+            ],
+        )
+    project_root = root / "projects" / project_id
+    project_root.mkdir(parents=True)
+    (project_root / "workspace-evidence.txt").write_text(
+        "preserved",
+        encoding="utf-8",
+    )
+    protected = root / ".project-evidence-protected"
+    protected.mkdir()
+    (protected / "protected.txt").write_text("preserved", encoding="utf-8")
+    artifacts = root / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "artifact.txt").write_text("preserved", encoding="utf-8")
+    (root / ".recipes-protected").mkdir()

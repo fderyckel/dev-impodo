@@ -1751,6 +1751,8 @@ class MigrationFoundationRepository:
                   FROM cutover_plan_qualification
                 UNION ALL SELECT 'CUTOVER_SELECTION', cutover_selection_id
                   FROM project_cutover_selection
+                UNION ALL SELECT 'PRODUCTION_RUN_BINDING',
+                  production_run_binding_id FROM production_run_binding
             ) identities
             WHERE identity = ?
             LIMIT 1

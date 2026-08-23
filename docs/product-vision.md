@@ -584,31 +584,34 @@ from Stage A through Stage K: data-version registration; governed CSV/XLSX intak
 governance; mapping and derived-dataset authoring; exact choice matching;
 durable canonical staging; quality, quarantine, and normalization review;
 read-only target comparison; automatic execution-snapshot freezing; explicit
-disposable local or remote loading; a durable write journal; and post-write read-back
-reconciliation. The expert profile path retains strict CSV and declared-sheet
+controlled local, remote Test, or qualified-plan Production loading; a durable
+write journal; and post-write read-back reconciliation. The expert profile
+path retains strict CSV and declared-sheet
 XLSX loading and feeds the same compiled planning semantics.
 
 It does not yet provide a general 100,000-row boundary for Python-fallback,
 related, or derived preparation; general mapping import/export; a separate
 functional mapping-approval lifecycle; optional clean-package certification;
-production loading; a target-side gateway; or hosted multi-user
-infrastructure.
+Production loading outside the selected qualified-plan workflow; a target-side
+gateway; or hosted multi-user infrastructure.
 
 Product ownership has accepted an architecture in which `MigrationProject` is
 the business root, DataVersion owns a complete Project source package, and
 several Project-scoped Recipes can participate in one qualified CutoverPlan.
-Phases M0 through M5 implement the Project root, source ownership, one-off
+Phases M0 through M6 implement the Project root, source ownership, one-off
 authoring, optional Recipe publication, and integrated Test planning with one
 isolated workspace per Recipe application. Exact ordered application evidence,
 qualified CutoverPlans, and separate rollout-candidate selection are now
-implemented. Fresh Production data intake and execution are not. The
+implemented. A selected plan now creates a fresh latest-data Production run,
+different Odoo 19 target binding, independent credential authority, and fresh
+isolated applications. The
 [Migration projects and multi-Recipe cutover implementation
 plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
 defines the remaining delivery phases.
 
 ## 8. Delivery roadmap
 
-**Current priority note, 2026-08-22:** The historical capability phases below
+**Current priority note, 2026-08-23:** The historical capability phases below
 describe the wider product progression. Product ownership has made the
 [Migration projects and multi-Recipe cutover
 plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)

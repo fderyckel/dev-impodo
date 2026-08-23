@@ -25,7 +25,8 @@ follow the implemented workspace stages:
 
 For Project-level reuse after Recipe publication, read
 [Integrated multi-Recipe Test runs](workflow/07-integrated-test-runs.md), then
-[Integrated Test qualification](workflow/08-integrated-qualification.md).
+[Integrated Test qualification](workflow/08-integrated-qualification.md), and
+[Production rollout with latest data](workflow/09-production-rollout.md).
 
 Each page maps visible behavior to routes, application services, durable
 evidence, invalidation rules, and focused tests. The machine-readable ownership
@@ -40,6 +41,7 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Project and workspace lifecycle](contracts/project-lifecycle.md)
 - [Integrated Test run lifecycle](contracts/integrated-run-lifecycle.md)
 - [Cutover plan lifecycle](contracts/cutover-plan-lifecycle.md)
+- [Production run lifecycle](contracts/production-run-lifecycle.md)
 - [Workflow evidence lifecycle](contracts/evidence-lifecycle.md)
 - [Canonical staging](contracts/canonical-staging.md)
 - [Preflight](contracts/preflight.md)

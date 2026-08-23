@@ -196,7 +196,7 @@ Odoo-side defense in depth remains mandatory: a dedicated service user,
 explicit ACLs and record rules, permitted-company context, model/field scope,
 and governed key rotation and revocation.
 
-### Controlled disposable-target execution and reconciliation
+### Controlled Test and qualified-plan Production execution
 
 The writer is a separate adapter from every read connector. A load is allowed
 only when all of these are true:
@@ -240,18 +240,23 @@ stores a hash-bound result with a downloadable fallout CSV. Only an uncertain
 create proven absent is marked safe to plan again; updates are never declared
 retry-safe merely because read-back could not find them.
 
-This is a disposable-target migration capability, not authorization for a
-production cutover, arbitrary Odoo business actions, or direct database
-writes.
+For ordinary workspaces this remains a disposable-target migration
+capability. M6 adds Production authority only for an active Project Production
+run that pins the current selected and authenticated CutoverPlan, a fresh
+frozen Production DataVersion, a different Odoo 19 target, and exact current
+read and write credential generations. The guard is repeated before writer
+construction. Neither qualification nor selection alone authorizes a write.
 
-A Recipe `PRODUCTION` DataVersion identifies fresh rollout data and the exact
-qualified revision selected for it. That lineage state does not weaken this
-writer policy and is not production write authorization.
+This boundary does not authorize arbitrary Odoo business actions or direct
+database writes. The reviewed API scope, execution snapshot, journal, and
+read-back rules remain unchanged in Production.
 
-The current Odoo-source policy records native production writes as
-`PRODUCTION_WRITE_UNSUPPORTED`. JSON-2 proves the configured endpoint/database,
-not a restored or cloned database instance, and separate read/write requests
-cannot provide the required atomic compare-and-write transaction.
+The current Odoo-source round-trip policy still records native source-system
+Production writes as `PRODUCTION_WRITE_UNSUPPORTED`. M6 writes only through
+fresh file-source Production applications after exact activation. JSON-2
+proves the configured endpoint/database, not a restored or cloned database
+instance, and separate read/write requests cannot provide an atomic
+compare-and-write transaction.
 
 ## Infrastructure dependency
 

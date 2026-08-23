@@ -73,11 +73,11 @@ applies those rules when documentation is created or rewritten.
   Recipes, Project-owned data packages, and integrated multi-Recipe cutover
   are the current product-delivery focus.
 - [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-  — accepted target architecture and active plan. Phases M0 through M5 are
+  — accepted target architecture and active plan. Phases M0 through M6 are
   complete: the Project-first browser now supports one-off work, optional
   Recipe publication, and integrated Test planning with isolated Recipe
   applications, exact CutoverPlan qualification, and rollout-candidate
-  selection. Phase M6 is next.
+  selection, followed by a fresh latest-data Production run. Phase M7 is next.
 - [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
   — completed architecture-only contracts and executable fixtures for Project
   ownership, optional and multiple Recipes, Project-owned data packages,
@@ -98,6 +98,9 @@ applies those rules when documentation is created or rewritten.
 - [Migration Projects Phase M4 multi-Recipe Test runs](plans/migration-projects-phase-m4-multi-recipe-runs.md)
   — one Project-owned Test run, unioned Odoo requirements, isolated Recipe
   applications, collision checks, and bounded integrated progress.
+- [Migration Projects Phase M6 Production rollout](plans/migration-projects-phase-m6-production-rollout.md)
+  — fresh latest-data acceptance, exact selected-plan activation, independent
+  Production authority, isolated applications, and restart-safe recovery.
 - [Migration Projects Phase M5 integrated qualification](plans/migration-projects-phase-m5-cutover-qualification.md)
   — immutable CutoverPlan revisions, complete ordered Test evidence,
   protected qualification, dependency write guards, and separate rollout

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from io import StringIO
+from secrets import compare_digest
 from typing import Sequence
 from urllib.parse import urlencode
 
@@ -22,6 +23,7 @@ from ...odoo_writer import OdooWriteError
 from ...odoo_readback import OdooReadbackError
 from ...models import OdooReadIdentity, OdooWriteIdentity
 from ...migration_foundation import MigrationConflictError
+from ...migration_production import ProductionRunError
 from ...projects import WorkspaceState, OdooConnectionMode, ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
@@ -70,14 +72,18 @@ async def _probe_current_read_identity(
     context: WebContext,
     project: WorkspaceState,
     preview: ExecutionPreview,
-) -> tuple[OdooReadIdentity | None, str]:
+) -> tuple[OdooReadIdentity | None, str, str | None]:
     """Re-probe the exact comparison credential before any remote write."""
 
     if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
-        return None, ""
+        return None, "", None
+    credential_owner = context.production_runs.credential_workspace(
+        project.project_id,
+        actor=context.actor,
+    )
     credential = get_target_credential(
         context.secret_store,
-        project,
+        credential_owner,
         TargetCredentialRole.READ,
     )
     if credential is None:
@@ -92,7 +98,7 @@ async def _probe_current_read_identity(
         credential.secret,
         preview.snapshot.readable_models,
     )
-    return identity, credential.binding_hash
+    return identity, credential.binding_hash, credential.secret
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +167,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
         status_code: int = 200,
     ):
         project = context.queries.get(project_id)
+        credential_owner = context.production_runs.credential_workspace(
+            project_id,
+            actor=context.actor,
+        )
         preview = context.execution.current_preview(project_id)
         if preview is None:
             return RedirectResponse(
@@ -173,7 +183,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             has_stored_write_key = bool(
                 get_target_credential(
                     context.secret_store,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.WRITE,
                 )
             )
@@ -328,6 +338,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
             },
         )
         project = context.queries.get(project_id)
+        credential_owner = context.production_runs.credential_workspace(
+            project_id,
+            actor=context.actor,
+        )
         try:
             context.authorization.require(
                 context.actor,
@@ -344,7 +358,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
             if preview.scope_error:
                 raise WorkspaceError(preview.scope_error)
-            read_identity, read_credential_binding_hash = (
+            (
+                read_identity,
+                read_credential_binding_hash,
+                read_credential_secret,
+            ) = (
                 await _probe_current_read_identity(
                     context,
                     project,
@@ -364,7 +382,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 )
                 write_credential = store_target_credential(
                     context.secret_store,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.WRITE,
                     submitted_key,
                     persistent=(
@@ -374,7 +392,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 )
                 audit_stored_target_credential(
                     context.projects,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.WRITE,
                     write_credential,
                     actor=context.actor,
@@ -382,12 +400,23 @@ def build_execution_router(context: WebContext) -> APIRouter:
             else:
                 write_credential = get_target_credential(
                     context.secret_store,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.WRITE,
                 )
             if write_credential is None:
                 raise SecretStoreError(
                     "Enter a separate Odoo write API key for this exact target"
+                )
+            if (
+                credential_owner.project_id != project.project_id
+                and read_credential_secret is not None
+                and compare_digest(
+                    read_credential_secret,
+                    write_credential.secret,
+                )
+            ):
+                raise SecretStoreError(
+                    "Use a different Odoo API key for write access"
                 )
             api_key = write_credential.secret
             if not submitted_key:
@@ -397,6 +426,17 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     preview,
                     api_key,
                 )
+            context.production_runs.assert_execution_authority(
+                project_id,
+                read_identity=read_identity,
+                read_credential_generation=read_credential_binding_hash,
+                expected_read_credential_generation=(
+                    preview.snapshot.read_credential_binding_hash
+                ),
+                write_identity=write_identity,
+                write_credential_generation=write_credential.binding_hash,
+                actor=context.actor,
+            )
             executor = context.write_executor_factory(
                 project,
                 api_key,
@@ -420,6 +460,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             AuthorizationError,
             ConnectorError,
             MigrationConflictError,
+            ProductionRunError,
             OdooWriteError,
             ProjectError,
             SecretStoreError,
@@ -490,6 +531,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
             },
         )
         project = context.queries.get(project_id)
+        credential_owner = context.production_runs.credential_workspace(
+            project_id,
+            actor=context.actor,
+        )
         try:
             context.authorization.require(
                 context.actor,
@@ -512,7 +557,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             else:
                 write_credential = get_target_credential(
                     context.secret_store,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.WRITE,
                 )
                 if write_credential is None:
@@ -530,14 +575,14 @@ def build_execution_router(context: WebContext) -> APIRouter:
             if submitted_key:
                 write_credential = store_target_credential(
                     context.secret_store,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.WRITE,
                     submitted_key,
                     persistent=requested_persistence,
                 )
                 audit_stored_target_credential(
                     context.projects,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.WRITE,
                     write_credential,
                     actor=context.actor,

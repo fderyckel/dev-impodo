@@ -9,8 +9,9 @@ status: current
 ## Scope
 
 This contract governs Project CutoverPlan meaning, Test qualification,
-rollout-candidate selection, persistence, and performance. It does not define
-fresh Production application, which begins in M6.
+rollout-candidate selection, persistence, and performance. The separate
+[Production run lifecycle](production-run-lifecycle.md) governs use of that
+selection with fresh rollout evidence.
 
 ## Ownership and meaning
 
@@ -71,5 +72,6 @@ source row.
 
 - [Integrated Test run lifecycle](integrated-run-lifecycle.md)
 - [Execution and reconciliation](execution-and-reconciliation.md)
+- [Production run lifecycle](production-run-lifecycle.md)
 - [Developer workflow](../workflow/08-integrated-qualification.md)
 - [Data-manager guide](../../user/guides/qualify-integrated-test.md)

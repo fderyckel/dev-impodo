@@ -536,6 +536,57 @@ def build_specs() -> tuple[ProcessSpec, ...]:
         ),
     )
 
+    production_rollout = ProcessSpec(
+        slug="09-production-rollout",
+        process_id="Process_ProductionRollout",
+        name="Production rollout with latest data",
+        documentation=(
+            "Current M6 fresh Production setup, exact selected-plan activation, "
+            "isolated application work, guarded execution, and reconciliation. "
+            "Test supplies qualified reusable meaning only."
+        ),
+        nodes=(
+            event("Start_PR", "startEvent", "Rollout candidate selected", 70, 130, "Lane_DataManager"),
+            task("Task_PR_Start", "userTask", "Start Production setup and enter export cutoff", 150, 110, "Lane_DataManager"),
+            task("Task_PR_Create", "serviceTask", "Create fresh DataVersion, run, setup workspace, and binding", 380, 330, "Lane_Impodo"),
+            task("Task_PR_Data", "userTask", "Add and accept the complete latest delivery", 610, 110, "Lane_DataManager"),
+            task("Task_PR_Target", "userTask", "Capture Production Odoo 19 with read-only access", 840, 110, "Lane_DataManager"),
+            task("Task_PR_Write", "userTask", "Supply a different bounded write key", 1070, 110, "Lane_DataManager"),
+            task("Task_PR_Check", "serviceTask", "Recheck plan, coverage, drift, target, controls, and authority", 1300, 330, "Lane_Impodo"),
+            gateway("Gateway_PR_Ready", "Activation ready?", 1530, 340, "Lane_Impodo"),
+            task("Task_PR_Recover", "userTask", "Complete the named recovery action", 1650, 110, "Lane_DataManager"),
+            task("Task_PR_Activate", "serviceTask", "Activate exact plan and create isolated applications", 1650, 330, "Lane_Impodo"),
+            task("Task_PR_Applications", "userTask", "Prepare, compare, approve, load, and verify each application", 1880, 110, "Lane_DataManager"),
+            task("Task_PR_Guard", "serviceTask", "Recheck credential and dependency authority before each write", 2110, 330, "Lane_Impodo"),
+            gateway("Gateway_PR_Verified", "All applications reconciled?", 2340, 340, "Lane_Impodo"),
+            event("End_PR_Attention", "endEvent", "Retain evidence and resolve fallout", 2460, 127, "Lane_DataManager"),
+            event("End_PR_Complete", "endEvent", "Production rollout verified", 2460, 357, "Lane_Impodo"),
+        ),
+        flows=(
+            Flow("Flow_PR_01", "Start_PR", "Task_PR_Start"),
+            Flow("Flow_PR_02", "Task_PR_Start", "Task_PR_Create"),
+            Flow("Flow_PR_03", "Task_PR_Create", "Task_PR_Data"),
+            Flow("Flow_PR_04", "Task_PR_Data", "Task_PR_Target"),
+            Flow("Flow_PR_05", "Task_PR_Target", "Task_PR_Write"),
+            Flow("Flow_PR_06", "Task_PR_Write", "Task_PR_Check"),
+            Flow("Flow_PR_07", "Task_PR_Check", "Gateway_PR_Ready"),
+            Flow("Flow_PR_08", "Gateway_PR_Ready", "Task_PR_Recover", "No"),
+            Flow("Flow_PR_09", "Task_PR_Recover", "Task_PR_Data", "Retry", ((1650, 145), (1590, 145), (1590, 70), (685, 70), (685, 110))),
+            Flow("Flow_PR_10", "Gateway_PR_Ready", "Task_PR_Activate", "Yes"),
+            Flow("Flow_PR_11", "Task_PR_Activate", "Task_PR_Applications"),
+            Flow("Flow_PR_12", "Task_PR_Applications", "Task_PR_Guard"),
+            Flow("Flow_PR_13", "Task_PR_Guard", "Gateway_PR_Verified"),
+            Flow("Flow_PR_14", "Gateway_PR_Verified", "End_PR_Complete", "Yes"),
+            Flow("Flow_PR_15", "Gateway_PR_Verified", "End_PR_Attention", "No"),
+        ),
+        message_flows=(
+            MessageFlow("Message_PR_Read", "Task_PR_Target", "Participant_Odoo", "Read schema and supporting values"),
+            MessageFlow("Message_PR_ReadResponse", "Participant_Odoo", "Task_PR_Target", "Current Production evidence"),
+            MessageFlow("Message_PR_WriteProbe", "Task_PR_Check", "Participant_Odoo", "Bounded write-identity probe"),
+            MessageFlow("Message_PR_WriteProbeResponse", "Participant_Odoo", "Task_PR_Check", "Current model permissions"),
+        ),
+    )
+
     return (
         master,
         setup,
@@ -547,6 +598,7 @@ def build_specs() -> tuple[ProcessSpec, ...]:
         load,
         integrated_test,
         integrated_qualification,
+        production_rollout,
     )
 
 

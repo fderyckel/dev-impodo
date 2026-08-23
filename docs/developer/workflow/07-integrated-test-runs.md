@@ -116,7 +116,7 @@ rejected.
 
 ## Odoo 19 and performance
 
-The current registry generation is `impodo-migration-registry-2026-08-m5`. Older
+The current registry generation is `impodo-migration-registry-2026-08-m6`. Older
 development storage is rejected rather than upgraded. The DataVersion and
 MigrationWorkspace source stores remain on their exact M2 generations because
 their ownership contracts did not change.

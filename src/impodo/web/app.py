@@ -54,6 +54,7 @@ from ..application.cutover_plan_service import (
     CutoverPlanService,
     WorkspaceIntegratedQualificationEvidenceReader,
 )
+from ..application.production_cutover_service import ProductionCutoverService
 from ..application.project_recipe_application_compiler import (
     ProjectRecipeApplicationCompiler,
 )
@@ -99,6 +100,7 @@ from ..adapters.duckdb.migration_run_planning_repository import (
     MigrationRunPlanningRepository,
 )
 from ..adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
+from ..adapters.duckdb.production_run_repository import ProductionRunRepository
 from ..adapters.duckdb.run_aware_schema_repository import (
     RunAwareSchemaRepository,
 )
@@ -193,6 +195,7 @@ from .routers.execution import build_execution_router
 from .routers.preparation import build_preparation_router
 from .routers.integrated_runs import build_integrated_runs_router
 from .routers.cutover_plans import build_cutover_plans_router
+from .routers.production_runs import build_production_runs_router
 from .routers.migration_projects import build_migration_projects_router
 from .routers.workspace_setup import build_workspace_setup_router
 from .routers.quality import build_quality_router
@@ -308,6 +311,7 @@ def create_local_app(
         foundation_repository,
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store),
     )
+    production_run_repository = ProductionRunRepository(foundation_repository)
     project_recipe_repository = ProjectRecipeRepository(
         foundation_repository,
         protected_recipe_store,
@@ -444,6 +448,18 @@ def create_local_app(
         cutover_plans=cutover_plan_repository,
         authorization=resolved_authorization,
     )
+    production_runs = ProductionCutoverService(
+        projects=migration_projects,
+        data_versions=data_versions,
+        runs=migration_runs,
+        migration_workspaces=migration_workspaces,
+        source_packages=source_packages,
+        workspace_states=projects,
+        cutover_plans=cutover_plan_repository,
+        production_runs=production_run_repository,
+        run_planning=run_planning,
+        authorization=resolved_authorization,
+    )
     quality = QualityService(
         mapping_repository,
         source_repository,
@@ -484,14 +500,18 @@ def create_local_app(
     )
 
     def current_read_credential_binding(project: WorkspaceState) -> str:
-        if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
-            return local_read_credential_binding_hash(project)
-        if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+        credential_owner = production_runs.credential_workspace(
+            project.project_id,
+            actor=actor,
+        )
+        if credential_owner.odoo_connection_mode is OdooConnectionMode.LOCAL:
+            return local_read_credential_binding_hash(credential_owner)
+        if credential_owner.odoo_connection_mode is not OdooConnectionMode.REMOTE:
             return ""
         try:
             credential = get_target_credential(
                 resolved_secret_store,
-                project,
+                credential_owner,
                 TargetCredentialRole.READ,
             )
         except SecretStoreError:
@@ -570,6 +590,7 @@ def create_local_app(
         recipe_publication=recipe_publication,
         run_planning=run_planning,
         cutover_plans=cutover_plans,
+        production_runs=production_runs,
         data_version_source_projection=data_version_source_projection,
         projects=projects,
         intake=SourceIntakeService(projects, resolved_artifacts),
@@ -714,6 +735,7 @@ def create_local_app(
         build_migration_projects_router(context),
         build_integrated_runs_router(context),
         build_cutover_plans_router(context),
+        build_production_runs_router(context),
         build_workspace_setup_router(context),
         build_target_router(context),
         build_sources_router(context),

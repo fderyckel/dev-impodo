@@ -141,6 +141,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             {"csrf_token", "read_api_key", "read_api_key_storage"},
         )
         project = context.queries.get(project_id)
+        credential_owner = context.production_runs.credential_workspace(
+            project_id,
+            actor=context.actor,
+        )
         verified_read_identity = None
 
         def reader(requirements):
@@ -161,14 +165,14 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     )
                 credential = store_target_credential(
                     context.secret_store,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.READ,
                     submitted_key,
                     persistent=_read_key_persistence(form),
                 )
                 audit_stored_target_credential(
                     context.projects,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.READ,
                     credential,
                     actor=context.actor,
@@ -177,7 +181,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             else:
                 credential = get_target_credential(
                     context.secret_store,
-                    project,
+                    credential_owner,
                     TargetCredentialRole.READ,
                 )
             if credential is not None:

@@ -43,7 +43,11 @@ class DocumentationQualityTests(unittest.TestCase):
             "| Integrated Test qualification | yes | yes |",
             first,
         )
-        self.assertEqual(first.count("| yes | yes |"), 9)
+        self.assertIn(
+            "| Production rollout with latest data | yes | yes |",
+            first,
+        )
+        self.assertEqual(first.count("| yes | yes |"), 10)
 
     def test_workflow_registers_documentation_standards_and_skill(self) -> None:
         manifest = load_manifest(ROOT)

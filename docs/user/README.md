@@ -24,6 +24,7 @@ categories, and bills of materials, use the
 - [Prepare related tables](guides/related-tables.md)
 - [Plan an integrated multi-Recipe Test run](guides/integrated-test-runs.md)
 - [Qualify an integrated Test](guides/qualify-integrated-test.md)
+- [Run the qualified plan with latest data](guides/production-rollout.md)
 
 The user pages explain what to do, what to check, and what completion means.
 Implementation details are kept in the paired developer pages.

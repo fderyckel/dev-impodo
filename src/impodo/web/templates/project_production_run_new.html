@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Start Production setup &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ project.display_name }}</p>
+      <h1>Start Production setup</h1>
+      <p>Create a fresh data version for the latest legacy-ERP delivery. Integrated Test supplies the selected Recipe rules, but none of its data, access, approval, or results become Production evidence.</p>
+    </div>
+  </div>
+
+  {% if not selection %}
+    <section class="notice" aria-labelledby="selection-required">
+      <h2 id="selection-required">Select a qualified Cutover plan first</h2>
+      <p>Complete Integrated Test qualification and select its exact plan revision as the rollout candidate.</p>
+    </section>
+  {% else %}
+    <section class="form-card">
+      <p class="eyebrow">Selected rollout candidate</p>
+      <h2>Cutover plan revision {{ selection.cutover_plan_revision }}</h2>
+      <p>This qualification identifies tested reusable meaning. Starting setup does not authorize an Odoo write.</p>
+    </section>
+    <form method="post" action="/projects/{{ project.project_id }}/production-runs/new" class="form-card">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="operation_id" value="{{ operation_id }}">
+      <input type="hidden" name="expected_project_revision" value="{{ project.optimistic_revision }}">
+      <input type="hidden" name="cutover_selection_id" value="{{ selection.cutover_selection_id }}">
+      <label>
+        Production run name
+        <input name="label" value="{{ label }}" required maxlength="200">
+      </label>
+      <label>
+        Latest export cutoff
+        <input name="export_as_of" value="{{ export_as_of }}" required maxlength="100" placeholder="2026-08-31 18:00 Bangkok time">
+        <span class="hint">Use the business cutoff that all files in this delivery are meant to represent.</span>
+      </label>
+      <div class="notice">
+        <strong>What Impodo creates</strong>
+        <p>Impodo creates one draft Production data version and one setup workspace. You will add and accept the complete latest delivery, then connect the Production Odoo 19 database with separate read and write access.</p>
+      </div>
+      <div class="actions">
+        <button class="button primary" type="submit">Create Production setup</button>
+        <a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

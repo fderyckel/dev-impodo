@@ -100,12 +100,14 @@ it can qualify the plan.
 
 ## Next stage
 
-The selected result is a rollout candidate only. A later Production phase must
-use a fresh complete data version, independent target and credentials, fresh
-comparison, explicit approval, execution, and reconciliation.
+The selected result is a rollout candidate only. Continue with [Production
+rollout with latest data](production-rollout.md), which creates a fresh
+complete data version, independent target and credentials, fresh comparison,
+explicit approval, execution, and reconciliation.
 
 ## Related documentation
 
 - [Plan an integrated Test run](integrated-test-runs.md)
 - [Load into Odoo](../workflow/06-load-into-odoo.md)
+- [Production rollout with latest data](production-rollout.md)
 - [Developer implementation](../../developer/workflow/08-integrated-qualification.md)

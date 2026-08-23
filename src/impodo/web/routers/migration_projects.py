@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from ...data_versions import DataVersionPurpose
 from ...migration_foundation import MigrationFoundationError
 from ...project_recipes import ProjectRecipeError
 from ...projects import SourceMode
@@ -149,8 +150,22 @@ def _render_project_overview(
         actor=context.actor,
     )
     recipes = context.project_recipes.list(project_id, actor=context.actor)
+    cutover_selection = context.cutover_plans.repository.current_selection(project_id)
+    production_bindings = context.production_runs.production_runs.list_for_project(
+        project_id
+    )
+    data_version_by_id = {
+        item.data_version_id: item for item in data_versions
+    }
+    run_by_id = {item.migration_run_id: item for item in runs}
     authoring_workspace = next(
-        (item for item in workspaces if item.recipe_application_id is None),
+        (
+            item
+            for item in workspaces
+            if item.recipe_application_id is None
+            and data_version_by_id[item.data_version_id].purpose
+            is DataVersionPurpose.AUTHORING
+        ),
         None,
     )
     authoring_data_version = (
@@ -181,6 +196,10 @@ def _render_project_overview(
         runs=runs,
         workspaces=workspaces,
         recipes=recipes,
+        cutover_selection=cutover_selection,
+        production_bindings=production_bindings,
+        production_data_versions=data_version_by_id,
+        production_runs=run_by_id,
         authoring_workspace=authoring_workspace,
         authoring_data_version=authoring_data_version,
         recipe_draft=recipe_draft,

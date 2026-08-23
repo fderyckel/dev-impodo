@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_ProductionRollout" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_ProductionRollout" name="Production rollout with latest data" isExecutable="false">
+    <bpmn:documentation>Current M6 fresh Production setup, exact selected-plan activation, isolated application work, guarded execution, and reconciliation. Test supplies qualified reusable meaning only.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_ProductionRollout">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_PR</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Data</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Target</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Write</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Recover</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Applications</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_PR_Attention</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_PR_Create</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Check</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PR_Ready</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Activate</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PR_Guard</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PR_Verified</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_PR_Complete</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_PR" name="Rollout candidate selected">
+      <bpmn:outgoing>Flow_PR_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_PR_Start" name="Start Production setup and enter export cutoff">
+      <bpmn:incoming>Flow_PR_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_PR_Create" name="Create fresh DataVersion, run, setup workspace, and binding">
+      <bpmn:incoming>Flow_PR_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_PR_Data" name="Add and accept the complete latest delivery">
+      <bpmn:incoming>Flow_PR_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_04</bpmn:outgoing>
+      <bpmn:incoming>Flow_PR_09</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_PR_Target" name="Capture Production Odoo 19 with read-only access">
+      <bpmn:incoming>Flow_PR_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_05</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_PR_Write" name="Supply a different bounded write key">
+      <bpmn:incoming>Flow_PR_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_06</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_PR_Check" name="Recheck plan, coverage, drift, target, controls, and authority">
+      <bpmn:incoming>Flow_PR_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_PR_Ready" name="Activation ready?">
+      <bpmn:incoming>Flow_PR_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_08</bpmn:outgoing>
+      <bpmn:outgoing>Flow_PR_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_PR_Recover" name="Complete the named recovery action">
+      <bpmn:incoming>Flow_PR_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_PR_Activate" name="Activate exact plan and create isolated applications">
+      <bpmn:incoming>Flow_PR_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_11</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_PR_Applications" name="Prepare, compare, approve, load, and verify each application">
+      <bpmn:incoming>Flow_PR_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_12</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_PR_Guard" name="Recheck credential and dependency authority before each write">
+      <bpmn:incoming>Flow_PR_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_PR_Verified" name="All applications reconciled?">
+      <bpmn:incoming>Flow_PR_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_PR_14</bpmn:outgoing>
+      <bpmn:outgoing>Flow_PR_15</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_PR_Attention" name="Retain evidence and resolve fallout">
+      <bpmn:incoming>Flow_PR_15</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_PR_Complete" name="Production rollout verified">
+      <bpmn:incoming>Flow_PR_14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_PR_01" sourceRef="Start_PR" targetRef="Task_PR_Start" />
+    <bpmn:sequenceFlow id="Flow_PR_02" sourceRef="Task_PR_Start" targetRef="Task_PR_Create" />
+    <bpmn:sequenceFlow id="Flow_PR_03" sourceRef="Task_PR_Create" targetRef="Task_PR_Data" />
+    <bpmn:sequenceFlow id="Flow_PR_04" sourceRef="Task_PR_Data" targetRef="Task_PR_Target" />
+    <bpmn:sequenceFlow id="Flow_PR_05" sourceRef="Task_PR_Target" targetRef="Task_PR_Write" />
+    <bpmn:sequenceFlow id="Flow_PR_06" sourceRef="Task_PR_Write" targetRef="Task_PR_Check" />
+    <bpmn:sequenceFlow id="Flow_PR_07" sourceRef="Task_PR_Check" targetRef="Gateway_PR_Ready" />
+    <bpmn:sequenceFlow id="Flow_PR_08" sourceRef="Gateway_PR_Ready" targetRef="Task_PR_Recover" name="No" />
+    <bpmn:sequenceFlow id="Flow_PR_09" sourceRef="Task_PR_Recover" targetRef="Task_PR_Data" name="Retry" />
+    <bpmn:sequenceFlow id="Flow_PR_10" sourceRef="Gateway_PR_Ready" targetRef="Task_PR_Activate" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_PR_11" sourceRef="Task_PR_Activate" targetRef="Task_PR_Applications" />
+    <bpmn:sequenceFlow id="Flow_PR_12" sourceRef="Task_PR_Applications" targetRef="Task_PR_Guard" />
+    <bpmn:sequenceFlow id="Flow_PR_13" sourceRef="Task_PR_Guard" targetRef="Gateway_PR_Verified" />
+    <bpmn:sequenceFlow id="Flow_PR_14" sourceRef="Gateway_PR_Verified" targetRef="End_PR_Complete" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_PR_15" sourceRef="Gateway_PR_Verified" targetRef="End_PR_Attention" name="No" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_ProductionRollout">
+    <bpmn:participant id="Participant_Process_ProductionRollout" name="Production rollout with latest data" processRef="Process_ProductionRollout" />
+    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:messageFlow id="Message_PR_Read" name="Read schema and supporting values" sourceRef="Task_PR_Target" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_PR_ReadResponse" name="Current Production evidence" sourceRef="Participant_Odoo" targetRef="Task_PR_Target" />
+    <bpmn:messageFlow id="Message_PR_WriteProbe" name="Bounded write-identity probe" sourceRef="Task_PR_Check" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_PR_WriteProbeResponse" name="Current model permissions" sourceRef="Participant_Odoo" targetRef="Task_PR_Check" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_ProductionRollout">
+    <bpmndi:BPMNPlane id="Plane_Process_ProductionRollout" bpmnElement="Collaboration_Process_ProductionRollout">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_ProductionRollout" bpmnElement="Participant_Process_ProductionRollout" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="2666" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="2636" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="2636" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_PR" bpmnElement="Start_PR">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Start" bpmnElement="Task_PR_Start">
+        <dc:Bounds x="220" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Create" bpmnElement="Task_PR_Create">
+        <dc:Bounds x="450" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Data" bpmnElement="Task_PR_Data">
+        <dc:Bounds x="680" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Target" bpmnElement="Task_PR_Target">
+        <dc:Bounds x="910" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Write" bpmnElement="Task_PR_Write">
+        <dc:Bounds x="1140" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Check" bpmnElement="Task_PR_Check">
+        <dc:Bounds x="1370" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_PR_Ready" bpmnElement="Gateway_PR_Ready" isMarkerVisible="true">
+        <dc:Bounds x="1600" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Recover" bpmnElement="Task_PR_Recover">
+        <dc:Bounds x="1720" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Activate" bpmnElement="Task_PR_Activate">
+        <dc:Bounds x="1720" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Applications" bpmnElement="Task_PR_Applications">
+        <dc:Bounds x="1950" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PR_Guard" bpmnElement="Task_PR_Guard">
+        <dc:Bounds x="2180" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_PR_Verified" bpmnElement="Gateway_PR_Verified" isMarkerVisible="true">
+        <dc:Bounds x="2410" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PR_Attention" bpmnElement="End_PR_Attention">
+        <dc:Bounds x="2530" y="127" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PR_Complete" bpmnElement="End_PR_Complete">
+        <dc:Bounds x="2530" y="357" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_01" bpmnElement="Flow_PR_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="220" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_02" bpmnElement="Flow_PR_02">
+        <di:waypoint x="370" y="145" />
+        <di:waypoint x="450" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_03" bpmnElement="Flow_PR_03">
+        <di:waypoint x="600" y="365" />
+        <di:waypoint x="680" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_04" bpmnElement="Flow_PR_04">
+        <di:waypoint x="830" y="145" />
+        <di:waypoint x="910" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_05" bpmnElement="Flow_PR_05">
+        <di:waypoint x="1060" y="145" />
+        <di:waypoint x="1140" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_06" bpmnElement="Flow_PR_06">
+        <di:waypoint x="1290" y="145" />
+        <di:waypoint x="1370" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_07" bpmnElement="Flow_PR_07">
+        <di:waypoint x="1520" y="365" />
+        <di:waypoint x="1600" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_08" bpmnElement="Flow_PR_08">
+        <di:waypoint x="1650" y="365" />
+        <di:waypoint x="1720" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_09" bpmnElement="Flow_PR_09">
+        <di:waypoint x="1720" y="145" />
+        <di:waypoint x="1660" y="145" />
+        <di:waypoint x="1660" y="70" />
+        <di:waypoint x="755" y="70" />
+        <di:waypoint x="755" y="110" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_10" bpmnElement="Flow_PR_10">
+        <di:waypoint x="1650" y="365" />
+        <di:waypoint x="1720" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_11" bpmnElement="Flow_PR_11">
+        <di:waypoint x="1870" y="365" />
+        <di:waypoint x="1950" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_12" bpmnElement="Flow_PR_12">
+        <di:waypoint x="2100" y="145" />
+        <di:waypoint x="2180" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_13" bpmnElement="Flow_PR_13">
+        <di:waypoint x="2330" y="365" />
+        <di:waypoint x="2410" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_14" bpmnElement="Flow_PR_14">
+        <di:waypoint x="2460" y="365" />
+        <di:waypoint x="2530" y="375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PR_15" bpmnElement="Flow_PR_15">
+        <di:waypoint x="2460" y="365" />
+        <di:waypoint x="2530" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_Participant_Odoo" bpmnElement="Participant_Odoo" isHorizontal="true">
+        <dc:Bounds x="30" y="560" width="2666" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Message_PR_Read" bpmnElement="Message_PR_Read">
+        <di:waypoint x="935" y="180" />
+        <di:waypoint x="935" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_PR_ReadResponse" bpmnElement="Message_PR_ReadResponse">
+        <di:waypoint x="1035" y="560" />
+        <di:waypoint x="1035" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_PR_WriteProbe" bpmnElement="Message_PR_WriteProbe">
+        <di:waypoint x="1395" y="400" />
+        <di:waypoint x="1395" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_PR_WriteProbeResponse" bpmnElement="Message_PR_WriteProbeResponse">
+        <di:waypoint x="1495" y="560" />
+        <di:waypoint x="1495" y="400" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

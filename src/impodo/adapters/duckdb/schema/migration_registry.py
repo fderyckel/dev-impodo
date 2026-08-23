@@ -9,7 +9,7 @@ import duckdb
 from ....migration_foundation import MigrationStorageCompatibilityError
 
 
-MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m5"
+MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m6"
 MIGRATION_REGISTRY_VERSION = 1
 
 
@@ -293,6 +293,33 @@ EXPECTED_REGISTRY_COLUMNS = {
         "selected_by_display_name",
         "selected_at",
     ),
+    "production_run_binding": (
+        "production_run_binding_id",
+        "project_id",
+        "migration_run_id",
+        "data_version_id",
+        "setup_workspace_id",
+        "cutover_selection_id",
+        "qualification_id",
+        "cutover_plan_id",
+        "cutover_plan_revision",
+        "plan_content_hash",
+        "test_target_binding_hash",
+        "state",
+        "target_binding_id",
+        "read_credential_generation",
+        "write_credential_generation",
+        "write_principal_hash",
+        "write_permission_hash",
+        "write_context_hash",
+        "parameter_values_hash",
+        "control_values_hash",
+        "activation_evidence_hash",
+        "content_hash",
+        "created_at",
+        "activated_at",
+        "contract_version",
+    ),
     "project_operation_intent": (
         "operation_id",
         "project_id",
@@ -332,7 +359,7 @@ def ensure_migration_registry_schema(
     connection: duckdb.DuckDBPyConnection,
     database_path: Path,
 ) -> None:
-    """Create an empty M5 registry or reject every other schema exactly."""
+    """Create an empty M6 registry or reject every other schema exactly."""
 
     tables = _tables(connection)
     if not tables:
@@ -796,6 +823,43 @@ def _initialize_migration_registry(
                 selected_by_subject VARCHAR NOT NULL,
                 selected_by_display_name VARCHAR NOT NULL,
                 selected_at VARCHAR NOT NULL,
+                FOREIGN KEY (cutover_plan_id, cutover_plan_revision)
+                    REFERENCES cutover_plan_revision(cutover_plan_id, version)
+            );
+
+            CREATE TABLE production_run_binding (
+                production_run_binding_id VARCHAR PRIMARY KEY,
+                project_id VARCHAR NOT NULL REFERENCES
+                    migration_project_identity(project_id),
+                migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
+                    migration_run_identity(migration_run_id),
+                data_version_id VARCHAR NOT NULL REFERENCES
+                    data_version_identity(data_version_id),
+                setup_workspace_id VARCHAR NOT NULL UNIQUE REFERENCES
+                    migration_workspace_identity(workspace_id),
+                cutover_selection_id VARCHAR NOT NULL REFERENCES
+                    project_cutover_selection(cutover_selection_id),
+                qualification_id VARCHAR NOT NULL REFERENCES
+                    cutover_plan_qualification(qualification_id),
+                cutover_plan_id VARCHAR NOT NULL,
+                cutover_plan_revision INTEGER NOT NULL,
+                plan_content_hash VARCHAR NOT NULL,
+                test_target_binding_hash VARCHAR NOT NULL,
+                state VARCHAR NOT NULL CHECK (state IN ('SETUP', 'ACTIVE')),
+                target_binding_id VARCHAR REFERENCES
+                    target_binding(target_binding_id),
+                read_credential_generation VARCHAR,
+                write_credential_generation VARCHAR,
+                write_principal_hash VARCHAR,
+                write_permission_hash VARCHAR,
+                write_context_hash VARCHAR,
+                parameter_values_hash VARCHAR,
+                control_values_hash VARCHAR,
+                activation_evidence_hash VARCHAR,
+                content_hash VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL,
+                activated_at VARCHAR,
+                contract_version INTEGER NOT NULL CHECK (contract_version = 1),
                 FOREIGN KEY (cutover_plan_id, cutover_plan_revision)
                     REFERENCES cutover_plan_revision(cutover_plan_id, version)
             );

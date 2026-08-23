@@ -28,10 +28,12 @@ the historical `project.duckdb` filename or `WorkspaceState` type name.
 | Plan an integrated Test run | `MigrationRunPlanningService` | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `ProjectRecipeApplicationCompiler` | one isolated workspace and run-aware target projections |
 | Version and qualify an integrated plan | `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
+| Run selected meaning with latest data | `ProductionCutoverService` | `ProductionRunRepository`, Production run routes, shared workspace engine |
 
-`web/app.py` composes these boundaries. It does not compose the superseded
-Recipe-root list, creation, deletion, Test-application, Production-application,
-or qualification services.
+`web/app.py` composes these Project-first boundaries, including the current
+Production coordinator. It does not compose the superseded Recipe-root list,
+creation, deletion, Test-application, Production-application, or qualification
+services.
 
 ## Creation trace
 
@@ -115,6 +117,27 @@ Project identity, workspace identity, run identity, or cutover authority.
 6. Before any downstream write probe, `execution.py` asks the service to prove
    current verified reconciliation for every predecessor.
 
+## Production rollout trace
+
+1. `ProductionCutoverService.start_setup` authenticates the current selected
+   qualification and creates a fresh Production DataVersion, run, and setup
+   workspace without target or write authority.
+2. The existing workspace source and schema services accept the complete
+   latest package and capture the different Production Odoo 19 target with
+   read-only credential evidence.
+3. `MigrationRunPlanningService.review_production_run` recompiles current
+   bindings, parameters, controls, requirements, references, dependencies, and
+   write ownership against the exact selected plan.
+4. `MigrationRunPlanningRepository.activate_production_run` records one
+   run-level target and requirement capture plus isolated applications in a
+   restart-safe transaction.
+5. The shared application materializer creates fresh workspace engines and
+   mapping drafts using immutable DataVersion references. It copies no Test
+   workspace evidence.
+6. `ProductionCutoverService.assert_execution_authority` rechecks selection,
+   target, read/write identities, and credential generations before
+   `execution.py` constructs a writer.
+
 ## Existing workspace workflow
 
 | Stage | Main application service | Browser route prefix |
@@ -152,5 +175,6 @@ separate from read capability.
 - `tests/test_migration_project_phase_m3_project_authoring.py`
 - `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
 - `tests/test_migration_project_phase_m5_cutover_qualification.py`
+- `tests/test_migration_project_phase_m6_production_rollout.py`
 - `tests/test_recipe_representative_shapes.py`
 - `tests/test_preparation_jobs.py`

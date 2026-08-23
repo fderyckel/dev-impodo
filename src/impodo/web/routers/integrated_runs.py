@@ -196,18 +196,28 @@ def _render_test_run_form(
     selected_target_workspace_id: str = "",
 ):
     project = context.migration_projects.get(project_id, actor=context.actor)
+    all_data_versions = context.data_versions.list(
+        project_id,
+        actor=context.actor,
+    )
     data_versions = tuple(
         item
-        for item in context.data_versions.list(project_id, actor=context.actor)
+        for item in all_data_versions
         if item.purpose.value == "TEST" and item.state.value == "FROZEN"
     )
+    data_version_by_id = {
+        item.data_version_id: item for item in all_data_versions
+    }
     recipes = context.project_recipes.list(project_id, actor=context.actor)
     workspaces = context.migration_workspaces.list_for_project(
         project_id,
         actor=context.actor,
     )
     target_workspaces = tuple(
-        item for item in workspaces if item.recipe_application_id is None
+        item
+        for item in workspaces
+        if item.recipe_application_id is None
+        and data_version_by_id[item.data_version_id].purpose.value != "PRODUCTION"
     )
     return _render(
         request,

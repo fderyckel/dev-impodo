@@ -146,6 +146,31 @@ stages:
       - docs/developer/contracts/integrated-run-lifecycle.md
       - docs/developer/contracts/execution-and-reconciliation.md
 
+  - id: production-rollout
+    order: 9
+    label: Production rollout with latest data
+    navigation: false
+    user_doc: docs/user/guides/production-rollout.md
+    developer_doc: docs/developer/workflow/09-production-rollout.md
+    router_modules:
+      - src/impodo/web/routers/production_runs.py
+    templates:
+      - src/impodo/web/templates/project_production_run_new.html
+      - src/impodo/web/templates/project_production_activation.html
+    code_references:
+      - src/impodo/application/production_cutover_service.py::ProductionCutoverService
+      - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService.activate_production_run
+      - src/impodo/adapters/duckdb/production_run_repository.py::ProductionRunRepository
+      - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository.activate_production_run
+      - src/impodo/migration_production.py::ProductionRunBinding
+      - src/impodo/web/routers/execution.py::build_execution_router
+    tests:
+      - tests/test_migration_project_phase_m6_production_rollout.py
+    contracts:
+      - docs/developer/contracts/production-run-lifecycle.md
+      - docs/developer/contracts/cutover-plan-lifecycle.md
+      - docs/developer/contracts/execution-and-reconciliation.md
+
   - id: odoo
     order: 2
     label: Odoo data

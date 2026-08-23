@@ -35,14 +35,14 @@ from ...migration_run_planning import (
     RunRecipeApplication,
     RunTargetBinding,
 )
-from ...migration_runs import MigrationRun, MigrationRunPurpose
-from ...migration_workspaces import MigrationWorkspace
+from ...migration_runs import MigrationRun
+from ...migration_production import ProductionRunBinding
 from ...workspace_contracts import OdooSchemaCatalog
 from .migration_foundation_repository import MigrationFoundationRepository
 
 
 class MigrationRunPlanningRepository:
-    """Own the bounded M4 registry projections and cross-store recovery."""
+    """Own bounded Test/Production run projections and cross-store recovery."""
 
     def __init__(self, foundation: MigrationFoundationRepository) -> None:
         self.foundation = foundation
@@ -118,13 +118,142 @@ class MigrationRunPlanningRepository:
             )
         return self.get_bundle(stored[0].migration_run_id)
 
+    def activate_production_run(
+        self,
+        *,
+        run: MigrationRun,
+        production_binding: ProductionRunBinding,
+        target_binding: RunTargetBinding,
+        requirement_plan: MigrationRunRequirementPlan,
+        applications: tuple[PlannedRecipeApplication, ...],
+        target_schema: OdooSchemaCatalog,
+        reference_bundle: ReferenceBundle | None,
+        expected_project_revision: int,
+        operation_id: str,
+        request_hash: str,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> IntegratedRunBundle:
+        """Activate an existing setup-only run with fresh Production evidence."""
+
+        operation_id = require_uuid(operation_id, "operation_id")
+        detail = {
+            "applications": [self._planned_dict(item) for item in applications],
+            "production_binding": production_binding.to_dict(),
+            "reference_bundle": (
+                reference_bundle.to_portable_dict()
+                if reference_bundle is not None
+                else None
+            ),
+            "requirement_plan": requirement_plan.to_dict(),
+            "run": self.foundation._run_dict(run),
+            "target_binding": target_binding.to_dict(),
+            "target_schema_json": target_schema.to_json(),
+        }
+        intent = self.foundation._reserve_intent(
+            operation_id=operation_id,
+            project_id=run.project_id,
+            owner_kind="MIGRATION_RUN",
+            owner_id=run.migration_run_id,
+            kind=MigrationOperationKind.PRODUCTION_RUN_ACTIVATE,
+            request_hash=require_hash(request_hash, "request_hash"),
+            expected_revision=expected_project_revision,
+            detail=detail,
+            actor=actor,
+        )
+        stored = self._stored_plan(intent.detail)
+        stored_binding = self._production_binding_from_dict(
+            dict(intent.detail["production_binding"])
+        )
+        return self._continue_production_activation(
+            intent,
+            stored=stored,
+            stored_binding=stored_binding,
+            actor=actor,
+            fault=fault,
+        )
+
+    def resume_production_activation(
+        self,
+        operation_id: str,
+        *,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> IntegratedRunBundle:
+        """Finish application stores and materialization after a safe retry."""
+
+        operation_id = require_uuid(operation_id, "operation_id")
+        intent = self.foundation.get_operation_intent(operation_id)
+        if (
+            intent.kind is not MigrationOperationKind.PRODUCTION_RUN_ACTIVATE
+            or intent.owner_kind != "MIGRATION_RUN"
+            or intent.actor.issuer != actor.identity.issuer
+            or intent.actor.subject_id != actor.identity.subject_id
+        ):
+            raise MigrationConflictError(
+                "Operation identity does not belong to this Production activation"
+            )
+        stored = self._stored_plan(intent.detail)
+        stored_binding = self._production_binding_from_dict(
+            dict(intent.detail["production_binding"])
+        )
+        return self._continue_production_activation(
+            intent,
+            stored=stored,
+            stored_binding=stored_binding,
+            actor=actor,
+            fault=fault,
+        )
+
+    def _continue_production_activation(
+        self,
+        intent,
+        *,
+        stored,
+        stored_binding: ProductionRunBinding,
+        actor: Actor,
+        fault: FaultInjector | None,
+    ) -> IntegratedRunBundle:
+        """Resume the immutable activation intent without rebuilding meaning."""
+
+        if intent.state is MigrationOperationState.COMMITTED:
+            return self.get_bundle(intent.owner_id)
+        self.foundation._fault(fault, "INTENT_RESERVED")
+        self._activate_production_registry(
+            run=stored[0],
+            production_binding=stored_binding,
+            target_binding=stored[1],
+            requirement_plan=stored[2],
+            applications=stored[3],
+            target_schema=stored[4],
+            reference_bundle=stored[5],
+            expected_project_revision=int(intent.expected_revision or 0),
+            operation_id=intent.operation_id,
+            actor=actor,
+        )
+        self.foundation._fault(fault, "REGISTRY_COMMITTED")
+        for item in stored[3]:
+            self.database.create_workspace_store(item.workspace)
+        self.foundation._fault(fault, "STORES_CREATED")
+        with self.database.connect(self.registry_path) as connection:
+            self.foundation._set_pending_stage(
+                connection,
+                intent.operation_id,
+                "APPLICATION_STORES_CREATED",
+            )
+        return self.get_bundle(stored[0].migration_run_id)
+
     def commit_provisioning(self, operation_id: str) -> IntegratedRunBundle:
         """Commit an integrated run only after every compiler attempt is stored."""
 
         operation_id = require_uuid(operation_id, "operation_id")
         intent = self.foundation.get_operation_intent(operation_id)
         if (
-            intent.kind is not MigrationOperationKind.MIGRATION_RUN_PLAN
+            intent.kind
+            not in {
+                MigrationOperationKind.MIGRATION_RUN_PLAN,
+                MigrationOperationKind.PRODUCTION_RUN_ACTIVATE,
+            }
             or intent.owner_kind != "MIGRATION_RUN"
         ):
             raise MigrationConflictError(
@@ -618,95 +747,15 @@ class MigrationRunPlanningRepository:
                         "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         self.foundation._run_values(run),
                     )
-                    connection.execute(
-                        "INSERT INTO target_binding VALUES "
-                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        self._target_values(target_binding),
+                    self._insert_planning_rows(
+                        connection,
+                        run=run,
+                        target_binding=target_binding,
+                        requirement_plan=requirement_plan,
+                        applications=applications,
+                        target_schema=target_schema,
+                        reference_bundle=reference_bundle,
                     )
-                    connection.execute(
-                        "INSERT INTO migration_run_requirement_plan VALUES "
-                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        self._plan_values(requirement_plan),
-                    )
-                    connection.execute(
-                        "INSERT INTO migration_run_target_schema VALUES "
-                        "(?, ?, ?, ?, ?, ?)",
-                        [
-                            run.migration_run_id,
-                            target_binding.target_binding_id,
-                            requirement_plan.content_hash,
-                            target_schema.content_hash,
-                            target_schema.to_json(),
-                            target_schema.captured_at.isoformat(),
-                        ],
-                    )
-                    if reference_bundle is not None:
-                        connection.execute(
-                            "INSERT INTO migration_run_reference_bundle "
-                            "VALUES (?, ?, ?, ?)",
-                            [
-                                run.migration_run_id,
-                                target_binding.target_binding_id,
-                                reference_bundle.content_hash,
-                                canonical_json(
-                                    reference_bundle.to_portable_dict()
-                                ),
-                            ],
-                        )
-                    for item in applications:
-                        connection.execute(
-                            "INSERT INTO recipe_application_identity VALUES (?)",
-                            [item.application.application_id],
-                        )
-                    for item in applications:
-                        connection.execute(
-                            "INSERT INTO migration_workspace_identity VALUES (?)",
-                            [item.workspace.workspace_id],
-                        )
-                        connection.execute(
-                            "INSERT INTO migration_workspace VALUES "
-                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            self.foundation._workspace_values(item.workspace),
-                        )
-                        connection.execute(
-                            "INSERT INTO recipe_application VALUES "
-                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            self._application_values(item.application),
-                        )
-                        self._insert_issues(
-                            connection,
-                            item.application.application_id,
-                            item.issues,
-                        )
-                        if item.requirements:
-                            connection.executemany(
-                                "INSERT INTO recipe_application_requirement "
-                                "VALUES (?, ?, ?, ?)",
-                                [
-                                    [
-                                        item.application.application_id,
-                                        requirement.model,
-                                        canonical_json(list(requirement.fields)),
-                                        content_hash(requirement.to_dict()),
-                                    ]
-                                    for requirement in item.requirements
-                                ],
-                            )
-                        if item.reference_requirements:
-                            connection.executemany(
-                                "INSERT INTO "
-                                "recipe_application_reference_requirement "
-                                "VALUES (?, ?, ?, ?)",
-                                [
-                                    [
-                                        item.application.application_id,
-                                        requirement.name,
-                                        requirement.content_hash,
-                                        content_hash(requirement.to_dict()),
-                                    ]
-                                    for requirement in item.reference_requirements
-                                ],
-                            )
                     next_project_revision = self.foundation._advance_project(
                         connection,
                         run.project_id,
@@ -769,12 +818,18 @@ class MigrationRunPlanningRepository:
             "WHERE data_version_id = ?",
             [run.data_version_id],
         ).fetchone()
-        if data_version != (run.project_id, "TEST", "FROZEN"):
+        expected_purpose = run.purpose.value
+        if (
+            expected_purpose not in {"TEST", "PRODUCTION"}
+            or data_version != (run.project_id, expected_purpose, "FROZEN")
+        ):
             raise MigrationConflictError(
-                "Integrated Test planning requires one frozen Test DataVersion"
+                "Integrated planning requires one frozen matching DataVersion"
             )
-        if run.purpose is not MigrationRunPurpose.TEST:
-            raise MigrationConflictError("M4 provisions Test runs only")
+        if target_binding.environment != expected_purpose:
+            raise MigrationConflictError(
+                "Run purpose and target environment do not match"
+            )
         if (
             run.target_binding_id != target_binding.target_binding_id
             or target_binding.project_id != run.project_id
@@ -875,6 +930,288 @@ class MigrationRunPlanningRepository:
             ):
                 raise MigrationConflictError(
                     "MigrationWorkspace does not match its RecipeApplication"
+                )
+
+    def _activate_production_registry(
+        self,
+        *,
+        run: MigrationRun,
+        production_binding: ProductionRunBinding,
+        target_binding: RunTargetBinding,
+        requirement_plan: MigrationRunRequirementPlan,
+        applications: tuple[PlannedRecipeApplication, ...],
+        target_schema: OdooSchemaCatalog,
+        reference_bundle: ReferenceBundle | None,
+        expected_project_revision: int,
+        operation_id: str,
+        actor: Actor,
+    ) -> None:
+        with self.database.connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                current_target = connection.execute(
+                    "SELECT target_binding_id FROM migration_run "
+                    "WHERE migration_run_id = ?",
+                    [run.migration_run_id],
+                ).fetchone()
+                if current_target == (target_binding.target_binding_id,):
+                    self.foundation._set_pending_stage(
+                        connection,
+                        operation_id,
+                        "REGISTRY_COMMITTED",
+                    )
+                    connection.commit()
+                    return
+                self.foundation._assert_project_revision(
+                    connection,
+                    run.project_id,
+                    expected_project_revision,
+                )
+                current_run = connection.execute(
+                    "SELECT project_id, data_version_id, purpose, state, "
+                    "target_binding_id, cutover_selection_id, optimistic_revision "
+                    "FROM migration_run WHERE migration_run_id = ?",
+                    [run.migration_run_id],
+                ).fetchone()
+                if current_run != (
+                    run.project_id,
+                    run.data_version_id,
+                    "PRODUCTION",
+                    "DRAFT",
+                    None,
+                    production_binding.cutover_selection_id,
+                    run.optimistic_revision - 1,
+                ):
+                    raise MigrationConflictError(
+                        "Production run changed before activation"
+                    )
+                setup = connection.execute(
+                    "SELECT project_id, data_version_id, setup_workspace_id, "
+                    "cutover_selection_id, qualification_id, cutover_plan_id, "
+                    "cutover_plan_revision, plan_content_hash, state "
+                    "FROM production_run_binding WHERE migration_run_id = ?",
+                    [run.migration_run_id],
+                ).fetchone()
+                if setup != (
+                    production_binding.project_id,
+                    production_binding.data_version_id,
+                    production_binding.setup_workspace_id,
+                    production_binding.cutover_selection_id,
+                    production_binding.qualification_id,
+                    production_binding.cutover_plan_id,
+                    production_binding.cutover_plan_revision,
+                    production_binding.plan_content_hash,
+                    "SETUP",
+                ):
+                    raise MigrationConflictError(
+                        "Production setup binding changed before activation"
+                    )
+                self._validate_context(
+                    connection,
+                    run,
+                    target_binding,
+                    requirement_plan,
+                    applications,
+                    target_schema,
+                    reference_bundle,
+                )
+                for identity in (
+                    target_binding.target_binding_id,
+                    *(item.application.application_id for item in applications),
+                    *(item.workspace.workspace_id for item in applications),
+                ):
+                    self.foundation._assert_identity_available(connection, identity)
+                connection.execute(
+                    "UPDATE migration_run SET state = ?, target_binding_id = ?, "
+                    "optimistic_revision = ?, updated_at = ? "
+                    "WHERE migration_run_id = ?",
+                    [
+                        run.state.value,
+                        target_binding.target_binding_id,
+                        run.optimistic_revision,
+                        run.updated_at.isoformat(),
+                        run.migration_run_id,
+                    ],
+                )
+                self._insert_planning_rows(
+                    connection,
+                    run=run,
+                    target_binding=target_binding,
+                    requirement_plan=requirement_plan,
+                    applications=applications,
+                    target_schema=target_schema,
+                    reference_bundle=reference_bundle,
+                )
+                values = [
+                    production_binding.state.value,
+                    production_binding.target_binding_id,
+                    production_binding.read_credential_generation,
+                    production_binding.write_credential_generation,
+                    production_binding.write_principal_hash,
+                    production_binding.write_permission_hash,
+                    production_binding.write_context_hash,
+                    production_binding.parameter_values_hash,
+                    production_binding.control_values_hash,
+                    production_binding.activation_evidence_hash,
+                    production_binding.content_hash,
+                    production_binding.activated_at.isoformat(),
+                    production_binding.contract_version,
+                    production_binding.migration_run_id,
+                ]
+                connection.execute(
+                    "UPDATE production_run_binding SET state = ?, "
+                    "target_binding_id = ?, read_credential_generation = ?, "
+                    "write_credential_generation = ?, write_principal_hash = ?, "
+                    "write_permission_hash = ?, write_context_hash = ?, "
+                    "parameter_values_hash = ?, control_values_hash = ?, "
+                    "activation_evidence_hash = ?, content_hash = ?, "
+                    "activated_at = ?, contract_version = ? "
+                    "WHERE migration_run_id = ?",
+                    values,
+                )
+                project_revision = self.foundation._advance_project(
+                    connection,
+                    run.project_id,
+                    expected_project_revision,
+                    run.updated_at,
+                )
+                self.foundation._insert_event(
+                    connection,
+                    project_id=run.project_id,
+                    aggregate_kind="MIGRATION_RUN",
+                    aggregate_id=run.migration_run_id,
+                    aggregate_revision=run.optimistic_revision,
+                    event_type="PRODUCTION_RUN_ACTIVATED",
+                    detail={
+                        "application_count": len(applications),
+                        "cutover_selection_id": production_binding.cutover_selection_id,
+                        "project_revision": project_revision,
+                        "requirement_plan_hash": requirement_plan.content_hash,
+                    },
+                    actor=actor,
+                    occurred_at=run.updated_at,
+                )
+                for item in applications:
+                    self.foundation._insert_event(
+                        connection,
+                        project_id=run.project_id,
+                        aggregate_kind="RECIPE_APPLICATION",
+                        aggregate_id=item.application.application_id,
+                        aggregate_revision=1,
+                        event_type="PRODUCTION_RECIPE_APPLICATION_CREATED",
+                        detail={
+                            "recipe_id": item.application.recipe_id,
+                            "recipe_revision": item.application.recipe_revision,
+                            "workspace_id": item.workspace.workspace_id,
+                        },
+                        actor=actor,
+                        occurred_at=item.application.created_at,
+                    )
+                self.foundation._set_pending_stage(
+                    connection,
+                    operation_id,
+                    "REGISTRY_COMMITTED",
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def _insert_planning_rows(
+        self,
+        connection,
+        *,
+        run: MigrationRun,
+        target_binding: RunTargetBinding,
+        requirement_plan: MigrationRunRequirementPlan,
+        applications: tuple[PlannedRecipeApplication, ...],
+        target_schema: OdooSchemaCatalog,
+        reference_bundle: ReferenceBundle | None,
+    ) -> None:
+        """Insert one run-level capture and bounded application projections."""
+
+        connection.execute(
+            "INSERT INTO target_binding VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            self._target_values(target_binding),
+        )
+        connection.execute(
+            "INSERT INTO migration_run_requirement_plan VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            self._plan_values(requirement_plan),
+        )
+        connection.execute(
+            "INSERT INTO migration_run_target_schema VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                run.migration_run_id,
+                target_binding.target_binding_id,
+                requirement_plan.content_hash,
+                target_schema.content_hash,
+                target_schema.to_json(),
+                target_schema.captured_at.isoformat(),
+            ],
+        )
+        if reference_bundle is not None:
+            connection.execute(
+                "INSERT INTO migration_run_reference_bundle VALUES (?, ?, ?, ?)",
+                [
+                    run.migration_run_id,
+                    target_binding.target_binding_id,
+                    reference_bundle.content_hash,
+                    canonical_json(reference_bundle.to_portable_dict()),
+                ],
+            )
+        for item in applications:
+            connection.execute(
+                "INSERT INTO recipe_application_identity VALUES (?)",
+                [item.application.application_id],
+            )
+        for item in applications:
+            connection.execute(
+                "INSERT INTO migration_workspace_identity VALUES (?)",
+                [item.workspace.workspace_id],
+            )
+            connection.execute(
+                "INSERT INTO migration_workspace VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                self.foundation._workspace_values(item.workspace),
+            )
+            connection.execute(
+                "INSERT INTO recipe_application VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                self._application_values(item.application),
+            )
+            self._insert_issues(
+                connection,
+                item.application.application_id,
+                item.issues,
+            )
+            if item.requirements:
+                connection.executemany(
+                    "INSERT INTO recipe_application_requirement VALUES (?, ?, ?, ?)",
+                    [
+                        [
+                            item.application.application_id,
+                            requirement.model,
+                            canonical_json(list(requirement.fields)),
+                            content_hash(requirement.to_dict()),
+                        ]
+                        for requirement in item.requirements
+                    ],
+                )
+            if item.reference_requirements:
+                connection.executemany(
+                    "INSERT INTO recipe_application_reference_requirement "
+                    "VALUES (?, ?, ?, ?)",
+                    [
+                        [
+                            item.application.application_id,
+                            requirement.name,
+                            requirement.content_hash,
+                            content_hash(requirement.to_dict()),
+                        ]
+                        for requirement in item.reference_requirements
+                    ],
                 )
 
     @staticmethod
@@ -1149,6 +1486,44 @@ class MigrationRunPlanningRepository:
         value: Mapping[str, object],
     ) -> RunRecipeApplication:
         return cls._application_from_dict(value)
+
+    @staticmethod
+    def _production_binding_from_dict(
+        value: Mapping[str, object],
+    ) -> ProductionRunBinding:
+        def optional(key: str) -> str | None:
+            return str(value[key]) if value.get(key) else None
+
+        return ProductionRunBinding(
+            production_run_binding_id=str(value["production_run_binding_id"]),
+            project_id=str(value["project_id"]),
+            migration_run_id=str(value["migration_run_id"]),
+            data_version_id=str(value["data_version_id"]),
+            setup_workspace_id=str(value["setup_workspace_id"]),
+            cutover_selection_id=str(value["cutover_selection_id"]),
+            qualification_id=str(value["qualification_id"]),
+            cutover_plan_id=str(value["cutover_plan_id"]),
+            cutover_plan_revision=int(value["cutover_plan_revision"]),
+            plan_content_hash=str(value["plan_content_hash"]),
+            test_target_binding_hash=str(value["test_target_binding_hash"]),
+            state=str(value["state"]),
+            target_binding_id=optional("target_binding_id"),
+            read_credential_generation=optional("read_credential_generation"),
+            write_credential_generation=optional("write_credential_generation"),
+            write_principal_hash=optional("write_principal_hash"),
+            write_permission_hash=optional("write_permission_hash"),
+            write_context_hash=optional("write_context_hash"),
+            parameter_values_hash=optional("parameter_values_hash"),
+            control_values_hash=optional("control_values_hash"),
+            activation_evidence_hash=optional("activation_evidence_hash"),
+            created_at=datetime.fromisoformat(str(value["created_at"])),
+            activated_at=(
+                datetime.fromisoformat(str(value["activated_at"]))
+                if value.get("activated_at")
+                else None
+            ),
+            contract_version=int(value["contract_version"]),
+        )
 
     @staticmethod
     def _insert_issues(connection, application_id, issues) -> None:

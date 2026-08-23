@@ -736,6 +736,22 @@ class CutoverPlanRepository:
         row = rows[0]
         return self._qualification_from_row(row)
 
+    def assert_qualification_authentic(
+        self,
+        qualification: CutoverPlanQualification,
+    ) -> None:
+        """Authenticate the selected Test evidence before Production reuse."""
+
+        artifact = self.evidence_store.inspect(
+            qualification.project_id,
+            storage_key=qualification.evidence_storage_key,
+            logical_hash=qualification.integrated_evidence_hash,
+        )
+        if artifact.artifact_hash != qualification.artifact_hash:
+            raise MigrationConflictError(
+                "Protected integrated qualification evidence changed"
+            )
+
     @classmethod
     def _qualification_from_row(
         cls,

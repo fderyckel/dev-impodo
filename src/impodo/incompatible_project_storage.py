@@ -11,6 +11,10 @@ from uuid import UUID, uuid4
 
 import duckdb
 
+from .adapters.duckdb.schema.migration_registry import (
+    MIGRATION_REGISTRY_GENERATION,
+    MIGRATION_REGISTRY_VERSION,
+)
 from .development_reset import DevelopmentResetPlan, plan_development_reset
 from .migration_foundation import MigrationFoundationError
 
@@ -30,9 +34,28 @@ _MANIFEST_NAME = "unavailable-projects.json"
 _MANIFEST_VERSION = 1
 _MAX_UNAVAILABLE_PROJECTS = 10_000
 _MAX_MANIFEST_BYTES = 2 * 1024 * 1024
+_MIGRATION_REGISTRY_GENERATION_PREFIX = "impodo-migration-registry-"
 _REQUIRED_LEGACY_PROJECT_COLUMNS = frozenset(
     {"project_id", "name", "status", "revision", "updated_at"}
 )
+_REQUIRED_FOUNDATION_PROJECT_COLUMNS = frozenset(
+    {
+        "display_name",
+        "optimistic_revision",
+        "project_id",
+        "status",
+        "updated_at",
+    }
+)
+_KNOWN_PROJECT_STATUSES = frozenset(
+    {"ACTIVE", "ARCHIVED", "CLOSED", "DRAFT", "REGISTERED"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _KnownIncompatibleStorage:
+    layout: str
+    projects: tuple["UnavailableProjectSummary", ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,11 +81,13 @@ def prepare_incompatible_project_storage(
 
     storage_root = Path(root).resolve()
     storage_root.mkdir(parents=True, exist_ok=True)
-    legacy_projects = _read_known_legacy_projects(storage_root)
-    if legacy_projects is not None:
+    incompatible = _read_known_legacy_storage(storage_root)
+    if incompatible is None:
+        incompatible = _read_known_foundation_storage(storage_root)
+    if incompatible is not None:
         plan = plan_development_reset(storage_root)
-        if _plan_matches_known_legacy_root(plan, legacy_projects):
-            _quarantine_known_legacy_root(plan, legacy_projects)
+        if _plan_matches_known_root(plan, incompatible):
+            _quarantine_known_root(plan, incompatible)
     return list_unavailable_projects(storage_root)
 
 
@@ -101,9 +126,9 @@ def list_unavailable_projects(
     )
 
 
-def _read_known_legacy_projects(
+def _read_known_legacy_storage(
     root: Path,
-) -> tuple[UnavailableProjectSummary, ...] | None:
+) -> _KnownIncompatibleStorage | None:
     registry = root / "registry.duckdb"
     if not registry.is_file() or (root / "projects").exists():
         return None
@@ -159,19 +184,105 @@ def _read_known_legacy_projects(
         summaries.append(summary)
     if len({item.project_id for item in summaries}) != len(summaries):
         return None
-    return tuple(summaries)
+    return _KnownIncompatibleStorage(
+        layout="LEGACY_RECIPE_ROOT",
+        projects=tuple(summaries),
+    )
 
 
-def _plan_matches_known_legacy_root(
+def _read_known_foundation_storage(
+    root: Path,
+) -> _KnownIncompatibleStorage | None:
+    registry = root / "registry.duckdb"
+    projects_root = root / "projects"
+    if not registry.is_file() or not projects_root.is_dir():
+        return None
+    try:
+        with duckdb.connect(str(registry), read_only=True) as connection:
+            tables = {
+                str(row[0])
+                for row in connection.execute("SHOW TABLES").fetchall()
+            }
+            if not {"migration_project", "schema_version"}.issubset(tables):
+                return None
+            columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info('migration_project')"
+                ).fetchall()
+            }
+            if not _REQUIRED_FOUNDATION_PROJECT_COLUMNS.issubset(columns):
+                return None
+            version_row = connection.execute(
+                """
+                SELECT generation, version
+                  FROM schema_version
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            if version_row is None:
+                return None
+            generation = str(version_row[0])
+            version = int(version_row[1])
+            if (
+                not generation.startswith(_MIGRATION_REGISTRY_GENERATION_PREFIX)
+                or generation == MIGRATION_REGISTRY_GENERATION
+                or version != MIGRATION_REGISTRY_VERSION
+            ):
+                return None
+            rows = connection.execute(
+                """
+                SELECT project_id, display_name, status,
+                       optimistic_revision, updated_at
+                  FROM migration_project
+                 ORDER BY project_id
+                 LIMIT ?
+                """,
+                [_MAX_UNAVAILABLE_PROJECTS + 1],
+            ).fetchall()
+    except (duckdb.Error, OSError, TypeError, ValueError):
+        return None
+    if len(rows) > _MAX_UNAVAILABLE_PROJECTS:
+        return None
+    summaries: list[UnavailableProjectSummary] = []
+    for row in rows:
+        summary = _summary_from_values(*row)
+        if summary is None:
+            return None
+        summaries.append(summary)
+    if len({item.project_id for item in summaries}) != len(summaries):
+        return None
+    return _KnownIncompatibleStorage(
+        layout="MIGRATION_FOUNDATION",
+        projects=tuple(summaries),
+    )
+
+
+def _plan_matches_known_root(
     plan: DevelopmentResetPlan,
-    projects: tuple[UnavailableProjectSummary, ...],
+    incompatible: _KnownIncompatibleStorage,
 ) -> bool:
     if not plan.can_execute:
         return False
     target_names = {item.name for item in plan.targets}
-    if "registry.duckdb" not in target_names or "projects" in target_names:
+    if "registry.duckdb" not in target_names:
         return False
-    project_ids = {item.project_id for item in projects}
+    project_ids = {item.project_id for item in incompatible.projects}
+    if incompatible.layout == "MIGRATION_FOUNDATION":
+        if "projects" not in target_names:
+            return False
+        projects_root = plan.storage_root / "projects"
+        directory_ids: set[str] = set()
+        for entry in projects_root.iterdir():
+            if not _is_direct_directory(projects_root, entry):
+                return False
+            canonical = _canonical_uuid(entry.name)
+            if canonical is None:
+                return False
+            directory_ids.add(canonical)
+        return directory_ids == project_ids
+    if incompatible.layout != "LEGACY_RECIPE_ROOT" or "projects" in target_names:
+        return False
     directory_ids: set[str] = set()
     for target in plan.targets:
         if not target.is_dir():
@@ -188,16 +299,16 @@ def _plan_matches_known_legacy_root(
     return directory_ids == project_ids
 
 
-def _quarantine_known_legacy_root(
+def _quarantine_known_root(
     reviewed_plan: DevelopmentResetPlan,
-    projects: tuple[UnavailableProjectSummary, ...],
+    incompatible: _KnownIncompatibleStorage,
 ) -> Path:
     current = plan_development_reset(reviewed_plan.storage_root)
     if current.fingerprint != reviewed_plan.fingerprint:
         raise MigrationFoundationError(
             "Project storage changed while Impodo was preserving older projects"
         )
-    if not _plan_matches_known_legacy_root(current, projects):
+    if not _plan_matches_known_root(current, incompatible):
         raise MigrationFoundationError(
             "Older Project storage no longer matches the reviewed safe plan"
         )
@@ -208,7 +319,7 @@ def _quarantine_known_legacy_root(
     moved: list[tuple[Path, Path]] = []
     try:
         manifest.write_text(
-            _manifest_text(archive_id, projects),
+            _manifest_text(archive_id, incompatible.projects),
             encoding="utf-8",
         )
         for source in current.targets:
@@ -305,7 +416,7 @@ def _summary_from_values(
         canonical is None
         or not name
         or len(name) > 300
-        or status not in {"DRAFT", "REGISTERED"}
+        or status not in _KNOWN_PROJECT_STATUSES
         or parsed_revision < 1
         or parsed_updated_at.tzinfo is None
     ):

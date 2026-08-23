@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted target architecture and active implementation plan from
-2026-08-22. Phases M0 through M5 are complete; Phase M6 is next.
+2026-08-23. Phases M0 through M6 are complete; Phase M7 is next.
 
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target architecture. It supersedes ADR-012 and ADR-013 for
@@ -754,7 +754,8 @@ new unqualified plan revision; no earlier qualification transfers.
 
 ### Phase M6 - Run the qualified plan with latest data
 
-**Status:** Planned.
+**Status:** Completed on 2026-08-23. See the [Phase M6 implementation
+record](migration-projects-phase-m6-production-rollout.md).
 
 - Accept a fresh complete Production DataVersion.
 - Create a fresh Production MigrationRun with independent target, read

@@ -53,6 +53,43 @@
     </section>
   {% endif %}
 
+  {% if cutover_selection %}
+    <section class="next-action-card current">
+      <div>
+        <p class="eyebrow">Production rollout</p>
+        <h2>Prepare the latest data separately</h2>
+        <p>The selected Cutover plan supplies the tested Recipe meaning only. Production starts with new source data, target access, comparison, approval, and verification.</p>
+      </div>
+      <a class="button primary" href="/projects/{{ project.project_id }}/production-runs/new">Start Production setup</a>
+    </section>
+  {% endif %}
+
+  {% if production_bindings %}
+    <section class="overview-stage-list" aria-labelledby="production-runs-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Latest data</p><h2 id="production-runs-title">Production runs</h2></div>
+      </div>
+      <ol class="overview-stages">
+        {% for binding in production_bindings %}
+          {% set production_run = production_runs[binding.migration_run_id] %}
+          {% set production_data = production_data_versions[binding.data_version_id] %}
+          <li class="overview-stage {% if binding.state.value == 'ACTIVE' %}complete{% else %}current{% endif %}">
+            <div class="overview-stage-number">{{ loop.index }}</div>
+            <div class="overview-stage-copy">
+              <h3>{{ production_run.label }}</h3>
+              <p>{{ binding.state.value|title }} &middot; Cutover plan revision {{ binding.cutover_plan_revision }} &middot; Latest export {{ production_data.export_as_of }}</p>
+              {% if binding.state.value == 'SETUP' %}
+                <a class="button primary" href="/projects/{{ project.project_id }}/production-runs/{{ binding.migration_run_id }}/activate">Continue Production setup</a>
+              {% else %}
+                <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ binding.migration_run_id }}">Open Production run</a>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+  {% endif %}
+
   <section class="overview-stage-list">
     <div class="section-heading">
       <div><p class="eyebrow">Source packages</p><h2>Data versions</h2></div>

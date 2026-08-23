@@ -37,6 +37,8 @@ class Capability(StrEnum):
     RECIPE_QUALIFY = "recipe.qualify"
     CUTOVER_PLAN_QUALIFY = "cutover_plan.qualify"
     CUTOVER_SELECT = "cutover.select"
+    PRODUCTION_RUN_CREATE = "production_run.create"
+    PRODUCTION_RUN_ACTIVATE = "production_run.activate"
     LOCAL_STACK_INSPECT = "local_stack.inspect"
     LOCAL_STACK_START = "local_stack.start"
     LOCAL_STACK_STOP = "local_stack.stop"
