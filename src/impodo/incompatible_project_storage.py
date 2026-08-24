@@ -13,7 +13,6 @@ import duckdb
 
 from .adapters.duckdb.schema.migration_registry import (
     MIGRATION_REGISTRY_GENERATION,
-    MIGRATION_REGISTRY_VERSION,
 )
 from .development_reset import DevelopmentResetPlan, plan_development_reset
 from .migration_foundation import MigrationFoundationError
@@ -35,6 +34,9 @@ _MANIFEST_VERSION = 1
 _MAX_UNAVAILABLE_PROJECTS = 10_000
 _MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 _MIGRATION_REGISTRY_GENERATION_PREFIX = "impodo-migration-registry-"
+_KNOWN_PRIOR_FOUNDATION_VERSIONS = {
+    "impodo-migration-registry-2026-08-m5": 1,
+}
 _REQUIRED_LEGACY_PROJECT_COLUMNS = frozenset(
     {"project_id", "name", "status", "revision", "updated_at"}
 )
@@ -227,7 +229,7 @@ def _read_known_foundation_storage(
             if (
                 not generation.startswith(_MIGRATION_REGISTRY_GENERATION_PREFIX)
                 or generation == MIGRATION_REGISTRY_GENERATION
-                or version != MIGRATION_REGISTRY_VERSION
+                or _KNOWN_PRIOR_FOUNDATION_VERSIONS.get(generation) != version
             ):
                 return None
             rows = connection.execute(
@@ -444,4 +446,3 @@ def _is_direct_directory(parent: Path, candidate: Path) -> bool:
         and candidate.resolve() == candidate
         and candidate.parent == parent
     )
-

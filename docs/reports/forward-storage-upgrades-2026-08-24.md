@@ -47,6 +47,13 @@ also proves multi-step ordering and all-step rollback when a later step fails.
 - `tests.test_workspace_schema_contract` and `tests.test_build_contract`: 5
   tests passed with workspace schema version 2 included in the process build
   contract.
+- `tests.test_workspace_access` and `tests.test_canonical_ownership`: 13 tests
+  passed, including the one-read lineage and no-second-registry-read gates.
+- `tests.test_incompatible_project_storage`: 4 tests passed after the known
+  M5 generation was bound to its own version 1 contract instead of the current
+  registry version.
+- The focused browser recovery-message test passed outside the sandbox after
+  the sandbox denied its Windows temporary directory before setup.
 - The Project foundation, DataVersion source-package, Project authoring, and
   build-contract run completed 42 of 43 tests. The remaining browser fixture
   stopped before an assertion because its generated Windows artifact path was

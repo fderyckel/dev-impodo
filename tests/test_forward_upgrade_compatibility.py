@@ -107,6 +107,7 @@ def _schema_fingerprint(connection: duckdb.DuckDBPyConnection) -> str:
             ).fetchall()
         )
         shape.append((table, columns))
+    shape.sort()
     encoded = json.dumps(shape, separators=(",", ":")).encode("utf-8")
     return sha256(encoded).hexdigest()
 

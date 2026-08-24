@@ -106,9 +106,10 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
 
 
 _UNSUPPORTED_WORKSPACE_MESSAGE = (
-    "This workspace uses a different Impodo data contract and cannot be opened "
-    "by this build. Impodo left its saved evidence unchanged. Return to Projects "
-    "and continue with a workspace created by the current build."
+    "This workspace uses a saved-data generation or version that this Impodo "
+    "build cannot safely open. Impodo left its evidence unchanged. Update "
+    "Impodo if a newer release created it, or return to Projects for the "
+    "available recovery action."
 )
 
 

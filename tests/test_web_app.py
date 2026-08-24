@@ -2122,7 +2122,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         opened = self.client.get(f"/workspaces/{workspace_state.workspace_id}")
         self.assertEqual(opened.status_code, 409)
-        self.assertIn("uses a different Impodo data contract", opened.text)
+        self.assertIn("uses a saved-data generation or version", opened.text)
         self.assertNotIn("Traceback", opened.text)
 
     def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
