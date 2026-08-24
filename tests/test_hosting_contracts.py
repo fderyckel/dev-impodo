@@ -55,7 +55,7 @@ class ArtifactStoreContractTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.store = LocalArtifactStore(self.temporary.name)
-        self.project_id = str(uuid4())
+        self.data_version_id = str(uuid4())
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -63,7 +63,7 @@ class ArtifactStoreContractTests(unittest.TestCase):
     def test_source_round_trip_uses_storage_key_not_repository_path(self) -> None:
         validated: list[bytes] = []
         stored = self.store.store_source(
-            self.project_id,
+            self.data_version_id,
             artifact_id=str(uuid4()),
             suffix=".csv",
             stream=BytesIO(b"code,name\nC1,Example\n"),
@@ -75,15 +75,15 @@ class ArtifactStoreContractTests(unittest.TestCase):
         self.assertEqual(validated, [b"code,name\nC1,Example\n"])
         self.assertFalse(Path(stored.storage_key).is_absolute())
         with self.store.materialize_source(
-            self.project_id,
+            self.data_version_id,
             stored.storage_key,
         ) as materialized:
             self.assertEqual(materialized.read_bytes(), validated[0])
 
-        self.store.delete_source(self.project_id, stored.storage_key)
+        self.store.delete_source(self.data_version_id, stored.storage_key)
         with self.assertRaises(ArtifactStoreError):
             with self.store.materialize_source(
-                self.project_id,
+                self.data_version_id,
                 stored.storage_key,
             ):
                 pass
@@ -91,7 +91,7 @@ class ArtifactStoreContractTests(unittest.TestCase):
     def test_source_storage_rejects_traversal_keys(self) -> None:
         with self.assertRaises(ArtifactStoreError):
             with self.store.materialize_source(
-                self.project_id,
+                self.data_version_id,
                 "../source.csv",
             ):
                 pass
@@ -103,9 +103,9 @@ class JobContractTests(unittest.TestCase):
         requester = actor("Job requester", Capability.SOURCE_INSPECT)
         request = JobRequest(
             job_id=str(uuid4()),
-            project_id=str(uuid4()),
+            workspace_id=str(uuid4()),
             kind=JobKind.SOURCE_INSPECTION,
-            idempotency_key="inspect:project-revision-4",
+            idempotency_key="inspect:workspace-revision-4",
             input_hash=HASH_A,
             requested_by=requester.identity,
             requested_at=NOW,
@@ -151,7 +151,7 @@ class ExportApprovalContractTests(unittest.TestCase):
     def make_plan(self) -> FrozenExportPlan:
         return FrozenExportPlan(
             plan_id="plan-001",
-            project_id=str(uuid4()),
+            workspace_id=str(uuid4()),
             run_id="run-001",
             source_hashes={"products.xlsx": HASH_A},
             mapping_hash=HASH_B,

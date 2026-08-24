@@ -1,6 +1,6 @@
 """Define Project-owned source packages and read-only workspace projections.
 
-Phase M2 moves source-file identity, inspection catalogues, confirmed parsing,
+The Project-first model keeps source-file identity, inspection catalogues, confirmed parsing,
 logical dataset selection, and immutable snapshot references under one
 DataVersion. A MigrationWorkspace stores only a bounded selection of dataset
 references. It never copies the DataVersion database or acquires authority to
@@ -18,7 +18,7 @@ from typing import BinaryIO, Mapping, Protocol
 from uuid import uuid4
 
 from .access import Actor, AuthorizationPolicy, Capability
-from .artifacts import ArtifactStore, ArtifactStoreError
+from .artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from .domain.serialization import canonical_json, content_hash
 from .domain.source_binding import (
     FileSourceBinding,
@@ -244,6 +244,19 @@ class SourcePackageDataset:
             row_count=self.row_count,
             columns=self.columns,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class DataVersionDatasetView:
+    """Expose accepted dataset shapes without pretending they are a workspace."""
+
+    data_version_id: str
+    package_hash: str
+    datasets: tuple[SourceDataset, ...]
+
+    def __post_init__(self) -> None:
+        require_uuid(self.data_version_id, "data_version_id")
+        require_hash(self.package_hash, "package_hash")
 
 
 @dataclass(frozen=True, slots=True)
@@ -529,7 +542,7 @@ class DataVersionSourceIntakeService:
         self,
         repository: DataVersionSourceRepository,
         authorization: AuthorizationPolicy,
-        artifacts: ArtifactStore,
+        artifacts: DataVersionSourceArtifactStore,
     ) -> None:
         self.repository = repository
         self.authorization = authorization

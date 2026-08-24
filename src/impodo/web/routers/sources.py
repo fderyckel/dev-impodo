@@ -19,7 +19,7 @@ source bytes, edits frozen evidence, or writes business records to Odoo.
 
 Potentially expensive file intake, inspection, freezing, and capture work is
 kept off the event loop or delegated to a background manager. Rendering may
-read bounded project-level projections, but must not add an Odoo call or a
+read bounded workspace-level projections, but must not add an Odoo call or a
 repository query per source row, field, or captured record.
 
 See ``docs/developer/workflow/01-source-data.md``,
@@ -32,6 +32,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
+from ...access import Capability
 from ...application.odoo_capture_job_service import (
     OdooCaptureJobNotFoundError,
     OdooCaptureJobStateError,
@@ -79,8 +80,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/workspaces/{project_id}/sources", response_class=HTMLResponse)
-    async def project_sources(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/sources", response_class=HTMLResponse)
+    async def workspace_sources(request: Request, workspace_id: str):
         """Render the current source-mode page or its active capture job.
 
         Draft projects return to setup. Registered Odoo-source projects resume
@@ -90,35 +91,38 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """
 
         require_session(request)
-        project = context.queries.get(project_id)
-        if project.status is not WorkspaceStatus.REGISTERED:
+        workspace_state = context.queries.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
+            setup_page = (
+                "files" if workspace_state.source_mode is SourceMode.FILE else "target"
+            )
             return RedirectResponse(
-                f"/workspaces/{project.project_id}/details",
+                f"/workspaces/{workspace_state.workspace_id}/{setup_page}",
                 status_code=303,
             )
-        if project.source_mode is SourceMode.ODOO:
+        if workspace_state.source_mode is SourceMode.ODOO:
             active = (
-                context.odoo_capture_jobs.active(project_id)
+                context.odoo_capture_jobs.active(workspace_id)
                 if context.odoo_capture_jobs is not None
                 else None
             )
             if active is not None:
                 return RedirectResponse(
-                    _odoo_capture_progress_url(project_id, active.job_id),
+                    _odoo_capture_progress_url(workspace_id, active.job_id),
                     status_code=303,
                 )
-            return _render_odoo_capture_selection(request, context, project)
+            return _render_odoo_capture_selection(request, context, workspace_state)
         return _render_file_sources(
             request,
             context,
-            project_id,
-            project=project,
+            workspace_id,
+            workspace_state=workspace_state,
         )
 
-    @router.post("/workspaces/{project_id}/files/{file_id}/remove")
-    async def remove_project_source_file(
+    @router.post("/workspaces/{workspace_id}/files/{file_id}/remove")
+    async def remove_workspace_source_file(
         request: Request,
-        project_id: str,
+        workspace_id: str,
         file_id: str,
     ):
         """Remove one contained file and its checks before dataset freezing.
@@ -137,7 +141,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         try:
             removed = await run_in_threadpool(
                 context.intake.remove,
-                project_id,
+                workspace_id,
                 file_id,
                 actor=context.actor,
                 expected_revision=_revision(form),
@@ -146,21 +150,21 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render_source_file_error(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 return_to,
                 error,
             )
-        _flash(request, f"Removed {removed.display_name} from this project.")
+        _flash(request, f"Removed {removed.display_name} from this Data version.")
         suffix = "#source-files" if return_to == "sources" else ""
         return RedirectResponse(
-            f"/workspaces/{project_id}/{return_to}{suffix}",
+            f"/workspaces/{workspace_id}/{return_to}{suffix}",
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/sources/files")
-    async def add_registered_project_source_file(
+    @router.post("/workspaces/{workspace_id}/sources/files")
+    async def add_registered_workspace_source_file(
         request: Request,
-        project_id: str,
+        workspace_id: str,
     ):
         """Add one bounded CSV/XLSX file before dataset freezing.
 
@@ -171,10 +175,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "source_file"})
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         if (
-            project.status is not WorkspaceStatus.REGISTERED
-            or project.source_mode is not SourceMode.FILE
+            workspace_state.status is not WorkspaceStatus.REGISTERED
+            or workspace_state.source_mode is not SourceMode.FILE
         ):
             raise HTTPException(status_code=400, detail="Source upload is unavailable")
         upload = form.get("source_file")
@@ -182,14 +186,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render_source_file_error(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 "sources",
                 WorkspaceStateError("Choose a CSV or XLSX file"),
             )
         try:
             added = await run_in_threadpool(
                 context.intake.accept,
-                project_id,
+                workspace_id,
                 actor=context.actor,
                 expected_revision=_revision(form),
                 display_name=upload.filename,
@@ -199,20 +203,20 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render_source_file_error(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 "sources",
                 error,
             )
         finally:
             await upload.close()
-        _flash(request, f"Added {added.display_name} to this project.")
+        _flash(request, f"Added {added.display_name} to this Data version.")
         return RedirectResponse(
-            f"/workspaces/{project_id}/sources#source-files",
+            f"/workspaces/{workspace_id}/sources#source-files",
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/sources/odoo-selection")
-    async def save_odoo_capture_selection(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/sources/odoo-selection")
+    async def save_odoo_capture_selection(request: Request, workspace_id: str):
         """Save a bounded protected capture plan without reading Odoo rows.
 
         The source-workspace service validates the chosen model, eligible
@@ -234,11 +238,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 "max_rows",
             },
         )
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         try:
             selection = await run_in_threadpool(
                 context.sources.define_odoo_capture_selection,
-                project_id,
+                workspace_id,
                 dataset_name=_text(form, "dataset_name"),
                 model=_text(form, "model"),
                 field_names=tuple(form.getlist("field_names")),
@@ -250,7 +254,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render_odoo_capture_selection(
                 request,
                 context,
-                project,
+                workspace_state,
                 error=str(error),
                 status_code=422,
             )
@@ -259,12 +263,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
             f"Saved Odoo capture plan version {selection.version}. No rows were read.",
         )
         return RedirectResponse(
-            f"/workspaces/{project_id}/sources#selection-saved",
+            f"/workspaces/{workspace_id}/sources#selection-saved",
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/sources/odoo-read-credential")
-    async def save_odoo_capture_credential(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/sources/odoo-read-credential")
+    async def save_odoo_capture_credential(request: Request, workspace_id: str):
         """Store and audit the read credential required by live capture.
 
         Secret bytes remain in the configured secret store. Only credential
@@ -279,20 +283,20 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "read_api_key", "remember_read_api_key"},
         )
-        project = context.queries.get(project_id)
-        if project.source_mode is not SourceMode.ODOO:
+        workspace_state = context.queries.get(workspace_id)
+        if workspace_state.source_mode is not SourceMode.ODOO:
             raise HTTPException(status_code=404, detail="Odoo source not found")
         try:
             credential = store_target_credential(
                 context.secret_store,
-                project,
+                workspace_state,
                 TargetCredentialRole.READ,
                 _text(form, "read_api_key"),
                 persistent=bool(_text(form, "remember_read_api_key")),
             )
             audit_stored_target_credential(
                 context.workspace_states,
-                project,
+                workspace_state,
                 TargetCredentialRole.READ,
                 credential,
                 actor=context.actor,
@@ -301,7 +305,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render_odoo_capture_selection(
                 request,
                 context,
-                project,
+                workspace_state,
                 error=str(error),
                 status_code=422,
             )
@@ -310,12 +314,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
             "Saved the read-only Odoo key. Refresh the record types and fields so the capture is bound to this credential.",
         )
         return RedirectResponse(
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/sources/odoo-capture")
-    async def start_odoo_capture(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/sources/odoo-capture")
+    async def start_odoo_capture(request: Request, workspace_id: str):
         """Confirm the exact current plan and enqueue live snapshot publication.
 
         The submitted selection ID and semantic hash must match current durable
@@ -331,10 +335,15 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "selection_id", "selection_hash", "confirm_capture"},
         )
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         try:
+            access_context = context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.SOURCE_CAPTURE,
+            )
             workspace = context.migration_workspaces.get(
-                project_id,
+                workspace_id,
                 actor=context.actor,
             )
             data_version = context.data_versions.get(
@@ -346,7 +355,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "This DataVersion already has accepted source evidence. "
                     "Start a new run with a new DataVersion for another capture."
                 )
-            selection = context.queries.get_current_odoo_capture_selection(project_id)
+            selection = context.queries.get_current_odoo_capture_selection(workspace_id)
             if (
                 selection is None
                 or selection.selection_id != _text(form, "selection_id")
@@ -361,14 +370,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
             credential = get_target_credential(
                 context.secret_store,
-                project,
+                workspace_state,
                 TargetCredentialRole.READ,
             )
             if credential is None:
                 raise WorkspaceError(
                     "Save a read-only Odoo API key before freezing source records."
                 )
-            schema = context.queries.get_odoo_schema_catalog(project_id)
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
             if (
                 schema is None
                 or schema.read_credential_binding_hash != credential.binding_hash
@@ -377,10 +386,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "The Odoo read credential changed. Refresh the record types "
                     "and fields before freezing records."
                 )
-            gateway = context.source_capture_factory(project, credential.secret)
+            gateway = context.source_capture_factory(workspace_state, credential.secret)
             manager = _odoo_capture_manager(context)
             workspace = context.migration_workspaces.get(
-                project_id,
+                workspace_id,
                 actor=context.actor,
             )
             migration_project = context.migration_projects.get(
@@ -388,10 +397,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
             job = manager.enqueue(
-                project_id,
+                workspace_id,
                 migration_project.display_name,
                 selection.max_rows,
                 gateway,
+                access_context=access_context,
                 actor=context.actor,
             )
         except (
@@ -405,46 +415,46 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render_odoo_capture_selection(
                 request,
                 context,
-                project,
+                workspace_state,
                 error=str(error),
                 status_code=422,
             )
         _flash(request, "Odoo capture started. The previous frozen version remains current until this one is complete.")
         return RedirectResponse(
-            _odoo_capture_progress_url(project_id, job.job_id),
+            _odoo_capture_progress_url(workspace_id, job.job_id),
             status_code=303,
         )
 
     @router.get(
-        "/workspaces/{project_id}/sources/odoo-capture/{job_id}",
+        "/workspaces/{workspace_id}/sources/odoo-capture/{job_id}",
         response_class=HTMLResponse,
     )
     async def odoo_capture_progress(
         request: Request,
-        project_id: str,
+        workspace_id: str,
         job_id: str,
     ):
-        """Render one project-scoped background capture job."""
+        """Render one workspace-scoped background capture job."""
 
         require_session(request)
         return _render_odoo_capture_progress(
             request,
-            _get_odoo_capture_job(context, project_id, job_id),
+            _get_odoo_capture_job(context, workspace_id, job_id),
         )
 
-    @router.get("/workspaces/{project_id}/sources/odoo-capture/{job_id}/status")
-    async def odoo_capture_status(request: Request, project_id: str, job_id: str):
+    @router.get("/workspaces/{workspace_id}/sources/odoo-capture/{job_id}/status")
+    async def odoo_capture_status(request: Request, workspace_id: str, job_id: str):
         """Return the bounded polling projection for one capture job."""
 
         require_session(request)
         return JSONResponse(
             _odoo_capture_job_payload(
-                _get_odoo_capture_job(context, project_id, job_id)
+                _get_odoo_capture_job(context, workspace_id, job_id)
             )
         )
 
-    @router.post("/workspaces/{project_id}/sources/odoo-capture/{job_id}/cancel")
-    async def cancel_odoo_capture(request: Request, project_id: str, job_id: str):
+    @router.post("/workspaces/{workspace_id}/sources/odoo-capture/{job_id}/cancel")
+    async def cancel_odoo_capture(request: Request, workspace_id: str, job_id: str):
         """Request cooperative cancellation after the current bounded page.
 
         Cancellation does not imply rollback of an already published version;
@@ -455,7 +465,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
-            _odoo_capture_manager(context).cancel(project_id, job_id)
+            _odoo_capture_manager(context).cancel(workspace_id, job_id)
         except OdooCaptureJobNotFoundError as error:
             raise HTTPException(
                 status_code=404,
@@ -463,12 +473,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
             ) from error
         _flash(request, "Impodo will stop after the current bounded Odoo page.")
         return RedirectResponse(
-            _odoo_capture_progress_url(project_id, job_id),
+            _odoo_capture_progress_url(workspace_id, job_id),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/sources/inspect")
-    async def inspect_project_sources(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/sources/inspect")
+    async def inspect_workspace_sources(request: Request, workspace_id: str):
         """Reinspect registered source bytes and replace their catalogues.
 
         Parsing runs in a worker thread. The inspection service rechecks stored
@@ -478,19 +488,19 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         try:
             catalogs = await run_in_threadpool(
                 context.inspections.inspect_project,
-                project_id,
+                workspace_id,
                 actor=context.actor,
             )
         except SourceInspectionError as error:
             return _render_file_sources(
                 request,
                 context,
-                project_id,
-                project=project,
+                workspace_id,
+                workspace_state=workspace_state,
                 error=str(error),
                 status_code=422,
             )
@@ -499,14 +509,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
             f"Checked {len(catalogs)} source file(s).",
         )
         return RedirectResponse(
-            f"/workspaces/{project_id}/sources#source-files",
+            f"/workspaces/{workspace_id}/sources#source-files",
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/sources/{file_id}/configure")
-    async def configure_project_source(
+    @router.post("/workspaces/{workspace_id}/sources/{file_id}/configure")
+    async def configure_workspace_source(
         request: Request,
-        project_id: str,
+        workspace_id: str,
         file_id: str,
     ):
         """Refresh one file preview and optionally confirm selected tables.
@@ -519,7 +529,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """
 
         form = await request.form()
-        catalogs = context.queries.get_source_catalogs(project_id)
+        catalogs = context.queries.get_source_catalogs(workspace_id)
         catalog = next(
             (item for item in catalogs if item.file_id == file_id),
             None,
@@ -554,7 +564,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             )
             refreshed = await run_in_threadpool(
                 context.inspections.inspect_file,
-                project_id,
+                workspace_id,
                 file_id,
                 options=options,
                 actor=context.actor,
@@ -563,7 +573,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 refreshed_keys = {table.table_key for table in refreshed.tables}
                 selected = [key for key in selected if key in refreshed_keys]
                 context.sources.confirm_source(
-                    project_id,
+                    workspace_id,
                     file_id,
                     selected_table_keys=selected,
                     warnings_acknowledged=bool(
@@ -578,37 +588,37 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render_file_sources(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
         return RedirectResponse(
-            f"/workspaces/{project_id}/sources#source-{file_id}",
+            f"/workspaces/{workspace_id}/sources#source-{file_id}",
             status_code=303,
         )
 
-    @router.get("/workspaces/{project_id}/datasets", response_class=HTMLResponse)
-    async def project_datasets(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/datasets", response_class=HTMLResponse)
+    async def workspace_datasets(request: Request, workspace_id: str):
         """Redirect unfinished choices to Source data or show saved tables."""
 
         require_session(request)
-        project = context.queries.get(project_id)
-        selection = context.queries.get_source_selection(project_id)
+        workspace_state = context.queries.get(workspace_id)
+        selection = context.queries.get_source_selection(workspace_id)
         if selection is None:
             return RedirectResponse(
-                f"/workspaces/{project_id}/sources#table-choices",
+                f"/workspaces/{workspace_id}/sources#table-choices",
                 status_code=303,
             )
         return _render(
             request,
             "workspace_datasets.html",
-            project=project,
+            workspace_state=workspace_state,
             choices=(),
             selection=selection,
         )
 
-    @router.post("/workspaces/{project_id}/datasets/freeze")
-    async def freeze_project_datasets(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/datasets/freeze")
+    async def freeze_workspace_datasets(request: Request, workspace_id: str):
         """Freeze confirmed tables under stable, user-selected dataset names.
 
         The source-workspace service revalidates current catalogues,
@@ -617,7 +627,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """
 
         form = await request.form()
-        choices = _dataset_choices(context, project_id)
+        choices = _dataset_choices(context, workspace_id)
         allowed = {"csrf_token"} | {
             f"dataset_name_{index}" for index, _choice in enumerate(choices)
         }
@@ -631,13 +641,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
         try:
             selection = await run_in_threadpool(
                 context.sources.freeze_selection,
-                project_id,
+                workspace_id,
                 dataset_names=names,
                 actor=context.actor,
             )
             await run_in_threadpool(
                 context.data_version_source_projection.accept_file_selection,
-                project_id,
+                workspace_id,
                 selection,
                 actor=context.actor,
             )
@@ -645,9 +655,9 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return _render(
                 request,
                 "workspace_datasets.html",
-                project=context.queries.get(project_id),
+                workspace_state=context.queries.get(workspace_id),
                 choices=choices,
-                selection=context.queries.get_source_selection(project_id),
+                selection=context.queries.get_source_selection(workspace_id),
                 error=str(error),
                 status_code=422,
             )
@@ -656,7 +666,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             "Saved the table choices.",
         )
         return RedirectResponse(
-            f"/workspaces/{project_id}/datasets#tables-ready",
+            f"/workspaces/{workspace_id}/datasets#tables-ready",
             status_code=303,
         )
 
@@ -710,22 +720,22 @@ def _source_groups(catalogs):
 def _render_file_sources(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     *,
-    project: WorkspaceState | None = None,
+    workspace_state: WorkspaceState | None = None,
     error: str | None = None,
     status_code: int = 200,
 ):
     """Render file review and the final table-choice action from one snapshot."""
 
-    current_project = project or context.queries.get(project_id)
-    catalogs = context.queries.get_source_catalogs(project_id)
-    configurations = context.queries.get_source_configurations(project_id)
-    selection = context.queries.get_source_selection(project_id)
+    current_workspace_state = workspace_state or context.queries.get(workspace_id)
+    catalogs = context.queries.get_source_catalogs(workspace_id)
+    configurations = context.queries.get_source_configurations(workspace_id)
+    selection = context.queries.get_source_selection(workspace_id)
     return _render(
         request,
         "workspace_sources.html",
-        project=current_project,
+        workspace_state=current_workspace_state,
         catalogs=catalogs,
         configurations={item.file_id: item for item in configurations},
         source_groups=_source_groups(catalogs),
@@ -740,23 +750,23 @@ def _render_file_sources(
 def _render_source_file_error(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     return_to: str,
     error: Exception,
 ):
     """Return the selected source page with fresh state after a file error.
 
-    Mutating intake commands can advance the project revision or catalogue
+    Mutating intake commands can advance the workspace revision or catalogue
     state before another browser tab submits. Requerying here prevents the
     rejected form from redisplaying stale revision-controlled values.
     """
 
-    project = context.queries.get(project_id)
+    workspace_state = context.queries.get(workspace_id)
     if return_to == "files":
         return _render(
             request,
             "workspace_files.html",
-            project=project,
+            workspace_state=workspace_state,
             error=str(error),
             status_code=422,
         )
@@ -764,17 +774,17 @@ def _render_source_file_error(
         return _render_file_sources(
             request,
             context,
-            project_id,
-            project=project,
+            workspace_id,
+            workspace_state=workspace_state,
             error=str(error),
             status_code=422,
         )
     return _render(
         request,
         "workspace_datasets.html",
-        project=project,
-        choices=_dataset_choices(context, project_id),
-        selection=context.queries.get_source_selection(project_id),
+        workspace_state=workspace_state,
+        choices=_dataset_choices(context, workspace_id),
+        selection=context.queries.get_source_selection(workspace_id),
         error=str(error),
         status_code=422,
     )
@@ -783,7 +793,7 @@ def _render_source_file_error(
 def _render_odoo_capture_selection(
     request: Request,
     context: WebContext,
-    project,
+    workspace_state,
     *,
     error: str | None = None,
     status_code: int = 200,
@@ -794,12 +804,12 @@ def _render_odoo_capture_selection(
     source-field type policy. The helper excludes Odoo's numeric ``id`` and
     volatile ``write_date`` from source values, retains a selection only when
     its model is still selected, and compares credential bindings without
-    exposing the secret. Provenance reads are project-level, not per record.
+    exposing the secret. Provenance reads are workspace-level, not per record.
     """
 
-    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
     current = context.queries.get_current_odoo_capture_selection(
-        project.project_id
+        workspace_state.workspace_id
     )
     models = tuple(schema.models) if schema is not None else ()
     requested_model = request.query_params.get("model", "").strip()
@@ -843,7 +853,7 @@ def _render_odoo_capture_selection(
     try:
         read_credential = get_target_credential(
             context.secret_store,
-            project,
+            workspace_state,
             TargetCredentialRole.READ,
         )
         read_credential_present = read_credential is not None
@@ -854,13 +864,13 @@ def _render_odoo_capture_selection(
             error = str(credential_error)
             status_code = 422
     current_manifest = context.odoo_provenance.current_manifest(
-        project.project_id,
+        workspace_state.workspace_id,
         actor=context.actor,
     )
     capture_history = tuple(
         reversed(
             context.odoo_provenance.history(
-                project.project_id,
+                workspace_state.workspace_id,
                 actor=context.actor,
             )
         )
@@ -868,7 +878,7 @@ def _render_odoo_capture_selection(
     return _render(
         request,
         "workspace_odoo_capture_selection.html",
-        project=project,
+        workspace_state=workspace_state,
         schema=schema,
         models=models,
         selected_model=selected_model,
@@ -900,13 +910,13 @@ def _odoo_capture_manager(context: WebContext):
 
 def _get_odoo_capture_job(
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     job_id: str,
 ) -> OdooCaptureJob:
     """Return one job only when it belongs to the requested project."""
 
     try:
-        return _odoo_capture_manager(context).get(project_id, job_id)
+        return _odoo_capture_manager(context).get(workspace_id, job_id)
     except OdooCaptureJobNotFoundError as error:
         raise HTTPException(
             status_code=404,
@@ -914,10 +924,10 @@ def _get_odoo_capture_job(
         ) from error
 
 
-def _odoo_capture_progress_url(project_id: str, job_id: str) -> str:
+def _odoo_capture_progress_url(workspace_id: str, job_id: str) -> str:
     """Build the canonical browser URL for one capture job."""
 
-    return f"/workspaces/{project_id}/sources/odoo-capture/{job_id}"
+    return f"/workspaces/{workspace_id}/sources/odoo-capture/{job_id}"
 
 
 def _render_odoo_capture_progress(request: Request, job: OdooCaptureJob):
@@ -926,9 +936,9 @@ def _render_odoo_capture_progress(request: Request, job: OdooCaptureJob):
     return _render(
         request,
         "workspace_odoo_capture_progress.html",
-        project=SimpleNamespace(
-            project_id=job.project_id,
-            name=job.project_name,
+        workspace_state=SimpleNamespace(
+            workspace_id=job.workspace_id,
+            name=job.migration_project_name,
             registered_at=True,
         ),
         job=job,
@@ -953,9 +963,8 @@ def _odoo_capture_job_payload(job: OdooCaptureJob) -> dict[str, object]:
         "cancel_requested": job.cancel_requested,
         "failure_message": job.failure_message,
         "redirect_url": (
-            f"/workspaces/{job.project_id}/sources#current-capture"
+            f"/workspaces/{job.workspace_id}/sources#current-capture"
             if job.status is OdooCaptureJobStatus.SUCCEEDED
             else ""
         ),
     }
-

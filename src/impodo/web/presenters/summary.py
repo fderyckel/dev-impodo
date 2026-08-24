@@ -48,7 +48,7 @@ from .comparison_recovery import comparison_recovery_view
 def _render_target(
     request: Request,
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     *,
     error: str | None = None,
     status_code: int = 200,
@@ -57,23 +57,23 @@ def _render_target(
 ):
     connection_purpose = (
         OdooConnectionPurpose.SOURCE_READ
-        if project.source_mode is SourceMode.ODOO
+        if workspace_state.source_mode is SourceMode.ODOO
         else OdooConnectionPurpose.TARGET_READ
     )
     return _render(
         request,
         "workspace_target.html",
-        project=project,
+        workspace_state=workspace_state,
         applications=ODOO_APPLICATIONS,
-        local_stack=context.local_stack.get(project.project_id),
+        local_stack=context.local_stack.get(workspace_state.workspace_id),
         remote_connection=context.remote_connections.get(
-            project,
+            workspace_state,
             connection_purpose,
         ),
         connection_purpose=connection_purpose,
         read_credential_status=get_target_credential_status(
             context.secret_store,
-            project,
+            workspace_state,
             TargetCredentialRole.READ,
         ),
         local_stack_auto_open=open_local_stack,
@@ -91,18 +91,18 @@ def _render_target(
 def _render_normalization(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     *,
     error: str | None = None,
     status_code: int = 200,
 ):
-    project = context.queries.get(project_id)
-    review = context.normalization.current_group_review(project_id)
+    workspace_state = context.queries.get(workspace_id)
+    review = context.normalization.current_group_review(workspace_id)
     if review is None:
         return _render_summary(
             request,
             context,
-            project_id,
+            workspace_id,
             error=(error or "Prepare the data before reviewing its changes."),
             status_code=(status_code if error else 422),
         )
@@ -153,7 +153,7 @@ def _render_normalization(
     return _render(
         request,
         "workspace_normalization.html",
-        project=project,
+        workspace_state=workspace_state,
         normalization=summary,
         dry_run=dry_run,
         review_items=page_items,
@@ -183,7 +183,7 @@ def _render_normalization(
 def _render_summary(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     *,
     error: str | None = None,
     local_stack_error: str | None = None,
@@ -195,38 +195,38 @@ def _render_summary(
     session_error = request.session.pop("summary_error", None)
     if error is None and isinstance(session_error, str):
         error = session_error
-    project = context.queries.get(project_id)
+    workspace_state = context.queries.get(workspace_id)
     read_credential_status = get_target_credential_status(
         context.secret_store,
-        project,
+        workspace_state,
         TargetCredentialRole.READ,
     )
     schema_catalog = (
-        context.queries.get_odoo_schema_catalog(project_id)
-        if project.odoo_connection_mode is OdooConnectionMode.REMOTE
+        context.queries.get_odoo_schema_catalog(workspace_id)
+        if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
         else None
     )
     remote_read_credential_missing = (
-        project.odoo_connection_mode is OdooConnectionMode.REMOTE
+        workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
         and schema_catalog is not None
         and not read_credential_status.available
     )
-    local_stack = context.local_stack.get(project_id)
-    local_stack_matches = _local_stack_matches_project(project, local_stack)
+    local_stack = context.local_stack.get(workspace_id)
+    local_stack_matches = _local_stack_matches_project(workspace_state, local_stack)
     local_odoo_recovery_needed = (
-        project.source_mode is not SourceMode.ODOO
+        workspace_state.source_mode is not SourceMode.ODOO
         and
-        project.odoo_connection_mode is OdooConnectionMode.LOCAL
+        workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
         and (
             not local_stack_matches
             or not local_stack.odoo_ready
             or not local_stack.metadata_ready
         )
     )
-    source_selection = context.queries.get_source_selection(project_id)
-    effective_selection = context.queries.get_mapping_source_selection(project_id)
-    derived_plan = context.queries.get_derived_entity_plan(project_id)
-    revision = context.queries.get_mapping_revision(project_id)
+    source_selection = context.queries.get_source_selection(workspace_id)
+    effective_selection = context.queries.get_mapping_source_selection(workspace_id)
+    derived_plan = context.queries.get_derived_entity_plan(workspace_id)
+    revision = context.queries.get_mapping_revision(workspace_id)
     bounded_direct = (
         source_selection is not None
         and effective_selection is not None
@@ -249,12 +249,12 @@ def _render_summary(
             physical_selection=source_selection,
             effective_selection=effective_selection,
             source_snapshots=(
-                context.queries.get_current_source_snapshots(project_id)
+                context.queries.get_current_source_snapshots(workspace_id)
             ),
             derived_plan=derived_plan,
-            current_ruleset=context.quality.current_ruleset(project_id),
+            current_ruleset=context.quality.current_ruleset(workspace_id),
             reference_bundle=(
-                context.resolution.current_reference_bundle(project_id)
+                context.resolution.current_reference_bundle(workspace_id)
             ),
         )
         scale_limit = capability.supported_rows
@@ -275,20 +275,20 @@ def _render_summary(
         else ""
     )
     submission = (
-        context.queries.get_mapping_submission(project_id, revision.version)
+        context.queries.get_mapping_submission(workspace_id, revision.version)
         if revision is not None
         else None
     )
-    staging = context.preflight.current_staging(project_id)
-    quality = context.quality.current_summary(project_id)
-    normalization = context.normalization.current_summary(project_id)
-    resolution = context.resolution.current_summary(project_id)
+    staging = context.preflight.current_staging(workspace_id)
+    quality = context.quality.current_summary(workspace_id)
+    normalization = context.normalization.current_summary(workspace_id)
+    resolution = context.resolution.current_summary(workspace_id)
     if (
         quality is not None
         and (staging is None or quality.staging_run_id != staging.run_id)
     ):
         quality = None
-    report = context.preflight.current_report(project_id)
+    report = context.preflight.current_report(workspace_id)
     if (
         comparison_failure is None
         and remote_read_credential_missing
@@ -303,12 +303,12 @@ def _render_summary(
             )
         )
     comparison_recovery = (
-        comparison_recovery_view(project_id, comparison_failure)
+        comparison_recovery_view(workspace_id, comparison_failure)
         if comparison_failure is not None
         else None
     )
     try:
-        load_preview = context.execution.current_preview(project_id)
+        load_preview = context.execution.current_preview(workspace_id)
     except (ReadinessError, WorkspaceError):
         # Historical or manually repaired preflight evidence may predate the
         # execution artifact. It can still be reviewed and compared again.
@@ -330,7 +330,7 @@ def _render_summary(
     )
     if quality is not None:
         quality_page = context.queries.get_quality_review_page(
-            project_id,
+            workspace_id,
             quality.run_id,
             status=quality_status,
             dataset=quality_dataset,
@@ -367,7 +367,7 @@ def _render_summary(
     )
     if report is not None:
         persisted_page = context.preflight.readiness_rows(
-            project_id,
+            workspace_id,
             report.run_id,
             status=status_filter,
             dataset=dataset_filter,
@@ -388,7 +388,7 @@ def _render_summary(
     return _render(
         request,
         "workspace_summary.html",
-        project=project,
+        workspace_state=workspace_state,
         revision=revision,
         submission=submission,
         staging=staging,
@@ -405,7 +405,7 @@ def _render_summary(
             {
                 "size": size,
                 "url": _quality_summary_url(
-                    project_id,
+                    workspace_id,
                     status=quality_status,
                     dataset=quality_dataset,
                     page_size=size,
@@ -415,7 +415,7 @@ def _render_summary(
         ),
         quality_previous_url=(
             _quality_summary_url(
-                project_id,
+                workspace_id,
                 status=quality_status,
                 dataset=quality_dataset,
                 page=quality_page.page - 1,
@@ -426,7 +426,7 @@ def _render_summary(
         ),
         quality_next_url=(
             _quality_summary_url(
-                project_id,
+                workspace_id,
                 status=quality_status,
                 dataset=quality_dataset,
                 page=quality_page.page + 1,
@@ -451,7 +451,7 @@ def _render_summary(
                 "size": size,
                 "url": _summary_rows_url(
                     request,
-                    project_id,
+                    workspace_id,
                     page=None,
                     page_size=size,
                 ),
@@ -463,7 +463,7 @@ def _render_summary(
         readiness_row_previous_url=(
             _summary_rows_url(
                 request,
-                project_id,
+                workspace_id,
                 page=row_page - 1 if row_page > 2 else None,
                 page_size=readiness_page_size,
             )
@@ -473,7 +473,7 @@ def _render_summary(
         readiness_row_next_url=(
             _summary_rows_url(
                 request,
-                project_id,
+                workspace_id,
                 page=row_page + 1,
                 page_size=readiness_page_size,
             )
@@ -483,7 +483,7 @@ def _render_summary(
         review_workbook_ready=(
             report is not None
             and context.artifacts.report_exists(
-                project_id, report.run_id, WORKBOOK_NAME
+                workspace_id, report.run_id, WORKBOOK_NAME
             )
         ),
         status_filter=status_filter,
@@ -515,7 +515,7 @@ def _render_summary(
 
 
 def _local_stack_matches_project(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     status: LocalStackStatus,
 ) -> bool:
     """Return whether the selected local profile targets this exact project."""
@@ -523,12 +523,12 @@ def _local_stack_matches_project(
     profile = status.profile
     if profile is None:
         return False
-    if profile.base_url.rstrip("/") != project.odoo_base_url.rstrip("/"):
+    if profile.base_url.rstrip("/") != workspace_state.odoo_base_url.rstrip("/"):
         return False
     return not (
         profile.database_hint
-        and project.odoo_database
-        and profile.database_hint != project.odoo_database
+        and workspace_state.odoo_database
+        and profile.database_hint != workspace_state.odoo_database
     )
 
 
@@ -552,7 +552,7 @@ def _preparation_limit_message(
 
 def _summary_rows_url(
     request: Request,
-    project_id: str,
+    workspace_id: str,
     *,
     page: int | None,
     page_size: int,
@@ -567,13 +567,13 @@ def _summary_rows_url(
     if page_size != DEFAULT_SUMMARY_ROWS_PER_PAGE:
         params["page_size"] = str(page_size)
     query = urlencode(params)
-    base = f"/workspaces/{project_id}/summary"
+    base = f"/workspaces/{workspace_id}/summary"
     url = f"{base}?{query}" if query else base
     return f"{url}#readiness-rows"
 
 
 def _quality_summary_url(
-    project_id: str,
+    workspace_id: str,
     *,
     status: str = "",
     dataset: str = "",
@@ -590,7 +590,7 @@ def _quality_summary_url(
     if page_size != DEFAULT_SUMMARY_ROWS_PER_PAGE:
         params["quality_page_size"] = str(page_size)
     query = urlencode(params)
-    base = f"/workspaces/{project_id}/summary"
+    base = f"/workspaces/{workspace_id}/summary"
     url = f"{base}?{query}" if query else base
     return f"{url}#quality-rows"
 
@@ -611,13 +611,13 @@ def _summary_page_size(value: str | None) -> int:
 
 def _require_local_stack_access(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
 ) -> None:
     try:
-        context.authorization.require(
-            context.actor,
-            Capability.LOCAL_STACK_INSPECT,
-            project_id=project.project_id,
+        context.workspace_access.resolve(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            capability=Capability.LOCAL_STACK_INSPECT,
         )
     except AuthorizationError as error:
         raise HTTPException(
@@ -625,8 +625,8 @@ def _require_local_stack_access(
             detail="Not authorized to inspect the local Odoo stack",
         ) from error
     if (
-        project.odoo_connection_mode is not None
-        and project.odoo_connection_mode is not OdooConnectionMode.LOCAL
+        workspace_state.odoo_connection_mode is not None
+        and workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL
     ):
         raise LocalStackError(
             "The local readiness assistant is available only in Local Odoo mode."
@@ -635,14 +635,14 @@ def _require_local_stack_access(
 
 def _require_local_stack_start(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
 ) -> None:
-    _require_local_stack_access(context, project)
+    _require_local_stack_access(context, workspace_state)
     try:
-        context.authorization.require(
-            context.actor,
-            Capability.LOCAL_STACK_START,
-            project_id=project.project_id,
+        context.workspace_access.resolve(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            capability=Capability.LOCAL_STACK_START,
         )
     except AuthorizationError as error:
         raise HTTPException(
@@ -653,14 +653,14 @@ def _require_local_stack_start(
 
 def _require_local_stack_stop(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
 ) -> None:
-    _require_local_stack_access(context, project)
+    _require_local_stack_access(context, workspace_state)
     try:
-        context.authorization.require(
-            context.actor,
-            Capability.LOCAL_STACK_STOP,
-            project_id=project.project_id,
+        context.workspace_access.resolve(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            capability=Capability.LOCAL_STACK_STOP,
         )
     except AuthorizationError as error:
         raise HTTPException(

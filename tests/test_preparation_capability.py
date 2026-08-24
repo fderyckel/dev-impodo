@@ -228,7 +228,7 @@ def _selection(
     return SourceSelection(
         selection_id="selection:1",
         version=1,
-        project_id="project:1",
+        data_version_id="project:1",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         created_by="tester",
         datasets=datasets,

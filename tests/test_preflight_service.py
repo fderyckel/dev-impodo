@@ -48,7 +48,8 @@ from impodo.workspace_errors import WorkspaceError
 
 class PreflightPublicationTests(unittest.TestCase):
     def test_failed_repository_save_deletes_unpublished_manifest(self) -> None:
-        project_id = str(uuid4())
+        workspace_id = str(uuid4())
+        migration_project_id = str(uuid4())
         run_id = str(uuid4())
         target_hash = target_identity_hash(
             connection_mode="LOCAL",
@@ -82,7 +83,7 @@ class PreflightPublicationTests(unittest.TestCase):
         )
         report = ReadinessReport(
             run_id=run_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             mapping_id=str(uuid4()),
             mapping_version=1,
             mapping_content_hash="sha256:" + "1" * 64,
@@ -112,7 +113,7 @@ class PreflightPublicationTests(unittest.TestCase):
         )
         repositories = [MagicMock() for _ in range(7)]
         repositories[4].get.return_value = SimpleNamespace(
-            project_id=project_id,
+            project_id=migration_project_id,
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_test",
@@ -126,7 +127,7 @@ class PreflightPublicationTests(unittest.TestCase):
             quality=repositories[1],
             normalization=repositories[2],
             mappings=repositories[3],
-            projects=repositories[4],
+            workspaces=repositories[4],
             sources=repositories[5],
             preflight=repositories[6],
             artifacts=artifacts,
@@ -186,7 +187,7 @@ class PreflightPublicationTests(unittest.TestCase):
             self.assertRaisesRegex(WorkspaceError, "injected persistence failure"),
         ):
             service.compare(
-                project_id,
+                workspace_id,
                 reader=MagicMock(return_value=(metadata, records)),
                 actor=actor,
             )
@@ -209,18 +210,17 @@ class PreflightPublicationTests(unittest.TestCase):
         )
 
     def test_report_cleanup_removes_empty_unpublished_run_directory(self) -> None:
-        project_id = str(uuid4())
+        workspace_id = str(uuid4())
         run_id = str(uuid4())
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / project_id).mkdir()
             artifacts = LocalArtifactStore(root)
 
-            artifacts.write_report(project_id, run_id, MANIFEST_NAME, b"{}\n")
-            run_directory = root / project_id / "reports" / run_id
+            artifacts.write_report(workspace_id, run_id, MANIFEST_NAME, b"{}\n")
+            run_directory = root / "ws" / workspace_id / "reports" / run_id
             self.assertTrue(run_directory.is_dir())
 
-            artifacts.delete_report(project_id, run_id, MANIFEST_NAME)
+            artifacts.delete_report(workspace_id, run_id, MANIFEST_NAME)
 
             self.assertFalse(run_directory.exists())
 

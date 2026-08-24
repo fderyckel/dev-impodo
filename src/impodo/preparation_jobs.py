@@ -77,12 +77,15 @@ class PreparationWorkspace:
     data_version_purpose: DataVersionPurpose
     migration_run_id: str
     workspace_id: str
+    recipe_application_id: str | None = None
 
     def __post_init__(self) -> None:
         require_uuid(self.project_id, "project_id")
         require_uuid(self.data_version_id, "data_version_id")
         require_uuid(self.migration_run_id, "migration_run_id")
         require_uuid(self.workspace_id, "workspace_id")
+        if self.recipe_application_id is not None:
+            require_uuid(self.recipe_application_id, "recipe_application_id")
         if self.data_version_number < 1:
             raise ValueError("Data version number is invalid")
         object.__setattr__(
@@ -125,6 +128,7 @@ class PreparationWorkspace:
             data_version_purpose=data_version.purpose,
             migration_run_id=run.migration_run_id,
             workspace_id=workspace.workspace_id,
+            recipe_application_id=workspace.recipe_application_id,
         )
 
 
@@ -133,8 +137,8 @@ class PreparationJob:
     """One preparation attempt and its latest in-memory progress snapshot."""
 
     job_id: str
-    project_id: str
-    project_name: str
+    workspace_id: str
+    migration_project_name: str
     build_contract: ApplicationBuildContract
     workspace: PreparationWorkspace
     status: PreparationJobStatus

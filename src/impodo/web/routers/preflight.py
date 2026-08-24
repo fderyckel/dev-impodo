@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
+from ...access import Capability
 from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
 from ...workspace_state import OdooConnectionMode, WorkspaceStateError
@@ -34,6 +35,10 @@ from ...reporting import (
 )
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceDatabaseBusyError, WorkspaceError
+from ...workspace_access import (
+    WorkspaceAccessContext,
+    bind_workspace_access_context,
+)
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
@@ -67,12 +72,12 @@ def _read_key_persistence(form) -> bool:
     )
 
 
-def _rebind_remote_read_access(context: WebContext, project, credential):
+def _rebind_remote_read_access(context: WebContext, workspace_state, credential):
     """Verify and rebind a replacement key without recapturing semantic state."""
 
-    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+    if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
-    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
     if (
         schema is None
         or credential.binding_hash == schema.read_credential_binding_hash
@@ -80,14 +85,14 @@ def _rebind_remote_read_access(context: WebContext, project, credential):
         return None
     probe_models = tuple(sorted(model.name for model in schema.models))
     identity = context.read_identity_probe(
-        project,
+        workspace_state,
         credential.secret,
         probe_models,
     )
-    snapshot = context.schema_reader(project, credential.secret)
+    snapshot = context.schema_reader(workspace_state, credential.secret)
     try:
         context.schema_workspace.rebind_current_access(
-            project.project_id,
+            workspace_state.workspace_id,
             snapshot,
             read_credential_binding_hash=credential.binding_hash,
             read_identity=identity,
@@ -102,7 +107,7 @@ def _rebind_remote_read_access(context: WebContext, project, credential):
             "comparing again.",
         ) from error
     context.remote_connections.mark_checked(
-        project,
+        workspace_state,
         snapshot.fingerprint,
         identity,
     )
@@ -111,18 +116,21 @@ def _rebind_remote_read_access(context: WebContext, project, credential):
 
 def _report_chunks(
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     run_id: str,
     filename: str,
+    *,
+    access_context: WorkspaceAccessContext,
 ) -> Iterator[bytes]:
     """Stream a protected report artifact without loading it all in memory."""
 
-    with context.artifacts.materialize_report(
-        project_id, run_id, filename
-    ) as path:
-        with path.open("rb") as report:
-            while chunk := report.read(64 * 1024):
-                yield chunk
+    with bind_workspace_access_context(access_context):
+        with context.artifacts.materialize_report(
+            workspace_id, run_id, filename
+        ) as path:
+            with path.open("rb") as report:
+                while chunk := report.read(64 * 1024):
+                    yield chunk
 
 
 def build_preflight_router(context: WebContext) -> APIRouter:
@@ -130,8 +138,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.post("/workspaces/{project_id}/summary/compare")
-    async def compare_project_data(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/summary/compare")
+    async def compare_workspace_data(request: Request, workspace_id: str):
         """Compare the exact approved rows through a bounded read-only reader."""
 
         form = await request.form()
@@ -140,9 +148,9 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "read_api_key", "read_api_key_storage"},
         )
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         credential_owner = context.production_runs.credential_workspace(
-            project_id,
+            workspace_id,
             actor=context.actor,
         )
         verified_read_identity = None
@@ -150,15 +158,20 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         def reader(requirements):
             return _read_readiness_snapshots(
                 context,
-                project,
+                workspace_state,
                 requirements,
                 verified_read_identity=verified_read_identity,
             )
 
         try:
+            context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.PREFLIGHT_RUN,
+            )
             submitted_key = _text(form, "read_api_key")
             if submitted_key:
-                if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+                if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
                     raise OdooReadWorkflowError(
                         OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
                         "A read-only API key can be entered here only for Remote Odoo.",
@@ -177,7 +190,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     credential,
                     actor=context.actor,
                 )
-                context.remote_connections.clear(project_id)
+                context.remote_connections.clear(workspace_id)
             else:
                 credential = get_target_credential(
                     context.secret_store,
@@ -188,12 +201,12 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 verified_read_identity = await run_in_threadpool(
                     _rebind_remote_read_access,
                     context,
-                    project,
+                    workspace_state,
                     credential,
                 )
             await run_in_threadpool(
                 context.preflight.compare,
-                project_id,
+                workspace_id,
                 reader=reader,
                 actor=context.actor,
             )
@@ -201,7 +214,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             return _render_summary(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 local_stack_error=(
                     "Reconnect local Odoo for this session before comparing "
                     "data."
@@ -222,25 +235,30 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             return _render_summary(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 comparison_failure=classify_odoo_read_failure(error),
                 status_code=422,
             )
         _flash(request, "Prepared data compared with Odoo. Nothing was changed.")
         return RedirectResponse(
-            f"/workspaces/{project_id}/summary",
+            f"/workspaces/{workspace_id}/summary",
             status_code=303,
         )
 
-    @router.get("/workspaces/{project_id}/summary/manifest")
-    async def download_readiness_manifest(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/summary/manifest")
+    async def download_readiness_manifest(request: Request, workspace_id: str):
         require_session(request)
-        report = context.preflight.current_report(project_id)
+        access_context = context.workspace_access.resolve(
+            workspace_id,
+            actor=context.actor,
+            capability=Capability.PROTECTED_EVIDENCE_READ,
+        )
+        report = context.preflight.current_report(workspace_id)
         if report is None:
             raise HTTPException(status_code=404, detail="Readiness report not found")
         try:
             exists = context.artifacts.report_exists(
-                project_id, report.run_id, MANIFEST_NAME
+                workspace_id, report.run_id, MANIFEST_NAME
             )
         except ArtifactStoreError as error:
             raise HTTPException(
@@ -248,40 +266,49 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             ) from error
         if not exists:
             raise HTTPException(status_code=404, detail="Readiness manifest not found")
-        filename = f"impodo-{project_id[:8]}-preflight.json"
+        filename = f"impodo-{workspace_id[:8]}-preflight.json"
         return StreamingResponse(
             _report_chunks(
-                context, project_id, report.run_id, MANIFEST_NAME
+                context,
+                workspace_id,
+                report.run_id,
+                MANIFEST_NAME,
+                access_context=access_context,
             ),
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    @router.post("/workspaces/{project_id}/summary/package")
-    async def generate_readiness_package(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/summary/package")
+    async def generate_readiness_package(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
-        report = context.preflight.current_report(project_id)
+        access_context = context.workspace_access.resolve(
+            workspace_id,
+            actor=context.actor,
+            capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+        )
+        report = context.preflight.current_report(workspace_id)
         if report is None:
             raise HTTPException(status_code=404, detail="Readiness report not found")
-        staging = context.preflight.current_staging(project_id)
+        staging = context.preflight.current_staging(workspace_id)
         if staging is None or not staging.control_totals_passed:
             return _render_summary(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=(
                     "Resolve the named totals that need attention before "
                     "creating the package."
                 ),
                 status_code=422,
             )
-        quality = context.quality.current_summary(project_id)
+        quality = context.quality.current_summary(workspace_id)
         if quality is None or quality.run_id != report.quality_run_id:
             return _render_summary(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error="Check all rows again before creating the package.",
                 status_code=422,
             )
@@ -289,7 +316,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             return _render_summary(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=(
                     "Resolve the data checks that need review or setup before "
                     "creating the package. Records already set aside may remain "
@@ -301,18 +328,20 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             return _render_summary(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error="Resolve the rows that need attention before creating the package.",
                 status_code=422,
             )
+
         def write_package() -> None:
-            with context.artifacts.materialize_report(
-                project_id, report.run_id, MANIFEST_NAME
-            ) as manifest_path:
-                with context.artifacts.prepare_report(
-                    project_id, report.run_id, WORKBOOK_NAME
-                ) as workbook_path:
-                    write_review_workbook(manifest_path, workbook_path)
+            with bind_workspace_access_context(access_context):
+                with context.artifacts.materialize_report(
+                    workspace_id, report.run_id, MANIFEST_NAME
+                ) as manifest_path:
+                    with context.artifacts.prepare_report(
+                        workspace_id, report.run_id, WORKBOOK_NAME
+                    ) as workbook_path:
+                        write_review_workbook(manifest_path, workbook_path)
 
         try:
             await run_in_threadpool(write_package)
@@ -320,25 +349,30 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             return _render_summary(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
         _flash(request, "Review package created.")
         return RedirectResponse(
-            f"/workspaces/{project_id}/summary",
+            f"/workspaces/{workspace_id}/summary",
             status_code=303,
         )
 
-    @router.get("/workspaces/{project_id}/summary/workbook")
-    async def download_readiness_workbook(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/summary/workbook")
+    async def download_readiness_workbook(request: Request, workspace_id: str):
         require_session(request)
-        report = context.preflight.current_report(project_id)
+        access_context = context.workspace_access.resolve(
+            workspace_id,
+            actor=context.actor,
+            capability=Capability.PROTECTED_EVIDENCE_READ,
+        )
+        report = context.preflight.current_report(workspace_id)
         if report is None:
             raise HTTPException(status_code=404, detail="Readiness report not found")
         try:
             exists = context.artifacts.report_exists(
-                project_id, report.run_id, WORKBOOK_NAME
+                workspace_id, report.run_id, WORKBOOK_NAME
             )
         except ArtifactStoreError as error:
             raise HTTPException(
@@ -346,10 +380,14 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             ) from error
         if not exists:
             raise HTTPException(status_code=404, detail="Review package not found")
-        filename = f"impodo-{project_id[:8]}-review.xlsx"
+        filename = f"impodo-{workspace_id[:8]}-review.xlsx"
         return StreamingResponse(
             _report_chunks(
-                context, project_id, report.run_id, WORKBOOK_NAME
+                context,
+                workspace_id,
+                report.run_id,
+                WORKBOOK_NAME,
+                access_context=access_context,
             ),
             media_type=(
                 "application/vnd.openxmlformats-officedocument."

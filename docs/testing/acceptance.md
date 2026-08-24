@@ -738,7 +738,7 @@ The native-columnar direct path now meets the local 100,000-row target of less
 than 120 seconds and 900 MiB peak working set. Direct mappings requiring the
 Python oracle remain limited to 50,000 rows, and derived/materialized paths
 remain limited to 25,000. Cross-platform repetition and the related/mixed gates
-in the [remaining-work plan](../plans/remaining-work.md#2-qualify-related-and-mixed-preparation-at-100000-rows)
+in the [remaining-work plan](../plans/remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows)
 remain open. Every optimization appends comparable evidence here rather than
 replacing historical results.
 

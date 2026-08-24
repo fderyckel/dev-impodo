@@ -29,8 +29,9 @@ import zipfile
 
 from defusedxml import ElementTree as SafeElementTree
 
-from .access import Actor, AuthorizationPolicy, Capability
-from .artifacts import ArtifactStore, ArtifactStoreError
+from .access import Actor, Capability
+from .artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from .workspace_access import WorkspaceAccessService
 from .workspace_state import WorkspaceStateError, WorkspaceStatus, SourceFile
 from .source import (
     MAX_CELL_STRING_LENGTH,
@@ -226,7 +227,7 @@ class SourceFileCatalog:
 class WorkspaceCatalogReader(Protocol):
     """Read registered workspace files and lifecycle for source inspection."""
 
-    def get(self, project_id: str):
+    def get(self, workspace_id: str):
         """Return the project whose immutable artifacts will be inspected."""
         ...
 
@@ -237,14 +238,14 @@ class SourceCatalogRepository(Protocol):
 
     def get_source_catalogs(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[SourceFileCatalog, ...]:
         """Return current catalogs in registered source-file order."""
         ...
 
     def save_source_catalogs(
         self,
-        project_id: str,
+        workspace_id: str,
         catalogs: Iterable[SourceFileCatalog],
         *,
         actor: Actor,
@@ -254,7 +255,7 @@ class SourceCatalogRepository(Protocol):
 
     def save_source_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: SourceFileCatalog,
         *,
         actor: Actor,
@@ -275,8 +276,8 @@ class SourceInspectionService:
         self,
         workspace_states: WorkspaceCatalogReader,
         sources: SourceCatalogRepository,
-        artifacts: ArtifactStore,
-        authorization: AuthorizationPolicy,
+        artifacts: DataVersionSourceArtifactStore,
+        authorization: WorkspaceAccessService,
     ) -> None:
         self.workspace_states = workspace_states
         self.sources = sources
@@ -285,19 +286,19 @@ class SourceInspectionService:
 
     def inspect_project(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> tuple[SourceFileCatalog, ...]:
         """Reinspect every registered file and replace the complete catalog set."""
 
-        self.authorization.require(
+        context = self.authorization.require(
             actor,
             Capability.SOURCE_INSPECT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.workspace_states.get(project_id)
-        if project.status is not WorkspaceStatus.REGISTERED:
+        workspace_state = self.workspace_states.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before inspecting its sources"
             )
@@ -307,10 +308,10 @@ class SourceInspectionService:
         from .source_worker import inspect_source_file_isolated
 
         catalogs: list[SourceFileCatalog] = []
-        for source_file in project.source_files:
+        for source_file in workspace_state.source_files:
             try:
                 with self.artifacts.materialize_source(
-                    project_id,
+                    context.data_version_id,
                     source_file.stored_name,
                 ) as path:
                     catalogs.append(
@@ -323,7 +324,7 @@ class SourceInspectionService:
             except ArtifactStoreError as error:
                 raise SourceInspectionError(str(error)) from error
         self.sources.save_source_catalogs(
-            project_id,
+            workspace_id,
             catalogs,
             actor=actor,
         )
@@ -331,7 +332,7 @@ class SourceInspectionService:
 
     def inspect_file(
         self,
-        project_id: str,
+        workspace_id: str,
         file_id: str,
         *,
         options: SourceInspectionOptions,
@@ -339,19 +340,19 @@ class SourceInspectionService:
     ) -> SourceFileCatalog:
         """Regenerate one catalog with governed user-selected settings."""
 
-        self.authorization.require(
+        context = self.authorization.require(
             actor,
             Capability.SOURCE_INSPECT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.workspace_states.get(project_id)
-        if project.status is not WorkspaceStatus.REGISTERED:
+        workspace_state = self.workspace_states.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before configuring its sources"
             )
         try:
             source_file = next(
-                item for item in project.source_files if item.file_id == file_id
+                item for item in workspace_state.source_files if item.file_id == file_id
             )
         except StopIteration as error:
             raise SourceInspectionError("Registered source file was not found") from error
@@ -360,7 +361,7 @@ class SourceInspectionService:
 
         try:
             with self.artifacts.materialize_source(
-                project_id,
+                context.data_version_id,
                 source_file.stored_name,
             ) as path:
                 catalog = inspect_source_file_isolated(
@@ -371,7 +372,7 @@ class SourceInspectionService:
         except ArtifactStoreError as error:
             raise SourceInspectionError(str(error)) from error
         self.sources.save_source_catalog(
-            project_id,
+            workspace_id,
             catalog,
             actor=actor,
         )
@@ -1527,4 +1528,3 @@ def _require_dataclass_fields(
         raise SourceInspectionError(
             f"Stored {label} does not match the current contract"
         )
-

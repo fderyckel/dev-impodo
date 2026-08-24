@@ -16,8 +16,9 @@ ever publishing reusable rules.
 ## Entry conditions
 
 The operator has an authenticated local session and can create Projects. The
-new storage root must match the exact M4 registry and M2 isolated-store
-generations; rejected Recipe-first
+new storage root must match the exact Project-root registry, Project-owned
+DataVersion store, reference-only MigrationWorkspace store, and workspace-owned
+engine generations; rejected retired
 storage requires the reviewed development reset rather than an upgrade.
 
 ## Implementation flow
@@ -27,27 +28,47 @@ overview, and optional Recipe publication. `workspace_setup.py` opens the
 contained authoring engine under `/workspaces/{workspace_id}` and directs file
 or Odoo-source setup to the existing bounded services.
 
+`WorkspaceAccessService` provides the verified Project-owned lineage for one
+workspace through one registry read. `WorkspaceOwnerViewService` uses that
+lineage to give presenters explicit Project, MigrationWorkspace, DataVersion,
+MigrationRun, source-package, and run-target objects.
+`WorkspaceAccessMiddleware` now resolves and binds that lineage before every
+authenticated workspace route. Workspace application services reuse the same
+context for exact capability checks, and background Odoo jobs receive it as an
+immutable worker packet. Preparation, Odoo-capture, and load progress requests
+reuse that verified packet, so a progress page does not reopen a worker-held
+registry or add another Project lookup.
+
 The New project form records Project name, migration purpose, source mode, and
 source-system identity. `MigrationProjectAuthoringService` uses one browser
 request ID and deterministic child operation IDs to create or resume each
-root. It initializes `WorkspaceState` only after the clean MigrationWorkspace
-exists.
+root. It initializes a flat mapping-workbench projection only after the clean
+MigrationWorkspace exists. That projection is not another identity or
+lifecycle root.
 
 ## Evidence and state
 
-The registry owns Project, DataVersion, run, workspace, Recipe, and operation
-projections. The DataVersion store owns the canonical source package. The
+The registry owns Project, DataVersion, run, workspace, Recipe, operation, and
+run target-setup projections. `MigrationWorkspace` owns setup state and its
+optimistic revision. The DataVersion store owns the canonical source package. The
 workspace store owns its exact selected dataset references, while the
 contained mapping engine keeps current authoring evidence.
 
 ## Source acceptance
 
 `SourceIntakeService` receives a workspace ID, while
-`DataVersionAwareArtifactStore` resolves the workspace's DataVersion and stores
-the source artifact under that owner. Existing inspection and source services
-collect the current authoring choices. When the data manager freezes tables,
-`WorkspaceDataVersionSourceService` creates the canonical package, freezes the
-DataVersion, and writes the workspace's bounded dataset projection.
+the explicit `DataVersionSourceArtifactStore` stores the source artifact under
+`artifacts/dv/<data_version_id>`. The draft package records each file at
+intake. `DataVersionOwnedSourceRepository` records inspection catalogues and
+confirmed parsing choices in that package while maintaining bounded local
+invalidation caches. When the data manager freezes tables,
+`WorkspaceDataVersionSourceService` adds datasets and snapshot references,
+freezes the DataVersion, and writes the workspace's bounded dataset projection.
+
+Target setup follows the same single-owner rule. `MigrationRunTargetSetup`
+owns the mutable Local or Remote Odoo choice before capture. All workspaces in
+that run project the same setup. The existing immutable `TargetBinding` remains
+the authority after capture.
 
 `MappingWorkspaceService` and the Recipe compiler consume
 `WorkspaceMappingSourceProjection`. They do not read a mutable workspace source
@@ -123,8 +144,14 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Workspace setup routes | [`workspace_setup.py`](../../../src/impodo/web/routers/workspace_setup.py) |
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
 | Clean roots | [`MigrationProjectService`](../../../src/impodo/migration_projects.py), [`DataVersionService`](../../../src/impodo/data_versions.py), [`MigrationRunService`](../../../src/impodo/migration_runs.py), [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) |
-| Contained engine | [`WorkspaceStateService`](../../../src/impodo/workspace_state.py) and `WorkspaceStateService.register` |
-| Source ownership cutover | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
+| Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/workspace_access.py) and [`MigrationFoundationRepository.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/migration_foundation_repository.py) |
+| Workspace authorization middleware | [`WorkspaceAccessMiddleware`](../../../src/impodo/web/security.py) |
+| Workspace setup root | [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) and `MigrationWorkspaceService.complete_setup` |
+| Contained workbench | [`WorkspaceStateService`](../../../src/impodo/workspace_state.py) |
+| Canonical workspace page | [`WorkspaceOwnerViewService`](../../../src/impodo/workspace_views.py) |
+| Source ownership cutover | [`DataVersionOwnedSourceRepository`](../../../src/impodo/adapters/duckdb/data_version_source_repository.py), [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
+| Owner-specific artifact stores | [`DataVersionSourceArtifactStore` and `WorkspaceArtifactStore`](../../../src/impodo/artifacts.py) |
+| Run target setup | [`MigrationRunTargetSetupService`](../../../src/impodo/migration_run_setup.py) |
 | Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Navigation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
@@ -134,7 +161,11 @@ therefore use one reviewed registry without adding a database or N+1 path.
 
 ## Verification
 
-- [`tests/test_migration_project_phase_m3_project_authoring.py`](../../../tests/test_migration_project_phase_m3_project_authoring.py)
+- [`tests/test_project_authoring.py`](../../../tests/test_project_authoring.py)
+- [`tests/test_identity_semantics.py`](../../../tests/test_identity_semantics.py)
+- [`tests/test_workspace_access.py`](../../../tests/test_workspace_access.py)
+- [`tests/test_canonical_ownership.py`](../../../tests/test_canonical_ownership.py)
+- [`tests/test_workspace_evidence_storage.py`](../../../tests/test_workspace_evidence_storage.py)
 - [`tests/test_concept_help.py`](../../../tests/test_concept_help.py)
 - [`tests/test_project_security.py`](../../../tests/test_project_security.py)
 - [`tests/test_odoo_connection_service.py`](../../../tests/test_odoo_connection_service.py)

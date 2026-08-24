@@ -807,7 +807,7 @@ def _selection() -> SourceSelection:
     return SourceSelection(
         selection_id="selection-columnar",
         version=1,
-        project_id="project-columnar",
+        data_version_id="project-columnar",
         created_at=NOW,
         created_by="tester",
         datasets=(dataset,),

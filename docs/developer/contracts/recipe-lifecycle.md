@@ -70,8 +70,8 @@ workspace, protected payload, or Odoo connection per Recipe row.
 
 ## Current application boundary
 
-M4 applies several exact Recipe revisions inside one Project-owned Test
-MigrationRun. Each receives a separate RecipeApplication and workspace while
+An integrated Test run applies several exact Recipe revisions inside one
+Project-owned MigrationRun. Each receives a separate RecipeApplication and workspace while
 the run owns unioned target requirements and target evidence. Application
 creates fresh current evidence and cannot publish a Recipe successor. It does
 not restore Recipe-owned DataVersions or the superseded `/recipes` Project
@@ -79,8 +79,8 @@ shell.
 
 ## Verification
 
-- `tests/test_migration_project_phase_m3_project_authoring.py`
-- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
+- `tests/test_project_authoring.py`
+- `tests/test_integrated_recipe_runs.py`
 - `tests/test_recipe_representative_shapes.py`
 
 ## Related documentation

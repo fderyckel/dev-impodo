@@ -20,7 +20,7 @@ class ReconciliationRepository(DuckDbRepository):
 
     def publish(
         self,
-        project_id: str,
+        workspace_id: str,
         report: ReconciliationRun,
         *,
         actor: Actor,
@@ -34,9 +34,9 @@ class ReconciliationRepository(DuckDbRepository):
             execution_run_id = str(UUID(report.execution_run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Verification result identifier is invalid") from error
-        if report.project_id != project_id:
-            raise WorkspaceError("Verification result belongs to another project")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        if report.workspace_id != workspace_id:
+            raise WorkspaceError("Verification result belongs to another workspace")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -115,7 +115,7 @@ class ReconciliationRepository(DuckDbRepository):
 
     def get_current(
         self,
-        project_id: str,
+        workspace_id: str,
         execution_run_id: str | None = None,
     ) -> ReconciliationRun | None:
         query = """
@@ -129,12 +129,12 @@ class ReconciliationRepository(DuckDbRepository):
         if execution_run_id is not None:
             query += " AND run.execution_run_id = ?"
             parameters.append(str(UUID(execution_run_id)))
-        rows = self._read_json_rows(project_id, query, parameters)
-        return self.get(project_id, rows[0]) if rows else None
+        rows = self._read_json_rows(workspace_id, query, parameters)
+        return self.get(workspace_id, rows[0]) if rows else None
 
-    def get(self, project_id: str, reconciliation_id: str) -> ReconciliationRun | None:
+    def get(self, workspace_id: str, reconciliation_id: str) -> ReconciliationRun | None:
         canonical_id = str(UUID(reconciliation_id))
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -149,7 +149,6 @@ class ReconciliationRepository(DuckDbRepository):
         if row is None:
             return None
         report = ReconciliationRun.from_json(str(row[0]))
-        if report.project_id != project_id:
-            raise WorkspaceError("Verification result belongs to another project")
+        if report.workspace_id != workspace_id:
+            raise WorkspaceError("Verification result belongs to another workspace")
         return report
-

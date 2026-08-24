@@ -1,5 +1,8 @@
 # Reusable recipes Phase 0 baseline — 2026-08-18
 
+**Historical evidence:** This report records a superseded implementation
+baseline. ADR-014, current architecture, and lifecycle contracts own behavior.
+
 ## Purpose
 
 This report records the current behavior that later reusable-recipe phases must
@@ -75,6 +78,9 @@ The following command completed successfully:
 ```
 
 Result: 13 tests passed in 3.268 seconds.
+
+The final Recipe phase-zero module in this historical command was removed by
+M7; its evidence remains available in Git history.
 
 ## Phase 0 conclusion
 

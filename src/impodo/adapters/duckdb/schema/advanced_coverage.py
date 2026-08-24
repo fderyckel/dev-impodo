@@ -51,7 +51,7 @@ def create_advanced_coverage_schema(connection: duckdb.DuckDBPyConnection) -> No
 
         CREATE TABLE IF NOT EXISTS resolution_run (
             run_id VARCHAR PRIMARY KEY,
-            project_id VARCHAR NOT NULL,
+            workspace_id VARCHAR NOT NULL,
             staging_run_id VARCHAR NOT NULL,
             staging_content_hash VARCHAR NOT NULL,
             policy_hash VARCHAR NOT NULL,

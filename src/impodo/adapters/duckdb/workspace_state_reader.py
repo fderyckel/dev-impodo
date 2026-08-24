@@ -12,13 +12,9 @@ from .schema.data_version_store import (
     DATA_VERSION_STORE_GENERATION,
     DATA_VERSION_STORE_VERSION,
 )
-from .schema.migration_workspace_store import (
-    MIGRATION_WORKSPACE_GENERATION,
-    MIGRATION_WORKSPACE_VERSION,
-)
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
-from .serialization import _project_from_rows
+from .serialization import _workspace_from_rows
 
 
 class WorkspaceStateReader(DuckDbRepository):
@@ -37,16 +33,17 @@ class WorkspaceStateReader(DuckDbRepository):
         super().__init__(database)
         self._workspace = workspace
 
-    def get(self, project_id: str) -> WorkspaceState:
-        workspace_directory = self.workspace_directory(project_id)
-        self._verify_workspace_store(workspace_directory / "workspace.duckdb")
+    def get(self, workspace_id: str) -> WorkspaceState:
+        workspace_directory = self.workspace_directory(workspace_id)
         self._verify_data_version_store()
         database_path = workspace_directory / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
-            row = connection.execute("SELECT * FROM workspace_state").fetchone()
+            row = connection.execute(
+                "SELECT * FROM workspace_projection_cache"
+            ).fetchone()
             if row is None:
                 raise WorkspaceStateNotFoundError("Workspace engine state not found")
             columns = [item[0] for item in connection.description]
@@ -58,37 +55,11 @@ class WorkspaceStateReader(DuckDbRepository):
                  ORDER BY received_at, file_id
                 """
             ).fetchall()
-        return _project_from_rows(
+        return _workspace_from_rows(
             dict(zip(columns, row, strict=True)),
             source_rows,
+            workspace_id=self._workspace.workspace_id,
         )
-
-    def _verify_workspace_store(self, path) -> None:
-        if not path.is_file():
-            raise WorkspaceStateError("MigrationWorkspace linkage is missing")
-        with self._connect(path) as connection:
-            version = connection.execute(
-                "SELECT generation, version FROM schema_version WHERE singleton_id = 1"
-            ).fetchone()
-            linkage = connection.execute(
-                """
-                SELECT workspace_id, project_id, data_version_id,
-                       migration_run_id, recipe_application_id
-                  FROM workspace_linkage
-                 WHERE singleton_id = 1
-                """
-            ).fetchone()
-        if version != (
-            MIGRATION_WORKSPACE_GENERATION,
-            MIGRATION_WORKSPACE_VERSION,
-        ) or linkage != (
-            self._workspace.workspace_id,
-            self._workspace.project_id,
-            self._workspace.data_version_id,
-            self._workspace.migration_run_id,
-            None,
-        ):
-            raise WorkspaceStateError("MigrationWorkspace linkage is inconsistent")
 
     def _verify_data_version_store(self) -> None:
         path = (
@@ -124,4 +95,3 @@ class WorkspaceStateReader(DuckDbRepository):
             "FROZEN",
         ):
             raise WorkspaceStateError("DataVersion source package is not accepted")
-

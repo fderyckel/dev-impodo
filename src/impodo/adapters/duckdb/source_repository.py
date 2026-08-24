@@ -70,11 +70,11 @@ class SourceRepository(DuckDbRepository):
 
     def get_source_catalogs(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[SourceFileCatalog, ...]:
         """Load source catalogs in the same order as registered source files."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -91,7 +91,7 @@ class SourceRepository(DuckDbRepository):
         return tuple(SourceFileCatalog.from_json(str(row[0])) for row in rows)
     def save_source_catalogs(
         self,
-        project_id: str,
+        workspace_id: str,
         catalogs: Iterable[SourceFileCatalog],
         *,
         actor: Actor,
@@ -99,7 +99,7 @@ class SourceRepository(DuckDbRepository):
         """Atomically replace the complete hash-bound catalog set."""
 
         catalog_set = tuple(catalogs)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -114,10 +114,10 @@ class SourceRepository(DuckDbRepository):
             }
             if supplied != registered or len(supplied) != len(catalog_set):
                 raise SourceInspectionError(
-                    "Source catalogs do not match the registered project files"
+                    "Source catalogs do not match the registered DataVersion files"
                 )
             revision_row = connection.execute(
-                "SELECT revision FROM workspace_state"
+                "SELECT revision FROM workspace_projection_cache"
             ).fetchone()
             if revision_row is None:
                 raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -151,7 +151,7 @@ class SourceRepository(DuckDbRepository):
                 connection.execute(
                     """
                     INSERT INTO audit_event (
-                        event_id, event_type, project_revision, occurred_at,
+                        event_id, event_type, workspace_revision, occurred_at,
                         detail, actor_issuer, actor_subject, actor_display_name
                     )
                     VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?, ?, ?, ?)
@@ -172,14 +172,14 @@ class SourceRepository(DuckDbRepository):
                 raise
     def save_source_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: SourceFileCatalog,
         *,
         actor: Actor,
     ) -> None:
         """Replace one catalog and invalidate every dependent source decision."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -190,7 +190,7 @@ class SourceRepository(DuckDbRepository):
             ).fetchone()
             if source is None or str(source[0]) != catalog.source_sha256:
                 raise SourceInspectionError(
-                    "Source catalog does not match the registered project file"
+                    "Source catalog does not match the registered DataVersion file"
                 )
             revision = self._workspace_revision(connection)
             connection.begin()
@@ -232,14 +232,14 @@ class SourceRepository(DuckDbRepository):
                 raise
     def get_source_configurations(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[SourceConfiguration, ...]:
         """Load confirmations in the same order as registered source files."""
 
         return tuple(
             SourceConfiguration.from_json(value)
             for value in self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT configuration.configuration_json
                   FROM source_file AS source
@@ -251,14 +251,14 @@ class SourceRepository(DuckDbRepository):
         )
     def save_source_configuration(
         self,
-        project_id: str,
+        workspace_id: str,
         configuration: SourceConfiguration,
         *,
         actor: Actor,
     ) -> None:
         """Confirm one exact catalog and invalidate selection/mapping/staging."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -312,11 +312,11 @@ class SourceRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return the current frozen physical selection, when available."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             "SELECT selection_json FROM source_selection WHERE singleton_id = 1",
         )
         if value is None:
@@ -328,12 +328,12 @@ class SourceRepository(DuckDbRepository):
 
     def get_current_odoo_capture_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooCaptureSelection | None:
         """Return the current bounded Odoo capture plan without target I/O."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT revision.selection_json
               FROM odoo_capture_selection_current AS current
@@ -347,14 +347,14 @@ class SourceRepository(DuckDbRepository):
 
     def get_odoo_capture_selection_history(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[OdooCaptureSelection, ...]:
         """Return immutable Odoo selection revisions in version order."""
 
         return tuple(
             OdooCaptureSelection.from_json(value)
             for value in self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT selection_json
                   FROM odoo_capture_selection_revision
@@ -365,30 +365,30 @@ class SourceRepository(DuckDbRepository):
 
     def save_odoo_capture_selection(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: OdooCaptureSelection,
         *,
         actor: Actor,
     ) -> None:
         """Append a schema/identity-bound plan and advance its pointer atomically."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
-            project = connection.execute(
-                "SELECT source_mode, status FROM workspace_state"
+            workspace_projection = connection.execute(
+                "SELECT source_mode, status FROM workspace_projection_cache"
             ).fetchone()
-            if project is None:
+            if workspace_projection is None:
                 raise WorkspaceStateNotFoundError("Workspace engine state not found")
             if (
-                str(project[0]) != SourceMode.ODOO.value
-                or str(project[1]) != WorkspaceStatus.REGISTERED.value
+                str(workspace_projection[0]) != SourceMode.ODOO.value
+                or str(workspace_projection[1]) != WorkspaceStatus.REGISTERED.value
             ):
                 raise WorkspaceError(
-                    "Only registered Odoo-source projects can save a capture plan"
+                    "Only registered Odoo-source workspaces can save a capture plan"
                 )
             schema_row = connection.execute(
                 "SELECT catalog_json FROM odoo_schema_catalog WHERE singleton_id = 1"
@@ -403,8 +403,7 @@ class SourceRepository(DuckDbRepository):
                 None,
             )
             if (
-                selection.project_id != project_id
-                or selection.policy_hash != schema.policy_hash
+                selection.policy_hash != schema.policy_hash
                 or selection.connection_target_hash
                 != schema.connection_target_hash
                 or selection.schema_scope_hash != schema.content_hash
@@ -491,34 +490,34 @@ class SourceRepository(DuckDbRepository):
                 raise
     def get_mapping_source_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SourceSelection | None:
         """Return physical or prepared logical datasets used by mapping."""
 
         if self._mapping_source_projection is not None:
             return self._mapping_source_projection.get_mapping_source_selection(
-                project_id
+                workspace_id
             )
 
-        selection = self.get_source_selection(project_id)
+        selection = self.get_source_selection(workspace_id)
         if selection is None:
             return None
         return mapping_source_selection(
             selection,
-            self._derived_entities.get_derived_entity_plan(project_id),
-            self.get_source_catalogs(project_id),
+            self._derived_entities.get_derived_entity_plan(workspace_id),
+            self.get_source_catalogs(workspace_id),
         )
 
     def get_current_source_snapshots(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[SourceSnapshot, ...]:
         """Return current immutable snapshot manifests by dataset identity."""
 
         return tuple(
             SourceSnapshot.from_json(value)
             for value in self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT manifest.manifest_json
                   FROM source_snapshot_current AS current
@@ -531,14 +530,14 @@ class SourceRepository(DuckDbRepository):
 
     def find_source_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         logical_hash: str,
     ) -> SourceSnapshot | None:
         """Find a previously registered exact logical snapshot for reuse."""
 
         values = self._read_json_rows(
-            project_id,
+            workspace_id,
             """
             SELECT manifest_json
               FROM source_snapshot_manifest
@@ -550,12 +549,12 @@ class SourceRepository(DuckDbRepository):
         )
         return SourceSnapshot.from_json(values[0]) if values else None
 
-    def source_snapshot_storage_keys(self, project_id: str) -> frozenset[str]:
+    def source_snapshot_storage_keys(self, workspace_id: str) -> frozenset[str]:
         """Return every immutable file referenced by a historical manifest."""
 
         return frozenset(
             self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT parquet_storage_key
                   FROM source_snapshot_manifest
@@ -566,7 +565,7 @@ class SourceRepository(DuckDbRepository):
 
     def publish_source_selection_with_snapshots(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: SourceSelection,
         snapshots: Iterable[SourceSnapshot],
         *,
@@ -579,12 +578,11 @@ class SourceRepository(DuckDbRepository):
         expected_ids = {item.dataset_id for item in selection.datasets}
         supplied_ids = {item.dataset_id for item in manifests}
         if (
-            selection.project_id != project_id
-            or len(datasets) != len(selection.datasets)
+            len(datasets) != len(selection.datasets)
             or supplied_ids != expected_ids
             or len(supplied_ids) != len(manifests)
             or any(
-                item.project_id != project_id
+                item.data_version_id != selection.data_version_id
                 or item.physical_selection_hash != selection.content_hash
                 or not _snapshot_matches_dataset(item, datasets[item.dataset_id])
                 for item in manifests
@@ -594,31 +592,31 @@ class SourceRepository(DuckDbRepository):
                 "Source snapshots do not match the frozen source selection"
             )
         self._publish_source_selection(
-            project_id,
+            workspace_id,
             selection,
             manifests,
             actor=actor,
         )
     def save_source_selection(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: SourceSelection,
         *,
         actor: Actor,
     ) -> None:
         """Publish one frozen selection and retire dependent current pointers."""
 
-        self._publish_source_selection(project_id, selection, (), actor=actor)
+        self._publish_source_selection(workspace_id, selection, (), actor=actor)
 
     def _publish_source_selection(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: SourceSelection,
         snapshots: tuple[SourceSnapshot, ...],
         *,
         actor: Actor,
     ) -> None:
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -718,4 +716,3 @@ def _snapshot_matches_dataset(
         and snapshot.row_count == dataset.row_count
         and snapshot.schema == expected_schema
     )
-

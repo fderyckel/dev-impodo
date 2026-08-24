@@ -51,14 +51,14 @@ class PreflightRepository(DuckDbRepository):
     def __init__(
         self,
         database: DuckDbWorkspaceDatabase,
-        projects: WorkspaceStateRepository,
+        workspaces: WorkspaceStateRepository,
     ) -> None:
         super().__init__(database)
-        self._projects = projects
+        self._workspaces = workspaces
 
     def get_readiness_report(
         self,
-        project_id: str,
+        workspace_id: str,
         mapping_id: str,
         mapping_version: int,
         mapping_content_hash: str,
@@ -74,7 +74,7 @@ class PreflightRepository(DuckDbRepository):
         """Return the current report only when all upstream bindings match."""
 
         values = self._read_json_rows(
-            project_id,
+            workspace_id,
             """
             SELECT run.report_json
               FROM preflight_current AS current
@@ -110,7 +110,7 @@ class PreflightRepository(DuckDbRepository):
 
     def save_readiness_report(
         self,
-        project_id: str,
+        workspace_id: str,
         report: ReadinessReport,
         *,
         decision_rows: Iterable[ReadinessRow],
@@ -132,8 +132,8 @@ class PreflightRepository(DuckDbRepository):
             canonical_normalization_run_id = str(UUID(report.normalization_run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Readiness run identifier is invalid") from error
-        if report.project_id != project_id:
-            raise WorkspaceError("Readiness report belongs to another project")
+        if report.workspace_id != workspace_id:
+            raise WorkspaceError("Readiness report belongs to another workspace")
         if (
             metadata_snapshot.content_hash != report.metadata_snapshot_hash
             or record_snapshot.content_hash != report.record_snapshot_hash
@@ -143,7 +143,7 @@ class PreflightRepository(DuckDbRepository):
             or decision_count < 0
         ):
             raise WorkspaceError("Readiness snapshot evidence is invalid")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -153,7 +153,7 @@ class PreflightRepository(DuckDbRepository):
                 target = connection.execute(
                     """
                     SELECT odoo_connection_mode, odoo_base_url, odoo_database
-                      FROM workspace_state
+                      FROM workspace_projection_cache
                     """
                 ).fetchone()
                 if target is None or target_identity_hash(
@@ -416,7 +416,7 @@ class PreflightRepository(DuckDbRepository):
                 )
                 connection.execute(
                     """
-                    UPDATE workspace_state
+                    UPDATE workspace_projection_cache
                        SET current_run_id = ?,
                            approval_status = 'REVIEW_REQUIRED'
                     """,
@@ -436,11 +436,11 @@ class PreflightRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        self._projects.synchronize_registration_artifacts(project_id)
+        self._workspaces.synchronize_registration_artifacts(workspace_id)
 
     def get_readiness_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         status: str = "",
@@ -470,7 +470,7 @@ class PreflightRepository(DuckDbRepository):
             clauses.append("dataset = ?")
             parameters.append(dataset)
         where = " AND ".join(clauses)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -504,4 +504,3 @@ class PreflightRepository(DuckDbRepository):
             page=bounded_page,
             page_count=page_count,
         )
-

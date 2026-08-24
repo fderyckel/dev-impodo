@@ -1,4 +1,4 @@
-"""Verify M4 multi-Recipe Test planning and isolated application workspaces."""
+"""Verify multi-Recipe Test planning and isolated application workspaces."""
 
 from __future__ import annotations
 
@@ -101,6 +101,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from tests.workspace_access_helpers import workspace_access_service
 from impodo.web.app import create_local_app
 from fastapi.testclient import TestClient
 
@@ -121,7 +122,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 ROOT
                 / "fixtures"
                 / "migration-projects"
-                / "phase-m0"
+                / "current-contract"
                 / "customer-recipe-v1.json"
             ).read_text(encoding="utf-8")
         )["recipe"]
@@ -147,10 +148,11 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             "content_hash"
         ] = reference.content_hash
         source_shape = definition["source_shape"]["datasets"][0]
+        workspace_id = str(uuid4())
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=str(uuid4()),
+            data_version_id=str(uuid4()),
             created_at=datetime.now(timezone.utc),
             created_by="Data manager",
             datasets=(
@@ -210,7 +212,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             for model in definition["odoo_target_contract"]["models"]
         )
         schema = OdooSchemaCatalog(
-            project_id=selection.project_id,
+            workspace_id=workspace_id,
             policy_hash=content_hash("schema policy"),
             captured_at=datetime.now(timezone.utc),
             captured_by="Data manager",
@@ -243,7 +245,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             source_selection=selection,
             target_schema=schema,
             reference_bundle=ReferenceBundle(
-                project_id=selection.project_id,
+                workspace_id=workspace_id,
                 datasets=(reference,),
             ),
             parameter_values={
@@ -290,7 +292,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             selection,
             controls,
             ReferenceBundle(
-                project_id=selection.project_id,
+                workspace_id=workspace_id,
                 datasets=(reference,),
             ),
         )
@@ -329,14 +331,13 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 del workspace_id, expected_version, actor
                 self.draft = draft
 
-        workspace_id = selection.project_id
         governance_state = {"value": None}
 
         def govern(current_workspace_id, *, business_keys, actor):
             governance = SchemaGovernance(
                 governance_id=str(uuid4()),
                 version=1,
-                project_id=current_workspace_id,
+                workspace_id=current_workspace_id,
                 catalog_hash=schema.content_hash,
                 permitted_models=tuple(item.name for item in schema.models),
                 business_keys=business_keys,
@@ -361,7 +362,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             sources,
             schemas,
             mapping_state,
-            CapabilityAuthorizationPolicy(),
+            workspace_access_service(),
             categorical_coverage=SimpleNamespace(),
         )
         quality_seed = {}
@@ -371,7 +372,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             schema_workspace=SimpleNamespace(govern=govern),
             references=SimpleNamespace(
                 get_reference_bundle=lambda current_workspace_id: ReferenceBundle(
-                    project_id=current_workspace_id,
+                    workspace_id=current_workspace_id,
                     datasets=(reference,),
                 )
             ),
@@ -406,8 +407,8 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertIsNotNone(mapping_state.draft)
 
 
-class M4Compiler:
-    """Keep the phase test focused on clean M4 orchestration and persistence."""
+class IntegratedRecipeCompiler:
+    """Keep the test focused on orchestration and persistence."""
 
     def __init__(self) -> None:
         self.logical_name = "Customers"
@@ -608,7 +609,7 @@ class M4Compiler:
             mapping_hash = None
         else:
             status = RecipeApplicationStatus.READY
-            mapping_id = str(uuid5(UUID(workspace_id), "m4-mapping"))
+            mapping_id = str(uuid5(UUID(workspace_id), "integrated-run-mapping"))
             mapping_hash = content_hash(
                 {"application_id": application_id, "workspace_id": workspace_id}
             )
@@ -627,10 +628,10 @@ class M4Compiler:
         )
 
 
-class MigrationProjectPhaseM4Tests(unittest.TestCase):
+class IntegratedRecipeRunTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"m4-multi-recipe-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"integrated-multi-recipe-{uuid4()}"
         self.root.mkdir()
         self.authorization = CapabilityAuthorizationPolicy()
         self.database = MigrationFoundationDatabase(self.root)
@@ -678,7 +679,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             recipe_repository,
             self.authorization,
         )
-        self.compiler = M4Compiler()
+        self.compiler = IntegratedRecipeCompiler()
         publication = RecipePublicationService(
             recipe_repository,
             self.compiler,
@@ -833,7 +834,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             selection=(),
         )
         return OdooSchemaCatalog(
-            project_id=self.bundle.workspace.workspace_id,
+            workspace_id=self.bundle.workspace.workspace_id,
             policy_hash=content_hash("schema-policy"),
             captured_at=utc_now(),
             captured_by="Test operator",
@@ -920,6 +921,14 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             len({item.workspace_id for item in result.applications}),
             2,
         )
+        run_schema = self.planning_repository.get_run_target_schema(
+            result.run.migration_run_id
+        )
+        self.assertEqual(run_schema.migration_run_id, result.run.migration_run_id)
+        self.assertEqual(
+            run_schema.source_schema.workspace_id,
+            self.bundle.workspace.workspace_id,
+        )
         with self.database.connect(self.foundation.registry_path) as connection:
             self.assertEqual(
                 connection.execute("SELECT count(*) FROM target_binding").fetchone(),
@@ -952,7 +961,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             effective_label="Integrated Test",
         )
         bundle = ReferenceBundle(
-            project_id=self.bundle.workspace.workspace_id,
+            workspace_id=self.bundle.workspace.workspace_id,
             datasets=(reference,),
         )
         self.compiler.reference_requirement = ReferenceRequirement(
@@ -975,7 +984,11 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             result.run.migration_run_id
         )
         self.assertIsNotNone(stored)
-        self.assertEqual(stored.project_id, result.run.migration_run_id)
+        self.assertEqual(stored.migration_run_id, result.run.migration_run_id)
+        self.assertEqual(
+            stored.source_workspace_id,
+            self.bundle.workspace.workspace_id,
+        )
         self.assertEqual(
             result.target_binding.reference_snapshot_hashes,
             (reference.content_hash,),
@@ -1127,22 +1140,22 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
         self.assertTrue(all(path == self.foundation.registry_path for path in opened))
 
 
-class MigrationProjectPhaseM4BrowserTests(unittest.TestCase):
+class IntegratedRecipeRunBrowserTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"m4-browser-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"integrated-browser-{uuid4()}"
         self.root.mkdir()
         self.app = create_local_app(
             self.root,
-            launch_token="m4-launch",
-            session_secret="m4-session",
+            launch_token="integrated-launch",
+            session_secret="integrated-session",
             secret_store=MemorySecretStore(),
             preparation_jobs_enabled=False,
             odoo_capture_jobs_enabled=False,
         )
         self.client = TestClient(self.app)
         launched = self.client.get(
-            "/launch?token=m4-launch",
+            "/launch?token=integrated-launch",
             follow_redirects=False,
         )
         self.assertEqual(launched.status_code, 303)

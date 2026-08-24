@@ -1,20 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Source inspection · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Source inspection · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
-  <div class="page-heading" data-source-review-page data-source-position-key="{{ project.project_id }}">
+  <div class="page-heading" data-source-review-page data-source-position-key="{{ workspace_id }}">
     <div>
       <p class="eyebrow">Stage 1 of 6 · Source data</p>
       <h1>Check your source files</h1>
-      <p>Confirm the tables and columns Impodo found in {{ project.name }}.</p>
+      <p>Confirm the tables and columns Impodo found in {{ migration_project.display_name }}.</p>
     </div>
-    <span class="status registered">{{ catalogs|length }}/{{ project.source_files|length }} checked</span>
+    <span class="status registered">{{ catalogs|length }}/{{ workspace_state.source_files|length }} checked</span>
   </div>
 
   <section class="form-card" id="source-files">
-    <h2>Files in this project</h2>
+    <h2>Files in this Data version</h2>
     <p>Impodo checks each file without changing the original.</p>
     <div class="file-list">
-      {% for file in project.source_files %}
+      {% for file in workspace_state.source_files %}
         <div class="file-row">
           <div>
             <strong>{{ file.display_name }}</strong>
@@ -36,18 +36,18 @@
         </div>
       {% endfor %}
     </div>
-    {% if can_remove_source_files and project.source_files %}
+    {% if can_remove_source_files and workspace_state.source_files %}
       {% include "_source_file_remove_dialog.html" %}
     {% endif %}
     {% if can_remove_source_files %}
       <form
         method="post"
         enctype="multipart/form-data"
-        action="/workspaces/{{ project.project_id }}/sources/files"
+        action="/workspaces/{{ workspace_id }}/sources/files"
         class="source-file-upload-form"
       >
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="revision" value="{{ project.revision }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
         <label>
           Add another file
           <input type="file" name="source_file" accept=".csv,.xlsx" required>
@@ -56,10 +56,10 @@
         <button class="button secondary" type="submit">Add file</button>
       </form>
     {% endif %}
-    <form method="post" action="/workspaces/{{ project.project_id }}/sources/inspect" data-source-review-form>
+    <form method="post" action="/workspaces/{{ workspace_id }}/sources/inspect" data-source-review-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
-        <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary">Back to review</a>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to review</a>
         <button class="button primary" type="submit">
           {% if catalogs %}Check files again{% else %}Check source files{% endif %}
         </button>
@@ -88,7 +88,7 @@
         </span>
       </div>
 
-      <form method="post" action="/workspaces/{{ project.project_id }}/sources/{{ catalog.file_id }}/configure" data-source-review-form>
+      <form method="post" action="/workspaces/{{ workspace_id }}/sources/{{ catalog.file_id }}/configure" data-source-review-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if catalog.format == "CSV" %}
           <details class="technical-details" {% if catalog.warnings %}open{% endif %}>
@@ -146,7 +146,7 @@
                 {% if unsafe_cells %}disabled{% endif %}
                 {% if table.kind == "WORKSHEET" %}data-source-whole{% endif %}
               >
-              Include this data in the project
+              Include this data in the workspace
             </label>
             {% if table.kind in ["CSV", "WORKSHEET"] %}
               <label class="header-row-control">
@@ -315,13 +315,13 @@
     </section>
   {% endfor %}
 
-  {% if catalogs and configurations|length == project.source_files|length and (selection or choices) %}
+  {% if catalogs and configurations|length == workspace_state.source_files|length and (selection or choices) %}
     <section class="form-card" id="table-choices">
       {% if selection %}
         <h2>Table choices saved</h2>
         <p>Impodo will use the saved tables from these exact source files.</p>
         <div class="actions">
-          <a class="button secondary" href="/workspaces/{{ project.project_id }}/datasets#tables-ready">View saved tables</a>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/datasets#tables-ready">View saved tables</a>
         </div>
       {% elif choices %}
         <h2>Save the tables for this data version</h2>

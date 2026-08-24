@@ -65,8 +65,8 @@ source row.
 
 ## Verification
 
-- `tests/test_migration_project_phase_m5_cutover_qualification.py`
-- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
+- `tests/test_cutover_qualification.py`
+- `tests/test_integrated_recipe_runs.py`
 
 ## Related documentation
 

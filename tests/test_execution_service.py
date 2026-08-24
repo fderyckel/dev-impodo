@@ -116,7 +116,7 @@ def _snapshot() -> ExecutionSnapshot:
         fields=(FieldIntent("email", "SET_VALUE", "new@example.test"),),
     )
     return ExecutionSnapshot(
-        project_id=str(uuid4()),
+        workspace_id=str(uuid4()),
         preflight_run_id=str(uuid4()),
         mapping_id=str(uuid4()),
         mapping_version=1,
@@ -432,7 +432,7 @@ class ExecutionServiceTests(unittest.TestCase):
     def _service(self, snapshot, *, mode=OdooConnectionMode.LOCAL):
         journal = _Journal()
         project = SimpleNamespace(
-            project_id=snapshot.project_id,
+            workspace_id=snapshot.workspace_id,
             odoo_connection_mode=mode,
             source_mode=SourceMode.FILE,
         )
@@ -451,7 +451,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "preview changed"):
             service.execute(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 expected_snapshot_hash="sha256:" + "9" * 64,
                 executor=executor,
                 actor=LOCAL_ACTOR,
@@ -482,7 +482,7 @@ class ExecutionServiceTests(unittest.TestCase):
             lambda _project: "sha256:" + "9" * 64
         )
 
-        preview = service.current_preview(snapshot.project_id)
+        preview = service.current_preview(snapshot.workspace_id)
 
         assert preview is not None
         self.assertFalse(preview.can_load)
@@ -535,7 +535,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "permissions.*changed"):
             service.execute(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 expected_snapshot_hash=snapshot.semantic_hash,
                 executor=executor,
                 actor=LOCAL_ACTOR,
@@ -556,7 +556,7 @@ class ExecutionServiceTests(unittest.TestCase):
         service, journal = self._service(snapshot)
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
         service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -566,7 +566,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "already loaded"):
             service.execute(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 expected_snapshot_hash=snapshot.semantic_hash,
                 executor=executor,
                 actor=LOCAL_ACTOR,
@@ -583,7 +583,7 @@ class ExecutionServiceTests(unittest.TestCase):
         progress = []
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -626,7 +626,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=_Executor(scope.semantic_hash),
             actor=LOCAL_ACTOR,
@@ -662,7 +662,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "read-back scope changed"):
             service.execute(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 expected_snapshot_hash=snapshot.semantic_hash,
                 executor=_Executor(scope.semantic_hash),
                 actor=LOCAL_ACTOR,
@@ -682,7 +682,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "remote write credential"):
             service.execute(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 expected_snapshot_hash=snapshot.semantic_hash,
                 executor=_Executor(execution_api_scope(snapshot).semantic_hash),
                 actor=LOCAL_ACTOR,
@@ -699,7 +699,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -783,7 +783,7 @@ class ExecutionServiceTests(unittest.TestCase):
         executor = _Executor(execution_api_scope(scoped).semantic_hash)
 
         service.execute(
-            scoped.project_id,
+            scoped.workspace_id,
             expected_snapshot_hash=scoped.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -820,7 +820,7 @@ class ExecutionServiceTests(unittest.TestCase):
         executor = _Executor(execution_api_scope(remote_snapshot).semantic_hash)
 
         run = service.execute(
-            remote_snapshot.project_id,
+            remote_snapshot.workspace_id,
             expected_snapshot_hash=remote_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -859,13 +859,13 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
 
-        preview = service.current_preview(relationship_snapshot.project_id)
+        preview = service.current_preview(relationship_snapshot.workspace_id)
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
 
         run = service.execute(
-            relationship_snapshot.project_id,
+            relationship_snapshot.workspace_id,
             expected_snapshot_hash=relationship_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -923,13 +923,13 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
 
-        preview = service.current_preview(relationship_snapshot.project_id)
+        preview = service.current_preview(relationship_snapshot.workspace_id)
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
 
         run = service.execute(
-            relationship_snapshot.project_id,
+            relationship_snapshot.workspace_id,
             expected_snapshot_hash=relationship_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1003,7 +1003,7 @@ class ExecutionServiceTests(unittest.TestCase):
                 )
 
                 run = service.execute(
-                    relationship_snapshot.project_id,
+                    relationship_snapshot.workspace_id,
                     expected_snapshot_hash=relationship_snapshot.semantic_hash,
                     executor=executor,
                     actor=LOCAL_ACTOR,
@@ -1038,7 +1038,7 @@ class ExecutionServiceTests(unittest.TestCase):
                     "Rows per Odoo batch",
                 ):
                     service.execute(
-                        snapshot.project_id,
+                        snapshot.workspace_id,
                         expected_snapshot_hash=snapshot.semantic_hash,
                         executor=executor,
                         actor=LOCAL_ACTOR,
@@ -1085,7 +1085,7 @@ class ExecutionServiceTests(unittest.TestCase):
         executor = _Executor(execution_api_scope(remote_snapshot).semantic_hash)
 
         run = service.execute(
-            remote_snapshot.project_id,
+            remote_snapshot.workspace_id,
             expected_snapshot_hash=remote_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1143,7 +1143,7 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
 
-        preview = service.current_preview(relationship_snapshot.project_id)
+        preview = service.current_preview(relationship_snapshot.workspace_id)
 
         assert preview is not None
         self.assertFalse(preview.can_load)
@@ -1191,7 +1191,7 @@ class ExecutionServiceTests(unittest.TestCase):
                 )
 
                 run = service.execute(
-                    relationship_snapshot.project_id,
+                    relationship_snapshot.workspace_id,
                     expected_snapshot_hash=relationship_snapshot.semantic_hash,
                     executor=executor,
                     actor=LOCAL_ACTOR,
@@ -1219,13 +1219,13 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
 
-        preview = service.current_preview(snapshot.project_id)
+        preview = service.current_preview(snapshot.workspace_id)
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1252,7 +1252,7 @@ class ExecutionServiceTests(unittest.TestCase):
                 )
 
                 run = service.execute(
-                    snapshot.project_id,
+                    snapshot.workspace_id,
                     expected_snapshot_hash=snapshot.semantic_hash,
                     executor=executor,
                     actor=LOCAL_ACTOR,
@@ -1292,13 +1292,13 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(update_snapshot).semantic_hash)
 
-        preview = service.current_preview(update_snapshot.project_id)
+        preview = service.current_preview(update_snapshot.workspace_id)
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
 
         run = service.execute(
-            update_snapshot.project_id,
+            update_snapshot.workspace_id,
             expected_snapshot_hash=update_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1337,7 +1337,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            update_snapshot.project_id,
+            update_snapshot.workspace_id,
             expected_snapshot_hash=update_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1372,7 +1372,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            update_snapshot.project_id,
+            update_snapshot.workspace_id,
             expected_snapshot_hash=update_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1407,7 +1407,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            update_snapshot.project_id,
+            update_snapshot.workspace_id,
             expected_snapshot_hash=update_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1433,13 +1433,13 @@ class ExecutionServiceTests(unittest.TestCase):
             },
         )
 
-        preview = service.current_preview(snapshot.project_id)
+        preview = service.current_preview(snapshot.workspace_id)
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1468,7 +1468,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1528,7 +1528,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            update_snapshot.project_id,
+            update_snapshot.workspace_id,
             expected_snapshot_hash=update_snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1559,7 +1559,7 @@ class ExecutionServiceTests(unittest.TestCase):
                 )
 
                 run = service.execute(
-                    snapshot.project_id,
+                    snapshot.workspace_id,
                     expected_snapshot_hash=snapshot.semantic_hash,
                     executor=executor,
                     actor=LOCAL_ACTOR,
@@ -1588,7 +1588,7 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
 
-        preview = service.current_preview(snapshot.project_id)
+        preview = service.current_preview(snapshot.workspace_id)
 
         assert preview is not None
         self.assertFalse(preview.can_load)
@@ -1602,14 +1602,14 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
-        preview = service.current_preview(snapshot.project_id)
+        preview = service.current_preview(snapshot.workspace_id)
 
         self.assertIsNotNone(preview)
         assert preview is not None
         self.assertEqual(preview.deferred_create_count, 1)
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1650,7 +1650,7 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
 
-        preview = service.current_preview(snapshot.project_id)
+        preview = service.current_preview(snapshot.workspace_id)
 
         self.assertIsNotNone(preview)
         assert preview is not None
@@ -1670,7 +1670,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
@@ -1694,7 +1694,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         run = service.execute(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,

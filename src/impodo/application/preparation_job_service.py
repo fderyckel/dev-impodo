@@ -73,8 +73,8 @@ class PreparationJobManager:
 
     def enqueue(
         self,
-        project_id: str,
-        project_name: str,
+        workspace_id: str,
+        migration_project_name: str,
         total_rows: int,
         *,
         actor: Actor,
@@ -83,8 +83,8 @@ class PreparationJobManager:
         """Register one attempt and start it without holding the HTTP request."""
 
         job, created = self.registry.enqueue(
-            project_id,
-            project_name,
+            workspace_id,
+            migration_project_name,
             total_rows,
             actor.identity,
             workspace,
@@ -98,9 +98,9 @@ class PreparationJobManager:
 
     def retry(
         self,
-        project_id: str,
+        workspace_id: str,
         job_id: str,
-        project_name: str,
+        migration_project_name: str,
         total_rows: int,
         *,
         actor: Actor,
@@ -108,7 +108,7 @@ class PreparationJobManager:
     ) -> PreparationJob:
         """Create a fresh attempt after a failed or cancelled job."""
 
-        previous = self.registry.get(project_id, job_id)
+        previous = self.registry.get(workspace_id, job_id)
         if previous.status not in {
             PreparationJobStatus.FAILED,
             PreparationJobStatus.CANCELLED,
@@ -121,24 +121,24 @@ class PreparationJobManager:
                 "Restart Impodo before preparing this saved work again"
             )
         return self.enqueue(
-            project_id,
-            project_name,
+            workspace_id,
+            migration_project_name,
             total_rows,
             actor=actor,
             workspace=workspace,
         )
 
-    def get(self, project_id: str, job_id: str) -> PreparationJob:
-        return self.registry.get(project_id, job_id)
+    def get(self, workspace_id: str, job_id: str) -> PreparationJob:
+        return self.registry.get(workspace_id, job_id)
 
-    def active(self, project_id: str) -> PreparationJob | None:
-        return self.registry.active(project_id)
+    def active(self, workspace_id: str) -> PreparationJob | None:
+        return self.registry.active(workspace_id)
 
-    def delete_project_history(self, project_id: str) -> None:
-        self.registry.delete_project_history(project_id)
+    def delete_workspace_history(self, workspace_id: str) -> None:
+        self.registry.delete_workspace_history(workspace_id)
 
-    def cancel(self, project_id: str, job_id: str) -> PreparationJob:
-        job = self.registry.request_cancel(project_id, job_id)
+    def cancel(self, workspace_id: str, job_id: str) -> PreparationJob:
+        job = self.registry.request_cancel(workspace_id, job_id)
         with self._lock:
             worker = self._workers.get(job_id)
             if worker is not None:
@@ -193,7 +193,7 @@ class PreparationJobManager:
                 self._start(job, actor)
             except Exception:
                 # _start records the actionable terminal failure. Continue so
-                # one launch problem cannot strand unrelated queued projects.
+                # one launch problem cannot strand unrelated queued workspaces.
                 continue
 
     def _start(self, job: PreparationJob, actor: Actor) -> None:
@@ -203,7 +203,7 @@ class PreparationJobManager:
             target=_run_preparation_worker,
             args=(
                 str(self.root),
-                job.project_id,
+                job.workspace_id,
                 job.workspace,
                 job.build_contract,
                 actor,
@@ -297,7 +297,7 @@ class PreparationJobManager:
 
 def _run_preparation_worker(
     root: str,
-    project_id: str,
+    workspace_id: str,
     workspace: PreparationWorkspace,
     expected_build_contract: ApplicationBuildContract,
     actor: Actor,
@@ -309,7 +309,7 @@ def _run_preparation_worker(
     events.put(("started",))
     try:
         require_same_application_build(expected_build_contract)
-        # Import lazily so multiprocessing imports only the project-scoped
+        # Import lazily so multiprocessing imports only the workspace-scoped
         # worker composition. The child never opens the Recipe registry.
         from ..preparation_worker import create_preparation_worker
 
@@ -336,7 +336,7 @@ def _run_preparation_worker(
                 raise PreparationCancelled("Preparation cancelled")
 
         normalization = preparation.prepare(
-            project_id,
+            workspace_id,
             actor=actor,
             progress=progress,
             cancellation_checkpoint=cancellation_checkpoint,
@@ -353,7 +353,7 @@ def _run_preparation_worker(
         SecretStoreError,
         WorkspaceError,
     ) as error:
-        if _resolution_review_is_waiting(locals().get("preparation"), project_id):
+        if _resolution_review_is_waiting(locals().get("preparation"), workspace_id):
             events.put(("review_required",))
         else:
             events.put(
@@ -374,7 +374,7 @@ def _run_preparation_worker(
             (
                 "failed",
                 "LOCAL_WORKSPACE_STORAGE_IO_FAILED",
-                "Impodo could not read or save this project's local files. "
+                "Impodo could not read or save this workspace's local files. "
                 "No Odoo records were changed and your previous prepared "
                 "evidence remains available. Check that the local drive is "
                 "available and has free space, then try again.",
@@ -391,11 +391,11 @@ def _run_preparation_worker(
         )
 
 
-def _resolution_review_is_waiting(preparation: Any, project_id: str) -> bool:
+def _resolution_review_is_waiting(preparation: Any, workspace_id: str) -> bool:
     if preparation is None or preparation.resolution is None:
         return False
     try:
-        review = preparation.resolution.current_review(project_id)
+        review = preparation.resolution.current_review(workspace_id)
     except Exception:
         return False
     return bool(

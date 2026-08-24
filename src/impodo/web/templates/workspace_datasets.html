@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if selection %}Saved source tables{% else %}Choose tables{% endif %} · {{ project.name }} · Impodo{% endblock %}
+{% block title %}{% if selection %}Saved source tables{% else %}Choose tables{% endif %} · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
@@ -15,12 +15,12 @@
     {% if selection %}<span class="status registered">Choices saved</span>{% endif %}
   </div>
 
-  {% if not selection and project.source_files %}
+  {% if not selection and workspace_state.source_files %}
     <section class="form-card">
-      <h2>Files in this project</h2>
+      <h2>Files in this Data version</h2>
       <p>If a file is wrong, remove it before saving the table choices.</p>
       <div class="file-list">
-        {% for file in project.source_files %}
+        {% for file in workspace_state.source_files %}
           <div class="file-row">
             <div>
               <strong>{{ file.display_name }}</strong>
@@ -47,7 +47,7 @@
         <div class="empty-state">
           <h2>No confirmed source tables</h2>
           <p>Check and confirm every source file before choosing tables.</p>
-          <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Check source files</a>
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Check source files</a>
         </div>
       {% endif %}
     </section>
@@ -58,12 +58,12 @@
       <h2>Tables ready for the next step</h2>
       <p>Your saved selection will stay linked to these exact source files.</p>
       <div class="actions">
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/schema">Choose Odoo data</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
       </div>
       <details class="technical-evidence optional-workflow">
         <summary>Does one table combine different kinds of information?</summary>
         <p>For example, an order table may contain both the order and its individual lines.</p>
-        <a class="button secondary" href="/workspaces/{{ project.project_id }}/derived-entities">Separate combined information</a>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities">Separate combined information</a>
       </details>
       <details class="technical-evidence">
         <summary>Support details</summary>

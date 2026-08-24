@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 import duckdb
 
 from ...access import Actor
-from ...artifacts import ArtifactStore, LocalArtifactStore
+from ...artifacts import WorkspaceArtifactStore, LocalArtifactStore
 from ...workspace_state import WorkspaceStateNotFoundError
 from ...staging import StagingRunStatus, StagingRunSummary
 from ...staging_contracts import (
@@ -50,14 +50,14 @@ class StagingRepository(DuckDbRepository):
     def __init__(
         self,
         database,
-        artifacts: ArtifactStore | None = None,
+        artifacts: WorkspaceArtifactStore | None = None,
     ) -> None:
         super().__init__(database)
         self._artifacts = artifacts or LocalArtifactStore(database.root)
 
     def publish_canonical_staging(
         self,
-        project_id: str,
+        workspace_id: str,
         run: CanonicalStagingRun | StoredCanonicalStagingRun,
         *,
         mapping_version: int,
@@ -65,8 +65,8 @@ class StagingRepository(DuckDbRepository):
     ) -> StagingRunSummary:
         """Atomically publish immutable canonical rows for one submitted mapping."""
 
-        if run.project_id != project_id:
-            raise WorkspaceError("Prepared data belongs to another project")
+        if run.workspace_id != workspace_id:
+            raise WorkspaceError("Prepared data belongs to another workspace")
         if (
             run.contract_version != STAGING_CONTRACT_VERSION
             or run.evaluator_version != BROWSER_EVALUATOR_VERSION
@@ -74,7 +74,7 @@ class StagingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared data must be regenerated with the current evaluator"
             )
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         published_at = datetime.now(timezone.utc)
@@ -193,7 +193,7 @@ class StagingRepository(DuckDbRepository):
                     and int(current[3]) == mapping_version
                 ):
                     connection.rollback()
-                    return self._staging_summary(project_id, current)
+                    return self._staging_summary(workspace_id, current)
 
                 self._invalidate_quality(
                     connection,
@@ -301,7 +301,7 @@ class StagingRepository(DuckDbRepository):
                 )
                 connection.execute(
                     """
-                    UPDATE workspace_state
+                    UPDATE workspace_projection_cache
                        SET current_run_id = NULL,
                            approval_status = 'INVALIDATED'
                     """
@@ -322,7 +322,7 @@ class StagingRepository(DuckDbRepository):
                 raise
         return StagingRunSummary(
             run_id=run_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             content_hash=run_content_hash,
             mapping_id=run.mapping_id,
             mapping_version=mapping_version,
@@ -425,11 +425,11 @@ class StagingRepository(DuckDbRepository):
 
     def get_current_staging_summary(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> StagingRunSummary | None:
         """Return the summary selected by the current published-run pointer."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -449,11 +449,11 @@ class StagingRepository(DuckDbRepository):
                    AND run.status = 'PUBLISHED'
                 """
             ).fetchone()
-        return self._staging_summary(project_id, row) if row else None
+        return self._staging_summary(workspace_id, row) if row else None
 
     def get_canonical_staging_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_content_hash: str | None = None,
@@ -464,7 +464,7 @@ class StagingRepository(DuckDbRepository):
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Prepared-data run identifier is invalid") from error
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -520,7 +520,6 @@ class StagingRepository(DuckDbRepository):
             hasher.add_value("mapping_hash", str(header[4]))
             hasher.add_value("mapping_id", str(header[1]))
             hasher.add_value("physical_selection_hash", str(header[2]))
-            hasher.add_value("project_id", project_id)
             hasher.add_value("reconciliation", reconciliation_payload)
             hasher.start_array("rows")
 
@@ -540,7 +539,7 @@ class StagingRepository(DuckDbRepository):
                     self._database,
                     self._artifacts,
                 )._iter_direct_encoded_batches(
-                    project_id,
+                    workspace_id,
                     canonical_run_id,
                     batch_size=STAGING_ROW_BATCH_SIZE,
                     connection=connection,
@@ -580,12 +579,13 @@ class StagingRepository(DuckDbRepository):
             hasher.end_array()
             hasher.add_value("schema_hash", str(header[5]))
             hasher.add_value("source_selection_hash", str(header[3]))
+            hasher.add_value("workspace_id", workspace_id)
             if hasher.finish() != stored_content_hash:
                 raise WorkspaceError("Stored prepared-data content hash is invalid")
 
         try:
             return CanonicalStagingRun(
-                project_id=project_id,
+                workspace_id=workspace_id,
                 mapping_id=str(header[1]),
                 physical_selection_hash=str(header[2]),
                 source_selection_hash=str(header[3]),
@@ -636,7 +636,6 @@ class StagingRepository(DuckDbRepository):
         hasher.add_value("mapping_hash", run.mapping_hash)
         hasher.add_value("mapping_id", run.mapping_id)
         hasher.add_value("physical_selection_hash", run.physical_selection_hash)
-        hasher.add_value("project_id", run.project_id)
         hasher.add_value("reconciliation", run.reconciliation.to_portable_dict())
         hasher.start_array("rows")
         encoded_batches = getattr(run.rows, "iter_encoded_batches", None)
@@ -699,6 +698,7 @@ class StagingRepository(DuckDbRepository):
             hasher.end_array()
             hasher.add_value("schema_hash", run.schema_hash)
             hasher.add_value("source_selection_hash", run.source_selection_hash)
+            hasher.add_value("workspace_id", run.workspace_id)
             return hasher.finish()
         for start in range(0, len(run.rows), STAGING_ROW_BATCH_SIZE):
             batch = run.rows[start : start + STAGING_ROW_BATCH_SIZE]
@@ -733,11 +733,12 @@ class StagingRepository(DuckDbRepository):
         hasher.end_array()
         hasher.add_value("schema_hash", run.schema_hash)
         hasher.add_value("source_selection_hash", run.source_selection_hash)
+        hasher.add_value("workspace_id", run.workspace_id)
         return hasher.finish()
 
     @staticmethod
     def _staging_summary(
-        project_id: str,
+        workspace_id: str,
         row: Sequence[object],
     ) -> StagingRunSummary:
         from ...staging_contracts import (
@@ -748,7 +749,7 @@ class StagingRepository(DuckDbRepository):
 
         return StagingRunSummary(
             run_id=str(row[0]),
-            project_id=project_id,
+            workspace_id=workspace_id,
             content_hash=str(row[1]),
             mapping_id=str(row[2]),
             mapping_version=int(row[3]),
@@ -767,4 +768,3 @@ class StagingRepository(DuckDbRepository):
                 for item in json.loads(str(row[11]))
             ),
         )
-

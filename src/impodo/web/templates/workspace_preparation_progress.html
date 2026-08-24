@@ -5,12 +5,12 @@
   <div
     class="preparation-progress-page"
     data-preparation-job
-    data-status-url="/workspaces/{{ job.project_id }}/preparation/{{ job.job_id }}/status"
+    data-status-url="/workspaces/{{ job.workspace_id }}/preparation/{{ job.job_id }}/status"
   >
     <section class="page-heading">
       <div>
         <p class="eyebrow">Stage 4 of 6 · Prepare data</p>
-        <h1>Preparing {{ project.name }}</h1>
+        <h1>Preparing {{ job.migration_project_name }}</h1>
         <p>Impodo is working locally. You can leave this page and return without losing the job.</p>
       </div>
       <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif job.status.value == 'CANCELLED' %}review{% elif active %}review{% else %}ready{% endif %}" data-preparation-state>
@@ -45,11 +45,11 @@
         <p data-preparation-failure>{{ failure_message }}</p>
       </div>
       <div class="next-action-buttons">
-        <form method="post" action="/workspaces/{{ job.project_id }}/preparation/{{ job.job_id }}/retry" data-preparation-retry {% if not job.retry_allowed %}hidden{% endif %}>
+        <form method="post" action="/workspaces/{{ job.workspace_id }}/preparation/{{ job.job_id }}/retry" data-preparation-retry {% if not job.retry_allowed %}hidden{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button primary" type="submit">Try again</button>
         </form>
-        <a class="button secondary" href="/workspaces/{{ job.project_id }}/summary">Return to summary</a>
+        <a class="button secondary" href="/workspaces/{{ job.workspace_id }}/summary">Return to summary</a>
       </div>
     </section>
 
@@ -60,11 +60,11 @@
         <p>Start a fresh preparation attempt when you are ready.</p>
       </div>
       <div class="next-action-buttons">
-        <form method="post" action="/workspaces/{{ job.project_id }}/preparation/{{ job.job_id }}/retry">
+        <form method="post" action="/workspaces/{{ job.workspace_id }}/preparation/{{ job.job_id }}/retry">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button primary" type="submit">Start again</button>
         </form>
-        <a class="button secondary" href="/workspaces/{{ job.project_id }}/summary">Return to summary</a>
+        <a class="button secondary" href="/workspaces/{{ job.workspace_id }}/summary">Return to summary</a>
       </div>
     </section>
 
@@ -74,12 +74,12 @@
         <h2>{% if job.status.value == 'REVIEW_REQUIRED' %}Review possible duplicates{% else %}Review prepared data{% endif %}</h2>
         <p>The next page will open automatically. Use the button if it does not.</p>
       </div>
-      <a class="button primary" data-preparation-continue href="{% if job.status.value == 'REVIEW_REQUIRED' %}/workspaces/{{ job.project_id }}/resolution{% else %}/workspaces/{{ job.project_id }}/normalization{% endif %}">Continue</a>
+      <a class="button primary" data-preparation-continue href="{% if job.status.value == 'REVIEW_REQUIRED' %}/workspaces/{{ job.workspace_id }}/resolution{% else %}/workspaces/{{ job.workspace_id }}/normalization{% endif %}">Continue</a>
     </section>
 
     <div class="preparation-progress-actions" data-preparation-active {% if not active %}hidden{% endif %}>
       <a class="button secondary" href="/projects">Work on another data project</a>
-      <form method="post" action="/workspaces/{{ job.project_id }}/preparation/{{ job.job_id }}/cancel">
+      <form method="post" action="/workspaces/{{ job.workspace_id }}/preparation/{{ job.job_id }}/cancel">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button secondary" type="submit" {% if job.cancel_requested %}disabled{% endif %} data-preparation-cancel>
           {% if job.cancel_requested %}Stopping safely…{% else %}Stop preparation{% endif %}

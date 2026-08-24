@@ -13,7 +13,6 @@ from ..data_version_sources import (
     SourcePackageCatalog,
     SourcePackageConfiguration,
     SourcePackageDataset,
-    SourcePackageFile,
     SourcePackageOrigin,
     SourcePackageState,
     WorkspaceSourceProjection,
@@ -61,9 +60,9 @@ class WorkspaceDataVersionSourceService:
 
         workspace = self.migration_workspaces.get(workspace_id, actor=actor)
         data_version = self.data_versions.get(workspace.data_version_id, actor=actor)
-        if selection.project_id != workspace.workspace_id:
+        if selection.data_version_id != workspace.data_version_id:
             raise MigrationFoundationError(
-                "The frozen dataset selection belongs to another workspace"
+                "The frozen dataset selection belongs to another DataVersion"
             )
         current = self.packages.repository.get_source_package(
             data_version.data_version_id
@@ -79,7 +78,6 @@ class WorkspaceDataVersionSourceService:
                 raise MigrationFoundationError(
                     "File evidence cannot be added to an Odoo DataVersion"
                 )
-            state = self.workspace_states.repository.get(workspace_id)
             catalogs = self.workspace_sources.get_source_catalogs(workspace_id)
             configurations = self.workspace_sources.get_source_configurations(
                 workspace_id
@@ -104,22 +102,20 @@ class WorkspaceDataVersionSourceService:
                 raise MigrationFoundationError(
                     "A frozen dataset snapshot is missing"
                 ) from error
-            package = DataVersionSourcePackage(
-                data_version_id=data_version.data_version_id,
-                project_id=workspace.project_id,
-                revision=current.revision + 1,
-                origin=SourcePackageOrigin.FILE,
-                state=SourcePackageState.DRAFT,
-                files=tuple(self._file(item) for item in state.source_files),
-                catalogs=tuple(self._catalog(item) for item in catalogs),
-                configurations=tuple(
+            if (
+                tuple(self._catalog(item) for item in catalogs)
+                != current.catalogs
+                or tuple(
                     self._configuration(item) for item in configurations
-                ),
-                datasets=datasets,
-                updated_at=datetime.now(timezone.utc),
-            )
-            current = self.packages.replace_draft(
-                package,
+                )
+                != current.configurations
+            ):
+                raise MigrationFoundationError(
+                    "The workspace source cache does not match its DataVersion package"
+                )
+            current = self.packages.replace_datasets(
+                data_version.data_version_id,
+                datasets,
                 actor=actor,
                 expected_package_revision=current.revision,
             )
@@ -154,13 +150,13 @@ class WorkspaceDataVersionSourceService:
         workspace = self.migration_workspaces.get(workspace_id, actor=actor)
         data_version = self.data_versions.get(workspace.data_version_id, actor=actor)
         if (
-            selection.project_id != workspace.workspace_id
-            or snapshot.project_id != workspace.workspace_id
-            or manifest.project_id != workspace.workspace_id
+            selection.data_version_id != workspace.data_version_id
+            or snapshot.data_version_id != workspace.data_version_id
+            or manifest.data_version_id != workspace.data_version_id
             or len(selection.datasets) != 1
         ):
             raise MigrationFoundationError(
-                "The Odoo capture belongs to another workspace"
+                "The Odoo capture belongs to another DataVersion"
             )
         dataset = selection.datasets[0]
         if (
@@ -303,21 +299,6 @@ class WorkspaceDataVersionSourceService:
                 selection.selection_id,
                 "project-workspace-source",
             ),
-        )
-
-    @staticmethod
-    def _file(source_file) -> SourcePackageFile:
-        return SourcePackageFile(
-            file_id=source_file.file_id,
-            display_name=source_file.display_name,
-            storage_key=source_file.stored_name,
-            size_bytes=source_file.size_bytes,
-            sha256=(
-                source_file.sha256
-                if source_file.sha256.startswith("sha256:")
-                else f"sha256:{source_file.sha256}"
-            ),
-            received_at=source_file.received_at,
         )
 
     @staticmethod

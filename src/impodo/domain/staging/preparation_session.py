@@ -91,7 +91,7 @@ class PreparedCanonicalProjection:
     field_sources: Mapping[str, tuple[str, ...]]
     program: ColumnarTransformationProgram
     set_based_projection: bool = False
-    contract_version: int = 2
+    contract_version: int = 3
 
     def __post_init__(self) -> None:
         if (
@@ -101,7 +101,7 @@ class PreparedCanonicalProjection:
             or self.physical_dataset_id != self.dataset_id
             or self.ordinal_start < 0
             or self.row_count < 0
-            or self.contract_version != 2
+            or self.contract_version != 3
         ):
             raise ValueError("Prepared canonical projection is invalid")
 
@@ -164,7 +164,7 @@ class StoredCanonicalStagingRun:
     ``CanonicalStagingRun`` without requiring every row to be resident at once.
     """
 
-    project_id: str
+    workspace_id: str
     mapping_id: str
     physical_selection_hash: str
     source_selection_hash: str

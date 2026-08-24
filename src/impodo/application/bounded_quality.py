@@ -396,7 +396,7 @@ class _DirectEligibleRowIds(AbstractSet[str]):
 
 def build_bounded_quality_run(
     *,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
@@ -404,8 +404,8 @@ def build_bounded_quality_run(
 ) -> StoredQualityRun:
     """Return lazy evidence for direct rows and compact mapping findings."""
 
-    if staging.project_id != project.project_id or ruleset.project_id != project.project_id:
-        raise QualityError("Quality evidence belongs to another project")
+    if staging.workspace_id != workspace_state.workspace_id or ruleset.workspace_id != workspace_state.workspace_id:
+        raise QualityError("Quality evidence belongs to another workspace")
     if ruleset.mapping_hash != staging.mapping_hash or ruleset.schema_hash != staging.schema_hash:
         raise QualityError("Data checks no longer match the submitted field matches")
     if ruleset.reference_bundle_hash is not None:
@@ -428,7 +428,7 @@ def build_bounded_quality_run(
         index = index_builder(physical_rows)
         if index is not None:
             return _build_indexed_quality_run(
-                project=project,
+                workspace_state=workspace_state,
                 staging=staging,
                 ruleset=ruleset,
                 published_staging_content_hash=(
@@ -484,7 +484,7 @@ def build_bounded_quality_run(
                 else rule.outcome
             )
             issue = _quality_issue(
-                project,
+                workspace_state,
                 rule,
                 row,
                 item.code,
@@ -529,12 +529,12 @@ def build_bounded_quality_run(
 
     if not dirty:
         return StoredQualityRun(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             staging_content_hash=published_staging_content_hash,
             ruleset_hash=ruleset.content_hash,
             mapping_hash=staging.mapping_hash,
             schema_hash=staging.schema_hash,
-            retention_context_hash=retention_context_hash(project),
+            retention_context_hash=retention_context_hash(workspace_state),
             row_results=_CleanQualityRows(staging.rows),
             source_accounting=_DirectSourceAccounting(staging.rows),
             issues=(),
@@ -564,7 +564,7 @@ def build_bounded_quality_run(
     ]
     for item in setup_staging_issues:
         issue = _setup_issue(
-            project,
+            workspace_state,
             item.dataset or "",
             _family_for_issue(item),
             item.code,
@@ -594,7 +594,7 @@ def build_bounded_quality_run(
             )
             if rule is not None:
                 issue = _quality_issue(
-                    project,
+                    workspace_state,
                     rule,
                     row,
                     "POST_TRANSFORM_IDENTITY_COLLISION",
@@ -618,7 +618,7 @@ def build_bounded_quality_run(
                 else rule.outcome
             )
             issue = _quality_issue(
-                project,
+                workspace_state,
                 rule,
                 row,
                 item.code,
@@ -653,7 +653,7 @@ def build_bounded_quality_run(
 
     if has_relationships:
         _attach_relationship_findings(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             rules_by_family=rules_by_family,
             issue_map=issue_map,
@@ -742,12 +742,12 @@ def build_bounded_quality_run(
         for issue in issue_map.values()
     )
     return StoredQualityRun(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         staging_content_hash=published_staging_content_hash,
         ruleset_hash=ruleset.content_hash,
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
-        retention_context_hash=retention_context_hash(project),
+        retention_context_hash=retention_context_hash(workspace_state),
         row_results=row_results,
         source_accounting=_DirectSourceAccounting(staging.rows),
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
@@ -760,7 +760,7 @@ def build_bounded_quality_run(
 
 def _build_indexed_quality_run(
     *,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     ruleset: QualityRuleSet,
     published_staging_content_hash: str,
@@ -849,7 +849,7 @@ def _build_indexed_quality_run(
             else rule.outcome
         )
         issue = _quality_issue(
-            project,
+            workspace_state,
             rule,
             row,
             item.code,
@@ -880,7 +880,7 @@ def _build_indexed_quality_run(
         if rule is None:
             continue
         issue = _quality_issue(
-            project,
+            workspace_state,
             rule,
             row,
             "POST_TRANSFORM_IDENTITY_COLLISION",
@@ -894,7 +894,7 @@ def _build_indexed_quality_run(
     for item in staging.issues:
         if item.dataset and item.source_row is None:
             issue = _setup_issue(
-                project,
+                workspace_state,
                 item.dataset,
                 _family_for_issue(item),
                 item.code,
@@ -917,7 +917,7 @@ def _build_indexed_quality_run(
             else rule.outcome
         )
         issue = _quality_issue(
-            project,
+            workspace_state,
             rule,
             row,
             item.code,
@@ -994,7 +994,7 @@ def _build_indexed_quality_run(
             if rule is None:
                 continue
             issue = _quality_issue(
-                project,
+                workspace_state,
                 rule,
                 row,
                 "INCOMING_RELATIONSHIP_NOT_READY",
@@ -1097,12 +1097,12 @@ def _build_indexed_quality_run(
         row_issue_ids,
     )
     return StoredQualityRun(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         staging_content_hash=published_staging_content_hash,
         ruleset_hash=ruleset.content_hash,
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
-        retention_context_hash=retention_context_hash(project),
+        retention_context_hash=retention_context_hash(workspace_state),
         row_results=rows,
         source_accounting=_IndexedSourceAccounting(staging.rows, row_count),
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
@@ -1119,7 +1119,7 @@ def _build_indexed_quality_run(
 
 def _attach_relationship_findings(
     *,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     rules_by_family: Mapping[tuple[str, QualityRuleFamily], object],
     issue_map: dict[str, QualityIssue],
@@ -1193,7 +1193,7 @@ def _attach_relationship_findings(
             return False
         row = relation_rows[row_id]
         issue = _quality_issue(
-            project,
+            workspace_state,
             rule,
             row,
             "INCOMING_RELATIONSHIP_NOT_READY",
@@ -1244,7 +1244,7 @@ def materialize_staging_run(
     """Restore the complete contract only for unsupported quality semantics."""
 
     return CanonicalStagingRun(
-        project_id=staging.project_id,
+        workspace_id=staging.workspace_id,
         mapping_id=staging.mapping_id,
         physical_selection_hash=staging.physical_selection_hash,
         source_selection_hash=staging.source_selection_hash,
@@ -1260,4 +1260,3 @@ def materialize_staging_run(
         evaluator_version=staging.evaluator_version,
         contract_version=staging.contract_version,
     )
-

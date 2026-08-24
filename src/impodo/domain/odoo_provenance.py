@@ -24,8 +24,8 @@ from .odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from .serialization import canonical_json, content_hash
 
 
-ODOO_CAPTURE_MANIFEST_VERSION = 1
-ODOO_EXECUTION_ORIGIN_MANIFEST_VERSION = 1
+ODOO_CAPTURE_MANIFEST_VERSION = 2
+ODOO_EXECUTION_ORIGIN_MANIFEST_VERSION = 2
 ODOO_ORIGIN_BATCH_MAX_ROWS = ODOO_CAPTURE_PAGE_SIZE
 
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
@@ -137,7 +137,7 @@ class OdooProvenanceBinding:
     """Small authenticated-data binding for one encrypted sidecar."""
 
     manifest_id: str
-    project_id: str
+    data_version_id: str
     selection_hash: str
     dataset_id: str
     model: str
@@ -148,7 +148,7 @@ class OdooProvenanceBinding:
 
     def __post_init__(self) -> None:
         _require_uuid(self.manifest_id, "manifest ID")
-        _require_uuid(self.project_id, "project ID")
+        _require_uuid(self.data_version_id, "DataVersion ID")
         for value, label in (
             (self.selection_hash, "selection hash"),
             (self.connection_target_hash, "connection target hash"),
@@ -169,7 +169,7 @@ class OdooProvenanceBinding:
             "dataset_id": self.dataset_id,
             "manifest_id": self.manifest_id,
             "model": self.model,
-            "project_id": self.project_id,
+            "data_version_id": self.data_version_id,
             "read_principal_hash": self.read_principal_hash,
             "schema_scope_hash": self.schema_scope_hash,
             "selection_hash": self.selection_hash,
@@ -186,7 +186,7 @@ class OdooCaptureManifest:
     """Immutable roots and bindings for one Odoo values/origin publication."""
 
     manifest_id: str
-    project_id: str
+    data_version_id: str
     selection_id: str
     selection_version: int
     selection_hash: str
@@ -224,7 +224,7 @@ class OdooCaptureManifest:
             raise OdooProvenanceError("Unsupported Odoo capture manifest version")
         for value, label in (
             (self.manifest_id, "manifest ID"),
-            (self.project_id, "project ID"),
+            (self.data_version_id, "DataVersion ID"),
             (self.selection_id, "selection ID"),
         ):
             _require_uuid(value, label)
@@ -316,7 +316,7 @@ class OdooCaptureManifest:
     ) -> OdooCaptureManifest:
         return cls(
             manifest_id=manifest_id,
-            project_id=selection.project_id,
+            data_version_id=selection.data_version_id,
             selection_id=selection.selection_id,
             selection_version=selection.version,
             selection_hash=selection.content_hash,
@@ -353,7 +353,7 @@ class OdooCaptureManifest:
     def provenance_binding(self) -> OdooProvenanceBinding:
         return OdooProvenanceBinding(
             manifest_id=self.manifest_id,
-            project_id=self.project_id,
+            data_version_id=self.data_version_id,
             selection_hash=self.selection_hash,
             dataset_id=self.dataset_id,
             model=self.model,
@@ -367,7 +367,7 @@ class OdooCaptureManifest:
         """Verify the bounded manifest index against one selection once."""
 
         return (
-            self.project_id == selection.project_id
+            self.data_version_id == selection.data_version_id
             and self.selection_id == selection.selection_id
             and self.selection_version == selection.version
             and self.selection_hash == selection.content_hash
@@ -403,7 +403,7 @@ class OdooCaptureManifest:
             "manifest_id": self.manifest_id,
             "model": self.model,
             "policy_hash": self.policy_hash,
-            "project_id": self.project_id,
+            "data_version_id": self.data_version_id,
             "provenance_logical_hash": self.provenance_logical_hash,
             "provenance_sha256": self.provenance_sha256,
             "provenance_size_bytes": self.provenance_size_bytes,
@@ -437,7 +437,7 @@ class OdooCaptureManifest:
             )
             return cls(
                 manifest_id=str(payload["manifest_id"]),
-                project_id=str(payload["project_id"]),
+                data_version_id=str(payload["data_version_id"]),
                 selection_id=str(payload["selection_id"]),
                 selection_version=int(payload["selection_version"]),
                 selection_hash=str(payload["selection_hash"]),
@@ -490,7 +490,7 @@ class OdooCaptureManifest:
             "context_hash", "contract_version", "created_by",
             "data_logical_hash", "data_sha256", "data_size_bytes",
             "data_storage_key", "dataset_id", "dataset_name", "field_names",
-            "manifest_id", "model", "policy_hash", "project_id",
+            "manifest_id", "model", "policy_hash", "data_version_id",
             "provenance_logical_hash", "provenance_sha256",
             "provenance_size_bytes", "provenance_storage_key",
             "read_permission_hash", "read_principal_hash", "retention_until",
@@ -508,7 +508,7 @@ class OdooExecutionOriginManifest:
     """
 
     origin_id: str
-    project_id: str
+    workspace_id: str
     capture_manifest_hash: str
     execution_snapshot_hash: str
     connection_target_hash: str
@@ -532,7 +532,7 @@ class OdooExecutionOriginManifest:
                 "Unsupported Odoo execution-origin manifest version"
             )
         _require_uuid(self.origin_id, "execution-origin ID")
-        _require_uuid(self.project_id, "project ID")
+        _require_uuid(self.workspace_id, "workspace ID")
         for value, label in (
             (self.capture_manifest_hash, "capture manifest hash"),
             (self.execution_snapshot_hash, "execution snapshot hash"),
@@ -576,7 +576,7 @@ class OdooExecutionOriginManifest:
         cls,
         *,
         origin_id: str,
-        project_id: str,
+        workspace_id: str,
         capture_manifest_hash: str,
         execution_snapshot_hash: str,
         connection_target_hash: str,
@@ -595,7 +595,7 @@ class OdooExecutionOriginManifest:
 
         return cls(
             origin_id=origin_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             capture_manifest_hash=capture_manifest_hash,
             execution_snapshot_hash=execution_snapshot_hash,
             connection_target_hash=connection_target_hash,
@@ -624,7 +624,7 @@ class OdooExecutionOriginManifest:
             "execution_snapshot_hash": self.execution_snapshot_hash,
             "logical_hash": self.logical_hash,
             "origin_id": self.origin_id,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "row_count": self.row_count,
             "size_bytes": self.size_bytes,
             "storage_key": self.storage_key,
@@ -650,13 +650,13 @@ class OdooExecutionOriginManifest:
                 "connection_target_hash", "content_hash", "context_hash",
                 "contract_version", "created_at", "created_by",
                 "execution_snapshot_hash", "logical_hash", "origin_id",
-                "project_id", "row_count", "size_bytes", "storage_key",
+                "workspace_id", "row_count", "size_bytes", "storage_key",
                 "write_permission_hash", "write_principal_hash",
             }
             _require_exact_keys(payload, expected)
             return cls(
                 origin_id=str(payload["origin_id"]),
-                project_id=str(payload["project_id"]),
+                workspace_id=str(payload["workspace_id"]),
                 capture_manifest_hash=str(payload["capture_manifest_hash"]),
                 execution_snapshot_hash=str(payload["execution_snapshot_hash"]),
                 connection_target_hash=str(payload["connection_target_hash"]),

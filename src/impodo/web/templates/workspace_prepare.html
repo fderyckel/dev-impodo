@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Prepare data · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Prepare data · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
@@ -15,15 +15,15 @@
   <section class="form-card narrow">
     {% if can_prepare %}
       <h2>Start preparation</h2>
-      <p>Impodo prepares from the source copy stored inside this project. You can leave the progress page and return without losing the job.</p>
-      <form method="post" action="/workspaces/{{ project.project_id }}/summary/check">
+      <p>Impodo prepares from the accepted Data version selected by this workspace. You can leave the progress page and return without losing the job.</p>
+      <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button primary" type="submit">Prepare data</button>
       </form>
     {% else %}
       <h2>Confirm the field matches first</h2>
       <p>Preparation starts only from explicitly confirmed matching rules.</p>
-      <a class="button primary" href="/workspaces/{{ project.project_id }}/mapping">Continue field matching</a>
+      <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Continue field matching</a>
     {% endif %}
   </section>
 {% endblock %}

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import ArtifactStore
+from ..artifacts import WorkspaceArtifactStore
 from ..derived_entities import DerivedEntityPlan
 from ..domain.staging.transformation_impact import (
     TransformationImpactIdentity,
@@ -27,11 +27,11 @@ from ..workspace_errors import WorkspaceError
 from .preparation_service import stage_browser_mapping
 
 
-class TransformationImpactProjectRepository(Protocol):
-    """Load project context for impact evaluation."""
+class TransformationImpactWorkspaceRepository(Protocol):
+    """Load workspace context for impact evaluation."""
 
-    def get(self, project_id: str) -> WorkspaceState:
-        """Return project policy used for protected display and ownership."""
+    def get(self, workspace_id: str) -> WorkspaceState:
+        """Return workspace evidence used for protected display."""
         ...
 
 
@@ -39,17 +39,17 @@ class TransformationImpactMappingRepository(Protocol):
     """Read validated mapping evidence and detect unsaved draft drift."""
 
     def get_mapping_revision(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingRevision | None:
         """Return the current or requested immutable mapping revision."""
         ...
     def get_mapping_validation(
-        self, project_id: str, version: int
+        self, workspace_id: str, version: int
     ) -> MappingValidationResult | None:
         """Return validation evidence required before impact evaluation."""
         ...
     def get_mapping_working_draft(
-        self, project_id: str
+        self, workspace_id: str
     ) -> MappingWorkingDraft | None:
         """Return the draft used to reject unvalidated current edits."""
         ...
@@ -58,21 +58,21 @@ class TransformationImpactMappingRepository(Protocol):
 class TransformationImpactSourceRepository(Protocol):
     """Read physical/effective selections and materialization catalogs."""
 
-    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return the physical frozen source selection."""
         ...
     def get_mapping_source_selection(
-        self, project_id: str
+        self, workspace_id: str
     ) -> SourceSelection | None:
         """Return the effective selection after derived-dataset expansion."""
         ...
     def get_source_catalogs(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceFileCatalog, ...]:
         """Return inspected catalogs used to materialize source artifacts."""
         ...
     def get_current_source_snapshots(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceSnapshot, ...]:
         """Return current verified physical source snapshots."""
         ...
@@ -82,7 +82,7 @@ class TransformationImpactDerivedRepository(Protocol):
     """Read virtual-dataset rules used by impact evaluation."""
 
     def get_derived_entity_plan(
-        self, project_id: str
+        self, workspace_id: str
     ) -> DerivedEntityPlan | None:
         """Return the current virtual-dataset plan, if present."""
         ...
@@ -93,7 +93,7 @@ class TransformationImpactRepository(Protocol):
 
     def replace_transformation_impact_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         build: Callable[
             [Callable[[TransformationImpactRow], None]],
@@ -107,7 +107,7 @@ class TransformationImpactRepository(Protocol):
 
     def acknowledge_transformation_rule(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         rule_fingerprint: str,
         *,
@@ -119,7 +119,7 @@ class TransformationImpactRepository(Protocol):
 class TransformationImpactContext:
     """All hash-bearing inputs required to re-evaluate prepared values."""
 
-    project: WorkspaceState
+    workspace_state: WorkspaceState
     revision: MappingRevision
     physical_selection: SourceSelection
     effective_selection: SourceSelection
@@ -143,15 +143,15 @@ class TransformationImpactService:
 
     def __init__(
         self,
-        projects: TransformationImpactProjectRepository,
+        workspaces: TransformationImpactWorkspaceRepository,
         mappings: TransformationImpactMappingRepository,
         sources: TransformationImpactSourceRepository,
         derived_entities: TransformationImpactDerivedRepository,
         impacts: TransformationImpactRepository,
-        artifacts: ArtifactStore,
+        artifacts: WorkspaceArtifactStore,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.projects = projects
+        self.workspaces = workspaces
         self.mappings = mappings
         self.sources = sources
         self.derived_entities = derived_entities
@@ -159,30 +159,30 @@ class TransformationImpactService:
         self.artifacts = artifacts
         self.authorization = authorization
 
-    def context(self, project_id: str) -> TransformationImpactContext:
+    def context(self, workspace_id: str) -> TransformationImpactContext:
         """Resolve current inputs and reject invalid or unsaved mapping state."""
 
-        project = self.projects.get(project_id)
-        revision = self.mappings.get_mapping_revision(project_id)
+        workspace_state = self.workspaces.get(workspace_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
         if revision is None:
             raise WorkspaceError(
                 "Validate the mapping before reviewing transformations."
             )
         validation = self.mappings.get_mapping_validation(
-            project_id, revision.version
+            workspace_id, revision.version
         )
         if validation is None or validation.status is MappingValidationStatus.INVALID:
             raise WorkspaceError(
                 "Resolve the mapping validation findings before reviewing all "
                 "transformed values."
             )
-        physical = self.sources.get_source_selection(project_id)
-        effective = self.sources.get_mapping_source_selection(project_id)
+        physical = self.sources.get_source_selection(workspace_id)
+        effective = self.sources.get_mapping_source_selection(workspace_id)
         if physical is None or effective is None:
             raise WorkspaceError(
                 "Freeze the source datasets before reviewing transformations."
             )
-        working = self.mappings.get_mapping_working_draft(project_id)
+        working = self.mappings.get_mapping_working_draft(workspace_id)
         if (
             working is not None
             and working.definition.source_selection_hash == effective.content_hash
@@ -193,16 +193,16 @@ class TransformationImpactService:
                 "transformation impact."
             )
         return TransformationImpactContext(
-            project=project,
+            workspace_state=workspace_state,
             revision=revision,
             physical_selection=physical,
             effective_selection=effective,
-            plan=self.derived_entities.get_derived_entity_plan(project_id),
+            plan=self.derived_entities.get_derived_entity_plan(workspace_id),
         )
 
     def prepare_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> TransformationImpactSnapshot:
@@ -212,15 +212,15 @@ class TransformationImpactService:
         builds complete aggregate counts, avoiding an unbounded in-memory list.
         """
 
-        context = self.context(project_id)
-        catalogs = self.sources.get_source_catalogs(project_id)
-        source_snapshots = self.sources.get_current_source_snapshots(project_id)
+        context = self.context(workspace_id)
+        catalogs = self.sources.get_source_catalogs(workspace_id)
+        source_snapshots = self.sources.get_current_source_snapshots(workspace_id)
 
         def evaluate(
             write_impact: Callable[[TransformationImpactRow], None],
         ) -> TransformationImpactReport:
             staged = stage_browser_mapping(
-                context.project,
+                context.workspace_state,
                 context.revision.definition,
                 context.physical_selection,
                 context.effective_selection,
@@ -237,7 +237,7 @@ class TransformationImpactService:
             return report
 
         return self.replace_snapshot(
-            project_id,
+            workspace_id,
             context.identity,
             evaluate,
             actor=actor,
@@ -245,7 +245,7 @@ class TransformationImpactService:
 
     def replace_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         build: Callable[
             [Callable[[TransformationImpactRow], None]],
@@ -257,7 +257,7 @@ class TransformationImpactService:
         """Delegate one atomic snapshot replacement to the persistence port."""
 
         return self.impacts.replace_transformation_impact_snapshot(
-            project_id,
+            workspace_id,
             identity,
             build,
             actor=actor,
@@ -265,23 +265,22 @@ class TransformationImpactService:
 
     def acknowledge_rule(
         self,
-        project_id: str,
+        workspace_id: str,
         rule_fingerprint: str,
         *,
         actor: Actor,
     ) -> None:
         """Acknowledge one zero-match or overlap fact for current evidence."""
 
-        context = self.context(project_id)
+        context = self.context(workspace_id)
         self.authorization.require(
             actor,
             Capability.MAPPING_SUBMIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         self.impacts.acknowledge_transformation_rule(
-            project_id,
+            workspace_id,
             context.identity,
             rule_fingerprint,
             actor=actor,
         )
-

@@ -44,25 +44,25 @@ from .mapping_field_catalog_query import (
 class WorkspaceStateQueryRepository(Protocol):
     """Read current mutable workspace state."""
 
-    def get(self, project_id: str) -> WorkspaceState: ...
-    def has_audit_event(self, project_id: str, event_type: str) -> bool: ...
+    def get(self, workspace_id: str) -> WorkspaceState: ...
+    def has_audit_event(self, workspace_id: str, event_type: str) -> bool: ...
 
 
 class SourceQueryRepository(Protocol):
     """Read current Stage B catalogs, confirmations, and selections."""
 
     def get_source_catalogs(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceFileCatalog, ...]: ...
     def get_source_configurations(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceConfiguration, ...]: ...
-    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None: ...
     def get_current_source_snapshots(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceSnapshot, ...]: ...
     def get_current_odoo_capture_selection(
-        self, project_id: str
+        self, workspace_id: str
     ) -> OdooCaptureSelection | None: ...
 
 
@@ -78,7 +78,7 @@ class DerivedEntityQueryRepository(Protocol):
     """Read the current source-preparation plan used by mapping presenters."""
 
     def get_derived_entity_plan(
-        self, project_id: str
+        self, workspace_id: str
     ) -> DerivedEntityPlan | None: ...
 
 
@@ -86,13 +86,13 @@ class SchemaQueryRepository(Protocol):
     """Read current Stage C model, schema, and key-governance evidence."""
 
     def get_odoo_model_catalog(
-        self, project_id: str
+        self, workspace_id: str
     ) -> OdooModelCatalog | None: ...
     def get_odoo_schema_catalog(
-        self, project_id: str
+        self, workspace_id: str
     ) -> OdooSchemaCatalog | None: ...
     def get_schema_governance(
-        self, project_id: str
+        self, workspace_id: str
     ) -> SchemaGovernance | None: ...
 
 
@@ -100,16 +100,16 @@ class MappingQueryRepository(Protocol):
     """Read current or selected Stage D draft/revision/validation/submission."""
 
     def get_mapping_working_draft(
-        self, project_id: str
+        self, workspace_id: str
     ) -> MappingWorkingDraft | None: ...
     def get_mapping_revision(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingRevision | None: ...
     def get_mapping_validation(
-        self, project_id: str, version: int
+        self, workspace_id: str, version: int
     ) -> MappingValidationResult | None: ...
     def get_mapping_submission(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingSubmission | None: ...
 
 
@@ -117,11 +117,11 @@ class QualityQueryRepository(Protocol):
     """Read current quality configuration and bounded review projections."""
 
     def get_current_quality_ruleset(
-        self, project_id: str
+        self, workspace_id: str
     ) -> QualityRuleSet | None: ...
     def get_quality_review_page(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         status: str,
@@ -136,12 +136,12 @@ class TransformationImpactQueryRepository(Protocol):
 
     def get_transformation_impact_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
     ) -> TransformationImpactSnapshot | None: ...
     def get_transformation_impact_page(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         filters: TransformationImpactFilter,
         *,
@@ -151,7 +151,7 @@ class TransformationImpactQueryRepository(Protocol):
     ) -> TransformationImpactPage: ...
     def iter_transformation_impact_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         filters: TransformationImpactFilter,
     ) -> Iterator[TransformationImpactRow]: ...
@@ -187,96 +187,96 @@ class BrowserQueryService:
         self._transformation_impacts = transformation_impacts
         self._mapping_sources = mapping_sources
 
-    def get(self, project_id: str) -> WorkspaceState:
-        return self._workspace_states.get(project_id)
+    def get(self, workspace_id: str) -> WorkspaceState:
+        return self._workspace_states.get(workspace_id)
 
-    def has_workspace_audit_event(self, project_id: str, event_type: str) -> bool:
-        return self._workspace_states.has_audit_event(project_id, event_type)
+    def has_workspace_audit_event(self, workspace_id: str, event_type: str) -> bool:
+        return self._workspace_states.has_audit_event(workspace_id, event_type)
 
     def get_source_catalogs(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceFileCatalog, ...]:
-        return self._sources.get_source_catalogs(project_id)
+        return self._sources.get_source_catalogs(workspace_id)
 
     def get_source_configurations(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceConfiguration, ...]:
-        return self._sources.get_source_configurations(project_id)
+        return self._sources.get_source_configurations(workspace_id)
 
-    def get_source_selection(self, project_id: str) -> SourceSelection | None:
-        return self._sources.get_source_selection(project_id)
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
+        return self._sources.get_source_selection(workspace_id)
 
     def get_mapping_source_selection(
-        self, project_id: str
+        self, workspace_id: str
     ) -> SourceSelection | None:
-        return self._mapping_sources.get_mapping_source_selection(project_id)
+        return self._mapping_sources.get_mapping_source_selection(workspace_id)
 
     def get_current_source_snapshots(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceSnapshot, ...]:
-        return self._sources.get_current_source_snapshots(project_id)
+        return self._sources.get_current_source_snapshots(workspace_id)
 
     def get_current_odoo_capture_selection(
-        self, project_id: str
+        self, workspace_id: str
     ) -> OdooCaptureSelection | None:
-        return self._sources.get_current_odoo_capture_selection(project_id)
+        return self._sources.get_current_odoo_capture_selection(workspace_id)
 
     def get_derived_entity_plan(
-        self, project_id: str
+        self, workspace_id: str
     ) -> DerivedEntityPlan | None:
-        return self._derived_entities.get_derived_entity_plan(project_id)
+        return self._derived_entities.get_derived_entity_plan(workspace_id)
 
     def get_odoo_model_catalog(
-        self, project_id: str
+        self, workspace_id: str
     ) -> OdooModelCatalog | None:
-        return self._schemas.get_odoo_model_catalog(project_id)
+        return self._schemas.get_odoo_model_catalog(workspace_id)
 
     def get_odoo_schema_catalog(
-        self, project_id: str
+        self, workspace_id: str
     ) -> OdooSchemaCatalog | None:
-        return self._schemas.get_odoo_schema_catalog(project_id)
+        return self._schemas.get_odoo_schema_catalog(workspace_id)
 
     def get_schema_governance(
-        self, project_id: str
+        self, workspace_id: str
     ) -> SchemaGovernance | None:
-        return self._schemas.get_schema_governance(project_id)
+        return self._schemas.get_schema_governance(workspace_id)
 
     def get_mapping_working_draft(
-        self, project_id: str
+        self, workspace_id: str
     ) -> MappingWorkingDraft | None:
-        return self._mappings.get_mapping_working_draft(project_id)
+        return self._mappings.get_mapping_working_draft(workspace_id)
 
     def get_mapping_revision(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingRevision | None:
-        return self._mappings.get_mapping_revision(project_id, version)
+        return self._mappings.get_mapping_revision(workspace_id, version)
 
     def get_mapping_field_catalog_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> MappingFieldCatalogSnapshot:
         return self._mapping_field_catalogs.get_mapping_field_catalog_snapshot(
-            project_id
+            workspace_id
         )
 
     def get_mapping_validation(
-        self, project_id: str, version: int
+        self, workspace_id: str, version: int
     ) -> MappingValidationResult | None:
-        return self._mappings.get_mapping_validation(project_id, version)
+        return self._mappings.get_mapping_validation(workspace_id, version)
 
     def get_mapping_submission(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingSubmission | None:
-        return self._mappings.get_mapping_submission(project_id, version)
+        return self._mappings.get_mapping_submission(workspace_id, version)
 
     def get_current_quality_ruleset(
-        self, project_id: str
+        self, workspace_id: str
     ) -> QualityRuleSet | None:
-        return self._quality.get_current_quality_ruleset(project_id)
+        return self._quality.get_current_quality_ruleset(workspace_id)
 
     def get_quality_review_page(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         status: str,
@@ -285,7 +285,7 @@ class BrowserQueryService:
         page_size: int,
     ) -> QualityReviewPage:
         return self._quality.get_quality_review_page(
-            project_id,
+            workspace_id,
             run_id,
             status=status,
             dataset=dataset,
@@ -295,16 +295,16 @@ class BrowserQueryService:
 
     def get_transformation_impact_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
     ) -> TransformationImpactSnapshot | None:
         return self._transformation_impacts.get_transformation_impact_snapshot(
-            project_id, identity
+            workspace_id, identity
         )
 
     def get_transformation_impact_page(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         filters: TransformationImpactFilter,
         *,
@@ -313,7 +313,7 @@ class BrowserQueryService:
         before: int | None = None,
     ) -> TransformationImpactPage:
         return self._transformation_impacts.get_transformation_impact_page(
-            project_id,
+            workspace_id,
             identity,
             filters,
             page_size=page_size,
@@ -323,11 +323,11 @@ class BrowserQueryService:
 
     def iter_transformation_impact_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         filters: TransformationImpactFilter,
     ) -> Iterator[TransformationImpactRow]:
         return self._transformation_impacts.iter_transformation_impact_rows(
-            project_id, identity, filters
+            workspace_id, identity, filters
         )
 

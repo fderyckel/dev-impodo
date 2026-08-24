@@ -12,7 +12,7 @@ import re
 from ..models import canonical_json_bytes
 
 
-RECONCILIATION_CONTRACT_VERSION = 2
+RECONCILIATION_CONTRACT_VERSION = 3
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -90,7 +90,7 @@ class ReconciliationRun:
     """Hash-bound result of reading one completed execution run back."""
 
     reconciliation_id: str
-    project_id: str
+    workspace_id: str
     execution_run_id: str
     snapshot_hash: str
     target_hash: str
@@ -148,7 +148,7 @@ class ReconciliationRun:
         payload: dict[str, object] = {
             "contract_version": self.contract_version,
             "reconciliation_id": self.reconciliation_id,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "execution_run_id": self.execution_run_id,
             "snapshot_hash": self.snapshot_hash,
             "target_hash": self.target_hash,
@@ -179,7 +179,7 @@ class ReconciliationRun:
             raise ValueError("Reconciliation contract version is unsupported")
         run = cls(
             reconciliation_id=str(payload["reconciliation_id"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             execution_run_id=str(payload["execution_run_id"]),
             snapshot_hash=str(payload["snapshot_hash"]),
             target_hash=str(payload["target_hash"]),

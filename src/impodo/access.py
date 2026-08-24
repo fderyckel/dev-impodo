@@ -136,6 +136,20 @@ class AuthorizationPolicy(Protocol):
         ...
 
 
+class WorkspaceAuthorizationPolicy(Protocol):
+    """Authorize a contained workspace through its verified parent Project."""
+
+    def require(
+        self,
+        actor: Actor,
+        capability: Capability,
+        *,
+        workspace_id: str,
+    ) -> object:
+        """Allow the command or raise before workspace evidence is accessed."""
+        ...
+
+
 class CapabilityAuthorizationPolicy:
     """Authorize from capabilities already resolved for the actor."""
 
@@ -145,12 +159,22 @@ class CapabilityAuthorizationPolicy:
         capability: Capability,
         *,
         project_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         """Require an already-resolved capability, honoring project-admin override."""
 
+        if project_id is not None and workspace_id is not None:
+            raise AuthorizationError(
+                "Authorization scope must name either a Project or a workspace"
+            )
         if actor.has(capability):
             return
-        scope = f" for project {project_id}" if project_id else ""
+        if project_id is not None:
+            scope = f" for project {project_id}"
+        elif workspace_id is not None:
+            scope = f" for workspace {workspace_id}"
+        else:
+            scope = ""
         raise AuthorizationError(
             f"{actor.identity.display_name} lacks {capability.value}{scope}"
         )

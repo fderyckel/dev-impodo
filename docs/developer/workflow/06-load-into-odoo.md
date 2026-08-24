@@ -27,7 +27,7 @@ rehearsal path and the actor must provide the required write credential.
 the scoped executor, invokes `ExecutionService.execute`, and exposes
 reconciliation and fallout routes.
 
-`ExecutionService` validates the project and API scope, starts a durable run,
+`ExecutionService` validates the workspace evidence and API scope, starts a durable run,
 records planned rows before transport, executes datasets in dependency order,
 and records row-level results. If an outcome becomes unknown, the service stops
 before sending later writes. `ReconciliationService` then reads back the
@@ -38,6 +38,7 @@ affected scope and publishes a separate reconciliation run.
 | Role | Code |
 | --- | --- |
 | Execution orchestration | [`ExecutionService`](../../../src/impodo/application/execution_service.py) |
+| Background load jobs | [`LoadJobManager`](../../../src/impodo/application/load_job_service.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 | Journal states | [`execution.py`](../../../src/impodo/domain/execution.py) |
 | Reconciliation | [`ReconciliationService`](../../../src/impodo/application/reconciliation_service.py) |
@@ -61,7 +62,7 @@ Successful reconciliation remains evidence of this Project-owned DataVersion
 and run. It does not publish or qualify a Recipe. A future application of
 published rules must create its own run, comparison, execution, and
 reconciliation evidence and cannot inherit this write authority. That workflow
-belongs to Phase M4.
+belongs to the integrated Test workflow.
 
 ## Invalidation and recovery
 
@@ -96,6 +97,7 @@ authorization.
 - [`tests/test_execution_service.py`](../../../tests/test_execution_service.py)
 - [`tests/test_execution_web.py`](../../../tests/test_execution_web.py)
 - [`tests/test_execution_repository.py`](../../../tests/test_execution_repository.py)
+- [`tests/test_load_jobs.py`](../../../tests/test_load_jobs.py)
 - [`tests/test_reconciliation_service.py`](../../../tests/test_reconciliation_service.py)
 
 Verify scope enforcement, dependency order, create batching, update behavior,

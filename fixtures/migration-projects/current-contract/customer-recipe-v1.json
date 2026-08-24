@@ -1,12 +1,12 @@
 {
   "recipe_contract_version": 2,
-  "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
-  "payload_hash": "sha256:f43de8ebddeed20b30b7910df7384fc843dcf297daef2734404f118b0d3ceca5",
+  "semantic_hash": "sha256:f93b0b20af62fb7a10f6770e01fb1ad0b61646bb3a4b4a24dbc203786654fdb3",
+  "payload_hash": "sha256:7c89a4df5fdc5e1c907c36e6955dd0ef8af34d75f2c7566757fb047c6412b138",
   "recipe": {
     "contract_versions": {
       "control_definitions": 1,
       "mapping_recipe": 2,
-      "odoo_target_contract": 1,
+      "odoo_target_contract": 2,
       "quality_recipe": 1,
       "recipe_definition": 2,
       "recipe_parameter_definitions": 1,
@@ -208,6 +208,7 @@
     },
     "odoo_target_contract": {
       "odoo_major_version": 19,
+      "reference_policy_hash": "sha256:68a9196c49d3dcbb7e94dab0b6a05114dd374ec2f0fb6481b4fa9a73ec082424",
       "required_applications": ["base"],
       "models": [
         {

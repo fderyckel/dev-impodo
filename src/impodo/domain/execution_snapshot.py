@@ -31,7 +31,7 @@ from ..models import (
 from ..profile import DatasetSpec, IdentityComponent, ResolveSpec
 
 
-EXECUTION_SNAPSHOT_VERSION = 3
+EXECUTION_SNAPSHOT_VERSION = 4
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -124,7 +124,7 @@ class ExecutionRow:
 class ExecutionSnapshot:
     """Exact source, target, row-accounting, and write-intent hand-off."""
 
-    project_id: str
+    workspace_id: str
     preflight_run_id: str
     mapping_id: str
     mapping_version: int
@@ -167,7 +167,7 @@ class ExecutionSnapshot:
     def portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "preflight_run_id": self.preflight_run_id,
             "mapping": {
                 "id": self.mapping_id,
@@ -250,7 +250,7 @@ class ExecutionSnapshot:
         target = dict(payload["target"])
         rows = tuple(_restore_row(item) for item in payload.get("rows", ()))
         snapshot = cls(
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             preflight_run_id=str(payload["preflight_run_id"]),
             mapping_id=str(mapping["id"]),
             mapping_version=int(mapping["version"]),
@@ -359,7 +359,7 @@ def build_execution_snapshot(
         )
         rows.append(
             _execution_row(
-                frozen.project_id,
+                frozen.workspace_id,
                 frozen.plan,
                 dataset,
                 execution_record,
@@ -386,7 +386,7 @@ def build_execution_snapshot(
     )
     schema = getattr(frozen, "captured_schema", None)
     snapshot = ExecutionSnapshot(
-        project_id=frozen.project_id,
+        workspace_id=frozen.workspace_id,
         preflight_run_id=preflight_run_id,
         mapping_id=frozen.revision.mapping_id,
         mapping_version=frozen.revision.version,
@@ -534,7 +534,7 @@ def _resolved_create_record(
 
 
 def _execution_row(
-    project_id: str,
+    workspace_id: str,
     plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     record: PreparedRecord,
@@ -546,10 +546,10 @@ def _execution_row(
         fields = _create_intents(plan, dataset, record)
     elif operation is Classification.UPDATE:
         fields = _update_intents(plan, dataset, decision)
-    row_id = _portable_row_id(project_id, record)
+    row_id = _portable_row_id(workspace_id, record)
     external_id = (
         _proposed_external_id(
-            project_id,
+            workspace_id,
             record.target_model,
             decision.business_identity,
             decision.business_scope,
@@ -743,11 +743,11 @@ def _intent(
     )
 
 
-def _portable_row_id(project_id: str, record: PreparedRecord) -> str:
+def _portable_row_id(workspace_id: str, record: PreparedRecord) -> str:
     return "sha256:" + sha256(
         canonical_json_bytes(
             {
-                "project_id": project_id,
+                "workspace_id": workspace_id,
                 "dataset": record.dataset,
                 "source_trace_id": record.source_trace_id,
                 "target_model": record.target_model,
@@ -757,12 +757,12 @@ def _portable_row_id(project_id: str, record: PreparedRecord) -> str:
 
 
 def _proposed_external_id(
-    project_id: str,
+    workspace_id: str,
     target_model: str,
     identity: tuple[Any, ...],
     scope: tuple[Any, ...],
 ) -> str:
-    namespace = sha256(project_id.encode("utf-8")).hexdigest()[:12]
+    namespace = sha256(workspace_id.encode("utf-8")).hexdigest()[:12]
     identity_hash = sha256(
         canonical_json_bytes(
             {

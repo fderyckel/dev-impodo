@@ -51,7 +51,7 @@ from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.transformation_impact_service import TransformationImpactService
-from ..artifacts import ArtifactStore
+from ..artifacts import WorkspaceArtifactStore
 from ..connectors import (
     MetadataRequest,
     MetadataSnapshot,
@@ -65,12 +65,15 @@ from ..jobs import JobDispatcher
 from ..local_odoo_reader import (
     LocalOdooMetadataReader,
 )
+from ..migration_run_setup import MigrationRunTargetSetupService
 from ..local_stack import LocalStackService
 from ..models import OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
 from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
 from ..odoo_scope import OdooApiScope
 from ..workspace_state import WorkspaceState, WorkspaceStateService
+from ..workspace_access import WorkspaceAccessService
+from ..workspace_views import WorkspaceOwnerViewService
 from ..data_versions import DataVersionService
 from ..migration_projects import MigrationProjectService
 from ..migration_runs import MigrationRunService
@@ -126,9 +129,12 @@ class WebContext:
     """
 
     queries: BrowserQueryService
+    workspace_access: WorkspaceAccessService
+    workspace_views: WorkspaceOwnerViewService
     migration_projects: MigrationProjectService
     data_versions: DataVersionService
     migration_runs: MigrationRunService
+    migration_run_target_setup: MigrationRunTargetSetupService
     migration_workspaces: MigrationWorkspaceService
     project_authoring: MigrationProjectAuthoringService
     recipes: RecipeService
@@ -159,7 +165,7 @@ class WebContext:
     odoo_capture_publication: OdooCapturePublicationService
     odoo_capture_jobs: OdooCaptureJobManager | None
     odoo_provenance: OdooProvenanceService
-    artifacts: ArtifactStore
+    artifacts: WorkspaceArtifactStore
     actor: Actor
     authorization: AuthorizationPolicy
     jobs: JobDispatcher

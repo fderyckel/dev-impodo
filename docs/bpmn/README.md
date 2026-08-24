@@ -39,7 +39,8 @@ The overview deliberately shows two source-mode paths:
   round-trip update are planned, not current.
 
 The load process models the shared controlled Odoo 19 write and reconciliation
-path. Production may enter it only through the separate M6 activation guard.
+path. Production may enter it only through the separate Production activation
+guard.
 
 The integrated Test models are separate Project-level workflows. Planning
 consumes one already accepted Test DataVersion and published Recipe revisions,

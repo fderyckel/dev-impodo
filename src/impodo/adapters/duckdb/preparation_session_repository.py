@@ -15,7 +15,7 @@ import duckdb
 
 from ...access import Actor
 from ..polars_transformation import iter_polars_prepared_batches
-from ...artifacts import ArtifactStore, ArtifactStoreError, LocalArtifactStore
+from ...artifacts import WorkspaceArtifactStore, ArtifactStoreError, LocalArtifactStore
 from ...domain.derived_value_artifact import DerivedValueArtifact
 from ...domain.staging.canonical_projection import canonical_prepared_session_row
 from ...domain.serialization import CanonicalJsonObjectHasher
@@ -157,12 +157,12 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
     def __init__(
         self,
         repository: "PreparationSessionRepository",
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         row_count: int,
     ) -> None:
         self._repository = repository
-        self._project_id = project_id
+        self._workspace_id = workspace_id
         self._session_id = session_id
         self._row_count = row_count
         self.canonical_run_id = session_id
@@ -185,7 +185,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             if step != 1:
                 raise ValueError("Canonical session slices must be contiguous")
             return self._repository._load_canonical_row_range(
-                self._project_id,
+                self._workspace_id,
                 self._session_id,
                 start,
                 stop,
@@ -194,7 +194,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         if normalized < 0 or normalized >= self._row_count:
             raise IndexError(index)
         rows = self._repository._load_canonical_row_range(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             normalized,
             normalized + 1,
@@ -205,7 +205,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
 
     def __iter__(self) -> Iterator[CanonicalRow]:
         yield from self._repository._iter_canonical_rows(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
         )
 
@@ -213,7 +213,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         """Read exact stored JSON through the publication transaction."""
 
         yield from self._repository._iter_direct_encoded_batches(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             batch_size=batch_size,
             connection=connection,
@@ -223,7 +223,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         """Validate and summarize the direct Stage-F index set-wise."""
 
         return self._repository._bounded_quality_index(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             physical_rows,
         )
@@ -236,7 +236,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         """Resolve and propagate relationship readiness set-wise."""
 
         return self._repository._bounded_relationship_findings(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             unsafe_row_ids,
             propagating_datasets,
@@ -246,7 +246,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         """Yield narrow row decisions through the publisher transaction."""
 
         yield from self._repository._iter_quality_index_batches(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             batch_size=batch_size,
             connection=connection,
@@ -256,7 +256,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         """Yield one-to-one physical lineage in accounting order."""
 
         yield from self._repository._iter_accounting_index_batches(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             batch_size=batch_size,
             connection=connection,
@@ -264,7 +264,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
 
     def contains_row_id(self, row_id: str) -> bool:
         return self._repository._direct_index_contains_row_id(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             row_id,
         )
@@ -276,16 +276,16 @@ class _SessionImpacts:
     def __init__(
         self,
         repository: "PreparationSessionRepository",
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> None:
         self._repository = repository
-        self._project_id = project_id
+        self._workspace_id = workspace_id
         self._session_id = session_id
 
     def __iter__(self) -> Iterator[TransformationImpactRow]:
         yield from self._repository._iter_impacts(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
         )
 
@@ -304,7 +304,7 @@ class _SessionImpacts:
         """Construct and summarize Stage-G facts in one durable pass."""
 
         return self._repository._prepare_normalization_facts(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
             effect_builder=effect_builder,
             finding_builder=finding_builder,
@@ -336,7 +336,7 @@ class _SessionImpacts:
         """Decode durable facts for the bounded normalization reader."""
 
         yield from self._repository._iter_prepared_normalization_effects(
-            self._project_id,
+            self._workspace_id,
             self._session_id,
         )
 
@@ -347,7 +347,7 @@ class PreparationSessionRepository(DuckDbRepository):
     def __init__(
         self,
         database,
-        artifacts: ArtifactStore | None = None,
+        artifacts: WorkspaceArtifactStore | None = None,
     ) -> None:
         super().__init__(database)
         self._artifacts = artifacts or LocalArtifactStore(database.root)
@@ -375,14 +375,14 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def begin_direct_session(
         self,
-        project_id: str,
+        workspace_id: str,
         bindings: PreparationSessionBindings,
         *,
         actor: Actor,
     ) -> PreparationSessionSummary:
         """Create a session whose UUID is also a pending canonical run ID."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         session_id = str(uuid4())
@@ -471,13 +471,13 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def find_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         logical_hash: str,
     ) -> PreparedSnapshot | None:
         """Find one historical exact prepared artifact for safe reuse."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -494,11 +494,11 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def current_prepared_snapshots(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[PreparedSnapshot, ...]:
         """Load snapshots advanced only by a fully published preparation."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
@@ -512,10 +512,10 @@ class PreparationSessionRepository(DuckDbRepository):
             ).fetchall()
         return tuple(PreparedSnapshot.from_json(str(row[0])) for row in rows)
 
-    def prepared_snapshot_storage_keys(self, project_id: str) -> frozenset[str]:
+    def prepared_snapshot_storage_keys(self, workspace_id: str) -> frozenset[str]:
         """Return immutable prepared files referenced by any manifest."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
@@ -529,16 +529,16 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def bind_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
     ) -> None:
         """Register a verified manifest and bind it to one building session."""
 
-        if snapshot.project_id != project_id:
-            raise WorkspaceError("Prepared snapshot belongs to another project")
+        if snapshot.workspace_id != workspace_id:
+            raise WorkspaceError("Prepared snapshot belongs to another workspace")
         canonical_session_id = self._session_id(session_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -616,13 +616,13 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def find_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         logical_hash: str,
     ) -> DerivedValueArtifact | None:
         """Find one historical exact derived artifact for safe reuse."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -643,11 +643,11 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def current_derived_value_artifacts(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[DerivedValueArtifact, ...]:
         """Load derived artifacts advanced only by published preparation."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
@@ -663,13 +663,13 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def session_derived_value_artifacts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> tuple[DerivedValueArtifact, ...]:
         """Load every exact derived artifact bound to one pending session."""
 
         canonical_session_id = self._session_id(session_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
@@ -689,11 +689,11 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def derived_value_artifact_storage_keys(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> frozenset[str]:
         """Return immutable derived files referenced by any manifest."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
@@ -707,16 +707,16 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def bind_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         artifact: DerivedValueArtifact,
     ) -> None:
         """Register a manifest and bind it to one building session atomically."""
 
-        if artifact.project_id != project_id:
-            raise WorkspaceError("Derived-value artifact belongs to another project")
+        if artifact.workspace_id != workspace_id:
+            raise WorkspaceError("Derived-value artifact belongs to another workspace")
         canonical_session_id = self._session_id(session_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -831,7 +831,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def bind_prepared_canonical_projection(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
         projection: PreparedCanonicalProjection,
@@ -839,7 +839,7 @@ class PreparationSessionRepository(DuckDbRepository):
         """Bind one native direct dataset to its immutable value carrier."""
 
         if (
-            snapshot.project_id != project_id
+            snapshot.workspace_id != workspace_id
             or snapshot.dataset_id != projection.dataset_id
             or snapshot.row_count != projection.row_count
             or snapshot.transformation_program_hash != projection.program.content_hash
@@ -848,7 +848,7 @@ class PreparationSessionRepository(DuckDbRepository):
                 "Prepared canonical projection does not match its snapshot"
             )
         canonical_session_id = self._session_id(session_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         encoded = _canonical_json(projection.to_portable_dict())
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -943,7 +943,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def append_direct_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         rows: Sequence[CanonicalPreparedSessionRow],
     ) -> None:
@@ -969,7 +969,7 @@ class PreparationSessionRepository(DuckDbRepository):
                         )
                     expected_lineage_count += 1
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -1311,7 +1311,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def append_native_prepared_projection(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
         projection: PreparedCanonicalProjection,
@@ -1322,7 +1322,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         if not projection.set_based_projection:
             raise ValueError("Native projection route metadata is required")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect_prepared(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             if not supports_clean_native_projection(
@@ -1334,7 +1334,7 @@ class PreparationSessionRepository(DuckDbRepository):
                 return None
 
         self.bind_prepared_canonical_projection(
-            project_id,
+            workspace_id,
             session_id,
             snapshot,
             projection,
@@ -1388,7 +1388,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def append_impacts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         rows: Sequence[TransformationImpactRow],
     ) -> None:
@@ -1396,7 +1396,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         if not rows:
             return
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -1470,7 +1470,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def finalize_direct_session(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         *,
         dataset_evidence: Mapping[
@@ -1483,16 +1483,16 @@ class PreparationSessionRepository(DuckDbRepository):
     ) -> StoredCanonicalStagingRun:
         """Finalize rows already stored under a pending canonical run ID."""
 
-        summary = self.get_session(project_id, session_id)
+        summary = self.get_session(workspace_id, session_id)
         if summary.status not in {
             PreparationSessionStatus.BUILDING,
             PreparationSessionStatus.FINALIZING,
         }:
             raise WorkspaceError("Preparation session cannot be finalized")
         canonical_session_id = self._session_id(session_id)
-        self._restart_direct_finalization(project_id, canonical_session_id)
+        self._restart_direct_finalization(workspace_id, canonical_session_id)
         bindings = summary.bindings
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             collision_counts = {
                 (str(dataset), str(identity_hash)): int(identity_count)
@@ -1547,7 +1547,7 @@ class PreparationSessionRepository(DuckDbRepository):
             duplicate_counts_by_ordinal = dict(duplicate_batch)
             ordinals = [item[0] for item in duplicate_batch]
             rows_by_ordinal = self._direct_rows_by_ordinal(
-                project_id,
+                workspace_id,
                 canonical_session_id,
                 ordinals,
             )
@@ -1590,24 +1590,24 @@ class PreparationSessionRepository(DuckDbRepository):
                     ]
                 )
             self._update_direct_rows(
-                project_id,
+                workspace_id,
                 canonical_session_id,
                 values,
             )
 
         self._resolve_relationship_edges(
-            project_id,
+            workspace_id,
             canonical_session_id,
         )
 
         reconciliation, datasets = self._reconciliation(
-            project_id,
+            workspace_id,
             canonical_session_id,
             dataset_evidence,
         )
         controls = tuple(sorted(control_totals, key=lambda item: item.control_id))
         content_hash, row_count = self._hash_direct_run(
-            project_id=project_id,
+            workspace_id=workspace_id,
             run_id=canonical_session_id,
             bindings=bindings,
             datasets=datasets,
@@ -1694,16 +1694,16 @@ class PreparationSessionRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        return self.load_stored_run(project_id, canonical_session_id)
+        return self.load_stored_run(workspace_id, canonical_session_id)
 
     def _resolve_relationship_edges(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> None:
         """Classify every incoming reference with one set-based parent join."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             connection.begin()
             try:
@@ -1789,12 +1789,12 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _restart_direct_finalization(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> None:
         """Rebuild compact identity groups and safely resume duplicate edits."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         while True:
             with self._connect(database_path) as connection:
                 identity_batch = connection.execute(
@@ -1815,7 +1815,7 @@ class PreparationSessionRepository(DuckDbRepository):
             }
             ordinals = list(base_by_ordinal)
             rows_by_ordinal = self._direct_rows_by_ordinal(
-                project_id,
+                workspace_id,
                 session_id,
                 ordinals,
             )
@@ -1840,7 +1840,7 @@ class PreparationSessionRepository(DuckDbRepository):
                         False,
                     ]
                 )
-            self._update_direct_rows(project_id, session_id, values)
+            self._update_direct_rows(workspace_id, session_id, values)
 
         with self._connect(database_path) as connection:
             connection.begin()
@@ -1890,7 +1890,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _update_direct_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         values: Sequence[Sequence[object]],
     ) -> None:
@@ -1922,7 +1922,7 @@ class PreparationSessionRepository(DuckDbRepository):
                     _canonical_json(duplicate_issues[0].to_portable_dict()),
                 ]
             )
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             connection.begin()
             try:
@@ -1983,12 +1983,12 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def load_stored_run(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> StoredCanonicalStagingRun:
         """Return a READY header backed by bounded durable row slices."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -2036,7 +2036,7 @@ class PreparationSessionRepository(DuckDbRepository):
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Preparation session header is invalid") from error
         return StoredCanonicalStagingRun(
-            project_id=project_id,
+            workspace_id=workspace_id,
             mapping_id=str(row[1]),
             physical_selection_hash=str(row[2]),
             source_selection_hash=str(row[3]),
@@ -2046,7 +2046,7 @@ class PreparationSessionRepository(DuckDbRepository):
             datasets=datasets,
             rows=_SessionCanonicalRows(
                 self,
-                project_id,
+                workspace_id,
                 session_id,
                 row_count,
             ),
@@ -2061,12 +2061,12 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def get_session(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> PreparationSessionSummary:
         """Return one value-free session status projection."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
@@ -2116,12 +2116,12 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def physical_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> dict[str, tuple[int, ...]]:
         """Load compact source-row coordinates required by current quality APIs."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             cursor = connection.execute(
@@ -2143,13 +2143,13 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _bounded_quality_index(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         physical_rows: Mapping[str, Sequence[int]],
     ) -> dict[str, object] | None:
         """Validate a direct prepared run using set-based narrow relations."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             header = connection.execute(
@@ -2324,7 +2324,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _bounded_relationship_findings(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         unsafe_row_ids: Sequence[str],
         propagating_datasets: Sequence[str],
@@ -2332,7 +2332,7 @@ class PreparationSessionRepository(DuckDbRepository):
         """Return only affected children after one recursive set operation."""
 
         canonical_session_id = self._session_id(session_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             relationship_count = int(
@@ -2487,17 +2487,17 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _iter_quality_index_batches(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         *,
         batch_size: int,
         connection=None,
     ):
         if connection is None:
-            database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+            database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
             with self._connect(database_path) as owned:
                 yield from self._iter_quality_index_batches(
-                    project_id,
+                    workspace_id,
                     session_id,
                     batch_size=batch_size,
                     connection=owned,
@@ -2519,17 +2519,17 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _iter_accounting_index_batches(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         *,
         batch_size: int,
         connection=None,
     ):
         if connection is None:
-            database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+            database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
             with self._connect(database_path) as owned:
                 yield from self._iter_accounting_index_batches(
-                    project_id,
+                    workspace_id,
                     session_id,
                     batch_size=batch_size,
                     connection=owned,
@@ -2557,11 +2557,11 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _direct_index_contains_row_id(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         row_id: str,
     ) -> bool:
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             return (
                 connection.execute(
@@ -2576,21 +2576,21 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def iter_impacts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> _SessionImpacts:
         """Return a replayable bounded view of persisted transformation impacts."""
 
-        return _SessionImpacts(self, project_id, self._session_id(session_id))
+        return _SessionImpacts(self, workspace_id, self._session_id(session_id))
 
     def _iter_impacts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> Iterator[TransformationImpactRow]:
         """Yield persisted impacts in deterministic bounded ordinal pages."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             next_ordinal = 0
@@ -2626,7 +2626,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _prepare_normalization_facts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         *,
         effect_builder,
@@ -2634,7 +2634,7 @@ class PreparationSessionRepository(DuckDbRepository):
     ) -> dict[str, object]:
         """Construct every effect once and summarize the durable fact ledger."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         canonical_session_id = self._session_id(session_id)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -3168,10 +3168,10 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _iter_prepared_normalization_effects(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ):
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             last_effect_id = ""
@@ -3196,10 +3196,10 @@ class PreparationSessionRepository(DuckDbRepository):
                             "Stored normalization effect is invalid"
                         ) from error
 
-    def mark_published(self, project_id: str, session_id: str) -> None:
+    def mark_published(self, workspace_id: str, session_id: str) -> None:
         """Retain value-free status metadata and remove all temporary evidence."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -3290,7 +3290,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def fail_session(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         failure_code: str,
     ) -> None:
@@ -3298,7 +3298,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         if _FAILURE_CODE.fullmatch(failure_code) is None:
             raise ValueError("Preparation failure code is invalid")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             return
         with self._connect(database_path) as connection:
@@ -3333,14 +3333,14 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _reconciliation(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         evidence: Mapping[
             str,
             tuple[str, StagingDatasetRole, int, str],
         ],
     ) -> tuple[StagingReconciliation, tuple[StagingDatasetReconciliation, ...]]:
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             disposition_rows = connection.execute(
                 """
@@ -3423,7 +3423,7 @@ class PreparationSessionRepository(DuckDbRepository):
     def _hash_direct_run(
         self,
         *,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         bindings: PreparationSessionBindings,
         datasets: tuple[StagingDatasetReconciliation, ...],
@@ -3456,7 +3456,6 @@ class PreparationSessionRepository(DuckDbRepository):
             "physical_selection_hash",
             bindings.physical_selection_hash,
         )
-        hasher.add_value("project_id", project_id)
         hasher.add_value(
             "reconciliation",
             reconciliation.to_portable_dict(),
@@ -3464,7 +3463,7 @@ class PreparationSessionRepository(DuckDbRepository):
         hasher.start_array("rows")
         expected_ordinal = 0
         for batch in self._iter_direct_encoded_batches(
-            project_id,
+            workspace_id,
             run_id,
             batch_size=STAGING_ROW_BATCH_SIZE,
         ):
@@ -3502,11 +3501,12 @@ class PreparationSessionRepository(DuckDbRepository):
             "source_selection_hash",
             bindings.source_selection_hash,
         )
+        hasher.add_value("workspace_id", workspace_id)
         return hasher.finish(), expected_ordinal
 
     def _iter_direct_encoded_batches(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         batch_size: int,
@@ -3515,11 +3515,11 @@ class PreparationSessionRepository(DuckDbRepository):
         """Yield stored or prepared-backed canonical JSON in ordinal order."""
 
         if connection is None:
-            database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+            database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
             with self._connect(database_path) as owned_connection:
                 self._ensure_workspace_database_schema(owned_connection)
                 yield from self._iter_direct_encoded_batches(
-                    project_id,
+                    workspace_id,
                     run_id,
                     batch_size=batch_size,
                     connection=owned_connection,
@@ -3607,7 +3607,7 @@ class PreparationSessionRepository(DuckDbRepository):
                 )
             elif empty_count == row_count:
                 yield from self._iter_projected_dataset_encoded_batches(
-                    project_id,
+                    workspace_id,
                     canonical_run_id,
                     projection,
                     snapshot,
@@ -3658,7 +3658,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _iter_projected_dataset_encoded_batches(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         projection: PreparedCanonicalProjection,
         snapshot: PreparedSnapshot,
@@ -3668,7 +3668,7 @@ class PreparationSessionRepository(DuckDbRepository):
     ):
         try:
             artifact_context = self._artifacts.materialize_prepared_snapshot(
-                project_id,
+                workspace_id,
                 snapshot.parquet_storage_key,
                 expected_sha256=snapshot.parquet_sha256,
             )
@@ -3888,7 +3888,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _direct_rows_by_ordinal(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         ordinals: Sequence[int],
     ) -> dict[int, CanonicalRow]:
@@ -3898,7 +3898,7 @@ class PreparationSessionRepository(DuckDbRepository):
         rows: dict[int, CanonicalRow] = {}
         maximum = max(wanted)
         for batch in self._iter_direct_encoded_batches(
-            project_id,
+            workspace_id,
             run_id,
             batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
         ):
@@ -3919,7 +3919,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _load_canonical_row_range(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         start: int,
         stop: int,
@@ -3928,7 +3928,7 @@ class PreparationSessionRepository(DuckDbRepository):
             return ()
         rows: list[CanonicalRow] = []
         for batch in self._iter_direct_encoded_batches(
-            project_id,
+            workspace_id,
             session_id,
             batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
         ):
@@ -3942,12 +3942,12 @@ class PreparationSessionRepository(DuckDbRepository):
 
     def _iter_canonical_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> Iterator[CanonicalRow]:
         next_ordinal = 0
         for batch in self._iter_direct_encoded_batches(
-            project_id,
+            workspace_id,
             session_id,
             batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
         ):
@@ -4157,4 +4157,3 @@ class PreparationSessionRepository(DuckDbRepository):
             return str(UUID(session_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Preparation session identifier is invalid") from error
-

@@ -44,15 +44,17 @@ class _BoundedNormalizationEffects:
     def __init__(
         self,
         *,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         mapping_hash: str,
         mappings: Mapping[str, DatasetMapping],
         eligible_row_ids: AbstractSet[str],
     ) -> None:
-        self._project = project
+        self._workspace_state = workspace_state
         self._mapping_hash = mapping_hash
         self._eligible_row_ids = eligible_row_ids
-        self._restricted = project.data_classification is DataClassification.RESTRICTED
+        self._restricted = (
+            workspace_state.data_classification is DataClassification.RESTRICTED
+        )
         self._review_policy = compile_normalization_review_policy(mappings)
 
     def _effect(
@@ -142,7 +144,7 @@ class _BoundedNormalizationEffects:
             "target_field": candidate.target_field,
             "name": name,
             "explanation": explanation,
-            "owner_label": self._project.data_manager or "Data manager",
+            "owner_label": "Data manager",
         }
 
 
@@ -207,9 +209,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
                     "name": "Review this data finding",
                     "explanation": issue.message,
                     "owner_label": (
-                        issue.owner_label
-                        or self._factory._project.data_manager
-                        or "Data manager"
+                        issue.owner_label or "Data manager"
                     ),
                 },
             )
@@ -237,7 +237,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
 
 def build_bounded_normalization_evaluation(
     *,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     staging: StoredCanonicalStagingRun,
     quality: StoredQualityRun,
     mappings: Mapping[str, DatasetMapping],
@@ -273,7 +273,7 @@ def build_bounded_normalization_evaluation(
         }
     )
     effect_factory = _BoundedNormalizationEffects(
-        project=project,
+        workspace_state=workspace_state,
         mapping_hash=staging.mapping_hash,
         mappings=mappings,
         eligible_row_ids=quality.eligible_row_ids,
@@ -348,13 +348,13 @@ def build_bounded_normalization_evaluation(
         quality_content_hash=quality_content_hash,
     )
     return StoredNormalizationEvaluation(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         staging_content_hash=staging_content_hash,
         quality_content_hash=quality_content_hash,
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
         policy_hash=policy_hash,
-        retention_context_hash=retention_context_hash(project),
+        retention_context_hash=retention_context_hash(workspace_state),
         eligible_dataset_hash=eligible_dataset_hash,
         effects=effects,
         groups=tuple(sorted(groups, key=lambda item: item.group_id)),
@@ -362,4 +362,3 @@ def build_bounded_normalization_evaluation(
         changed_record_count=changed_record_count,
         effective_dataset_hash=staging_content_hash,
     )
-

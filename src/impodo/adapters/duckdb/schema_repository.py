@@ -34,12 +34,12 @@ class SchemaRepository(DuckDbRepository):
 
     def get_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooSchemaCatalog | None:
         """Return the current detailed schema catalog, if captured."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT catalog_json
               FROM odoo_schema_catalog
@@ -49,12 +49,12 @@ class SchemaRepository(DuckDbRepository):
         return OdooSchemaCatalog.from_json(value) if value else None
     def get_odoo_model_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooModelCatalog | None:
         """Return current lightweight model discovery, if refreshed."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT catalog_json
               FROM odoo_model_catalog
@@ -64,7 +64,7 @@ class SchemaRepository(DuckDbRepository):
         return OdooModelCatalog.from_json(value) if value else None
     def save_odoo_model_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: OdooModelCatalog,
         *,
         actor: Actor,
@@ -72,7 +72,7 @@ class SchemaRepository(DuckDbRepository):
         """Replace model discovery without changing the permitted scope itself."""
 
         self._save_singleton(
-            project_id,
+            workspace_id,
             table="odoo_model_catalog",
             value_column="catalog_json",
             value=catalog.to_json(),
@@ -83,7 +83,7 @@ class SchemaRepository(DuckDbRepository):
 
     def save_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: OdooSchemaCatalog,
         *,
         actor: Actor,
@@ -101,7 +101,7 @@ class SchemaRepository(DuckDbRepository):
             else "authenticated Odoo capture"
         )
         self._save_singleton(
-            project_id,
+            workspace_id,
             table="odoo_schema_catalog",
             value_column="catalog_json",
             value=catalog.to_json(),
@@ -118,7 +118,7 @@ class SchemaRepository(DuckDbRepository):
 
     def rebind_odoo_schema_access(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: OdooSchemaCatalog,
         *,
         expected_content_hash: str,
@@ -127,7 +127,7 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Replace access provenance without invalidating semantic dependents."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -145,11 +145,11 @@ class SchemaRepository(DuckDbRepository):
                     raise WorkspaceError("Capture the Odoo schema first")
                 current = OdooSchemaCatalog.from_json(str(row[0]))
                 unchanged_semantics = (
-                    current.project_id == project_id
+                    current.workspace_id == workspace_id
                     and current.content_hash == expected_content_hash
                     and current.read_credential_binding_hash
                     == expected_read_credential_binding_hash
-                    and catalog.project_id == current.project_id
+                    and catalog.workspace_id == current.workspace_id
                     and catalog.content_hash == current.content_hash
                     and catalog.policy_hash == current.policy_hash
                     and catalog.connection_target_hash
@@ -194,12 +194,12 @@ class SchemaRepository(DuckDbRepository):
 
     def get_schema_governance(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SchemaGovernance | None:
         """Load the current governance revision selected by its pointer."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT revision.governance_json
               FROM schema_governance_current AS current
@@ -212,14 +212,14 @@ class SchemaRepository(DuckDbRepository):
         return SchemaGovernance.from_json(value) if value else None
     def save_schema_governance(
         self,
-        project_id: str,
+        workspace_id: str,
         governance: SchemaGovernance,
         *,
         actor: Actor,
     ) -> None:
         """Append the next exact governance revision and invalidate dependents."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -235,7 +235,7 @@ class SchemaRepository(DuckDbRepository):
                 raise WorkspaceError("Capture the Odoo schema first")
             schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
             if (
-                governance.project_id != project_id
+                governance.workspace_id != workspace_id
                 or governance.catalog_hash != schema.content_hash
                 or tuple(sorted(governance.permitted_models))
                 != tuple(sorted(model.name for model in schema.models))

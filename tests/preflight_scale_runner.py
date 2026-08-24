@@ -53,10 +53,10 @@ def _field_metadata(field: str) -> FieldMetadata:
     )
 
 
-def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
+def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
     app = create_local_app(root)
     context = app.state.context
-    project = context.workspace_states.repository.get(project_id)
+    project = context.workspace_states.repository.get(workspace_id)
     fingerprint = TargetFingerprint(
         target_hash=target_identity_hash(
             connection_mode=project.odoo_connection_mode.value,
@@ -213,7 +213,7 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
         ),
     ):
         report = context.preflight.compare(
-            project_id,
+            workspace_id,
             reader=timed("read_snapshot", read_snapshot),
             actor=context.actor,
         )
@@ -221,7 +221,7 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     peak_bytes = int(peak if sys.platform == "darwin" else peak * 1024)
 
-    database_path = root / project_id / "workspace-engine.duckdb"
+    database_path = root / workspace_id / "workspace-engine.duckdb"
     with context.preflight.staging._connect(database_path) as connection:
         stored = connection.execute(
             """
@@ -240,24 +240,24 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
     assert stored is not None
 
     with context.artifacts.materialize_report(
-        project_id, report.run_id, MANIFEST_NAME
+        workspace_id, report.run_id, MANIFEST_NAME
     ) as manifest_path:
         manifest_bytes = manifest_path.stat().st_size
         with context.artifacts.prepare_report(
-            project_id, report.run_id, WORKBOOK_NAME
+            workspace_id, report.run_id, WORKBOOK_NAME
         ) as workbook_path:
             write_review_workbook(manifest_path, workbook_path)
         with context.artifacts.materialize_report(
-            project_id, report.run_id, WORKBOOK_NAME
+            workspace_id, report.run_id, WORKBOOK_NAME
         ) as workbook_path:
             workbook_bytes = workbook_path.stat().st_size
     with context.artifacts.materialize_report(
-        project_id,
+        workspace_id,
         report.run_id,
         EXECUTION_SNAPSHOT_NAME,
     ) as execution_snapshot_path:
         execution_snapshot_bytes = execution_snapshot_path.stat().st_size
-    execution_snapshot = context.preflight.current_execution_snapshot(project_id)
+    execution_snapshot = context.preflight.current_execution_snapshot(workspace_id)
     assert execution_snapshot is not None
     assert execution_snapshot.preflight_run_id == report.run_id
 
@@ -294,12 +294,12 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--project-id", required=True)
+    parser.add_argument("--workspace-id", required=True)
     parser.add_argument("--rows", type=int, required=True)
     args = parser.parse_args()
     print(
         json.dumps(
-            run(args.root, args.project_id, args.rows),
+            run(args.root, args.workspace_id, args.rows),
             sort_keys=True,
         )
     )

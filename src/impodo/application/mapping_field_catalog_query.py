@@ -34,5 +34,5 @@ class MappingFieldCatalogQueryRepository(Protocol):
 
     def get_mapping_field_catalog_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> MappingFieldCatalogSnapshot: ...

@@ -10,7 +10,7 @@ import tempfile
 from time import perf_counter
 import unittest
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 
 from impodo.access import LOCAL_ACTOR
@@ -61,7 +61,7 @@ from tests.test_quality import (
     SCHEMA_HASH,
     SOURCE_HASH,
     _canonical_row,
-    _project,
+    _workspace_state,
     _staging,
     _stored_staging,
 )
@@ -78,15 +78,15 @@ def _mapping(*fields: ScalarFieldMapping) -> DatasetMapping:
     )
 
 
-def _quality(project, staging, rows):
+def _quality(workspace_state, staging, rows):
     ruleset = default_quality_ruleset(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         mapping_hash=MAPPING_HASH,
         schema_hash=SCHEMA_HASH,
         datasets=("contacts",),
     )
     return ruleset, evaluate_quality(
-        project=project,
+            workspace_state=workspace_state,
         staging=staging,
         physical_rows={"dataset:contacts": tuple(item.source_row for item in rows)},
         ruleset=ruleset,
@@ -95,24 +95,24 @@ def _quality(project, staging, rows):
 
 class NormalizationEvaluationTests(unittest.TestCase):
     def test_high_volume_bounded_rejection_never_materializes(self) -> None:
-        project = _project()
+        workspace_state = _workspace_state()
         rows = (_canonical_row("5", 2),)
-        staging = _staging(project.project_id, rows)
+        staging = _staging(workspace_state.workspace_id, rows)
         stored_staging = _stored_staging(staging)
         ruleset = default_quality_ruleset(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
         materialized_quality = evaluate_quality(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
         stored_quality = build_bounded_quality_run(
-            project=project,
+            workspace_state=workspace_state,
             staging=stored_staging,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
@@ -147,7 +147,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
             ),
         ):
             service.evaluate_and_publish(
-                project,
+                workspace_state,
                 revision,
                 selection,
                 stored_staging,
@@ -171,12 +171,12 @@ class NormalizationEvaluationTests(unittest.TestCase):
     def test_no_change_still_requires_final_approval_and_unknown_policy_blocks(
         self,
     ) -> None:
-        project = _project()
+        workspace_state = _workspace_state()
         rows = (_canonical_row("5", 2),)
-        staging = _staging(project.project_id, rows)
-        _, quality = _quality(project, staging, rows)
+        staging = _staging(workspace_state.workspace_id, rows)
+        _, quality = _quality(workspace_state, staging, rows)
         evaluation = evaluate_normalization(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             quality=quality,
             mappings={"contacts": _mapping()},
@@ -200,7 +200,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
             "does not define a supported review policy",
         ):
             evaluate_normalization(
-                project=project,
+            workspace_state=workspace_state,
                 staging=staging,
                 quality=quality,
                 mappings={"contacts": _mapping()},
@@ -221,11 +221,11 @@ class NormalizationEvaluationTests(unittest.TestCase):
     def test_ordered_text_changes_use_structural_policy_in_both_paths(
         self,
     ) -> None:
-        project = _project()
+        workspace_state = _workspace_state()
         row = _canonical_row("5", 2)
         rows = (row,)
-        staging = _staging(project.project_id, rows)
-        _, quality = _quality(project, staging, rows)
+        staging = _staging(workspace_state.workspace_id, rows)
+        _, quality = _quality(workspace_state, staging, rows)
         mapping = _mapping(
             ScalarFieldMapping(
                 target_field="phone",
@@ -260,21 +260,21 @@ class NormalizationEvaluationTests(unittest.TestCase):
             )
 
         materialized = evaluate_normalization(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             quality=quality,
             mappings={"contacts": mapping},
             candidates=(candidate("Source + 2 ordered text changes"),),
         )
         renamed_display = evaluate_normalization(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             quality=quality,
             mappings={"contacts": mapping},
             candidates=(candidate("Localized display wording"),),
         )
         factory = _BoundedNormalizationEffects(
-            project=project,
+            workspace_state=workspace_state,
             mapping_hash=staging.mapping_hash,
             mappings={"contacts": mapping},
             eligible_row_ids=quality.eligible_row_ids,
@@ -314,10 +314,10 @@ class NormalizationEvaluationTests(unittest.TestCase):
     def test_unsupported_structural_policy_keeps_specific_recovery_code(
         self,
     ) -> None:
-        project = _project()
+        workspace_state = _workspace_state()
         row = _canonical_row("5", 2)
-        staging = _staging(project.project_id, (row,))
-        _, quality = _quality(project, staging, (row,))
+        staging = _staging(workspace_state.workspace_id, (row,))
+        _, quality = _quality(workspace_state, staging, (row,))
         mapping = _mapping()
         service = NormalizationService(MagicMock(), MagicMock())
         revision = SimpleNamespace(definition=SimpleNamespace(datasets=(mapping,)))
@@ -332,7 +332,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
 
         with self.assertRaises(NormalizationReviewPolicyError) as raised:
             service.evaluate_and_publish(
-                project,
+                workspace_state,
                 revision,
                 selection,
                 staging,
@@ -486,8 +486,8 @@ class NormalizationEvaluationTests(unittest.TestCase):
         )
 
     def test_review_evidence_is_deterministic_and_masks_restricted_values(self) -> None:
-        project = replace(
-            _project(),
+        workspace_state = replace(
+            _workspace_state(),
             data_classification=DataClassification.RESTRICTED,
         )
         rows = (
@@ -504,8 +504,8 @@ class NormalizationEvaluationTests(unittest.TestCase):
                 target_identity=("B",),
             ),
         )
-        staging = _staging(project.project_id, rows)
-        _, quality = _quality(project, staging, rows)
+        staging = _staging(workspace_state.workspace_id, rows)
+        _, quality = _quality(workspace_state, staging, rows)
         mapping = _mapping(
             ScalarFieldMapping(
                 target_field="name",
@@ -541,14 +541,14 @@ class NormalizationEvaluationTests(unittest.TestCase):
         )
 
         first = evaluate_normalization(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             quality=quality,
             mappings={"contacts": mapping},
             candidates=candidates,
         )
         repeated = evaluate_normalization(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             quality=quality,
             mappings={"contacts": mapping},
@@ -573,17 +573,14 @@ class NormalizationEvaluationTests(unittest.TestCase):
             NormalizationEvaluation.from_json(first.to_json()),
             first,
         )
-        legacy = replace(first, evaluator_version=2)
-        self.assertEqual(
-            NormalizationEvaluation.from_json(legacy.to_json()),
-            legacy,
-        )
+        with self.assertRaisesRegex(ValueError, "current contract"):
+            replace(first, evaluator_version=2)
 
     def test_governance_round_trip_freezes_only_after_required_decision(self) -> None:
-        project = _project()
+        workspace_state = _workspace_state()
         rows = (_canonical_row("5", 2),)
-        staging = _staging(project.project_id, rows)
-        _, quality = _quality(project, staging, rows)
+        staging = _staging(workspace_state.workspace_id, rows)
+        _, quality = _quality(workspace_state, staging, rows)
         mapping = _mapping(
             ScalarFieldMapping(
                 target_field="name",
@@ -592,7 +589,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
             )
         )
         evaluation = evaluate_normalization(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             quality=quality,
             mappings={"contacts": mapping},
@@ -638,17 +635,22 @@ class NormalizationStoreTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(database)
+        self.workspace_states = WorkspaceStateRepository(database)
         self.staging = StagingRepository(database)
-        self.quality = QualityRepository(database, self.projects)
-        self.repository = NormalizationRepository(database, self.projects)
-        self.project = _project()
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.quality = QualityRepository(database, self.workspace_states)
+        self.repository = NormalizationRepository(database, self.workspace_states)
+        self.workspace_state = _workspace_state()
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=self.project.project_id,
+            data_version_id=str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"data-version:{self.workspace_state.workspace_id}",
+                )
+            ),
             created_at=now,
             created_by=LOCAL_ACTOR.identity.display_name,
             datasets=(
@@ -678,7 +680,7 @@ class NormalizationStoreTests(unittest.TestCase):
             content_hash=PHYSICAL_HASH,
         )
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -710,10 +712,10 @@ class NormalizationStoreTests(unittest.TestCase):
         self,
     ) -> None:
         row = _canonical_row("5", 2)
-        staging = _staging(self.project.project_id, (row,))
-        _ruleset, quality = _quality(self.project, staging, (row,))
+        staging = _staging(self.workspace_state.workspace_id, (row,))
+        _ruleset, quality = _quality(self.workspace_state, staging, (row,))
         evaluation = evaluate_normalization(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             quality=quality,
             mappings={"contacts": _mapping()},
@@ -731,7 +733,7 @@ class NormalizationStoreTests(unittest.TestCase):
             ),
         ):
             self.repository.publish_normalization_run(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 evaluation,
                 staging_run_id="staging-run",
                 quality_run_id="quality-run",
@@ -740,7 +742,7 @@ class NormalizationStoreTests(unittest.TestCase):
             )
 
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -754,21 +756,21 @@ class NormalizationStoreTests(unittest.TestCase):
     ) -> None:
         row = _canonical_row("5", 2)
         rows = (row,)
-        staging_run = _staging(self.project.project_id, rows)
+        staging_run = _staging(self.workspace_state.workspace_id, rows)
         staging = self.staging.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
-        ruleset, quality_run = _quality(self.project, staging_run, rows)
+        ruleset, quality_run = _quality(self.workspace_state, staging_run, rows)
         self.quality.publish_quality_ruleset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
         quality = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             quality_run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
@@ -781,7 +783,7 @@ class NormalizationStoreTests(unittest.TestCase):
             )
         )
         evaluation = evaluate_normalization(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging_run,
             quality=quality_run,
             mappings={"contacts": mapping},
@@ -799,7 +801,7 @@ class NormalizationStoreTests(unittest.TestCase):
             ),
         )
         published = self.repository.publish_normalization_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             evaluation,
             staging_run_id=staging.run_id,
             quality_run_id=quality.run_id,
@@ -807,7 +809,7 @@ class NormalizationStoreTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
         blocked = self.repository.decide_normalization_group(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.run_id,
             evaluation.groups[0].group_id,
             approve=False,
@@ -817,20 +819,20 @@ class NormalizationStoreTests(unittest.TestCase):
         )
         self.assertEqual(blocked.status, DryRunStatus.BLOCKED.value)
         reopened = self.repository.reopen_normalization_review(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.run_id,
             expected_version=blocked.lifecycle_version,
             actor=LOCAL_ACTOR,
             reason="Reopened after review.",
         )
         frozen = self.repository.approve_and_freeze_normalization(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.run_id,
             expected_version=reopened.lifecycle_version,
             actor=LOCAL_ACTOR,
         )
         repeated = self.repository.publish_normalization_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             evaluation,
             staging_run_id=staging.run_id,
             quality_run_id=quality.run_id,
@@ -843,14 +845,14 @@ class NormalizationStoreTests(unittest.TestCase):
         self.assertEqual(repeated.lifecycle_version, frozen.lifecycle_version)
         self.assertEqual(
             self.repository.get_normalization_evaluation(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 frozen.run_id,
             ),
             evaluation,
         )
         self.assertEqual(
             self.repository.get_normalization_dry_run(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 frozen.run_id,
             ).status,
             DryRunStatus.FROZEN,
@@ -858,29 +860,29 @@ class NormalizationStoreTests(unittest.TestCase):
         self.assertIn(
             evaluation.groups[0].decision_key,
             self.repository.get_normalization_dry_run(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 frozen.run_id,
             ).approved_groups,
         )
-        current_project = self.projects.get(self.project.project_id)
-        changed_project = replace(
-            current_project,
-            data_manager="New Data Manager",
-            revision=current_project.revision + 1,
+        current_workspace_state = self.workspace_states.get(self.workspace_state.workspace_id)
+        changed_workspace_state = replace(
+            current_workspace_state,
+            retention_days=current_workspace_state.retention_days + 1,
+            revision=current_workspace_state.revision + 1,
             updated_at=datetime.now(timezone.utc),
         )
-        self.projects.save(
-            changed_project,
-            expected_revision=current_project.revision,
+        self.workspace_states.save(
+            changed_workspace_state,
+            expected_revision=current_workspace_state.revision,
             event_type="WORKSPACE_GOVERNANCE_UPDATED",
             event_detail="",
             actor=LOCAL_ACTOR,
         )
         self.assertIsNone(
-            self.repository.get_current_normalization_summary(self.project.project_id)
+            self.repository.get_current_normalization_summary(self.workspace_state.workspace_id)
         )
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -918,21 +920,21 @@ class NormalizationStoreTests(unittest.TestCase):
             )
             for index in range(2, 25_002)
         )
-        staging_run = _staging(self.project.project_id, rows)
+        staging_run = _staging(self.workspace_state.workspace_id, rows)
         staging = self.staging.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
-        ruleset, quality_run = _quality(self.project, staging_run, rows)
+        ruleset, quality_run = _quality(self.workspace_state, staging_run, rows)
         self.quality.publish_quality_ruleset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
         quality = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             quality_run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
@@ -944,7 +946,7 @@ class NormalizationStoreTests(unittest.TestCase):
             )
         )
         evaluation = evaluate_normalization(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging_run,
             quality=quality_run,
             mappings={"contacts": mapping},
@@ -963,7 +965,7 @@ class NormalizationStoreTests(unittest.TestCase):
             ),
         )
         published = self.repository.publish_normalization_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             evaluation,
             staging_run_id=staging.run_id,
             quality_run_id=quality.run_id,
@@ -972,7 +974,7 @@ class NormalizationStoreTests(unittest.TestCase):
         )
         elapsed = perf_counter() - started
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         peak_mib = psutil.Process().memory_info().peak_wset / (1024 * 1024)

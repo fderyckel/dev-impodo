@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..access import Actor, AuthorizationPolicy, Capability
+from ..access import Actor, Capability
 from ..connectors import MetadataSnapshot
 from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.odoo_source_capture import (
@@ -23,23 +23,24 @@ from ..models import FieldMetadata, OdooReadIdentity, ProtectedOdooReadContext
 from ..workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
 from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SchemaOrigin
 from ..workspace_errors import WorkspaceError
+from ..workspace_access import WorkspaceAccessService
 
 
-class OdooCaptureProjectReader(Protocol):
-    def get(self, project_id: str) -> WorkspaceState: ...
+class OdooCaptureWorkspaceReader(Protocol):
+    def get(self, workspace_id: str) -> WorkspaceState: ...
 
 
 class OdooCaptureSelectionReader(Protocol):
     def get_current_odoo_capture_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooCaptureSelection | None: ...
 
 
 class OdooCaptureSchemaReader(Protocol):
     def get_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooSchemaCatalog | None: ...
 
 
@@ -100,19 +101,19 @@ class OdooSourceCaptureService:
 
     def __init__(
         self,
-        projects: OdooCaptureProjectReader,
+        workspaces: OdooCaptureWorkspaceReader,
         selections: OdooCaptureSelectionReader,
         schemas: OdooCaptureSchemaReader,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAccessService,
     ) -> None:
-        self._projects = projects
+        self._workspaces = workspaces
         self._selections = selections
         self._schemas = schemas
         self._authorization = authorization
 
     def capture(
         self,
-        project_id: str,
+        workspace_id: str,
         gateway: OdooSourceCapturePort,
         *,
         consume_page_factory: Callable[
@@ -124,7 +125,7 @@ class OdooSourceCaptureService:
     ) -> OdooSourceCaptureResult:
         """Validate at both ends and pass each bounded typed page to one sink."""
 
-        request, schema, selection = self._context(project_id, actor=actor)
+        request, schema, selection = self._context(workspace_id, actor=actor)
         consume_page = consume_page_factory(request, selection)
         require_not_cancelled(cancellation)
         identity, protected_context = gateway.probe_identity(
@@ -155,9 +156,9 @@ class OdooSourceCaptureService:
         # The protected repository pointers and the target must both remain
         # unchanged. These are bounded control-plane checks, not row hashes.
         current_selection = self._selections.get_current_odoo_capture_selection(
-            project_id
+            workspace_id
         )
-        current_schema = self._schemas.get_odoo_schema_catalog(project_id)
+        current_schema = self._schemas.get_odoo_schema_catalog(workspace_id)
         if (
             current_selection is None
             or current_selection.content_hash != request.selection_hash
@@ -194,7 +195,7 @@ class OdooSourceCaptureService:
 
     def sample(
         self,
-        project_id: str,
+        workspace_id: str,
         gateway: OdooSourceCapturePort,
         *,
         limit: int,
@@ -203,7 +204,7 @@ class OdooSourceCaptureService:
     ) -> OdooCaptureSample:
         """Return a bounded, explicitly non-authoritative sample."""
 
-        request, schema, _ = self._context(project_id, actor=actor)
+        request, schema, _ = self._context(workspace_id, actor=actor)
         identity, protected_context = gateway.probe_identity(
             request,
             cancellation=cancellation,
@@ -232,7 +233,7 @@ class OdooSourceCaptureService:
 
     def _context(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> tuple[
@@ -240,24 +241,28 @@ class OdooSourceCaptureService:
         OdooSchemaCatalog,
         OdooCaptureSelection,
     ]:
-        self._authorization.require(
+        context = self._authorization.require(
             actor,
             Capability.SOURCE_CAPTURE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self._projects.get(project_id)
+        workspace_state = self._workspaces.get(workspace_id)
         if (
-            project.status is not WorkspaceStatus.REGISTERED
-            or project.source_mode is not SourceMode.ODOO
+            workspace_state.status is not WorkspaceStatus.REGISTERED
+            or workspace_state.source_mode is not SourceMode.ODOO
         ):
             raise WorkspaceError(
-                "Live Odoo source capture requires a registered Odoo-source project"
+                "Live Odoo source capture requires a registered Odoo-source workspace"
             )
-        selection = self._selections.get_current_odoo_capture_selection(project_id)
-        schema = self._schemas.get_odoo_schema_catalog(project_id)
+        selection = self._selections.get_current_odoo_capture_selection(workspace_id)
+        schema = self._schemas.get_odoo_schema_catalog(workspace_id)
         if selection is None or schema is None:
             raise WorkspaceError(
                 "Save a current Odoo capture selection and live schema first"
+            )
+        if selection.data_version_id != context.data_version_id:
+            raise WorkspaceError(
+                "The Odoo capture selection belongs to another DataVersion"
             )
         if schema.origin is not SchemaOrigin.LIVE_API:
             raise WorkspaceError(
@@ -337,4 +342,3 @@ def _same_field(stored: SchemaField, live: FieldMetadata) -> bool:
         and stored.digits == live.digits
         and stored.currency_field == live.currency_field
     )
-

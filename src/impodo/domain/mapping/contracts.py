@@ -30,7 +30,6 @@ from ..serialization import portable as _portable
 
 
 MAPPING_CONTRACT_VERSION = 12
-SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9, 10, 11, 12})
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -486,7 +485,6 @@ class DatasetMapping:
     relationships: tuple[RelationshipMapping, ...] = ()
     target_field_dispositions: tuple[TargetFieldDisposition, ...] = ()
     approved_write_fields: tuple[str, ...] = ()
-    control_totals: tuple["BusinessControlTotal", ...] = ()
     control_definitions: tuple["BusinessControlDefinition", ...] = ()
     control_expectations: tuple["MappingControlExpectation", ...] = ()
 
@@ -504,7 +502,6 @@ class DatasetMapping:
             approved_write_fields,
         )
         if max(
-            len(self.control_totals),
             len(self.control_definitions),
             len(self.control_expectations),
         ) > MAX_CONTROL_TOTALS_PER_DATASET:
@@ -514,10 +511,8 @@ class DatasetMapping:
 
     @property
     def effective_control_totals(self) -> tuple["BusinessControlTotal", ...]:
-        """Project v11 definitions and expectations onto the current runtime."""
+        """Project reusable definitions and edition expectations for runtime."""
 
-        if self.control_totals:
-            return self.control_totals
         expected_by_id = {
             item.control_id: item for item in self.control_expectations
         }
@@ -634,47 +629,10 @@ class MappingDefinition:
     contract_version: int = MAPPING_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
-            raise ValueError("Mapping contract version is unsupported")
-        if self.contract_version < 9 and any(
-            dataset.target_field_dispositions for dataset in self.datasets
-        ):
+        if self.contract_version != MAPPING_CONTRACT_VERSION:
             raise ValueError(
-                "Target-field dispositions require mapping contract version 9"
+                "Mapping contract version does not match the current contract"
             )
-        if self.contract_version < 10 and any(
-            dataset.approved_write_fields
-            or dataset.mode is MappingTargetMode.ODOO_PINNED_UPDATE
-            for dataset in self.datasets
-        ):
-            raise ValueError(
-                "Pinned Odoo updates require mapping contract version 10"
-            )
-        has_v11_fields = any(
-            dataset.control_definitions
-            or dataset.control_expectations
-            or any(field.categorical_policy is not None for field in dataset.fields)
-            or any(
-                relation.categorical_policy is not None
-                for relation in dataset.relationships
-            )
-            for dataset in self.datasets
-        )
-        if self.contract_version < 11 and has_v11_fields:
-            raise ValueError("Categorical and split-control fields require version 11")
-        if self.contract_version >= 11 and any(
-            dataset.control_totals for dataset in self.datasets
-        ):
-            raise ValueError(
-                "Mapping contract version 11 requires split control definitions "
-                "and expectations"
-            )
-        if self.contract_version < 12 and any(
-            field.selection_rules is not None
-            for dataset in self.datasets
-            for field in dataset.fields
-        ):
-            raise ValueError("Conditional Selection rules require version 12")
 
     @property
     def content_hash(self) -> str:
@@ -691,10 +649,7 @@ class MappingDefinition:
             "source_selection_hash": self.source_selection_hash,
             "schema_hash": self.schema_hash,
             "datasets": [
-                _dataset_mapping_to_dict(
-                    item,
-                    contract_version=self.contract_version,
-                )
+                _dataset_mapping_to_dict(item)
                 for item in sorted(
                     (
                         replace(
@@ -722,15 +677,6 @@ class MappingDefinition:
                             ),
                             approved_write_fields=tuple(
                                 sorted(item.approved_write_fields)
-                            ),
-                            control_totals=tuple(
-                                sorted(
-                                    item.control_totals,
-                                    key=lambda control: (
-                                        control.target_field,
-                                        control.name.casefold(),
-                                    ),
-                                )
                             ),
                             control_definitions=tuple(
                                 sorted(
@@ -762,7 +708,7 @@ class MappingDefinition:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "MappingDefinition":
-        """Restore one mapping contract and reject a supplied bad hash."""
+        """Restore the exact current mapping contract and verify its hash."""
 
         if set(payload) != {
             "mapping_id",
@@ -773,16 +719,17 @@ class MappingDefinition:
             "content_hash",
         }:
             raise ValueError("Mapping fields do not match the current contract")
+        if int(payload["contract_version"]) != MAPPING_CONTRACT_VERSION:
+            raise ValueError(
+                "Mapping contract version does not match the current contract"
+            )
         definition = cls(
             mapping_id=str(payload["mapping_id"]),
             contract_version=int(payload["contract_version"]),
             source_selection_hash=str(payload["source_selection_hash"]),
             schema_hash=str(payload["schema_hash"]),
             datasets=tuple(
-                _dataset_mapping_from_dict(
-                    item,
-                    contract_version=int(payload["contract_version"]),
-                )
+                _dataset_mapping_from_dict(item)
                 for item in payload["datasets"]
             ),
         )
@@ -800,15 +747,12 @@ class MappingDefinition:
 
 def _dataset_mapping_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> DatasetMapping:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(DatasetMapping).difference({"control_totals"}),
-            "Dataset mapping fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(DatasetMapping),
+        "Dataset mapping fields do not match the current contract",
+    )
     return DatasetMapping(
         dataset_id=str(payload["dataset_id"]),
         target_model=str(payload.get("target_model", "")),
@@ -818,96 +762,51 @@ def _dataset_mapping_from_dict(
             payload.get("source_identity_column_keys", ())
         ),
         target_identity=tuple(
-            _identity_component_from_dict(item, contract_version=contract_version)
+            _identity_component_from_dict(item)
             for item in payload.get("target_identity", ())
         ),
         target_scope=tuple(
-            _identity_component_from_dict(item, contract_version=contract_version)
+            _identity_component_from_dict(item)
             for item in payload.get("target_scope", ())
         ),
         fields=tuple(
-            _scalar_field_mapping_from_dict(
-                item,
-                contract_version=contract_version,
-            )
+            _scalar_field_mapping_from_dict(item)
             for item in payload.get("fields", ())
         ),
         relationships=tuple(
-            _relationship_from_dict(item, contract_version=contract_version)
+            _relationship_from_dict(item)
             for item in payload.get("relationships", ())
         ),
         target_field_dispositions=tuple(
-            _target_field_disposition_from_dict(
-                item,
-                contract_version=contract_version,
-            )
+            _target_field_disposition_from_dict(item)
             for item in payload.get("target_field_dispositions", ())
         ),
-        approved_write_fields=(
-            tuple(payload.get("approved_write_fields", ()))
-            if contract_version >= 10
-            else ()
-        ),
-        control_totals=tuple(
-            BusinessControlTotal(
-                name=str(item["name"]),
-                target_field=str(item["target_field"]),
-                expected_total=str(item["expected_total"]),
-                unit=str(item.get("unit", "")),
-                tolerance=str(item.get("tolerance", "0")),
-            )
-            for item in payload.get("control_totals", ())
-        ) if contract_version < 11 else (),
+        approved_write_fields=tuple(payload.get("approved_write_fields", ())),
         control_definitions=tuple(
             _business_control_definition_from_dict(item)
             for item in payload.get("control_definitions", ())
-        ) if contract_version >= 11 else (),
+        ),
         control_expectations=tuple(
             _mapping_control_expectation_from_dict(item)
             for item in payload.get("control_expectations", ())
-        ) if contract_version >= 11 else (),
+        ),
     )
 
 
 def _dataset_mapping_to_dict(
     mapping: DatasetMapping,
-    *,
-    contract_version: int,
 ) -> dict[str, Any]:
-    payload = asdict(mapping)
-    if contract_version < 9:
-        payload.pop("target_field_dispositions", None)
-    if contract_version < 10:
-        payload.pop("approved_write_fields", None)
-    if contract_version < 11:
-        payload.pop("control_definitions", None)
-        payload.pop("control_expectations", None)
-        for field_payload in payload.get("fields", ()):
-            field_payload.pop("categorical_policy", None)
-        for relationship_payload in payload.get("relationships", ()):
-            relationship_payload.pop("categorical_policy", None)
-    else:
-        payload.pop("control_totals", None)
-    if contract_version < 12:
-        for field_payload in payload.get("fields", ()):
-            field_payload.pop("selection_rules", None)
-    return _portable(payload)
+    return _portable(asdict(mapping))
 
 
 def _scalar_field_mapping_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> ScalarFieldMapping:
-    if contract_version >= 11:
-        expected = _contract_fields(ScalarFieldMapping)
-        if contract_version < 12:
-            expected = expected.difference({"selection_rules"})
-        _require_contract_fields(
-            payload,
-            expected,
-            f"Scalar mapping fields do not match contract v{contract_version}",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(ScalarFieldMapping),
+        "Scalar mapping fields do not match the current contract",
+    )
     transform_payload = payload.get("transform", {})
     if not isinstance(transform_payload, Mapping):
         raise ValueError("Scalar transform policy must be an object")
@@ -963,7 +862,6 @@ def _scalar_field_mapping_from_dict(
             text_steps=tuple(
                 _text_transform_step_from_dict(
                     item,
-                    contract_version=contract_version,
                 )
                 for item in transform_payload.get("text_steps", ())
             ),
@@ -988,7 +886,7 @@ def _scalar_field_mapping_from_dict(
             pattern=str(validation_payload.get("pattern", "")),
         ),
         value_mappings=tuple(
-            _value_mapping_from_dict(item, contract_version=contract_version)
+            _value_mapping_from_dict(item)
             for item in payload.get("value_mappings", ())
         ),
         value_type=str(payload.get("value_type", "string")),
@@ -1002,21 +900,18 @@ def _scalar_field_mapping_from_dict(
         reference_lookup=(
             _reference_lookup_from_dict(
                 payload["reference_lookup"],
-                contract_version=contract_version,
             )
             if payload.get("reference_lookup") is not None
             else None
         ),
         categorical_policy=(
             CategoricalCoveragePolicy(payload["categorical_policy"])
-            if contract_version >= 11
-            and payload.get("categorical_policy") is not None
+            if payload.get("categorical_policy") is not None
             else None
         ),
         selection_rules=(
             _selection_rule_set_from_dict(payload["selection_rules"])
-            if contract_version >= 12
-            and payload.get("selection_rules") is not None
+            if payload.get("selection_rules") is not None
             else None
         ),
     )
@@ -1081,14 +976,12 @@ def _selection_condition_from_dict(payload: Mapping[str, Any]) -> SelectionCondi
 
 def _text_transform_step_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> TextTransformStep:
-    expected = _contract_fields(TextTransformStep)
-    if contract_version >= 11:
-        _require_contract_fields(payload, expected, "Ordered text changes are invalid")
-    elif not isinstance(payload, Mapping) or set(payload).difference(expected):
-        raise ValueError("Ordered text changes are invalid")
+    _require_contract_fields(
+        payload,
+        _contract_fields(TextTransformStep),
+        "Ordered text changes are invalid",
+    )
     return TextTransformStep(
         kind=str(payload.get("kind", "find_replace")),
         search_value=str(payload.get("search_value", "")),
@@ -1101,15 +994,12 @@ def _text_transform_step_from_dict(
 
 def _identity_component_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> IdentityComponentMapping:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(IdentityComponentMapping),
-            "Identity mapping fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(IdentityComponentMapping),
+        "Identity mapping fields do not match the current contract",
+    )
     return IdentityComponentMapping(
         source_column_keys=tuple(payload.get("source_column_keys", ())),
         target_fields=tuple(payload.get("target_fields", ())),
@@ -1117,7 +1007,6 @@ def _identity_component_from_dict(
         resolver=(
             _resolver_from_dict(
                 payload["resolver"],
-                contract_version=contract_version,
             )
             if payload.get("resolver") is not None
             else None
@@ -1127,22 +1016,18 @@ def _identity_component_from_dict(
 
 def _relationship_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> RelationshipMapping:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(RelationshipMapping),
-            "Relationship mapping fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(RelationshipMapping),
+        "Relationship mapping fields do not match the current contract",
+    )
     return RelationshipMapping(
         target_field=str(payload.get("target_field", "")),
         kind=str(payload.get("kind", "")),
         source_column_keys=tuple(payload.get("source_column_keys", ())),
         resolver=_resolver_from_dict(
             payload["resolver"],
-            contract_version=contract_version,
         ),
         compare=bool(payload.get("compare", True)),
         validate_only=bool(payload.get("validate_only", False)),
@@ -1155,8 +1040,7 @@ def _relationship_from_dict(
         null_policy=str(payload.get("null_policy", "distinct")),
         categorical_policy=(
             CategoricalCoveragePolicy(payload["categorical_policy"])
-            if contract_version >= 11
-            and payload.get("categorical_policy") is not None
+            if payload.get("categorical_policy") is not None
             else None
         ),
     )
@@ -1164,15 +1048,12 @@ def _relationship_from_dict(
 
 def _resolver_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> RelationshipResolver:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(RelationshipResolver),
-            "Relationship resolver fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(RelationshipResolver),
+        "Relationship resolver fields do not match the current contract",
+    )
     return RelationshipResolver(
         origin=ResolverOrigin(payload["origin"]),
         dataset_id=payload.get("dataset_id"),
@@ -1180,19 +1061,17 @@ def _resolver_from_dict(
         key_mappings=tuple(
             _reference_key_mapping_from_dict(
                 item,
-                contract_version=contract_version,
             )
             for item in payload.get("key_mappings", ())
         ),
         scope_mappings=tuple(
             _reference_key_mapping_from_dict(
                 item,
-                contract_version=contract_version,
             )
             for item in payload.get("scope_mappings", ())
         ),
         value_mappings=tuple(
-            _value_mapping_from_dict(item, contract_version=contract_version)
+            _value_mapping_from_dict(item)
             for item in payload.get("value_mappings", ())
         ),
     )
@@ -1213,15 +1092,12 @@ def _require_contract_fields(
 
 def _target_field_disposition_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> TargetFieldDisposition:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(TargetFieldDisposition),
-            "Target-field disposition fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(TargetFieldDisposition),
+        "Target-field disposition fields do not match the current contract",
+    )
     return TargetFieldDisposition(
         target_field=str(payload.get("target_field", "")),
         handling=TargetFieldHandling(
@@ -1254,41 +1130,32 @@ def _mapping_control_expectation_from_dict(
 
 def _reference_lookup_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> ReferenceLookupMapping:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(ReferenceLookupMapping),
-            "Reference-lookup fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(ReferenceLookupMapping),
+        "Reference-lookup fields do not match the current contract",
+    )
     return ReferenceLookupMapping(**payload)
 
 
 def _reference_key_mapping_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> ReferenceKeyMapping:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(ReferenceKeyMapping),
-            "Reference-key fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(ReferenceKeyMapping),
+        "Reference-key fields do not match the current contract",
+    )
     return ReferenceKeyMapping(**payload)
 
 
 def _value_mapping_from_dict(
     payload: Mapping[str, Any],
-    *,
-    contract_version: int,
 ) -> ValueMapping:
-    if contract_version >= 11:
-        _require_contract_fields(
-            payload,
-            _contract_fields(ValueMapping),
-            "Value-match fields do not match contract v11",
-        )
+    _require_contract_fields(
+        payload,
+        _contract_fields(ValueMapping),
+        "Value-match fields do not match the current contract",
+    )
     return ValueMapping(**payload)

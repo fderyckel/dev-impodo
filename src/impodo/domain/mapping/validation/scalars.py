@@ -552,10 +552,7 @@ def _validate_categorical_policy(
     path: str,
     issues: list[MappingValidationIssue],
 ) -> None:
-    """Require explicit closed-domain meaning for v11 scalar selections."""
-
-    if context.definition.contract_version < 11:
-        return
+    """Require explicit closed-domain meaning for scalar selections."""
     policy = field_mapping.categorical_policy
     is_selection = target_type == "selection"
     provides_value = field_mapping.value_source is not ScalarValueSource.ODOO_DEFAULT

@@ -34,9 +34,9 @@ _LOCK_CONTENTION_MARKERS = (
     "conflicting lock is held",
 )
 _DATABASE_BUSY_MESSAGE = (
-    "Another Impodo task is still using this project's saved data. "
+    "Another Impodo task is still using this workspace's saved data. "
     "No Odoo records were changed and your previous prepared evidence remains "
-    "available. Wait a moment, close any other Impodo tabs editing this project, "
+    "available. Wait a moment, close any other Impodo tabs editing this workspace, "
     "then try again."
 )
 

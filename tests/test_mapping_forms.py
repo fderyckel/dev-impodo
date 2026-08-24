@@ -93,7 +93,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             _text_steps_from_form(oversized, "steps")
         self.assertEqual(_text_steps_from_form(FormData(), "steps"), ())
 
-    def test_legacy_single_rule_form_names_are_not_allowed(self) -> None:
+    def test_retired_single_rule_form_names_are_not_allowed(self) -> None:
         selection = SimpleNamespace(datasets=(SimpleNamespace(),))
         schema = SimpleNamespace(
             models=(

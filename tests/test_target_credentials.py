@@ -33,8 +33,8 @@ from impodo.web.target_credentials import (
 class TargetCredentialTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = MemorySecretStore()
-        self.project = WorkspaceState(
-            project_id="project-1",
+        self.workspace_state = WorkspaceState(
+            workspace_id="project-1",
             name="Migration",
             source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.REMOTE,
@@ -47,20 +47,20 @@ class TargetCredentialTests(unittest.TestCase):
     ) -> None:
         read = store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "read-secret",
             persistent=False,
         )
 
         self.assertNotEqual(
-            target_read_credential_id(self.project),
-            target_write_credential_id(self.project),
+            target_read_credential_id(self.workspace_state),
+            target_write_credential_id(self.workspace_state),
         )
         self.assertEqual(
             get_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
             ),
             read,
@@ -68,12 +68,12 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertIsNone(
             get_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.WRITE,
             )
         )
         payload = json.loads(
-            self.store.values[target_read_credential_id(self.project)]
+            self.store.values[target_read_credential_id(self.workspace_state)]
         )
         self.assertEqual(payload["role"], "READ")
         self.assertEqual(payload["secret"], "read-secret")
@@ -84,7 +84,7 @@ class TargetCredentialTests(unittest.TestCase):
     ) -> None:
         store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "read-secret",
             persistent=False,
@@ -92,7 +92,7 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertIsNone(
             get_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.WRITE,
             )
         )
@@ -100,14 +100,14 @@ class TargetCredentialTests(unittest.TestCase):
     def test_rotation_changes_only_that_roles_safe_binding(self) -> None:
         first = store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "same-secret",
             persistent=False,
         )
         second = store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "same-secret",
             persistent=False,
@@ -122,21 +122,21 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertEqual(
             get_target_credential_status(
                 self.store,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
             ).availability.value,
             "MISSING",
         )
         store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "session-secret",
             persistent=False,
         )
         session = get_target_credential_status(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
         )
         self.assertEqual(session.availability.value, "SESSION")
@@ -144,14 +144,14 @@ class TargetCredentialTests(unittest.TestCase):
 
         store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "persistent-secret",
             persistent=True,
         )
         persistent = get_target_credential_status(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
         )
         self.assertEqual(persistent.availability.value, "PERSISTENT")
@@ -160,15 +160,15 @@ class TargetCredentialTests(unittest.TestCase):
     def test_target_change_does_not_reuse_a_stored_role(self) -> None:
         store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "read-secret",
             persistent=False,
         )
-        changed = replace(self.project, odoo_database="staging")
+        changed = replace(self.workspace_state, odoo_database="staging")
 
         self.assertNotEqual(
-            target_read_credential_id(self.project),
+            target_read_credential_id(self.workspace_state),
             target_read_credential_id(changed),
         )
         self.assertIsNone(
@@ -182,13 +182,13 @@ class TargetCredentialTests(unittest.TestCase):
     def test_invalid_role_envelope_is_rejected(self) -> None:
         write = store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.WRITE,
             "write-secret",
             persistent=False,
         )
         self.assertRegex(write.binding_hash, r"^sha256:[0-9a-f]{64}$")
-        credential_id = target_write_credential_id(self.project)
+        credential_id = target_write_credential_id(self.workspace_state)
         payload = json.loads(self.store.values[credential_id])
         payload["role"] = "READ"
         self.store.values[credential_id] = json.dumps(payload)
@@ -196,7 +196,7 @@ class TargetCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(SecretStoreError, "does not match"):
             get_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.WRITE,
             )
 
@@ -207,14 +207,14 @@ class TargetCredentialTests(unittest.TestCase):
         ):
             store_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 role,
                 secret,
                 persistent=False,
             )
         receipts = delete_target_credentials(
             self.store,
-            self.project,
+            self.workspace_state,
             reason=TargetCredentialRemovalReason.RECIPE_DELETED,
         )
 
@@ -238,7 +238,7 @@ class TargetCredentialTests(unittest.TestCase):
         for role in TargetCredentialRole:
             store_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 role,
                 f"{role.value.lower()}-secret",
                 persistent=False,
@@ -246,7 +246,7 @@ class TargetCredentialTests(unittest.TestCase):
 
         receipt = delete_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             reason=TargetCredentialRemovalReason.USER_REQUESTED,
         )
@@ -255,21 +255,21 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertIsNone(
             get_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
             )
         )
         self.assertIsNotNone(
             get_target_credential(
                 self.store,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.WRITE,
             )
         )
 
     def test_local_no_key_binding_is_stable_and_target_bound(self) -> None:
         local = replace(
-            self.project,
+            self.workspace_state,
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
         )
@@ -285,9 +285,9 @@ class TargetCredentialTests(unittest.TestCase):
 
     def test_operating_system_vault_uses_separate_role_service_labels(self) -> None:
         vault = CredentialVault()
-        read_id = target_read_credential_id(self.project)
-        write_id = target_write_credential_id(self.project)
-        protected_id = f"{self.project.project_id}:protected:origin-v1"
+        read_id = target_read_credential_id(self.workspace_state)
+        write_id = target_write_credential_id(self.workspace_state)
+        protected_id = f"{self.workspace_state.workspace_id}:protected:origin-v1"
 
         with patch("impodo.secrets.keyring") as keyring:
             vault.set(read_id, "read-secret", persistent=True)
@@ -322,7 +322,7 @@ class TargetCredentialTests(unittest.TestCase):
 
     def test_failed_persistent_write_does_not_leave_a_session_secret(self) -> None:
         vault = CredentialVault()
-        read_id = target_read_credential_id(self.project)
+        read_id = target_read_credential_id(self.workspace_state)
 
         with patch("impodo.secrets.keyring") as keyring:
             keyring.set_password.side_effect = KeyringError("unavailable")
@@ -338,7 +338,7 @@ class TargetCredentialTests(unittest.TestCase):
             current = CredentialVault()
             store_target_credential(
                 current,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
                 "session-only",
                 persistent=False,
@@ -347,7 +347,7 @@ class TargetCredentialTests(unittest.TestCase):
             fresh = CredentialVault()
             status = get_target_credential_status(
                 fresh,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
             )
 
@@ -368,7 +368,7 @@ class TargetCredentialTests(unittest.TestCase):
             current = CredentialVault()
             store_target_credential(
                 current,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
                 "persistent-read-key",
                 persistent=True,
@@ -377,7 +377,7 @@ class TargetCredentialTests(unittest.TestCase):
             fresh = CredentialVault()
             credential = get_target_credential(
                 fresh,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
             )
 
@@ -404,14 +404,14 @@ class TargetCredentialTests(unittest.TestCase):
             current = CredentialVault()
             store_target_credential(
                 current,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
                 "persistent-read-key",
                 persistent=True,
             )
             store_target_credential(
                 current,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
                 "session-replacement",
                 persistent=False,
@@ -420,7 +420,7 @@ class TargetCredentialTests(unittest.TestCase):
             fresh = CredentialVault()
             status = get_target_credential_status(
                 fresh,
-                self.project,
+                self.workspace_state,
                 TargetCredentialRole.READ,
             )
 

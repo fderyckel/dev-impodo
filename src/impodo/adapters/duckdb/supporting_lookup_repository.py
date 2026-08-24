@@ -14,10 +14,10 @@ class SupportingLookupRepository(DuckDbRepository):
 
     def get_current(
         self,
-        project_id: str,
+        workspace_id: str,
         lookup_key: str,
     ) -> SupportingLookupSnapshot | None:
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -40,7 +40,7 @@ class SupportingLookupRepository(DuckDbRepository):
             raise WorkspaceError(
                 "The saved Odoo choices are invalid; refresh them"
             ) from error
-        if snapshot.project_id != project_id or snapshot.lookup_key != lookup_key:
+        if snapshot.workspace_id != workspace_id or snapshot.lookup_key != lookup_key:
             raise WorkspaceError(
                 "The saved Odoo choices belong to another lookup; refresh them"
             )
@@ -48,14 +48,14 @@ class SupportingLookupRepository(DuckDbRepository):
 
     def save(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot: SupportingLookupSnapshot,
         *,
         actor: Actor,
     ) -> None:
-        if snapshot.project_id != project_id:
-            raise WorkspaceError("Supporting lookup belongs to another project")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        if snapshot.workspace_id != workspace_id:
+            raise WorkspaceError("Supporting lookup belongs to another workspace")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -101,4 +101,3 @@ class SupportingLookupRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-

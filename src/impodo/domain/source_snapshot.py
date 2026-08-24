@@ -28,8 +28,8 @@ from .serialization import canonical_json, content_hash
 from .source_binding import SourceBinding, source_binding_from_dict
 
 
-SOURCE_SNAPSHOT_CONTRACT_VERSION = 2
-SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION = 3
+SOURCE_SNAPSHOT_CONTRACT_VERSION = 3
+SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION = 4
 SOURCE_READER_CONTRACT_VERSION = 2
 SOURCE_ROW_COLUMN = "__impodo_source_row"
 SOURCE_VALUE_PHYSICAL_TYPE = "utf8"
@@ -380,7 +380,7 @@ class SourceSnapshotSchema:
 class SourceSnapshot:
     """Manifest binding one immutable Parquet artifact to governed source evidence."""
 
-    project_id: str
+    data_version_id: str
     dataset_id: str
     dataset_name: str
     source: SourceBinding
@@ -397,7 +397,7 @@ class SourceSnapshot:
 
     def __post_init__(self, _calculate_bindings: bool) -> None:
         for value, label in (
-            (self.project_id, "project ID"),
+            (self.data_version_id, "DataVersion ID"),
             (self.dataset_name, "dataset name"),
         ):
             if not value:
@@ -411,9 +411,9 @@ class SourceSnapshot:
             (self.parquet_sha256, "Parquet hash"),
         ):
             _hash_digest(value, label)
-        if self.reader_contract_version < 1:
+        if self.reader_contract_version != SOURCE_READER_CONTRACT_VERSION:
             raise SourceSnapshotContractError(
-                "Source reader contract version must be positive"
+                "Source reader does not match the current contract"
             )
         if self.row_count < 0:
             raise SourceSnapshotContractError("Source snapshot row count is negative")
@@ -455,7 +455,7 @@ class SourceSnapshot:
     def create(
         cls,
         *,
-        project_id: str,
+        data_version_id: str,
         dataset_id: str,
         dataset_name: str,
         source: SourceBinding,
@@ -468,7 +468,7 @@ class SourceSnapshot:
         reader_contract_version: int = SOURCE_READER_CONTRACT_VERSION,
     ) -> "SourceSnapshot":
         return cls(
-            project_id=project_id,
+            data_version_id=data_version_id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
             source=source,
@@ -487,7 +487,7 @@ class SourceSnapshot:
     @property
     def expected_logical_hash(self) -> str:
         return source_snapshot_logical_hash(
-            project_id=self.project_id,
+            data_version_id=self.data_version_id,
             dataset_id=self.dataset_id,
             dataset_name=self.dataset_name,
             source=self.source,
@@ -521,7 +521,7 @@ class SourceSnapshot:
             "parquet_sha256": self.parquet_sha256,
             "parquet_storage_key": self.parquet_storage_key,
             "physical_selection_hash": self.physical_selection_hash,
-            "project_id": self.project_id,
+            "data_version_id": self.data_version_id,
             "reader_contract_version": self.reader_contract_version,
             "row_count": self.row_count,
             "schema": self.schema.to_portable_dict(),
@@ -548,7 +548,7 @@ class SourceSnapshot:
                 "parquet_sha256",
                 "parquet_storage_key",
                 "physical_selection_hash",
-                "project_id",
+                "data_version_id",
                 "reader_contract_version",
                 "row_count",
                 "schema",
@@ -559,7 +559,7 @@ class SourceSnapshot:
                     "Source snapshot manifest does not match the current contract"
                 )
             snapshot = cls(
-                project_id=str(payload["project_id"]),
+                data_version_id=str(payload["data_version_id"]),
                 dataset_id=str(payload["dataset_id"]),
                 dataset_name=str(payload["dataset_name"]),
                 source=source_binding_from_dict(payload["source"]),
@@ -607,7 +607,7 @@ def source_snapshot_storage_key(
     logical_hash: str,
     parquet_sha256: str,
 ) -> str:
-    """Return a project-relative path containing no caller-controlled segment."""
+    """Return a DataVersion-relative path with no caller-controlled segment."""
 
     dataset_digest = _dataset_digest(dataset_id)
     snapshot_digest = _hash_digest(logical_hash, "logical hash")
@@ -634,7 +634,7 @@ def source_snapshot_storage_key(
 
 def source_snapshot_logical_hash(
     *,
-    project_id: str,
+    data_version_id: str,
     dataset_id: str,
     dataset_name: str,
     source: SourceBinding,
@@ -654,7 +654,7 @@ def source_snapshot_logical_hash(
             "dataset_id": dataset_id,
             "dataset_name": dataset_name,
             "physical_selection_hash": physical_selection_hash,
-            "project_id": project_id,
+            "data_version_id": data_version_id,
             "reader_contract_version": reader_contract_version,
             "row_count": row_count,
             "schema_hash": schema_hash,

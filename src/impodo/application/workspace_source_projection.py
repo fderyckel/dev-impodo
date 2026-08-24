@@ -19,7 +19,10 @@ from ..data_version_sources import (
 from ..derived_entities import DerivedEntityPlan, mapping_source_selection
 from ..domain.serialization import content_hash
 from ..inspection import SourceFileCatalog
-from ..workspace_contracts import SourceSelection
+from ..workspace_contracts import (
+    SourceSelection,
+    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+)
 
 
 class WorkspaceProjectionRepository(WorkspaceSourceProjectionRepository, Protocol):
@@ -69,14 +72,15 @@ class WorkspaceMappingSourceProjection:
         selection = SourceSelection(
             selection_id=projection.projection_id,
             version=version,
-            project_id=projection.workspace_id,
+            data_version_id=projection.data_version_id,
             created_at=projection.created_at,
             created_by=projection.created_by,
             datasets=datasets,
             content_hash=content_hash(
                 {
+                    "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
                     "datasets": [item.to_dict() for item in datasets],
-                    "project_id": projection.workspace_id,
+                    "data_version_id": projection.data_version_id,
                     "version": version,
                 }
             ),

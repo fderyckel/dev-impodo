@@ -33,6 +33,7 @@ from impodo.workspace_contracts import (
     SourceSelection,
 )
 from impodo.workspace_errors import WorkspaceError
+from tests.workspace_access_helpers import data_version_id
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,16 +48,13 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(database)
+        self.workspace_states = WorkspaceStateRepository(database)
         self.repository = StagingRepository(database)
         now = datetime.now(timezone.utc)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Prepared contacts",
             source_system="CSV",
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Operations",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
@@ -64,11 +62,11 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=self.project.project_id,
+            data_version_id=data_version_id(self.workspace_state.workspace_id),
             created_at=now,
             created_by=LOCAL_ACTOR.identity.display_name,
             datasets=(
@@ -98,7 +96,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             content_hash=PHYSICAL_HASH,
         )
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -135,16 +133,16 @@ class CanonicalStagingStoreTests(unittest.TestCase):
     def test_publish_round_trips_and_same_current_evidence_is_idempotent(
         self,
     ) -> None:
-        run = _run(self.project.project_id, value="Alice", row_token="5")
+        run = _run(self.workspace_state.workspace_id, value="Alice", row_token="5")
 
         first = self.repository.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         repeated = self.repository.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
@@ -153,13 +151,13 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertEqual(repeated.run_id, first.run_id)
         self.assertEqual(repeated.content_hash, run.content_hash)
         restored = self.repository.get_canonical_staging_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             first.run_id,
         )
         self.assertIsNotNone(restored)
         self.assertEqual(restored.to_json(), run.to_json())
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -182,7 +180,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
     def test_durable_rows_restore_typed_values_for_downstream_evaluation(
         self,
     ) -> None:
-        template = _run(self.project.project_id, value="Alice", row_token="5")
+        template = _run(self.workspace_state.workspace_id, value="Alice", row_token="5")
         incoming = LogicalReference(
             origin="incoming",
             key=("CAT-1",),
@@ -235,13 +233,13 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         )
 
         summary = self.repository.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         restored = self.repository.get_canonical_staging_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             summary.run_id,
             expected_content_hash=summary.content_hash,
         )
@@ -255,26 +253,26 @@ class CanonicalStagingStoreTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "changed unexpectedly"):
             self.repository.get_canonical_staging_run(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 summary.run_id,
                 expected_content_hash="sha256:" + "0" * 64,
             )
 
     def test_new_evidence_supersedes_current_but_preserves_history(self) -> None:
         first = self.repository.publish_canonical_staging(
-            self.project.project_id,
-            _run(self.project.project_id, value="Alice", row_token="5"),
+            self.workspace_state.workspace_id,
+            _run(self.workspace_state.workspace_id, value="Alice", row_token="5"),
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         second_run = _run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             value="Alice Smith",
             row_token="6",
         )
 
         second = self.repository.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             second_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
@@ -283,12 +281,12 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertNotEqual(second.run_id, first.run_id)
         self.assertEqual(
             self.repository.get_current_staging_summary(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ).run_id,
             second.run_id,
         )
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -306,7 +304,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         )
         self.assertIsNotNone(
             self.repository.get_canonical_staging_run(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 first.run_id,
             )
         )
@@ -325,18 +323,18 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             empty_rows=0,
         )
         run = replace(
-            _run(self.project.project_id, value="Alice", row_token="5"),
+            _run(self.workspace_state.workspace_id, value="Alice", row_token="5"),
             control_totals=(control,),
         )
 
         published = self.repository.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         restored = self.repository.get_canonical_staging_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.run_id,
         )
 
@@ -347,8 +345,8 @@ class CanonicalStagingStoreTests(unittest.TestCase):
 
     def test_failed_batch_publication_rolls_back_and_keeps_current(self) -> None:
         first = self.repository.publish_canonical_staging(
-            self.project.project_id,
-            _run(self.project.project_id, value="Alice", row_token="5"),
+            self.workspace_state.workspace_id,
+            _run(self.workspace_state.workspace_id, value="Alice", row_token="5"),
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
@@ -360,9 +358,9 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "injected batch failure"):
                 self.repository.publish_canonical_staging(
-                    self.project.project_id,
+                    self.workspace_state.workspace_id,
                     _run(
-                        self.project.project_id,
+                        self.workspace_state.workspace_id,
                         value="Alice Smith",
                         row_token="6",
                     ),
@@ -371,11 +369,11 @@ class CanonicalStagingStoreTests(unittest.TestCase):
                 )
 
         current = self.repository.get_current_staging_summary(
-            self.project.project_id
+            self.workspace_state.workspace_id
         )
         self.assertEqual(current.run_id, first.run_id)
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -386,38 +384,40 @@ class CanonicalStagingStoreTests(unittest.TestCase):
 
     def test_target_change_invalidates_current_without_deleting_rows(self) -> None:
         published = self.repository.publish_canonical_staging(
-            self.project.project_id,
-            _run(self.project.project_id, value="Alice", row_token="5"),
+            self.workspace_state.workspace_id,
+            _run(self.workspace_state.workspace_id, value="Alice", row_token="5"),
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
-        current_project = self.projects.get(self.project.project_id)
+        current_workspace_state = self.workspace_states.get(
+            self.workspace_state.workspace_id
+        )
         changed = replace(
-            current_project,
+            current_workspace_state,
             odoo_database="odoo19_replacement",
-            revision=current_project.revision + 1,
+            revision=current_workspace_state.revision + 1,
             updated_at=datetime.now(timezone.utc),
         )
 
-        self.projects.save(
+        self.workspace_states.save(
             changed,
-            expected_revision=current_project.revision,
+            expected_revision=current_workspace_state.revision,
             event_type="WORKSPACE_TARGET_UPDATED",
             event_detail="",
             actor=LOCAL_ACTOR,
         )
 
         self.assertIsNone(
-            self.repository.get_current_staging_summary(self.project.project_id)
+            self.repository.get_current_staging_summary(self.workspace_state.workspace_id)
         )
         self.assertIsNotNone(
             self.repository.get_canonical_staging_run(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 published.run_id,
             )
         )
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -436,7 +436,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
 
     def test_row_writer_uses_bounded_bulk_batches(self) -> None:
         template_run = _run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             value="Alice",
             row_token="5",
         )
@@ -525,7 +525,7 @@ def _run(project_id: str, *, value: str, row_token: str) -> CanonicalStagingRun:
         rows=(row,),
     )
     return CanonicalStagingRun(
-        project_id=project_id,
+        workspace_id=project_id,
         mapping_id="mapping:contacts",
         physical_selection_hash=PHYSICAL_HASH,
         source_selection_hash=PHYSICAL_HASH,

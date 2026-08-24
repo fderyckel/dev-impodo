@@ -23,10 +23,6 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.mapping.control_expectations import EditionControlExpectation
-from impodo.domain.mapping.upgrade_review import (
-    MappingUpgradeOutcome,
-    review_mapping_contract_upgrade,
-)
 from impodo.domain.mapping.validation.evidence import (
     CategoricalCoverageEvidence,
     MappingValidationResult,
@@ -86,6 +82,7 @@ class _RecordingCoverageService(CategoricalCoverageService):
 
 class CategoricalCoverageTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.workspace_id = "11111111-1111-4111-8111-111111111111"
         binding = FileSourceBinding(
             file_id="file:customers",
             table_key="csv",
@@ -98,7 +95,7 @@ class CategoricalCoverageTests(unittest.TestCase):
         self.selection = SourceSelection(
             selection_id="selection:customers",
             version=1,
-            project_id="project:customers",
+            data_version_id="22222222-2222-4222-8222-222222222222",
             created_at=NOW,
             created_by="manager",
             datasets=(
@@ -116,7 +113,7 @@ class CategoricalCoverageTests(unittest.TestCase):
             content_hash="sha256:" + "3" * 64,
         )
         self.schema = OdooSchemaCatalog(
-            project_id=self.selection.project_id,
+            workspace_id=self.workspace_id,
             policy_hash="sha256:" + "6" * 64,
             captured_at=NOW,
             captured_by="manager",
@@ -227,7 +224,7 @@ class CategoricalCoverageTests(unittest.TestCase):
         )
 
         collected = service.collect(
-            self.selection.project_id,
+            self.workspace_id,
             self.definition,
             self.selection,
             self.schema,
@@ -329,7 +326,7 @@ class CategoricalCoverageTests(unittest.TestCase):
         )
 
         collected = service.collect(
-            self.selection.project_id,
+            self.workspace_id,
             exact,
             self.selection,
             schema,
@@ -341,53 +338,22 @@ class CategoricalCoverageTests(unittest.TestCase):
         )
         self.assertEqual(service.scan_calls, [("dataset:customers", ("language",))])
 
-    def test_legacy_mapping_requires_review_without_payload_reinterpretation(self) -> None:
-        legacy = replace(
-            self.definition,
-            contract_version=10,
-            datasets=(
-                replace(
-                    self.definition.datasets[0],
-                    fields=tuple(
-                        replace(item, categorical_policy=None)
-                        for item in self.definition.datasets[0].fields
-                    ),
-                    relationships=tuple(
-                        replace(item, categorical_policy=None)
-                        for item in self.definition.datasets[0].relationships
-                    ),
-                ),
-            ),
-        )
-
-        restored = MappingDefinition.from_json(legacy.to_json())
-        review = review_mapping_contract_upgrade(restored, self.schema)
-
-        self.assertEqual(restored, legacy)
-        self.assertEqual(review.outcome, MappingUpgradeOutcome.REVIEW_REQUIRED)
-        self.assertFalse(review.recipe_eligible)
-        self.assertEqual(len(review.categorical_items), 2)
-        self.assertNotIn(
-            "categorical_policy",
-            legacy.to_dict()["datasets"][0]["fields"][0],
-        )
-
-    def test_v11_parser_rejects_unknown_nested_fields(self) -> None:
+    def test_current_parser_rejects_unknown_nested_fields(self) -> None:
         payload = self.definition.to_dict()
-        payload["datasets"][0]["fields"][0]["legacy_guess"] = True
-        with self.assertRaisesRegex(ValueError, "contract v12"):
+        payload["datasets"][0]["fields"][0]["unknown_field"] = True
+        with self.assertRaisesRegex(ValueError, "current contract"):
             MappingDefinition.from_dict(payload)
 
         payload = self.definition.to_dict()
         payload["datasets"][0]["relationships"][0]["resolver"][
-            "legacy_guess"
+            "unknown_field"
         ] = True
-        with self.assertRaisesRegex(ValueError, "contract v11"):
+        with self.assertRaisesRegex(ValueError, "current contract"):
             MappingDefinition.from_dict(payload)
 
     def test_edition_control_expectation_binds_actor_and_fresh_value(self) -> None:
         expectation = EditionControlExpectation(
-            project_id="f6e1b16e-e78d-42a9-a430-5f361acdc388",
+            workspace_id="f6e1b16e-e78d-42a9-a430-5f361acdc388",
             logical_control_id="control:customers.open_balance",
             expected_value="5100000.00",
             source="OPERATOR_ENTERED",

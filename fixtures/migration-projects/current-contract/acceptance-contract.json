@@ -1,10 +1,9 @@
 {
   "contract_version": 1,
-  "phase": "M0",
-  "implementation_status": "ARCHITECTURE_CONTRACT_ONLY",
+  "contract_status": "CURRENT",
   "retained_recipe_envelope": {
     "recipe_contract_version": 2,
-    "canonical_fixture": "fixtures/migration-projects/phase-m0/customer-recipe-v1.json",
+    "canonical_fixture": "fixtures/migration-projects/current-contract/customer-recipe-v1.json",
     "envelope_fields": [
       "compatibility_hints",
       "payload_hash",
@@ -161,7 +160,7 @@
           "version": 1,
           "parent_version": null,
           "recipe_contract_version": 2,
-          "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
+          "semantic_hash": "sha256:f93b0b20af62fb7a10f6770e01fb1ad0b61646bb3a4b4a24dbc203786654fdb3",
           "logical_dataset_ids": [
             "dataset:customers"
           ],
@@ -342,7 +341,7 @@
       "workspace_id": "40000000-0000-4000-8000-000000000003",
       "recipe_id": "50000000-0000-4000-8000-000000000001",
       "recipe_revision": 1,
-      "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
+      "recipe_semantic_hash": "sha256:f93b0b20af62fb7a10f6770e01fb1ad0b61646bb3a4b4a24dbc203786654fdb3",
       "target_binding_id": "90000000-0000-4000-8000-000000000002",
       "physical_binding_hash": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
       "evidence_hash": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
@@ -370,7 +369,7 @@
       "workspace_id": "40000000-0000-4000-8000-000000000005",
       "recipe_id": "50000000-0000-4000-8000-000000000001",
       "recipe_revision": 1,
-      "recipe_semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559",
+      "recipe_semantic_hash": "sha256:f93b0b20af62fb7a10f6770e01fb1ad0b61646bb3a4b4a24dbc203786654fdb3",
       "target_binding_id": "90000000-0000-4000-8000-000000000003",
       "physical_binding_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "evidence_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -402,7 +401,7 @@
           {
             "recipe_id": "50000000-0000-4000-8000-000000000001",
             "recipe_revision": 1,
-            "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559"
+            "semantic_hash": "sha256:f93b0b20af62fb7a10f6770e01fb1ad0b61646bb3a4b4a24dbc203786654fdb3"
           },
           {
             "recipe_id": "50000000-0000-4000-8000-000000000002",
@@ -477,7 +476,7 @@
       {
         "recipe_id": "50000000-0000-4000-8000-000000000001",
         "recipe_revision": 1,
-        "semantic_hash": "sha256:d83a847f439a04f31bad60db02517ea0df552716cbf1f0026c3d925fbe4e0559"
+        "semantic_hash": "sha256:f93b0b20af62fb7a10f6770e01fb1ad0b61646bb3a4b4a24dbc203786654fdb3"
       },
       {
         "recipe_id": "50000000-0000-4000-8000-000000000002",
@@ -500,88 +499,6 @@
     "qualification_id": "80000000-0000-4000-8000-000000000001",
     "grants_write_authority": false
   },
-  "ownership_changes": [
-    {
-      "legacy_field": "Recipe.current_data_version_id",
-      "target_owner": "MigrationRun.data_version_id",
-      "disposition": "Remove the Recipe pointer. Each run selects one exact Project-owned DataVersion."
-    },
-    {
-      "legacy_field": "Recipe.cutover_candidate_id",
-      "target_owner": "MigrationProject.project_cutover_selection",
-      "disposition": "Replace the Recipe candidate with one Project selection that pins a qualified CutoverPlan revision."
-    },
-    {
-      "legacy_field": "Recipe.data_classification",
-      "target_owner": "MigrationProject.data_classification",
-      "disposition": "Make the Project authoritative. A Recipe may retain a derived governance projection."
-    },
-    {
-      "legacy_field": "Recipe.retention_days",
-      "target_owner": "MigrationProject.retention_policy",
-      "disposition": "Make the Project authoritative. A Recipe may retain a derived governance projection."
-    },
-    {
-      "legacy_field": "DataVersion.recipe_id",
-      "target_owner": "DataVersion.project_id",
-      "disposition": "Replace Recipe ownership with immutable Project ownership."
-    },
-    {
-      "legacy_field": "DataVersion.workspace_project_id",
-      "target_owner": "MigrationWorkspace.data_version_id",
-      "disposition": "Remove the one-workspace pointer. Several isolated workspaces may consume one DataVersion."
-    },
-    {
-      "legacy_field": "DataVersion.pinned_recipe_revision",
-      "target_owner": "RecipeApplication.recipe_revision",
-      "disposition": "Remove the package-level Recipe pin. Each application selects one exact revision."
-    },
-    {
-      "legacy_field": "DataVersion.parameter_values_hash",
-      "target_owner": "RecipeApplication.parameter_values_hash",
-      "disposition": "Move Recipe-specific values to the exact application. Project package context remains on DataVersion."
-    },
-    {
-      "legacy_field": "RecipeApplication.workspace_project_id",
-      "target_owner": "RecipeApplication.workspace_id",
-      "disposition": "Rename the internal workspace identity and keep it distinct from the business Project."
-    },
-    {
-      "legacy_field": "RecipeApplication.target_binding_hash",
-      "target_owner": "MigrationRun.target_binding_id",
-      "disposition": "Let the run own one target binding. Each application references the exact binding and hash."
-    },
-    {
-      "legacy_field": "RecipeApplication.credential_generation",
-      "target_owner": "MigrationRun.TargetBinding.credential_generation",
-      "disposition": "Capture credential evidence once per run and project a bounded reference into each application."
-    },
-    {
-      "legacy_field": "RecipeApplication.source_selection_hash",
-      "target_owner": "DataVersion.source_package_hash",
-      "disposition": "Let DataVersion own the complete accepted package. The application owns only its physical binding hash."
-    },
-    {
-      "legacy_field": "RecipeQualification",
-      "target_owner": "CutoverPlanQualification",
-      "disposition": "Retain per-Recipe evidence as a component and qualify the exact integrated Test plan at Project level."
-    },
-    {
-      "legacy_field": "CutoverCandidate",
-      "target_owner": "MigrationProject.project_cutover_selection",
-      "disposition": "Replace the Recipe candidate with one exact Project-level qualified plan selection."
-    },
-    {
-      "legacy_field": "RecipeIntent.recipe_id",
-      "target_owner": "Owner-specific operation intents",
-      "disposition": "Use the identifier of the aggregate that owns each operation instead of one universal Recipe coordinator."
-    },
-    {
-      "legacy_field": "WorkspaceResolution.recipe_id",
-      "target_owner": "WorkspaceResolution.project_id",
-      "disposition": "Resolve every workspace to Project, DataVersion, run, and optional RecipeApplication identities explicitly."
-    }
-  ],
   "out_of_scope": [
     "ARBITRARY_CROSS_RECIPE_MERGE",
     "CROSS_PROJECT_RECIPE_SHARING",

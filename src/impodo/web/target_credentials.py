@@ -123,21 +123,21 @@ class TargetCredentialRemovalReceipt:
     receipt_hash: str
 
 
-def target_read_credential_id(project: WorkspaceState) -> str:
+def target_read_credential_id(workspace_state: WorkspaceState) -> str:
     """Return the opaque vault ID for read-only Odoo access."""
 
-    return _target_credential_id(project, TargetCredentialRole.READ)
+    return _target_credential_id(workspace_state, TargetCredentialRole.READ)
 
 
-def target_write_credential_id(project: WorkspaceState) -> str:
+def target_write_credential_id(workspace_state: WorkspaceState) -> str:
     """Return the opaque vault ID for Odoo write and read-back access."""
 
-    return _target_credential_id(project, TargetCredentialRole.WRITE)
+    return _target_credential_id(workspace_state, TargetCredentialRole.WRITE)
 
 
 def store_target_credential(
     store: SecretStore,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     role: TargetCredentialRole,
     secret: str,
     *,
@@ -148,10 +148,10 @@ def store_target_credential(
     clean_secret = secret.strip()
     if not clean_secret:
         raise SecretStoreError("API key is empty")
-    credential_id = _target_credential_id(project, role)
+    credential_id = _target_credential_id(workspace_state, role)
     replaced = store.get(credential_id) is not None
     binding_id = str(uuid4())
-    target_hash = _target_hash(project)
+    target_hash = _target_hash(workspace_state)
     envelope = json.dumps(
         {
             "contract_version": TARGET_CREDENTIAL_CONTRACT_VERSION,
@@ -182,12 +182,12 @@ def store_target_credential(
 
 def get_target_credential(
     store: SecretStore,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     role: TargetCredentialRole,
 ) -> TargetCredential | None:
     """Load and validate one exact role envelope without cross-role fallback."""
 
-    encoded = store.get(_target_credential_id(project, role))
+    encoded = store.get(_target_credential_id(workspace_state, role))
     if encoded is None:
         return None
     try:
@@ -204,7 +204,7 @@ def get_target_credential(
         binding_id = str(UUID(str(payload["binding_id"])))
         secret = str(payload["secret"]).strip()
         storage_class = str(payload["storage_class"])
-        target_hash = _target_hash(project)
+        target_hash = _target_hash(workspace_state)
         valid = (
             payload["contract_version"] == TARGET_CREDENTIAL_CONTRACT_VERSION
             and payload["role"] == role.value
@@ -229,13 +229,13 @@ def get_target_credential(
 
 def get_target_credential_status(
     store: SecretStore,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     role: TargetCredentialRole,
 ) -> TargetCredentialStatus:
     """Return a safe status even when the operating-system vault is unavailable."""
 
     try:
-        credential = get_target_credential(store, project, role)
+        credential = get_target_credential(store, workspace_state, role)
     except SecretStoreError as error:
         return TargetCredentialStatus(
             TargetCredentialAvailability.UNAVAILABLE,
@@ -254,8 +254,8 @@ def get_target_credential_status(
 
 
 def audit_stored_target_credential(
-    projects: WorkspaceStateService,
-    project: WorkspaceState,
+    workspace_states: WorkspaceStateService,
+    workspace_state: WorkspaceState,
     role: TargetCredentialRole,
     credential: TargetCredential,
     *,
@@ -263,8 +263,8 @@ def audit_stored_target_credential(
 ) -> None:
     """Record one successful secret-store mutation using safe evidence only."""
 
-    projects.record_credential_event(
-        project.project_id,
+    workspace_states.record_credential_event(
+        workspace_state.workspace_id,
         actor=actor,
         role=role.value,
         action="REPLACED" if credential.replaced else "STORED",
@@ -275,7 +275,7 @@ def audit_stored_target_credential(
 
 def delete_target_credentials(
     store: SecretStore,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     *,
     reason: TargetCredentialRemovalReason,
 ) -> tuple[TargetCredentialRemovalReceipt, ...]:
@@ -286,7 +286,7 @@ def delete_target_credentials(
     for role in TargetCredentialRole:
         receipt = _delete_target_credential(
             store,
-            project,
+            workspace_state,
             role,
             reason=reason,
             removed_at=removed_at,
@@ -298,7 +298,7 @@ def delete_target_credentials(
 
 def delete_target_credential(
     store: SecretStore,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     role: TargetCredentialRole,
     *,
     reason: TargetCredentialRemovalReason,
@@ -307,7 +307,7 @@ def delete_target_credential(
 
     return _delete_target_credential(
         store,
-        project,
+        workspace_state,
         role,
         reason=reason,
         removed_at=datetime.now(timezone.utc),
@@ -316,19 +316,19 @@ def delete_target_credential(
 
 def _delete_target_credential(
     store: SecretStore,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     role: TargetCredentialRole,
     *,
     reason: TargetCredentialRemovalReason,
     removed_at: datetime,
 ) -> TargetCredentialRemovalReceipt | None:
-    credential_id = _target_credential_id(project, role)
+    credential_id = _target_credential_id(workspace_state, role)
     encoded = store.get(credential_id)
     if encoded is None:
         return None
     binding_hash: str | None = None
     storage_class = "UNKNOWN"
-    target_hash = _target_hash(project)
+    target_hash = _target_hash(workspace_state)
     try:
         payload = json.loads(encoded)
         binding_id = str(UUID(str(payload["binding_id"])))
@@ -374,18 +374,18 @@ def _delete_target_credential(
 
 
 def audit_removed_target_credentials(
-    projects: WorkspaceStateService,
-    project: WorkspaceState,
+    workspace_states: WorkspaceStateService,
+    workspace_state: WorkspaceState,
     receipts: tuple[TargetCredentialRemovalReceipt, ...],
     *,
     actor: Actor,
 ) -> None:
-    """Persist actor-bound receipts outside the deletable project database."""
+    """Persist actor-bound receipts outside the deletable workspace database."""
 
     for receipt in receipts:
-        projects.record_credential_removal_receipt(
+        workspace_states.record_credential_removal_receipt(
             receipt_hash=receipt.receipt_hash,
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             role=receipt.role.value,
             reason=receipt.reason.value,
             connection_target_hash=receipt.connection_target_hash,
@@ -396,33 +396,33 @@ def audit_removed_target_credentials(
         )
 
 
-def local_read_credential_binding_hash(project: WorkspaceState) -> str:
+def local_read_credential_binding_hash(workspace_state: WorkspaceState) -> str:
     """Bind no-key local metadata evidence without claiming user identity."""
 
     return content_hash(
         {
             "credential_role": TargetCredentialRole.READ.value,
             "kind": "LOCAL_NO_KEY_METADATA",
-            "target_hash": _target_hash(project),
+            "target_hash": _target_hash(workspace_state),
         }
     )
 
 
 def _target_credential_id(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     role: TargetCredentialRole,
 ) -> str:
     target = "\0".join(
         (
-            project.project_id,
+            workspace_state.workspace_id,
             role.value,
-            _connection_mode(project),
-            project.odoo_base_url,
-            project.odoo_database,
+            _connection_mode(workspace_state),
+            workspace_state.odoo_base_url,
+            workspace_state.odoo_database,
         )
     ).encode("utf-8")
     digest = hashlib.sha256(target).hexdigest()[:24]
-    return f"{project.project_id}:{role.value.lower()}:{digest}"
+    return f"{workspace_state.workspace_id}:{role.value.lower()}:{digest}"
 
 
 def _binding_hash(
@@ -439,18 +439,17 @@ def _binding_hash(
     )
 
 
-def _target_hash(project: WorkspaceState) -> str:
+def _target_hash(workspace_state: WorkspaceState) -> str:
     return target_identity_hash(
-        connection_mode=_connection_mode(project),
-        base_url=project.odoo_base_url,
-        database=project.odoo_database,
+        connection_mode=_connection_mode(workspace_state),
+        base_url=workspace_state.odoo_base_url,
+        database=workspace_state.odoo_database,
     )
 
 
-def _connection_mode(project: WorkspaceState) -> str:
+def _connection_mode(workspace_state: WorkspaceState) -> str:
     return (
-        project.odoo_connection_mode.value
-        if project.odoo_connection_mode is not None
+        workspace_state.odoo_connection_mode.value
+        if workspace_state.odoo_connection_mode is not None
         else ""
     )
-

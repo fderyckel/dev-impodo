@@ -132,7 +132,7 @@ evidence into the Recipe.
 Applying one or several saved Recipe versions to an already accepted Test
 data version is available from **Plan integrated Test**. It creates fresh,
 isolated application drafts. Execution, qualification, rollout selection, and
-Production application are not part of that current M4 planning flow.
+Production application are not part of that current Test-planning flow.
 
 ## 2. Check and confirm the source files
 

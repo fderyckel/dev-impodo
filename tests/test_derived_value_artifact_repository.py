@@ -59,15 +59,12 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(self.database)
+        self.workspace_states = WorkspaceStateRepository(self.database)
         self.repository = PreparationSessionRepository(self.database)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Derived artifact repository",
             source_system="CSV",
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Operations",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
@@ -75,7 +72,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
             status=WorkspaceStatus.REGISTERED,
             registered_at=NOW,
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         self.bindings = PreparationSessionBindings(
             mapping_id="mapping:products",
             mapping_version=1,
@@ -94,18 +91,18 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_manifest_and_binding_advance_only_with_published_session(self) -> None:
-        artifact = _artifact(self.project.project_id)
+        artifact = _artifact(self.workspace_state.workspace_id)
         session = self._begin()
 
         self.repository.bind_derived_value_artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             artifact,
         )
 
         self.assertEqual(
             self.repository.find_derived_value_artifact(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 artifact.dataset_id,
                 artifact.logical_hash,
             ),
@@ -113,20 +110,20 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(
             self.repository.session_derived_value_artifacts(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
             ),
             (artifact,),
         )
         self.assertEqual(
             self.repository.current_derived_value_artifacts(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             (),
         )
         self.assertEqual(
             self.repository.derived_value_artifact_storage_keys(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             frozenset((artifact.parquet_storage_key,)),
         )
@@ -135,61 +132,61 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
         self.assertEqual(
             self.repository.current_derived_value_artifacts(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             (artifact,),
         )
         self.assertEqual(
             self.repository.session_derived_value_artifacts(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
             ),
             (),
         )
 
     def test_failed_session_keeps_manifest_without_advancing_current(self) -> None:
-        first = _artifact(self.project.project_id)
+        first = _artifact(self.workspace_state.workspace_id)
         published = self._begin()
         self.repository.bind_derived_value_artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.session_id,
             first,
         )
         self._finalize_and_publish(published.session_id)
 
         second = _artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             derivation_rule_hash=HASHES[14],
             parquet_sha256=HASHES[15],
         )
         failed = self._begin()
         self.repository.bind_derived_value_artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             failed.session_id,
             second,
         )
         self.repository.fail_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             failed.session_id,
             "DERIVED_PUBLICATION_FAILED",
         )
 
         self.assertEqual(
             self.repository.current_derived_value_artifacts(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             (first,),
         )
         self.assertEqual(
             self.repository.session_derived_value_artifacts(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 failed.session_id,
             ),
             (),
         )
         self.assertEqual(
             self.repository.find_derived_value_artifact(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 second.dataset_id,
                 second.logical_hash,
             ),
@@ -197,7 +194,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(
             self.repository.derived_value_artifact_storage_keys(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             frozenset(
                 (first.parquet_storage_key, second.parquet_storage_key)
@@ -219,23 +216,23 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
                 self.assertRaisesRegex(WorkspaceError, "does not match"),
             ):
                 self.repository.bind_derived_value_artifact(
-                    self.project.project_id,
+                    self.workspace_state.workspace_id,
                     session.session_id,
-                    _artifact(self.project.project_id, **overrides),
+                    _artifact(self.workspace_state.workspace_id, **overrides),
                 )
 
-        with self.assertRaisesRegex(WorkspaceError, "another project"):
+        with self.assertRaisesRegex(WorkspaceError, "another workspace"):
             self.repository.bind_derived_value_artifact(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
                 _artifact(str(uuid4())),
             )
         with self.assertRaisesRegex(WorkspaceError, "input evidence"):
             self.repository.bind_derived_value_artifact(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
                 _artifact(
-                    self.project.project_id,
+                    self.workspace_state.workspace_id,
                     input_evidence=(
                         DerivedValueInput(INPUT_A_ID, HASHES[15]),
                     ),
@@ -243,29 +240,29 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
             )
         self.assertEqual(
             self.repository.derived_value_artifact_storage_keys(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             frozenset(),
         )
         self.assertEqual(
             self.repository.session_derived_value_artifacts(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
             ),
             (),
         )
 
     def test_missing_bound_manifest_blocks_current_promotion(self) -> None:
-        artifact = _artifact(self.project.project_id)
+        artifact = _artifact(self.workspace_state.workspace_id)
         session = self._begin()
         self.repository.bind_derived_value_artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             artifact,
         )
         self._finalize(session.session_id)
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -277,20 +274,20 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "manifest is missing"):
             self.repository.mark_published(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
             )
 
         self.assertEqual(
             self.repository.get_session(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
             ).status,
             PreparationSessionStatus.READY,
         )
         self.assertEqual(
             self.repository.current_derived_value_artifacts(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             (),
         )
@@ -301,22 +298,22 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "wrong state"):
             self.repository.bind_derived_value_artifact(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
-                _artifact(self.project.project_id),
+                _artifact(self.workspace_state.workspace_id),
             )
         self.assertEqual(
             self.repository.derived_value_artifact_storage_keys(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             frozenset(),
         )
 
     def test_upstream_derived_input_must_be_bound_before_its_consumer(self) -> None:
         session = self._begin()
-        upstream = _artifact(self.project.project_id)
+        upstream = _artifact(self.workspace_state.workspace_id)
         downstream = _artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_id=DOWNSTREAM_DATASET_ID,
             dataset_name="Grouped Products",
             derivation_kind=DerivedValueKind.GROUP,
@@ -329,24 +326,24 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "input evidence"):
             self.repository.bind_derived_value_artifact(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
                 downstream,
             )
         self.repository.bind_derived_value_artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             upstream,
         )
         self.repository.bind_derived_value_artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             downstream,
         )
 
         self.assertEqual(
             self.repository.session_derived_value_artifacts(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
             ),
             (upstream, downstream),
@@ -373,7 +370,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
         with patch.object(self.repository, "_connect", counting_connect):
             self.repository.mark_published(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
             )
 
@@ -387,22 +384,22 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(
             self.repository.current_derived_value_artifacts(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             (upstream, downstream),
         )
 
     def test_staging_invalidation_clears_current_but_retains_history(self) -> None:
-        artifact = _artifact(self.project.project_id)
+        artifact = _artifact(self.workspace_state.workspace_id)
         session = self._begin()
         self.repository.bind_derived_value_artifact(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             artifact,
         )
         self._finalize_and_publish(session.session_id)
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -415,13 +412,13 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
         self.assertEqual(
             self.repository.current_derived_value_artifacts(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             (),
         )
         self.assertEqual(
             self.repository.find_derived_value_artifact(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 artifact.dataset_id,
                 artifact.logical_hash,
             ),
@@ -430,13 +427,13 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
     def _begin(self):
         session = self.repository.begin_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.bindings,
             actor=LOCAL_ACTOR,
         )
-        for snapshot in _input_snapshots(self.project.project_id):
+        for snapshot in _input_snapshots(self.workspace_state.workspace_id):
             self.repository.bind_prepared_snapshot(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 session.session_id,
                 snapshot,
             )
@@ -444,7 +441,7 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
     def _finalize(self, session_id: str) -> None:
         self.repository.finalize_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session_id,
             dataset_evidence={
                 "Products & BOM Lines": (
@@ -461,16 +458,16 @@ class DerivedValueArtifactRepositoryTests(unittest.TestCase):
 
     def _finalize_and_publish(self, session_id: str) -> None:
         self._finalize(session_id)
-        self.repository.mark_published(self.project.project_id, session_id)
+        self.repository.mark_published(self.workspace_state.workspace_id, session_id)
 
 
 def _artifact(
-    project_id: str,
+    workspace_id: str,
     **overrides: object,
 ) -> DerivedValueArtifact:
-    input_snapshots = _input_snapshots(project_id)
+    input_snapshots = _input_snapshots(workspace_id)
     arguments: dict[str, object] = {
-        "project_id": project_id,
+        "workspace_id": workspace_id,
         "dataset_id": DATASET_ID,
         "dataset_name": "Products & BOM Lines",
         "derivation_kind": DerivedValueKind.JOIN,
@@ -495,7 +492,7 @@ def _artifact(
     return DerivedValueArtifact.create(**arguments)
 
 
-def _input_snapshots(project_id: str) -> tuple[PreparedSnapshot, ...]:
+def _input_snapshots(workspace_id: str) -> tuple[PreparedSnapshot, ...]:
     def snapshot(
         dataset_id: str,
         dataset_name: str,
@@ -503,7 +500,7 @@ def _input_snapshots(project_id: str) -> tuple[PreparedSnapshot, ...]:
         parquet_hash: str,
     ) -> PreparedSnapshot:
         return PreparedSnapshot.create(
-            project_id=project_id,
+            workspace_id=workspace_id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
             source_snapshot_hash=source_hash,

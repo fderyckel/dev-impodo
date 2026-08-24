@@ -18,7 +18,6 @@ from ...source_binding import OdooSourceBinding, SourceOriginKind
 from ...schema.governance import SchemaGovernance
 from ..canonicalization import canonicalize_mapping_definition
 from ..contracts import (
-    SUPPORTED_MAPPING_CONTRACT_VERSIONS,
     DatasetMapping,
     MappingDefinition,
     MappingTargetMode,
@@ -108,18 +107,6 @@ class MappingSemanticValidator:
         coverage: list[Mapping[str, Any]] = []
         deferred: list[DeferredRuntimeCheck] = []
 
-        if (
-            definition.contract_version
-            not in SUPPORTED_MAPPING_CONTRACT_VERSIONS
-        ):
-            issues.append(
-                _issue(
-                    "MAPPING_CONTRACT_UNSUPPORTED",
-                    "/contract_version",
-                    "The mapping contract version is unsupported.",
-                    "Create a new mapping revision with the current editor.",
-                )
-            )
         if definition.source_selection_hash != source_selection.content_hash:
             issues.append(
                 _issue(
@@ -690,7 +677,7 @@ class MappingSemanticValidator:
                 )
                 for target_field in sorted(runtime_selection_fields)
             )
-            if definition.contract_version >= 11 and dataset.relationships:
+            if dataset.relationships:
                 deferred.append(
                     DeferredRuntimeCheck(
                         code="TARGET_REFERENCE_COVERAGE_DEFERRED",

@@ -53,7 +53,7 @@ _COPY: dict[OdooReadFailureCode, tuple[str, str, str]] = {
     OdooReadFailureCode.CONNECTION_DETAILS_INVALID: (
         "Odoo connection needs attention",
         "Review the Odoo connection details",
-        "The Odoo web address or database name is not valid for this project.",
+        "The Odoo web address or database name is not valid for this migration run.",
     ),
     OdooReadFailureCode.TARGET_UNREACHABLE: (
         "Odoo could not be reached",
@@ -109,7 +109,7 @@ _COPY: dict[OdooReadFailureCode, tuple[str, str, str]] = {
 
 
 def comparison_recovery_view(
-    project_id: str,
+    workspace_id: str,
     failure: OdooReadFailure,
 ) -> ComparisonRecoveryView:
     """Map a classified failure to its route and safe operator wording."""
@@ -127,7 +127,7 @@ def comparison_recovery_view(
         OdooReadRecoveryKind.USE_KEY_WITH_READ_ACCESS,
     }:
         action_kind = "credential"
-        action_href = f"/workspaces/{project_id}/summary/compare"
+        action_href = f"/workspaces/{workspace_id}/summary/compare"
         credential_required = True
         credential_label = (
             "Read-only Odoo API key"
@@ -140,27 +140,27 @@ def comparison_recovery_view(
             else "Replace key and compare"
         )
     elif recovery is OdooReadRecoveryKind.REVIEW_CONNECTION:
-        action_href = f"/workspaces/{project_id}/target"
+        action_href = f"/workspaces/{workspace_id}/target"
         action_label = "Review Odoo connection"
     elif recovery is OdooReadRecoveryKind.RETRY_COMPARISON:
         action_kind = "retry"
-        action_href = f"/workspaces/{project_id}/summary/compare"
+        action_href = f"/workspaces/{workspace_id}/summary/compare"
         action_label = "Try comparison again"
     elif recovery in {
         OdooReadRecoveryKind.CAPTURE_ODOO_DATA,
         OdooReadRecoveryKind.REFRESH_ODOO_DATA,
     }:
-        action_href = f"/workspaces/{project_id}/schema"
+        action_href = f"/workspaces/{workspace_id}/schema"
         action_label = (
             "Capture Odoo data"
             if recovery is OdooReadRecoveryKind.CAPTURE_ODOO_DATA
             else "Refresh Odoo data"
         )
     elif recovery is OdooReadRecoveryKind.REVIEW_FIELD_MATCH:
-        action_href = f"/workspaces/{project_id}/mapping"
+        action_href = f"/workspaces/{workspace_id}/mapping"
         action_label = "Review field matches"
     elif recovery is OdooReadRecoveryKind.PREPARE_AGAIN:
-        action_href = f"/workspaces/{project_id}/prepare"
+        action_href = f"/workspaces/{workspace_id}/prepare"
         action_label = "Prepare data again"
     elif recovery is OdooReadRecoveryKind.RECONNECT_LOCAL_ODOO:
         action_kind = "local"

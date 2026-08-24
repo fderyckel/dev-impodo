@@ -138,13 +138,13 @@ class RemoteConnectionStatusService:
 
     def get(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
     ) -> RemoteConnectionStatus:
         """Return a status only when it belongs to the project's exact target."""
 
-        expected_hash = _project_target_hash(project)
-        key = (project.project_id, purpose)
+        expected_hash = _workspace_target_hash(workspace_state)
+        key = (workspace_state.workspace_id, purpose)
         with self._lock:
             status = self._statuses.get(key)
             if status is not None and status.target_hash == expected_hash:
@@ -154,39 +154,39 @@ class RemoteConnectionStatusService:
 
     def clear(
         self,
-        project_id: str,
+        workspace_id: str,
         purpose: OdooConnectionPurpose | None = None,
     ) -> None:
         """Remove an earlier result after credentials or target details change."""
 
         with self._lock:
             if purpose is not None:
-                self._statuses.pop((project_id, purpose), None)
+                self._statuses.pop((workspace_id, purpose), None)
             else:
                 for key in tuple(self._statuses):
-                    if key[0] == project_id:
+                    if key[0] == workspace_id:
                         self._statuses.pop(key, None)
 
     def mark_checked(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         fingerprint: TargetFingerprint,
         identity: OdooReadIdentity,
         purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
     ) -> RemoteConnectionStatus:
         """Record one successful read, principal probe, and target/version."""
 
-        expected_hash = _project_target_hash(project)
+        expected_hash = _workspace_target_hash(workspace_state)
         target_matches = (
             fingerprint.target_hash == expected_hash
             and identity.target_hash == expected_hash
             and fingerprint.connection_mode.strip().upper()
             == (
-                project.odoo_connection_mode.value
-                if project.odoo_connection_mode is not None
+                workspace_state.odoo_connection_mode.value
+                if workspace_state.odoo_connection_mode is not None
                 else ""
             )
-            and fingerprint.database == project.odoo_database
+            and fingerprint.database == workspace_state.odoo_database
         )
         if not target_matches:
             status = _status(
@@ -225,7 +225,7 @@ class RemoteConnectionStatusService:
                 ),
                 database=(
                     RemoteConnectionLevel.READY,
-                    f"Read-only access to {project.odoo_database} succeeded.",
+                    f"Read-only access to {workspace_state.odoo_database} succeeded.",
                 ),
                 version=(RemoteConnectionLevel.ERROR, message),
                 principal=(
@@ -248,7 +248,7 @@ class RemoteConnectionStatusService:
                 ),
                 database=(
                     RemoteConnectionLevel.READY,
-                    f"Read-only access to {project.odoo_database} succeeded.",
+                    f"Read-only access to {workspace_state.odoo_database} succeeded.",
                 ),
                 version=(
                     RemoteConnectionLevel.READY,
@@ -262,18 +262,18 @@ class RemoteConnectionStatusService:
                 read_principal_hash=identity.principal_hash,
             )
         with self._lock:
-            self._statuses[(project.project_id, purpose)] = status
+            self._statuses[(workspace_state.workspace_id, purpose)] = status
         return status
 
     def mark_error(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         error: Exception,
         purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
     ) -> RemoteConnectionStatus:
         """Record a safely classified failure without persisting raw responses."""
 
-        target_hash = _project_target_hash(project)
+        target_hash = _workspace_target_hash(workspace_state)
         unknown = RemoteConnectionLevel.UNKNOWN
         ready = RemoteConnectionLevel.READY
         failed = RemoteConnectionLevel.ERROR
@@ -380,20 +380,20 @@ class RemoteConnectionStatusService:
             support_code=support_code,
         )
         with self._lock:
-            self._statuses[(project.project_id, purpose)] = status
+            self._statuses[(workspace_state.workspace_id, purpose)] = status
         return status
 
 
-def _project_target_hash(project: WorkspaceState) -> str:
+def _workspace_target_hash(workspace_state: WorkspaceState) -> str:
     mode = (
-        project.odoo_connection_mode.value
-        if project.odoo_connection_mode is not None
+        workspace_state.odoo_connection_mode.value
+        if workspace_state.odoo_connection_mode is not None
         else ""
     )
     return target_identity_hash(
         connection_mode=mode,
-        base_url=project.odoo_base_url,
-        database=project.odoo_database,
+        base_url=workspace_state.odoo_base_url,
+        database=workspace_state.odoo_database,
     )
 
 
@@ -476,4 +476,3 @@ def _support_http_status(support_code: str) -> int | None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-

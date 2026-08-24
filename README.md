@@ -14,10 +14,10 @@ actionable fallout.
 ## The platform
 
 Impodo runs locally on Windows and macOS and opens in the default browser on a
-local-only `127.0.0.1` address. Each project has its own local DuckDB database,
-which stores project evidence, source inspection results, frozen datasets,
-Odoo schema captures, mapping revisions, validation results, and load
-outcomes.
+local-only `127.0.0.1` address. A Project is the business and governance root.
+Each Data version owns its source package, and each contained workspace keeps
+its own mapping, validation, preparation, comparison, and load evidence in
+isolated local DuckDB stores.
 
 The platform accepts `.csv` and `.xlsx` source files. It can connect to an
 authorised Odoo 19 target. A local Windows instance uses an explicitly

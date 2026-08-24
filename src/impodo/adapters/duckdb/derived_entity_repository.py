@@ -31,12 +31,12 @@ class DerivedEntityRepository(DuckDbRepository):
 
     def get_derived_entity_plan(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> DerivedEntityPlan | None:
         """Load the plan revision selected by the current pointer."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT revision.plan_json
               FROM derived_entity_plan_current AS current
@@ -49,7 +49,7 @@ class DerivedEntityRepository(DuckDbRepository):
         return DerivedEntityPlan.from_json(value) if value else None
     def save_derived_entity_plan(
         self,
-        project_id: str,
+        workspace_id: str,
         plan: DerivedEntityPlan,
         *,
         expected_parent_version: int | None,
@@ -57,7 +57,7 @@ class DerivedEntityRepository(DuckDbRepository):
     ) -> None:
         """Append one exact plan revision and invalidate mapping/staging."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -71,7 +71,7 @@ class DerivedEntityRepository(DuckDbRepository):
                 )
             selection = SourceSelection.from_json(str(selection_row[0]))
             if (
-                plan.project_id != project_id
+                plan.workspace_id != workspace_id
                 or plan.source_selection_hash != selection.content_hash
             ):
                 raise WorkspaceError(

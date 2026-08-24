@@ -19,7 +19,7 @@ from ...workspace_state import (
     SourceFile,
 )
 from .repository import DuckDbRepository
-from .serialization import _project_from_rows, _project_values
+from .serialization import _workspace_from_rows, _workspace_values
 
 
 class WorkspaceStateRepository(DuckDbRepository):
@@ -34,16 +34,21 @@ class WorkspaceStateRepository(DuckDbRepository):
         "audit",
     )
 
-    def create_unlinked(self, workspace: WorkspaceState, *, actor: Actor) -> None:
-        """Initialize one standalone workspace engine without a business registry.
+    def initialize_workbench(
+        self,
+        workspace: WorkspaceState,
+        *,
+        actor: Actor,
+    ) -> None:
+        """Initialize one isolated mapping workbench engine.
 
         The browser uses ``MigrationWorkspaceStateRepository``, whose override
         first verifies the owning Project and MigrationWorkspace. This base
         operation remains useful for isolated repository tests and tools that
-        deliberately exercise only the workspace-engine boundary.
+        deliberately exercise only the contained workbench boundary.
         """
 
-        directory = self.workspace_directory(workspace.project_id)
+        directory = self.workspace_directory(workspace.workspace_id)
         database_path = directory / "workspace-engine.duckdb"
         if database_path.is_file():
             raise WorkspaceStateError("MigrationWorkspace engine already exists")
@@ -59,7 +64,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             (directory / "protected").chmod(0o700)
             with self._connect(database_path) as connection:
                 self._initialize_workspace_database(connection)
-                self._insert_project(connection, workspace)
+                self._insert_workspace(connection, workspace)
                 self._insert_audit(
                     connection,
                     workspace,
@@ -81,7 +86,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
-        return self._get_project_unresolved(workspace_id)
+        return self._get_workspace_unresolved(workspace_id)
 
     def assert_workspace_mutable(self, workspace_id: str) -> None:
         """Reject changes to a locally closed workspace-engine state."""
@@ -90,10 +95,10 @@ class WorkspaceStateRepository(DuckDbRepository):
             raise WorkspaceStateError("This MigrationWorkspace is closed and read-only")
 
 
-    def has_audit_event(self, project_id: str, event_type: str) -> bool:
-        """Return whether the project recorded the exact lifecycle event."""
+    def has_audit_event(self, workspace_id: str, event_type: str) -> bool:
+        """Return whether the workspace recorded the exact lifecycle event."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -112,15 +117,15 @@ class WorkspaceStateRepository(DuckDbRepository):
 
     def record_credential_event(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         event_type: str,
         detail: str,
         actor: Actor,
     ) -> None:
-        """Append a credential event without mutating project semantics."""
+        """Append a credential event without mutating workspace semantics."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -142,7 +147,7 @@ class WorkspaceStateRepository(DuckDbRepository):
 
     def save(
         self,
-        project: WorkspaceState,
+        workspace: WorkspaceState,
         *,
         expected_revision: int,
         event_type: str,
@@ -151,12 +156,12 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Save one optimistic lifecycle change and invalidate affected evidence.
 
-        Target changes retire current schema/mapping/staging evidence;
-        ownership or retention changes retire quality evidence. Successful
-        registration also refreshes the portable registration manifest.
+        Target changes retire current schema/mapping/staging evidence.
+        Successful registration also refreshes the portable registration
+        manifest.
         """
 
-        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -165,12 +170,11 @@ class WorkspaceStateRepository(DuckDbRepository):
             try:
                 current = connection.execute(
                     """
-                    SELECT revision, odoo_connection_mode, odoo_base_url,
+                    SELECT revision, data_classification, retention_days,
+                           odoo_connection_mode, odoo_base_url,
                            odoo_database, intended_applications,
-                           intended_models, data_manager,
-                           functional_owner, retention_days,
-                           data_classification
-                      FROM workspace_state
+                           intended_models
+                      FROM workspace_projection_cache
                     """
                 ).fetchone()
                 if current is None:
@@ -180,26 +184,24 @@ class WorkspaceStateRepository(DuckDbRepository):
                         "The workspace was modified by another request"
                     )
                 target_changed = event_type == "WORKSPACE_TARGET_UPDATED" and (
-                    str(current[1] or "")
+                    str(current[3] or "")
                     != (
-                        project.odoo_connection_mode.value
-                        if project.odoo_connection_mode
+                        workspace.odoo_connection_mode.value
+                        if workspace.odoo_connection_mode
                         else ""
                     )
-                    or str(current[2]) != project.odoo_base_url
-                    or str(current[3]) != project.odoo_database
-                    or tuple(json.loads(str(current[4])))
-                    != project.intended_applications
-                    or tuple(json.loads(str(current[5])))
-                    != project.intended_models
+                    or str(current[4]) != workspace.odoo_base_url
+                    or str(current[5]) != workspace.odoo_database
+                    or tuple(json.loads(str(current[6])))
+                    != workspace.intended_applications
+                    or tuple(json.loads(str(current[7])))
+                    != workspace.intended_models
                 )
                 governance_changed = (
-                    str(current[6]) != project.data_manager
-                    or str(current[7]) != project.functional_owner
-                    or int(current[8]) != project.retention_days
-                    or str(current[9]) != project.data_classification.value
+                    str(current[1]) != workspace.data_classification.value
+                    or int(current[2]) != workspace.retention_days
                 )
-                self._update_project(connection, project)
+                self._update_workspace(connection, workspace)
                 if target_changed:
                     connection.execute("DELETE FROM odoo_schema_catalog")
                     connection.execute(
@@ -220,7 +222,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                     )
                 self._insert_audit(
                     connection,
-                    project,
+                    workspace,
                     event_type=event_type,
                     detail=event_detail,
                     actor=actor,
@@ -229,12 +231,12 @@ class WorkspaceStateRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        if project.status is WorkspaceStatus.REGISTERED:
-            self._write_registration_manifest(project)
+        if workspace.status is WorkspaceStatus.REGISTERED:
+            self._write_registration_manifest(workspace)
 
     def add_source_file(
         self,
-        project: WorkspaceState,
+        workspace: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -242,7 +244,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Insert one immutable source row without rewriting existing evidence."""
 
-        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -250,7 +252,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision, status FROM workspace_state"
+                    "SELECT revision, status FROM workspace_projection_cache"
                 ).fetchone()
                 if current is None:
                     raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
@@ -266,7 +268,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                     raise WorkspaceStateError(
                         "Source files cannot be changed after table choices are saved"
                     )
-                self._update_project(connection, project)
+                self._update_workspace(connection, workspace)
                 self._invalidate_canonical_staging(
                     connection,
                     reason="SOURCE_FILE_ADDED",
@@ -286,7 +288,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                 )
                 self._insert_audit(
                     connection,
-                    project,
+                    workspace,
                     event_type="SOURCE_FILE_ADDED",
                     detail=source_file.display_name,
                     actor=actor,
@@ -295,13 +297,13 @@ class WorkspaceStateRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        if project.status is WorkspaceStatus.REGISTERED:
-            self._write_registration_manifest(project)
+        if workspace.status is WorkspaceStatus.REGISTERED:
+            self._write_registration_manifest(workspace)
 
 
     def remove_source_file(
         self,
-        project: WorkspaceState,
+        workspace: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -309,7 +311,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Atomically remove one unfrozen file and its file-scoped evidence."""
 
-        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -317,7 +319,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision, status FROM workspace_state"
+                    "SELECT revision, status FROM workspace_projection_cache"
                 ).fetchone()
                 if current is None:
                     raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
@@ -341,7 +343,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                     raise WorkspaceStateError(
                         "The selected source file is no longer in this workspace"
                     )
-                self._update_project(connection, project)
+                self._update_workspace(connection, workspace)
                 connection.execute(
                     "DELETE FROM source_configuration WHERE file_id = ?",
                     [source_file.file_id],
@@ -356,7 +358,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                 )
                 self._insert_audit(
                     connection,
-                    project,
+                    workspace,
                     event_type="SOURCE_FILE_REMOVED",
                     detail=source_file.display_name,
                     actor=actor,
@@ -365,19 +367,19 @@ class WorkspaceStateRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        if project.status is WorkspaceStatus.REGISTERED:
-            self._write_registration_manifest(project)
+        if workspace.status is WorkspaceStatus.REGISTERED:
+            self._write_registration_manifest(workspace)
 
     def update_schema_scope(
         self,
-        project: WorkspaceState,
+        workspace: WorkspaceState,
         *,
         expected_revision: int,
         actor: Actor,
     ) -> None:
         """Replace Stage C's model allowlist and invalidate its dependents."""
 
-        database_path = self.workspace_directory(project.project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -385,7 +387,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision FROM workspace_state"
+                    "SELECT revision FROM workspace_projection_cache"
                 ).fetchone()
                 if current is None:
                     raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
@@ -393,7 +395,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                     raise WorkspaceStateConflictError(
                         "The workspace was modified by another request"
                     )
-                self._update_project(connection, project)
+                self._update_workspace(connection, workspace)
                 connection.execute("DELETE FROM odoo_schema_catalog")
                 connection.execute("DELETE FROM odoo_capture_selection_current")
                 connection.execute("DELETE FROM odoo_capture_manifest_current")
@@ -405,10 +407,10 @@ class WorkspaceStateRepository(DuckDbRepository):
                 )
                 self._insert_audit(
                     connection,
-                    project,
+                    workspace,
                     event_type="SCHEMA_SCOPE_UPDATED",
                     detail=(
-                        f"{len(project.intended_models)} permitted model(s); "
+                        f"{len(workspace.intended_models)} permitted model(s); "
                         "captured schema and active mapping invalidated"
                     ),
                     actor=actor,
@@ -417,23 +419,25 @@ class WorkspaceStateRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        if project.status is WorkspaceStatus.REGISTERED:
-            self._write_registration_manifest(project)
+        if workspace.status is WorkspaceStatus.REGISTERED:
+            self._write_registration_manifest(workspace)
 
-    def synchronize_registration_artifacts(self, project_id: str) -> None:
+    def synchronize_registration_artifacts(self, workspace_id: str) -> None:
         """Refresh registry and manifest after another repository updates status."""
 
-        project = self.get(project_id)
-        if project.status is WorkspaceStatus.REGISTERED:
-            self._write_registration_manifest(project)
+        workspace = self.get(workspace_id)
+        if workspace.status is WorkspaceStatus.REGISTERED:
+            self._write_registration_manifest(workspace)
 
 
-    def _get_project_unresolved(self, project_id: str) -> WorkspaceState:
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+    def _get_workspace_unresolved(self, workspace_id: str) -> WorkspaceState:
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
-            row = connection.execute("SELECT * FROM workspace_state").fetchone()
+            row = connection.execute(
+                "SELECT * FROM workspace_projection_cache"
+            ).fetchone()
             if row is None:
                 raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
             columns = [item[0] for item in connection.description]
@@ -445,40 +449,35 @@ class WorkspaceStateRepository(DuckDbRepository):
                  ORDER BY received_at, file_id
                 """
             ).fetchall()
-        return _project_from_rows(
+        return _workspace_from_rows(
             dict(zip(columns, row, strict=True)),
             source_rows,
+            workspace_id=workspace_id,
         )
 
-    def _insert_project(
+    def _insert_workspace(
         self,
         connection: duckdb.DuckDBPyConnection,
-        project: WorkspaceState,
+        workspace: WorkspaceState,
     ) -> None:
         connection.execute(
-            f"INSERT INTO workspace_state VALUES ({', '.join('?' for _ in range(26))})",
-            _project_values(project),
+            f"INSERT INTO workspace_projection_cache VALUES "
+            f"({', '.join('?' for _ in range(19))})",
+            _workspace_values(workspace),
         )
-    def _update_project(
+    def _update_workspace(
         self,
         connection: duckdb.DuckDBPyConnection,
-        project: WorkspaceState,
+        workspace: WorkspaceState,
     ) -> None:
         connection.execute(
             """
-            UPDATE workspace_state SET
+            UPDATE workspace_projection_cache SET
                 name = ?,
                 source_system = ?,
                 source_mode = ?,
-                export_status = ?,
-                export_date = ?,
-                description = ?,
-                data_manager = ?,
-                functional_owner = ?,
-                business_unit = ?,
                 data_classification = ?,
                 retention_days = ?,
-                support_access = ?,
                 odoo_connection_mode = ?,
                 odoo_base_url = ?,
                 odoo_database = ?,
@@ -492,48 +491,40 @@ class WorkspaceStateRepository(DuckDbRepository):
                 mapping_version = ?,
                 current_run_id = ?,
                 approval_status = ?
-            WHERE project_id = ?
+            WHERE singleton_id = 1
             """,
-            _project_values(project)[1:] + [project.project_id],
+            _workspace_values(workspace)[1:],
         )
-    def _write_registration_manifest(self, project: WorkspaceState) -> Path:
+    def _write_registration_manifest(self, workspace: WorkspaceState) -> Path:
         payload = {
-            "contract_version": 4,
-            "project": {
-                "project_id": project.project_id,
-                "name": project.name,
-                "source_system": project.source_system,
-                "source_mode": project.source_mode.value,
-                "export_status": project.export_status.value,
-                "export_date": (
-                    project.export_date.isoformat() if project.export_date else None
-                ),
-                "data_manager": project.data_manager,
-                "functional_owner": project.functional_owner,
-                "business_unit": project.business_unit,
-                "data_classification": project.data_classification.value,
-                "retention_days": project.retention_days,
-                "support_access": project.support_access,
+            "contract_version": 6,
+            "workspace": {
+                "workspace_id": workspace.workspace_id,
+                "name": workspace.name,
+                "source_system": workspace.source_system,
+                "source_mode": workspace.source_mode.value,
+                "data_classification": workspace.data_classification.value,
+                "retention_days": workspace.retention_days,
                 "odoo_connection_mode": (
-                    project.odoo_connection_mode.value
-                    if project.odoo_connection_mode
+                    workspace.odoo_connection_mode.value
+                    if workspace.odoo_connection_mode
                     else None
                 ),
-                "odoo_base_url": project.odoo_base_url,
-                "odoo_database": project.odoo_database,
-                "intended_applications": list(project.intended_applications),
-                "intended_models": list(project.intended_models),
-                "status": project.status.value,
-                "revision": project.revision,
-                "created_at": project.created_at.isoformat(),
+                "odoo_base_url": workspace.odoo_base_url,
+                "odoo_database": workspace.odoo_database,
+                "intended_applications": list(workspace.intended_applications),
+                "intended_models": list(workspace.intended_models),
+                "status": workspace.status.value,
+                "revision": workspace.revision,
+                "created_at": workspace.created_at.isoformat(),
                 "registered_at": (
-                    project.registered_at.isoformat()
-                    if project.registered_at
+                    workspace.registered_at.isoformat()
+                    if workspace.registered_at
                     else None
                 ),
-                "mapping_version": project.mapping_version,
-                "current_run_id": project.current_run_id,
-                "approval_status": project.approval_status.value,
+                "mapping_version": workspace.mapping_version,
+                "current_run_id": workspace.current_run_id,
+                "approval_status": workspace.approval_status.value,
             },
             "source_files": [
                 {
@@ -544,12 +535,12 @@ class WorkspaceStateRepository(DuckDbRepository):
                     "sha256": source_file.sha256,
                     "received_at": source_file.received_at.isoformat(),
                 }
-                for source_file in project.source_files
+                for source_file in workspace.source_files
             ],
         }
-        audit_dir = self.workspace_directory(project.project_id) / "audit"
+        audit_dir = self.workspace_directory(workspace.workspace_id) / "audit"
         target = audit_dir / (
-            f"project-registration-r{project.revision}.json"
+            f"workspace-registration-r{workspace.revision}.json"
         )
         partial = target.with_suffix(".json.partial")
         encoded = (
@@ -564,4 +555,3 @@ class WorkspaceStateRepository(DuckDbRepository):
         partial.write_bytes(encoded)
         partial.replace(target)
         return target
-

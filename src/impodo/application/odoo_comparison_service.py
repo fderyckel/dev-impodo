@@ -8,7 +8,7 @@ from hashlib import sha256
 from typing import Callable, Iterable
 
 from ..access import Actor
-from ..artifacts import ArtifactStore, ArtifactStoreError
+from ..artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from ..connectors import (
     MetadataRequest,
     MetadataSnapshot,
@@ -78,11 +78,11 @@ class OdooComparisonPublication:
 
 def build_odoo_comparison_publication(
     *,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     frozen: FrozenPreflightInput,
     selection: SourceSelection,
     source_snapshots: tuple[SourceSnapshot, ...],
-    artifacts: ArtifactStore,
+    artifacts: DataVersionSourceArtifactStore,
     provenance: OdooProvenanceService,
     reader: OdooComparisonReader,
     actor: Actor,
@@ -92,7 +92,7 @@ def build_odoo_comparison_publication(
 
     dataset_mapping, dataset, binding = _pinned_context(frozen, selection)
     manifest, origin_batches = _protected_origins(
-        project.project_id,
+        workspace_state.workspace_id,
         selection,
         dataset.dataset_id,
         binding,
@@ -103,7 +103,7 @@ def build_odoo_comparison_publication(
     snapshot = source_snapshots[0]
     baselines = _load_baselines(
         artifacts,
-        project.project_id,
+        workspace_state.workspace_id,
         selection,
         dataset,
         snapshot,
@@ -141,7 +141,7 @@ def build_odoo_comparison_publication(
     )
     metadata, records = bind_snapshot_hashes(metadata, records)
     _validate_live_binding(
-        project,
+        workspace_state,
         binding,
         metadata,
         records,
@@ -178,7 +178,7 @@ def build_odoo_comparison_publication(
     checked_at = _snapshot_time(metadata.fingerprint.snapshot_timestamp)
     artifact = OdooComparisonArtifact.create(
         run_id=run_id,
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         capture_manifest_hash=manifest.content_hash,
         frozen_input_hash=frozen.content_hash,
         model=binding.model,
@@ -191,7 +191,7 @@ def build_odoo_comparison_publication(
     )
     artifact_bytes = artifact.to_json().encode("utf-8") + b"\n"
     protected = provenance.protect_comparison(
-        project.project_id,
+        workspace_state.workspace_id,
         run_id,
         manifest.content_hash,
         artifact_bytes,
@@ -212,7 +212,7 @@ def build_odoo_comparison_publication(
         for item in comparison_rows
     )
     report = _report(
-        project,
+        workspace_state,
         frozen,
         run_id,
         binding.model,
@@ -241,7 +241,7 @@ def build_odoo_comparison_publication(
             "record_chunk_count": len(record_requests),
             "record_snapshot_hash": report.record_snapshot_hash,
         },
-        "project_id": project.project_id,
+        "workspace_id": workspace_state.workspace_id,
         "run_id": run_id,
         "status": report.status,
     }
@@ -280,7 +280,7 @@ def _pinned_context(frozen: FrozenPreflightInput, selection: SourceSelection):
 
 
 def _protected_origins(
-    project_id: str,
+    workspace_id: str,
     selection: SourceSelection,
     dataset_id: str,
     binding: OdooSourceBinding,
@@ -292,8 +292,8 @@ def _protected_origins(
     if len(source_snapshots) != 1 or source_snapshots[0].dataset_id != dataset_id:
         raise ReadinessError(invalid)
     try:
-        manifest = provenance.current_manifest(project_id, actor=actor)
-        protected = provenance.read_current_origins(project_id, actor=actor)
+        manifest = provenance.current_manifest(workspace_id, actor=actor)
+        protected = provenance.read_current_origins(workspace_id, actor=actor)
     except (ArtifactStoreError, WorkspaceError, ValueError) as error:
         raise ReadinessError(invalid) from error
     if manifest is None or protected is None:
@@ -302,7 +302,7 @@ def _protected_origins(
     snapshot = source_snapshots[0]
     dataset = selection.datasets[0]
     if (
-        manifest.project_id != project_id
+        manifest.data_version_id != selection.data_version_id
         or manifest.selection_hash != binding.capture_selection_hash
         or manifest.dataset_id != dataset_id
         or manifest.dataset_name != dataset.name
@@ -328,8 +328,8 @@ def _protected_origins(
 
 
 def _load_baselines(
-    artifacts: ArtifactStore,
-    project_id: str,
+    artifacts: DataVersionSourceArtifactStore,
+    workspace_id: str,
     selection: SourceSelection,
     dataset,
     snapshot: SourceSnapshot,
@@ -337,7 +337,7 @@ def _load_baselines(
     try:
         validate_snapshot_for_dataset(selection, dataset, snapshot)
         with artifacts.materialize_source_snapshot(
-            project_id,
+            selection.data_version_id,
             snapshot.parquet_storage_key,
             expected_sha256=snapshot.parquet_sha256,
         ) as path:
@@ -380,7 +380,7 @@ def _origin_for_record(
 
 
 def _validate_live_binding(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     binding: OdooSourceBinding,
     metadata: MetadataSnapshot,
     records: RecordSnapshot,
@@ -393,7 +393,7 @@ def _validate_live_binding(
     fingerprint = metadata.fingerprint
     if (
         fingerprint.target_hash != binding.connection_target_hash
-        or fingerprint.database != project.odoo_database
+        or fingerprint.database != workspace_state.odoo_database
         or not fingerprint.odoo_version.startswith("19.")
     ):
         raise ReadinessError(
@@ -639,7 +639,7 @@ def _readiness_row(
 
 
 def _report(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     frozen: FrozenPreflightInput,
     run_id: str,
     model: str,
@@ -692,7 +692,7 @@ def _report(
     ).hexdigest()
     return ReadinessReport(
         run_id=run_id,
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         mapping_id=frozen.revision.mapping_id,
         mapping_version=frozen.revision.version,
         mapping_content_hash=frozen.revision.definition.content_hash,
@@ -744,4 +744,3 @@ def _snapshot_time(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-

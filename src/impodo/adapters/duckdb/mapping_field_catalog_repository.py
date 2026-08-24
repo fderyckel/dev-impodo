@@ -30,11 +30,11 @@ class MappingFieldCatalogRepository(DuckDbRepository):
 
     def get_mapping_field_catalog_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> MappingFieldCatalogSnapshot:
         """Return one coherent snapshot while opening DuckDB only once."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
 

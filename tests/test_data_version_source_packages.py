@@ -1,4 +1,4 @@
-"""Verify Phase M2 DataVersion ownership and workspace source projections."""
+"""Verify DataVersion ownership and workspace source projections."""
 
 from __future__ import annotations
 
@@ -113,10 +113,10 @@ def _crash_at(expected_stage: str):
     return crash
 
 
-class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
+class DataVersionSourcePackageTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"m2-source-packages-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"data-version-source-packages-{uuid4()}"
         self.root.mkdir()
         self.database = MigrationFoundationDatabase(self.root)
         self.repository = MigrationFoundationRepository(self.database)
@@ -346,7 +346,7 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
         )
         return customer, product
 
-    def test_exact_m2_generations_store_source_only_in_data_version(self) -> None:
+    def test_exact_generations_store_source_only_in_data_version(self) -> None:
         candidate = self._package()
         reordered = replace(candidate, datasets=tuple(reversed(candidate.datasets)))
         self.assertEqual(reordered.content_hash, candidate.content_hash)
@@ -753,10 +753,10 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
                 (1,),
             )
 
-    def test_m1_storage_is_rejected_instead_of_upgraded(self) -> None:
-        old_root = self.root / "old-m1"
-        old_root.mkdir()
-        registry = old_root / "registry.duckdb"
+    def test_retired_foundation_storage_is_rejected_instead_of_upgraded(self) -> None:
+        retired_root = self.root / "retired-foundation"
+        retired_root.mkdir()
+        registry = retired_root / "registry.duckdb"
         with duckdb.connect(str(registry)) as connection:
             connection.execute(
                 "CREATE TABLE schema_version "
@@ -764,16 +764,16 @@ class MigrationProjectPhaseM2SourcePackageTests(unittest.TestCase):
             )
             connection.execute(
                 "INSERT INTO schema_version VALUES "
-                "(1, 'impodo-migration-registry-2026-08-m1', 1)"
+                "(1, 'impodo-migration-registry-retired-generation', 1)"
             )
         with self.assertRaises(MigrationStorageCompatibilityError):
-            MigrationFoundationDatabase(old_root)
+            MigrationFoundationDatabase(retired_root)
         with duckdb.connect(str(registry), read_only=True) as connection:
             self.assertEqual(
                 connection.execute(
                     "SELECT generation FROM schema_version"
                 ).fetchone(),
-                ("impodo-migration-registry-2026-08-m1",),
+                ("impodo-migration-registry-retired-generation",),
             )
 
 

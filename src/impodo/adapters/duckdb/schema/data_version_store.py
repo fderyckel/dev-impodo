@@ -1,4 +1,4 @@
-"""Create the exact Project-owned DataVersion store generation for M2."""
+"""Create the exact Project-owned DataVersion store generation."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ....data_versions import DataVersion
 from ....migration_foundation import MigrationStorageCompatibilityError
 
 
-DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-08-m2"
+DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-08-project-owned"
 DATA_VERSION_STORE_VERSION = 1
 EXPECTED_DATA_VERSION_STORE_COLUMNS = {
     "schema_version": ("singleton_id", "generation", "version"),

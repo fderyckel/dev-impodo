@@ -22,7 +22,7 @@ configure_columnar_runtime()
 
 import polars as pl
 
-from .artifacts import ArtifactStore
+from .artifacts import WorkspaceArtifactStore
 from .domain.derived_value_artifact import (
     DERIVED_VALUE_ORDINAL_COLUMN,
     DerivedValueArtifact,
@@ -265,7 +265,7 @@ class DerivedValueArtifactPublisher:
 
     def __init__(
         self,
-        artifacts: ArtifactStore,
+        artifacts: WorkspaceArtifactStore,
         *,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -275,7 +275,7 @@ class DerivedValueArtifactPublisher:
     def publish(
         self,
         *,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         dataset_name: str,
         derivation_kind: DerivedValueKind,
@@ -296,7 +296,7 @@ class DerivedValueArtifactPublisher:
     ) -> DerivedValueArtifactPublication:
         """Publish one artifact while retaining only one supplied page at a time."""
 
-        with self.artifacts.prepare_derived_value_artifact(project_id) as workspace:
+        with self.artifacts.prepare_derived_value_artifact(workspace_id) as workspace:
             writer = DerivedValueArtifactCandidateWriter(
                 workspace,
                 value_schema,
@@ -308,7 +308,7 @@ class DerivedValueArtifactPublisher:
                 writer.append_columnar_page(page)
             candidate = writer.finalize()
             artifact = DerivedValueArtifact.create(
-                project_id=project_id,
+                workspace_id=workspace_id,
                 dataset_id=dataset_id,
                 dataset_name=dataset_name,
                 derivation_kind=derivation_kind,
@@ -329,13 +329,13 @@ class DerivedValueArtifactPublisher:
             published_new = False
             try:
                 published_new = self.artifacts.publish_derived_value_artifact(
-                    project_id,
+                    workspace_id,
                     candidate.path,
                     artifact.parquet_storage_key,
                     expected_sha256=artifact.parquet_sha256,
                 )
                 with self.artifacts.materialize_derived_value_artifact(
-                    project_id,
+                    workspace_id,
                     artifact.parquet_storage_key,
                     expected_sha256=artifact.parquet_sha256,
                 ) as stored_path:
@@ -349,7 +349,7 @@ class DerivedValueArtifactPublisher:
                 if published_new:
                     try:
                         self.artifacts.delete_derived_value_artifact(
-                            project_id,
+                            workspace_id,
                             artifact.parquet_storage_key,
                         )
                     except Exception:

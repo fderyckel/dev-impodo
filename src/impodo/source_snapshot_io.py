@@ -27,7 +27,7 @@ configure_columnar_runtime()
 
 import polars as pl
 
-from .artifacts import ArtifactStore
+from .artifacts import DataVersionSourceArtifactStore
 from .domain.source_snapshot import (
     EncodedSourceCell,
     SOURCE_KIND_PHYSICAL_TYPE,
@@ -247,12 +247,12 @@ class SourceSnapshotCandidateWriter:
 class SourceSnapshotPublisher:
     """Convert one exact frozen physical dataset through the strict reader."""
 
-    def __init__(self, artifacts: ArtifactStore) -> None:
+    def __init__(self, artifacts: DataVersionSourceArtifactStore) -> None:
         self.artifacts = artifacts
 
     def publish(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         selection: SourceSelection,
         dataset: SourceDataset,
         catalog: SourceFileCatalog,
@@ -261,7 +261,7 @@ class SourceSnapshotPublisher:
         """Write, validate, and atomically publish one immutable snapshot."""
 
         binding = require_file_source(dataset.source)
-        _validate_snapshot_bindings(project, selection, dataset, catalog, source_file)
+        _validate_snapshot_bindings(workspace_state, selection, dataset, catalog, source_file)
         table = _selected_table(catalog, dataset)
         schema = source_snapshot_schema(dataset)
         batch_rows = source_snapshot_batch_rows(len(schema.columns))
@@ -274,7 +274,7 @@ class SourceSnapshotPublisher:
         )
 
         with self.artifacts.materialize_source(
-            project.project_id,
+            selection.data_version_id,
             source_file.stored_name,
         ) as source_path:
             with open_selected_source_batches(
@@ -297,7 +297,7 @@ class SourceSnapshotPublisher:
                         "Stored source columns changed after dataset freezing"
                     )
                 with self.artifacts.prepare_source_snapshot(
-                    project.project_id
+                    selection.data_version_id
                 ) as workspace:
                     candidate = workspace / "snapshot.parquet"
                     publication = _write_snapshot_candidate(
@@ -311,7 +311,7 @@ class SourceSnapshotPublisher:
                             "Stored source row count changed after dataset freezing"
                         )
                     snapshot = SourceSnapshot.create(
-                        project_id=project.project_id,
+                        data_version_id=selection.data_version_id,
                         dataset_id=dataset.dataset_id,
                         dataset_name=dataset.name,
                         source=dataset.source,
@@ -323,7 +323,7 @@ class SourceSnapshotPublisher:
                         created_at=selection.created_at,
                     )
                     self.artifacts.publish_source_snapshot(
-                        project.project_id,
+                        selection.data_version_id,
                         candidate,
                         snapshot.parquet_storage_key,
                         expected_sha256=publication.parquet_sha256,
@@ -420,7 +420,7 @@ def validate_snapshot_for_dataset(
     """Reject a manifest that is not the current exact physical dataset."""
 
     if (
-        snapshot.project_id != selection.project_id
+        snapshot.data_version_id != selection.data_version_id
         or snapshot.dataset_id != dataset.dataset_id
         or snapshot.dataset_name != dataset.name
         or snapshot.source != dataset.source
@@ -685,14 +685,14 @@ def _hash_bytes(digest, value: bytes) -> None:
 
 
 def _validate_snapshot_bindings(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     selection: SourceSelection,
     dataset: SourceDataset,
     catalog: SourceFileCatalog,
     source_file: SourceFile,
 ) -> None:
     binding = require_file_source(dataset.source)
-    if selection.project_id != project.project_id or dataset not in selection.datasets:
+    if dataset not in selection.datasets:
         raise SourceLoadError("Source snapshot belongs to another selection")
     if (
         source_file.file_id != binding.file_id
@@ -745,4 +745,3 @@ def _workspace_regular_file_bytes(workspace: Path) -> int:
         for path in workspace.rglob("*")
         if path.is_file() and not path.is_symlink()
     )
-

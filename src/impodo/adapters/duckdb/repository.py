@@ -15,7 +15,7 @@ from .unit_of_work import DuckDbUnitOfWork
 class WorkspaceAggregateReader(Protocol):
     """Load policy and source-file context from one workspace."""
 
-    def get(self, project_id: str) -> WorkspaceState: ...
+    def get(self, workspace_id: str) -> WorkspaceState: ...
 
 
 class DuckDbRepository:
@@ -55,18 +55,18 @@ class DuckDbRepository:
 
     def _read_json_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         query: str,
         parameters: list[object] | None = None,
     ) -> tuple[str, ...]:
-        return self._database._read_json_rows(project_id, query, parameters)
+        return self._database._read_json_rows(workspace_id, query, parameters)
 
-    def _read_singleton_json(self, project_id: str, query: str) -> str | None:
-        return self._database._read_singleton_json(project_id, query)
+    def _read_singleton_json(self, workspace_id: str, query: str) -> str | None:
+        return self._database._read_singleton_json(workspace_id, query)
 
     def _save_singleton(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         table: str,
         value_column: str,
@@ -77,7 +77,7 @@ class DuckDbRepository:
         invalidate: tuple[str, ...] = (),
     ) -> None:
         self._database._save_singleton(
-            project_id,
+            workspace_id,
             table=table,
             value_column=value_column,
             value=value,

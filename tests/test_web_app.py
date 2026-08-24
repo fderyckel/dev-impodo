@@ -73,6 +73,12 @@ from impodo.data_version_sources import (
     SourcePackageState,
     source_column_contract_hash,
 )
+from impodo.inspection import (
+    CATALOG_CONTRACT_VERSION,
+    SourceColumnProfile,
+    SourceFileCatalog,
+    SourceTableCatalog,
+)
 from impodo.domain.execution import ExecutionRowStatus, ExecutionRunStatus
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
@@ -138,6 +144,55 @@ POST_HEADERS = {
     "Origin": "http://testserver",
     "Sec-Fetch-Site": "same-origin",
 }
+
+
+def _source_column_profile(
+    ordinal: int,
+    name: str,
+    value: str,
+) -> SourceColumnProfile:
+    return SourceColumnProfile(
+        ordinal=ordinal,
+        name=name,
+        candidate_type="string",
+        null_count=0,
+        non_null_count=1,
+        distinct_count=1,
+        distinct_count_is_exact=True,
+        duplicate_count=0,
+        minimum=value,
+        maximum=value,
+        minimum_length=len(value),
+        maximum_length=len(value),
+    )
+
+
+def _replace_run_target_setup(
+    context,
+    workspace_id: str,
+    *,
+    connection_mode: OdooConnectionMode,
+    base_url: str,
+    database: str,
+    intended_applications: tuple[str, ...] = (),
+) -> None:
+    workspace = context.migration_workspaces.get(
+        workspace_id,
+        actor=context.actor,
+    )
+    current = context.migration_run_target_setup.get(
+        workspace.migration_run_id,
+        actor=context.actor,
+    )
+    context.migration_run_target_setup.replace(
+        workspace.migration_run_id,
+        actor=context.actor,
+        expected_revision=current.revision if current is not None else None,
+        connection_mode=connection_mode.value,
+        base_url=base_url,
+        database=database,
+        intended_applications=intended_applications,
+    )
 
 
 def _hold_duckdb_files(
@@ -257,6 +312,13 @@ def _created_workspace_id(app, response) -> str:
     if len(workspaces) != 1:
         raise AssertionError("New Project did not create one authoring workspace")
     return workspaces[0].workspace_id
+
+
+def _workspace_data_version_id(context, workspace_id: str) -> str:
+    return context.migration_workspaces.get(
+        workspace_id,
+        actor=context.actor,
+    ).data_version_id
 
 
 def _create_workspace(
@@ -545,7 +607,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
         self.local_odoo_reader = MagicMock(spec=LocalOdooMetadataReader)
         self.local_odoo_reader.get_target_fingerprint.side_effect = (
-            lambda project, _profile: _browser_schema(project).fingerprint
+            lambda workspace_state, _profile: _browser_schema(workspace_state).fingerprint
         )
         self.project_root = Path(self.temporary.name) / "impodo-data"
         self.app = create_local_app(
@@ -576,34 +638,34 @@ class LocalStackBrowserTests(unittest.TestCase):
             headers=POST_HEADERS,
             follow_redirects=False,
         )
-        self.project_id = _created_workspace_id(self.app, created)
+        self.workspace_id = _created_workspace_id(self.app, created)
         context = self.app.state.context
-        project = context.queries.get(self.project_id)
+        workspace_state = context.queries.get(self.workspace_id)
         context.intake.accept(
-            self.project_id,
+            self.workspace_id,
             actor=context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             display_name="local-readiness.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
         registered = context.workspace_states.register(
-            self.project_id,
+            self.workspace_id,
             actor=context.actor,
-            expected_revision=context.queries.get(self.project_id).revision,
+            expected_revision=context.queries.get(self.workspace_id).revision,
         )
-        self.project_revision = registered.revision
+        self.workspace_revision = registered.revision
 
     def tearDown(self) -> None:
         self.client.close()
         self.temporary.cleanup()
 
     def test_selects_config_checks_status_and_keeps_profile_session_only(self) -> None:
-        target = self.client.get(f"/workspaces/{self.project_id}/target")
+        target = self.client.get(f"/workspaces/{self.workspace_id}/target")
         self.assertIn("Find local Odoo", target.text)
         self.assertIn("Choose local Odoo setup", target.text)
 
         selected = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -611,7 +673,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(selected.status_code, 303)
         self.assertEqual(
             selected.headers["location"],
-            f"/workspaces/{self.project_id}/target?local_stack=1",
+            f"/workspaces/{self.workspace_id}/target?local_stack=1",
         )
         self.assertEqual(self.picker_calls, 1)
 
@@ -626,25 +688,25 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertNotIn("master-secret", refreshed.text)
         self.assertIn("Start local Odoo", refreshed.text)
 
-        project = self.app.state.context.workspace_states.repository.get(self.project_id)
-        self.assertEqual(project.odoo_base_url, "")
-        self.assertEqual(project.odoo_database, "")
+        workspace_state = self.app.state.context.workspace_states.repository.get(self.workspace_id)
+        self.assertEqual(workspace_state.odoo_base_url, "")
+        self.assertEqual(workspace_state.odoo_database, "")
         config_bytes = str(self.config).encode()
         for path in self.app.state.context.workspace_states.repository.workspace_directory(
-            self.project_id
+            self.workspace_id
         ).rglob("*"):
             if path.is_file():
                 self.assertNotIn(config_bytes, path.read_bytes())
 
     def test_start_requires_confirmation_and_updates_readiness(self) -> None:
         self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
 
         unconfirmed = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.workspace_id}/local-stack/start",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -653,7 +715,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(self.start_calls, 0)
 
         started = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.workspace_id}/local-stack/start",
             data={
                 "csrf_token": self.csrf,
                 "confirm_start": "1",
@@ -672,10 +734,10 @@ class LocalStackBrowserTests(unittest.TestCase):
         self._select_and_start_stack()
 
         tested = self.client.post(
-            f"/workspaces/{self.project_id}/target",
+            f"/workspaces/{self.workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(self.project_revision),
+                "revision": str(self.workspace_revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:18069",
                 "odoo_database": "odoo19_local",
@@ -688,7 +750,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(tested.status_code, 303)
         self.assertEqual(
             tested.headers["location"],
-            f"/workspaces/{self.project_id}/target?local_stack=1",
+            f"/workspaces/{self.workspace_id}/target?local_stack=1",
         )
         results = self.client.get(tested.headers["location"])
         self.assertIn('data-auto-open="true"', results.text)
@@ -699,16 +761,16 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_local_connection_test_opens_mixed_failure_results(self) -> None:
         self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
 
         tested = self.client.post(
-            f"/workspaces/{self.project_id}/target",
+            f"/workspaces/{self.workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(self.project_revision),
+                "revision": str(self.workspace_revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:18069",
                 "odoo_database": "odoo19_local",
@@ -732,10 +794,10 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         tested = self.client.post(
-            f"/workspaces/{self.project_id}/target",
+            f"/workspaces/{self.workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(self.project_revision),
+                "revision": str(self.workspace_revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:18069",
                 "odoo_database": "odoo19_local",
@@ -756,7 +818,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         process = self.started_processes[0]
 
         unconfirmed = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.workspace_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "action": "stop",
@@ -768,7 +830,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         process.terminate.assert_not_called()
 
         stopped = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.workspace_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -788,7 +850,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         first_process = self.started_processes[0]
 
         restarted = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.workspace_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -825,7 +887,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         blocked = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.workspace_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -839,13 +901,13 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_stop_never_controls_a_stack_started_outside_impodo(self) -> None:
         self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
 
         blocked = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/control",
+            f"/workspaces/{self.workspace_id}/local-stack/control",
             data={
                 "csrf_token": self.csrf,
                 "confirm_control": "1",
@@ -860,10 +922,10 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_remote_project_cannot_open_local_assistant(self) -> None:
         saved = self.client.post(
-            f"/workspaces/{self.project_id}/target",
+            f"/workspaces/{self.workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(self.project_revision),
+                "revision": str(self.workspace_revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "odoo_review",
@@ -876,7 +938,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertIn("Check the Odoo connection before continuing", saved.text)
 
         blocked = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -892,7 +954,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.stack_running = True
 
         selected = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={
                 "csrf_token": self.csrf,
                 "return_to": "summary_compare",
@@ -905,13 +967,13 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(
             selected.headers["location"],
             (
-                f"/workspaces/{self.project_id}/summary?local_stack=1"
+                f"/workspaces/{self.workspace_id}/summary?local_stack=1"
                 "#compare-with-odoo"
             ),
         )
         self.assertEqual(self.picker_calls, 1)
         self.local_odoo_reader.get_target_fingerprint.assert_called_once()
-        status = self.app.state.context.local_stack.get(self.project_id)
+        status = self.app.state.context.local_stack.get(self.workspace_id)
         self.assertTrue(status.metadata_ready)
 
         summary = self.client.get(selected.headers["location"])
@@ -929,7 +991,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.stack_running = True
 
         rejected = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={
                 "csrf_token": self.csrf,
                 "return_to": "summary_compare",
@@ -959,7 +1021,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         blocked = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -969,7 +1031,7 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_start_requires_its_explicit_capability(self) -> None:
         self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -989,7 +1051,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
 
         blocked = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.workspace_id}/local-stack/start",
             data={
                 "csrf_token": self.csrf,
                 "confirm_start": "1",
@@ -1002,13 +1064,13 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def _select_and_start_stack(self) -> None:
         selected = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/select-config",
+            f"/workspaces/{self.workspace_id}/local-stack/select-config",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
         self.assertEqual(selected.status_code, 200)
         started = self.client.post(
-            f"/workspaces/{self.project_id}/local-stack/start",
+            f"/workspaces/{self.workspace_id}/local-stack/start",
             data={
                 "csrf_token": self.csrf,
                 "confirm_start": "1",
@@ -1020,24 +1082,31 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def _register_local_project(self, *, database: str = "odoo19_local"):
         context = self.app.state.context
-        project = context.workspace_states.repository.get(self.project_id)
+        workspace_state = context.workspace_states.repository.get(self.workspace_id)
         now = datetime.now(timezone.utc)
         registered = replace(
-            project,
+            workspace_state,
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:18069",
             odoo_database=database,
             status=WorkspaceStatus.REGISTERED,
-            revision=project.revision + 1,
+            revision=workspace_state.revision + 1,
             updated_at=now,
             registered_at=now,
         )
         context.workspace_states.repository.save(
             registered,
-            expected_revision=project.revision,
-            event_type="TEST_PROJECT_REGISTERED",
+            expected_revision=workspace_state.revision,
+            event_type="WORKSPACE_REGISTERED",
             event_detail="",
             actor=context.actor,
+        )
+        _replace_run_target_setup(
+            context,
+            self.workspace_id,
+            connection_mode=OdooConnectionMode.LOCAL,
+            base_url="http://127.0.0.1:18069",
+            database=database,
         )
         return registered
 
@@ -1054,30 +1123,30 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.readiness_calls = []
         self.local_odoo_reader = MagicMock(spec=LocalOdooMetadataReader)
 
-        def connection_tester(project, api_key):
+        def connection_tester(workspace_state, api_key):
             self.connection_calls.append(
-                (project.project_id, api_key, project.odoo_connection_mode)
+                (workspace_state.workspace_id, api_key, workspace_state.odoo_connection_mode)
             )
-            return _browser_schema(project).fingerprint
+            return _browser_schema(workspace_state).fingerprint
 
-        def schema_reader(project, api_key):
-            self.schema_calls.append((project.project_id, api_key))
-            return _browser_schema(project)
+        def schema_reader(workspace_state, api_key):
+            self.schema_calls.append((workspace_state.workspace_id, api_key))
+            return _browser_schema(workspace_state)
 
-        def model_catalog_reader(project, api_key):
-            self.model_catalog_calls.append((project.project_id, api_key))
-            return _browser_model_catalog(project)
+        def model_catalog_reader(workspace_state, api_key):
+            self.model_catalog_calls.append((workspace_state.workspace_id, api_key))
+            return _browser_model_catalog(workspace_state)
 
-        def read_identity_probe(project, api_key, models):
+        def read_identity_probe(workspace_state, api_key, models):
             normalized_models = tuple(sorted(models))
             self.read_identity_calls.append(
-                (project.project_id, api_key, normalized_models)
+                (workspace_state.workspace_id, api_key, normalized_models)
             )
             return OdooReadIdentity(
                 target_hash=target_identity_hash(
-                    connection_mode=project.odoo_connection_mode.value,
-                    base_url=project.odoo_base_url,
-                    database=project.odoo_database,
+                    connection_mode=workspace_state.odoo_connection_mode.value,
+                    base_url=workspace_state.odoo_base_url,
+                    database=workspace_state.odoo_database,
                 ),
                 principal_hash="sha256:" + "1" * 64,
                 permission_hash=(
@@ -1089,11 +1158,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 observed_at="2026-08-12T00:00:00Z",
             )
 
-        def readiness_reader(project, metadata_requests, record_requests):
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
             self.readiness_calls.append(
-                (project.project_id, metadata_requests, record_requests)
+                (workspace_state.workspace_id, metadata_requests, record_requests)
             )
-            available_metadata = _browser_schema(project)
+            available_metadata = _browser_schema(workspace_state)
             metadata = replace(
                 available_metadata,
                 models={
@@ -1145,22 +1214,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.client.close()
         self.temporary.cleanup()
 
-    def _complete_setup_before_target(self, project_id: str):
+    def _complete_setup_before_target(self, workspace_id: str):
         """Reach the deferred Odoo destination step for a file project."""
 
         context = self.app.state.context
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         context.intake.accept(
-            project_id,
+            workspace_id,
             actor=context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             display_name="target-test.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
         return context.workspace_states.register(
-            project_id,
+            workspace_id,
             actor=context.actor,
-            expected_revision=context.queries.get(project_id).revision,
+            expected_revision=context.queries.get(workspace_id).revision,
         )
 
     def _replace_connection_probes(
@@ -1181,7 +1250,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             context.read_identity_probe,
         )
 
-    def _registered_remote_schema_project(self):
+    def _registered_remote_schema_workspace(self):
         context = self.app.state.context
         created = _create_workspace(
             context,
@@ -1190,7 +1259,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             source_mode="ODOO",
         )
         now = datetime.now(timezone.utc)
-        project = replace(
+        workspace_state = replace(
             created,
             source_mode=SourceMode.ODOO,
             odoo_connection_mode=OdooConnectionMode.REMOTE,
@@ -1203,21 +1272,28 @@ class ProjectSetupWizardTests(unittest.TestCase):
             registered_at=now,
         )
         context.workspace_states.repository.save(
-            project,
+            workspace_state,
             expected_revision=created.revision,
-            event_type="TEST_PROJECT_REGISTERED",
+            event_type="WORKSPACE_REGISTERED",
             event_detail="",
             actor=context.actor,
         )
-        snapshot = _browser_schema(project)
+        _replace_run_target_setup(
+            context,
+            workspace_state.workspace_id,
+            connection_mode=OdooConnectionMode.REMOTE,
+            base_url="https://remote.example.test",
+            database="production",
+        )
+        snapshot = _browser_schema(workspace_state)
         model = snapshot.models["res.partner"]
         schema = OdooSchemaCatalog(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=now,
             captured_by=context.actor.identity.display_name,
-            connection_mode=project.odoo_connection_mode.value,
-            database=project.odoo_database,
+            connection_mode=workspace_state.odoo_connection_mode.value,
+            database=workspace_state.odoo_database,
             odoo_version=snapshot.fingerprint.odoo_version,
             models=(
                 SchemaModel(
@@ -1259,11 +1335,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             connection_target_hash=snapshot.fingerprint.target_hash,
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
-            project.project_id,
+            workspace_state.workspace_id,
             schema,
             actor=context.actor,
         )
-        return project, schema
+        return workspace_state, schema
 
     def test_new_project_asks_only_for_name_and_source_mode(self) -> None:
         new_page = self.client.get("/projects/new")
@@ -1283,24 +1359,21 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_mode": "FILE",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
+        workspace_id = _created_workspace_id(self.app, created)
         data_project_id = self.app.state.context.migration_workspaces.get(
-            project_id,
+            workspace_id,
             actor=self.app.state.context.actor,
         ).project_id
         self.assertEqual(
             created.headers["location"],
             f"/projects/{data_project_id}",
         )
-        project = self.app.state.context.queries.get(project_id)
-        self.assertEqual(project.source_system, "Uploaded files")
-        self.assertIsNone(project.export_date)
-        self.assertEqual(project.data_manager, "")
-        self.assertEqual(project.functional_owner, "")
-        self.assertEqual(project.odoo_base_url, "")
+        workspace_state = self.app.state.context.queries.get(workspace_id)
+        self.assertEqual(workspace_state.source_system, "Uploaded files")
+        self.assertEqual(workspace_state.odoo_base_url, "")
 
         removed_governance = self.client.get(
-            f"/workspaces/{project_id}/governance",
+            f"/workspaces/{workspace_id}/governance",
             follow_redirects=False,
         )
         self.assertEqual(removed_governance.status_code, 404)
@@ -1317,15 +1390,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system_identity": "Dynamics AX 2012",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
+        workspace_id = _created_workspace_id(self.app, created)
         context = self.app.state.context
         data_project_id = context.migration_workspaces.get(
-            project_id,
+            workspace_id,
             actor=context.actor,
         ).project_id
 
-        files_page = self.client.get(f"/workspaces/{project_id}/files")
-        self.assertIn("Add the files for this project", files_page.text)
+        files_page = self.client.get(f"/workspaces/{workspace_id}/files")
+        self.assertIn("Add files to this Data version", files_page.text)
         self.assertIn("Add at least one source file.", files_page.text)
         self.assertIn('class="setup-step attention current"', files_page.text)
         self.assertNotIn('class="setup-step locked"', files_page.text)
@@ -1343,7 +1416,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Odoo destination", files_page.text)
 
         registration_fallback = self._post(
-            f"/workspaces/{project_id}/register",
+            f"/workspaces/{workspace_id}/register",
             {"csrf_token": self.csrf, "revision": "1"},
         )
         self.assertEqual(registration_fallback.status_code, 422)
@@ -1352,17 +1425,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Responsible data manager", registration_fallback.text)
 
         blocked_target = self.client.get(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             follow_redirects=False,
         )
         self.assertEqual(blocked_target.status_code, 303)
         self.assertEqual(
             blocked_target.headers["location"],
-            f"/workspaces/{project_id}/files",
+            f"/workspaces/{workspace_id}/files",
         )
 
         uploaded = self.client.post(
-            f"/workspaces/{project_id}/files",
+            f"/workspaces/{workspace_id}/files",
             data={"csrf_token": self.csrf, "revision": "1"},
             files={
                 "source_file": (
@@ -1390,10 +1463,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system_identity": "Dynamics AX 2012",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
+        workspace_id = _created_workspace_id(self.app, created)
         context = self.app.state.context
         data_project_id = context.migration_workspaces.get(
-            project_id,
+            workspace_id,
             actor=context.actor,
         ).project_id
 
@@ -1402,68 +1475,47 @@ class ProjectSetupWizardTests(unittest.TestCase):
         project_page = self.client.get(f"/projects/{data_project_id}")
         self.assertIn("Continue preparing and matching", project_page.text)
         self.assertIn(
-            f'href="/workspaces/{project_id}/overview"',
+            f'href="/workspaces/{workspace_id}/overview"',
             project_page.text,
         )
 
-        project = self.app.state.context.queries.get(project_id)
-        self.assertEqual(project.status, WorkspaceStatus.DRAFT)
+        workspace_state = self.app.state.context.queries.get(workspace_id)
+        self.assertEqual(workspace_state.status, WorkspaceStatus.DRAFT)
         resumed = self.client.get(
-            f"/workspaces/{project_id}",
+            f"/workspaces/{workspace_id}",
             follow_redirects=False,
         )
         self.assertEqual(
             resumed.headers["location"],
-            f"/workspaces/{project_id}/files",
+            f"/workspaces/{workspace_id}/files",
         )
 
     def test_source_files_can_change_only_before_table_choices_are_saved(
         self,
     ) -> None:
         context = self.app.state.context
-        project = _create_workspace(
+        workspace_state = _create_workspace(
             context,
             name="Correctable source files",
             source_system="CSV",
         )
-        project = context.workspace_states.update_details(
-            project.project_id,
-            actor=context.actor,
-            expected_revision=project.revision,
-            name=project.name,
-            source_system=project.source_system,
-            export_status="RECEIVED",
-            export_date=date.today().isoformat(),
-            description="Correctable source files",
-        )
-        project = context.workspace_states.update_governance(
-            project.project_id,
-            actor=context.actor,
-            expected_revision=project.revision,
-            data_manager="Data Manager",
-            functional_owner="Product Owner",
-            business_unit="Example Business Unit",
-            data_classification="INTERNAL",
-            retention_days=90,
-            support_access=False,
-        )
         kept = context.intake.accept(
-            project.project_id,
+            workspace_state.workspace_id,
             actor=context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             display_name="customers.csv",
             stream=BytesIO(b"code,name\nC1,Kept\n"),
         )
-        current = context.queries.get(project.project_id)
+        current = context.queries.get(workspace_state.workspace_id)
         wrong = context.intake.accept(
-            project.project_id,
+            workspace_state.workspace_id,
             actor=context.actor,
             expected_revision=current.revision,
             display_name="wrong.csv",
             stream=BytesIO(b"code,name\nBAD,Wrong\n"),
         )
-        current = context.queries.get(project.project_id)
-        files_page = self.client.get(f"/workspaces/{project.project_id}/files")
+        current = context.queries.get(workspace_state.workspace_id)
+        files_page = self.client.get(f"/workspaces/{workspace_state.workspace_id}/files")
         self.assertEqual(
             files_page.text.count("data-source-file-remove-form"),
             2,
@@ -1471,12 +1523,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-source-file-remove-dialog", files_page.text)
 
         wrong_path = (
-            context.workspace_states.repository.workspace_directory(project.project_id)
+            context.workspace_states.repository.workspace_directory(workspace_state.workspace_id)
             / "inbox"
             / wrong.stored_name
         )
         removed_draft = self._post(
-            f"/workspaces/{project.project_id}/files/{wrong.file_id}/remove",
+            f"/workspaces/{workspace_state.workspace_id}/files/{wrong.file_id}/remove",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -1485,35 +1537,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(removed_draft.status_code, 303)
         self.assertFalse(wrong_path.exists())
-        current = context.queries.get(project.project_id)
-        now = datetime.now(timezone.utc)
-        registered = replace(
-            current,
-            status=WorkspaceStatus.REGISTERED,
-            revision=current.revision + 1,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            registered,
-            expected_revision=current.revision,
-            event_type="TEST_PROJECT_REGISTERED",
-            event_detail="",
+        current = context.queries.get(workspace_state.workspace_id)
+        registered = context.workspace_states.register(
+            workspace_state.workspace_id,
             actor=context.actor,
+            expected_revision=current.revision,
         )
 
-        source_page = self.client.get(f"/workspaces/{project.project_id}/sources")
+        source_page = self.client.get(f"/workspaces/{workspace_state.workspace_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertEqual(
             source_page.text.count("data-source-file-remove-form"),
             1,
         )
         self.assertIn(
-            f'action="/workspaces/{project.project_id}/sources/files"',
+            f'action="/workspaces/{workspace_state.workspace_id}/sources/files"',
             source_page.text,
         )
         replacement_upload = self.client.post(
-            f"/workspaces/{project.project_id}/sources/files",
+            f"/workspaces/{workspace_state.workspace_id}/sources/files",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(registered.revision),
@@ -1529,10 +1571,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(replacement_upload.status_code, 303)
-        current = context.queries.get(project.project_id)
-        corrected = current.source_files[1]
+        current = context.queries.get(workspace_state.workspace_id)
+        corrected = next(
+            item
+            for item in current.source_files
+            if item.display_name == "corrected.csv"
+        )
         removed_registered = self._post(
-            f"/workspaces/{project.project_id}/files/{corrected.file_id}/remove",
+            f"/workspaces/{workspace_state.workspace_id}/files/{corrected.file_id}/remove",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -1542,26 +1588,30 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(removed_registered.status_code, 303)
         self.assertEqual(
             removed_registered.headers["location"],
-            f"/workspaces/{project.project_id}/sources#source-files",
+            f"/workspaces/{workspace_state.workspace_id}/sources#source-files",
         )
         removed_page = self.client.get(removed_registered.headers["location"])
         self.assertIn(
-            "Removed corrected.csv from this project.",
+            "Removed corrected.csv from this Data version.",
             removed_page.text,
         )
-        datasets_page = self.client.get(f"/workspaces/{project.project_id}/datasets")
+        datasets_page = self.client.get(f"/workspaces/{workspace_state.workspace_id}/datasets")
         self.assertEqual(
             datasets_page.text.count("data-source-file-remove-form"),
             1,
         )
 
-        current = context.queries.get(project.project_id)
+        current = context.queries.get(workspace_state.workspace_id)
+        now = datetime.now(timezone.utc)
         context.sources.sources.save_source_selection(
-            project.project_id,
+            workspace_state.workspace_id,
             SourceSelection(
                 selection_id=str(uuid4()),
                 version=1,
-                project_id=project.project_id,
+                data_version_id=_workspace_data_version_id(
+                    context,
+                    workspace_state.workspace_id,
+                ),
                 created_at=now,
                 created_by=context.actor.identity.display_name,
                 datasets=(),
@@ -1570,7 +1620,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             actor=context.actor,
         )
         blocked = self._post(
-            f"/workspaces/{project.project_id}/files/{kept.file_id}/remove",
+            f"/workspaces/{workspace_state.workspace_id}/files/{kept.file_id}/remove",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -1596,9 +1646,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system_identity": "Other",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
-        project = self._complete_setup_before_target(project_id)
-        target_form = self.client.get(f"/workspaces/{project_id}/target")
+        workspace_id = _created_workspace_id(self.app, created)
+        workspace_state = self._complete_setup_before_target(workspace_id)
+        target_form = self.client.get(f"/workspaces/{workspace_id}/target")
         self.assertIn('name="read_api_key"', target_form.text)
         self.assertIn('name="read_api_key_storage"', target_form.text)
         self.assertIn('value="vault"', target_form.text)
@@ -1606,10 +1656,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn('name="write_api_key"', target_form.text)
 
         tested = self.client.post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://edu-ucaps.odoo.com",
                 "odoo_database": "edu-ucaps",
@@ -1623,7 +1673,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(tested.status_code, 303)
         self.assertEqual(
             tested.headers["location"],
-            f"/workspaces/{project_id}/target#remote-connection-status",
+            f"/workspaces/{workspace_id}/target#remote-connection-status",
         )
         result = self.client.get(tested.headers["location"])
         self.assertIn("connection-state-ready", result.text)
@@ -1643,13 +1693,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("remote-secret-key", result.text)
         self.assertEqual(
             self.read_identity_calls,
-            [(project_id, "remote-secret-key", ("res.users",))],
+            [(workspace_id, "remote-secret-key", ("res.users",))],
         )
-        project = self.app.state.context.workspace_states.repository.get(project_id)
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
         self.assertEqual(
             get_target_credential(
                 self.secrets,
-                project,
+                workspace_state,
                 TargetCredentialRole.READ,
             ).secret,
             "remote-secret-key",
@@ -1657,17 +1707,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNone(
             get_target_credential(
                 self.secrets,
-                project,
+                workspace_state,
                 TargetCredentialRole.WRITE,
             )
         )
 
-        refreshed = self.client.get(f"/workspaces/{project_id}/target")
+        refreshed = self.client.get(f"/workspaces/{workspace_id}/target")
         self.assertIn("The Odoo connection is ready.", refreshed.text)
         self.assertEqual(len(self.connection_calls), 1)
 
         forgotten = self.client.post(
-            f"/workspaces/{project_id}/target/read-credential/delete",
+            f"/workspaces/{workspace_id}/target/read-credential/delete",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -1680,10 +1730,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(self.secrets.values, {})
 
         changed = self.client.post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://other.example.com",
                 "odoo_database": "other_database",
@@ -1712,7 +1762,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        project, schema = self._registered_remote_schema_project()
+        workspace_state, schema = self._registered_remote_schema_workspace()
 
         def compare_with_reader(_project_id, *, reader, actor):
             self.assertEqual(actor, context.actor)
@@ -1726,7 +1776,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             side_effect=compare_with_reader,
         ):
             blocked = self.client.post(
-                f"/workspaces/{project.project_id}/summary/compare",
+                f"/workspaces/{workspace_state.workspace_id}/summary/compare",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
             )
@@ -1743,7 +1793,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with patch.object(context.preflight, "compare") as compare:
             reconnected = self.client.post(
-                f"/workspaces/{project.project_id}/summary/compare",
+                f"/workspaces/{workspace_state.workspace_id}/summary/compare",
                 data={
                     "csrf_token": self.csrf,
                     "read_api_key": "replacement-read-key",
@@ -1757,19 +1807,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         compare.assert_called_once()
         self.assertEqual(
             self.schema_calls,
-            [(project.project_id, "replacement-read-key")],
+            [(workspace_state.workspace_id, "replacement-read-key")],
         )
         self.assertEqual(
             self.read_identity_calls,
             [
                 (
-                    project.project_id,
+                    workspace_state.workspace_id,
                     "replacement-read-key",
                     ("res.partner",),
                 )
             ],
         )
-        rebound = context.queries.get_odoo_schema_catalog(project.project_id)
+        rebound = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
         self.assertEqual(rebound.content_hash, schema.content_hash)
         self.assertNotEqual(
             rebound.read_credential_binding_hash,
@@ -1783,7 +1833,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        project, schema = self._registered_remote_schema_project()
+        workspace_state, schema = self._registered_remote_schema_workspace()
         available_key = SimpleNamespace(
             available=True,
             binding_hash=schema.read_credential_binding_hash,
@@ -1805,7 +1855,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             blocked = self.client.post(
-                f"/workspaces/{project.project_id}/summary/compare",
+                f"/workspaces/{workspace_state.workspace_id}/summary/compare",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
             )
@@ -1814,7 +1864,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('id="comparison-recovery"', blocked.text)
         self.assertIn("Review the linked field match", blocked.text)
         self.assertIn(
-            f'href="/workspaces/{project.project_id}/mapping"',
+            f'href="/workspaces/{workspace_state.workspace_id}/mapping"',
             blocked.text,
         )
         self.assertNotIn('name="read_api_key"', blocked.text)
@@ -1822,7 +1872,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_remote_compare_recovery_matches_the_classified_failure(self) -> None:
         context = self.app.state.context
-        project, schema = self._registered_remote_schema_project()
+        workspace_state, schema = self._registered_remote_schema_workspace()
         available_key = SimpleNamespace(
             available=True,
             binding_hash=schema.read_credential_binding_hash,
@@ -1836,7 +1886,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             (
                 ConnectorTransportError("HTTP 503 raw upstream response"),
                 "Try the comparison again",
-                f'action="/workspaces/{project.project_id}/summary/compare"',
+                f'action="/workspaces/{workspace_state.workspace_id}/summary/compare"',
             ),
             (
                 OdooReadWorkflowError(
@@ -1844,7 +1894,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     "raw schema mismatch",
                 ),
                 "Refresh the Odoo data structure",
-                f'href="/workspaces/{project.project_id}/schema"',
+                f'href="/workspaces/{workspace_state.workspace_id}/schema"',
             ),
             (
                 OdooReadWorkflowError(
@@ -1852,7 +1902,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     "raw prepared mismatch",
                 ),
                 "Prepare and approve the data again",
-                f'href="/workspaces/{project.project_id}/prepare"',
+                f'href="/workspaces/{workspace_state.workspace_id}/prepare"',
             ),
             (
                 SecretStoreError("raw Windows credential-store failure"),
@@ -1875,7 +1925,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     ),
                 ):
                     blocked = self.client.post(
-                        f"/workspaces/{project.project_id}/summary/compare",
+                        f"/workspaces/{workspace_state.workspace_id}/summary/compare",
                         data={"csrf_token": self.csrf},
                         headers=POST_HEADERS,
                     )
@@ -1905,14 +1955,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system_identity": "Other",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
-        project = self._complete_setup_before_target(project_id)
+        workspace_id = _created_workspace_id(self.app, created)
+        workspace_state = self._complete_setup_before_target(workspace_id)
 
         tested = self.client.post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "migration",
@@ -1953,14 +2003,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system_identity": "Other",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
-        project = self._complete_setup_before_target(project_id)
+        workspace_id = _created_workspace_id(self.app, created)
+        workspace_state = self._complete_setup_before_target(workspace_id)
 
         tested = self.client.post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "migration",
@@ -1984,9 +2034,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_remote_connection_distinguishes_api_version_and_network_failures(
         self,
     ) -> None:
-        def wrong_version(project, _api_key):
+        def wrong_version(workspace_state, _api_key):
             return replace(
-                _browser_schema(project).fingerprint,
+                _browser_schema(workspace_state).fingerprint,
                 odoo_version="18.0",
             )
 
@@ -2028,13 +2078,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
                         "source_system_identity": "Other",
                     },
                 )
-                project_id = _created_workspace_id(self.app, created)
-                project = self._complete_setup_before_target(project_id)
+                workspace_id = _created_workspace_id(self.app, created)
+                workspace_state = self._complete_setup_before_target(workspace_id)
                 tested = self.client.post(
-                    f"/workspaces/{project_id}/target",
+                    f"/workspaces/{workspace_id}/target",
                     data={
                         "csrf_token": self.csrf,
-                        "revision": str(project.revision),
+                        "revision": str(workspace_state.revision),
                         "odoo_connection_mode": "REMOTE",
                         "odoo_base_url": "https://odoo.example.com",
                         "odoo_database": f"migration_{index}",
@@ -2055,14 +2105,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        project = _create_workspace(
+        workspace_state = _create_workspace(
             context,
             name="Historical rehearsal",
             source_system="Other",
         )
         repository = context.workspace_states.repository
-        project_dir = repository.workspace_directory(project.project_id)
-        database_path = project_dir / "workspace-engine.duckdb"
+        workspace_dir = repository.workspace_directory(workspace_state.workspace_id)
+        database_path = workspace_dir / "workspace-engine.duckdb"
         with repository._connect(database_path) as connection:
             connection.execute("DROP TABLE schema_version")
             connection.execute(
@@ -2070,22 +2120,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             connection.execute("INSERT INTO schema_version VALUES (1)")
 
-        opened = self.client.get(f"/workspaces/{project.project_id}")
+        opened = self.client.get(f"/workspaces/{workspace_state.workspace_id}")
         self.assertEqual(opened.status_code, 409)
         self.assertIn("uses a different Impodo data contract", opened.text)
         self.assertNotIn("Traceback", opened.text)
 
     def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
         context = self.app.state.context
-        project = _create_workspace(
+        workspace_state = _create_workspace(
             context,
             name="Paginated load review",
             source_system="Other",
         )
-        project = context.workspace_states.update_target(
-            project.project_id,
+        workspace_state = context.workspace_states.update_target(
+            workspace_state.workspace_id,
             actor=context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
             odoo_database="migration",
@@ -2140,7 +2190,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             page = self.client.get(
-                f"/workspaces/{project.project_id}/load"
+                f"/workspaces/{workspace_state.workspace_id}/load"
                 "?rows_page=2&rows_per_page=20"
             )
 
@@ -2157,15 +2207,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_load_review_separates_read_only_review_from_confirmation(self) -> None:
         context = self.app.state.context
-        project = _create_workspace(
+        workspace_state = _create_workspace(
             context,
             name="Staged load review",
             source_system="Other",
         )
-        project = context.workspace_states.update_target(
-            project.project_id,
+        workspace_state = context.workspace_states.update_target(
+            workspace_state.workspace_id,
             actor=context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
             odoo_database="migration",
@@ -2201,19 +2251,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             review = self.client.get(
-                f"/workspaces/{project.project_id}/load/review"
+                f"/workspaces/{workspace_state.workspace_id}/load/review"
             )
             confirm = self.client.get(
-                f"/workspaces/{project.project_id}/load/confirm"
+                f"/workspaces/{workspace_state.workspace_id}/load/confirm"
             )
             outcome = self.client.get(
-                f"/workspaces/{project.project_id}/load/outcome",
+                f"/workspaces/{workspace_state.workspace_id}/load/outcome",
                 follow_redirects=False,
             )
             preview.can_load = False
             preview.scope_error = "One reviewed field is no longer available."
             blocked_confirm = self.client.get(
-                f"/workspaces/{project.project_id}/load/confirm",
+                f"/workspaces/{workspace_state.workspace_id}/load/confirm",
                 follow_redirects=False,
             )
 
@@ -2229,25 +2279,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(outcome.status_code, 303)
         self.assertEqual(
             outcome.headers["location"],
-            f"/workspaces/{project.project_id}/load/review",
+            f"/workspaces/{workspace_state.workspace_id}/load/review",
         )
         self.assertEqual(blocked_confirm.status_code, 303)
         self.assertEqual(
             blocked_confirm.headers["location"],
-            f"/workspaces/{project.project_id}/load/review",
+            f"/workspaces/{workspace_state.workspace_id}/load/review",
         )
 
     def test_load_progress_names_target_and_exposes_non_secret_counts(self) -> None:
         context = self.app.state.context
-        project = _create_workspace(
+        workspace_state = _create_workspace(
             context,
             name="Visible load progress",
             source_system="Other",
         )
-        project = context.workspace_states.update_target(
-            project.project_id,
+        workspace_state = context.workspace_states.update_target(
+            workspace_state.workspace_id,
             actor=context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
             odoo_database="migration",
@@ -2257,25 +2307,30 @@ class ProjectSetupWizardTests(unittest.TestCase):
         manager = context.load_jobs
         assert manager is not None
         job = manager.enqueue(
-            project.project_id,
-            project.name,
+            workspace_state.workspace_id,
+            workspace_state.name,
             target_database="migration",
             target_server="odoo.example.test",
             target_environment="Test",
             total_rows=3,
-            work=lambda _writing, _verifying: LoadJobResult(
+            access_context=context.workspace_access.resolve(
+                workspace_state.workspace_id,
+                actor=context.actor,
+                capability=Capability.EXPORT_PLAN_EXECUTE,
+            ),
+            work=lambda _access, _writing, _verifying: LoadJobResult(
                 execution_run_id="run-1",
                 verification_complete=False,
             ),
         )
-        progress_url = f"/workspaces/{project.project_id}/load/progress/{job.job_id}"
+        progress_url = f"/workspaces/{workspace_state.workspace_id}/load/progress/{job.job_id}"
 
         finished = _wait_for_load(self.client, progress_url)
         page = self.client.get(progress_url)
 
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("data-load-job", page.text)
-        self.assertIn(f"Loading {project.name} into Test Odoo", page.text)
+        self.assertIn(f"Loading {workspace_state.name} into Test Odoo", page.text)
         self.assertIn("odoo.example.test", page.text)
         self.assertIn("migration", page.text)
         self.assertEqual(finished["total_rows"], 3)
@@ -2286,15 +2341,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_confirmed_load_runs_in_background_and_redirects_to_progress(self) -> None:
         context = self.app.state.context
-        project = _create_workspace(
+        workspace_state = _create_workspace(
             context,
             name="Background load",
             source_system="Other",
         )
-        project = context.workspace_states.update_target(
-            project.project_id,
+        workspace_state = context.workspace_states.update_target(
+            workspace_state.workspace_id,
             actor=context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
             odoo_database="migration",
@@ -2303,14 +2358,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         read_credential = store_target_credential(
             context.secret_store,
-            project,
+            workspace_state,
             TargetCredentialRole.READ,
             "read-secret",
             persistent=False,
         )
         store_target_credential(
             context.secret_store,
-            project,
+            workspace_state,
             TargetCredentialRole.WRITE,
             "write-secret",
             persistent=False,
@@ -2395,7 +2450,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             patch.object(
                 type(context.production_runs),
                 "credential_workspace",
-                return_value=project,
+                return_value=workspace_state,
             ),
             patch.object(
                 type(context.production_runs),
@@ -2413,7 +2468,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             patch.object(context, "readback_reader_factory", return_value=object()),
         ):
             started = self.client.post(
-                f"/workspaces/{project.project_id}/load",
+                f"/workspaces/{workspace_state.workspace_id}/load",
                 data={
                     "csrf_token": self.csrf,
                     "snapshot_hash": semantic_hash,
@@ -2433,7 +2488,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertTrue(finished["verification_complete"])
         self.assertEqual(
             finished["redirect_url"],
-            f"/workspaces/{project.project_id}/load/outcome",
+            f"/workspaces/{workspace_state.workspace_id}/load/outcome",
         )
 
     def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
@@ -2458,16 +2513,26 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context.workspace_states.repository.save(
             registered,
             expected_revision=created.revision,
-            event_type="TEST_PROJECT_REGISTERED",
+            event_type="WORKSPACE_REGISTERED",
             event_detail="",
             actor=context.actor,
         )
+        _replace_run_target_setup(
+            context,
+            registered.workspace_id,
+            connection_mode=OdooConnectionMode.LOCAL,
+            base_url="http://127.0.0.1:8069",
+            database="odoo19_local",
+        )
         context.sources.sources.save_source_selection(
-            registered.project_id,
+            registered.workspace_id,
             SourceSelection(
                 selection_id=str(uuid4()),
                 version=1,
-                project_id=registered.project_id,
+                data_version_id=_workspace_data_version_id(
+                    context,
+                    registered.workspace_id,
+                ),
                 created_at=now,
                 created_by=context.actor.identity.display_name,
                 datasets=(),
@@ -2477,7 +2542,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         drafted = self._post(
-            f"/workspaces/{registered.project_id}/schema/local-draft",
+            f"/workspaces/{registered.workspace_id}/schema/local-draft",
             {
                 "csrf_token": self.csrf,
                 "acknowledge_local_draft": "1",
@@ -2485,10 +2550,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "manual_fields_0": "name | Name | char | yes | no",
             },
         )
-        self.assertEqual(drafted.status_code, 303)
+        self.assertEqual(drafted.status_code, 303, drafted.text)
         self.assertEqual(self.schema_calls, [])
         schema = context.schema_workspace.schemas.get_odoo_schema_catalog(
-            registered.project_id
+            registered.workspace_id
         )
         self.assertIsNotNone(schema)
         self.assertEqual(schema.origin, SchemaOrigin.LOCAL_MANUAL)
@@ -2520,16 +2585,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context.workspace_states.repository.save(
             registered,
             expected_revision=created.revision,
-            event_type="TEST_PROJECT_REGISTERED",
+            event_type="WORKSPACE_REGISTERED",
             event_detail="",
             actor=context.actor,
         )
+        _replace_run_target_setup(
+            context,
+            registered.workspace_id,
+            connection_mode=OdooConnectionMode.LOCAL,
+            base_url="http://127.0.0.1:18069",
+            database="odoo19_local",
+            intended_applications=("Contacts",),
+        )
         context.sources.sources.save_source_selection(
-            registered.project_id,
+            registered.workspace_id,
             SourceSelection(
                 selection_id=str(uuid4()),
                 version=1,
-                project_id=registered.project_id,
+                data_version_id=_workspace_data_version_id(
+                    context,
+                    registered.workspace_id,
+                ),
                 created_at=now,
                 created_by=context.actor.identity.display_name,
                 datasets=(),
@@ -2538,18 +2614,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
             actor=context.actor,
         )
         unconfigured_page = self.client.get(
-            f"/workspaces/{registered.project_id}/schema"
+            f"/workspaces/{registered.workspace_id}/schema"
         )
         self.assertIn(
             "Find local Odoo first",
             unconfigured_page.text,
         )
         self.assertIn(
-            f'action="/workspaces/{registered.project_id}/schema/local-config"',
+            f'action="/workspaces/{registered.workspace_id}/schema/local-config"',
             unconfigured_page.text,
         )
         blocked = self.client.post(
-            f"/workspaces/{registered.project_id}/schema/models/refresh",
+            f"/workspaces/{registered.workspace_id}/schema/models/refresh",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
@@ -2581,7 +2657,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             executable.parent.mkdir(parents=True, exist_ok=True)
             executable.touch()
         status = context.local_stack.select_config(
-            registered.project_id,
+            registered.workspace_id,
             config,
         )
         self.assertIsNotNone(status.profile)
@@ -2594,13 +2670,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             _browser_schema(registered)
         )
 
-        page = self.client.get(f"/workspaces/{registered.project_id}/schema")
+        page = self.client.get(f"/workspaces/{registered.workspace_id}/schema")
         self.assertIn("Local Odoo is ready to check", page.text)
         self.assertNotIn("Access key", page.text)
         self.assertIn("Show available Odoo data", page.text)
         self.assertNotIn("Verify access and load models", page.text)
         refreshed = self._post(
-            f"/workspaces/{registered.project_id}/schema/models/refresh",
+            f"/workspaces/{registered.workspace_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed.status_code, 303)
@@ -2618,7 +2694,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Save Odoo choices", verified_page.text)
         context.local_stack = LocalStackService()
         cached_page = self.client.get(
-            f"/workspaces/{registered.project_id}/schema"
+            f"/workspaces/{registered.workspace_id}/schema"
         )
         self.assertIn("The Odoo list is ready", cached_page.text)
         self.assertIn(
@@ -2630,19 +2706,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.local_odoo_reader.get_model_catalog.assert_called_once()
 
         context.local_stack = configured_local_stack
-        project = context.workspace_states.repository.get(registered.project_id)
+        workspace_state = context.workspace_states.repository.get(registered.workspace_id)
         scoped = self._post(
-            f"/workspaces/{registered.project_id}/schema",
+            f"/workspaces/{registered.workspace_id}/schema",
             {
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "permitted_models": "res.partner",
             },
         )
         self.assertEqual(scoped.status_code, 303)
         self.assertEqual(
             scoped.headers["location"],
-            f"/workspaces/{registered.project_id}/schema#odoo-details",
+            f"/workspaces/{registered.workspace_id}/schema#odoo-details",
         )
         self.local_odoo_reader.get_model_catalog.assert_called_once()
         self.local_odoo_reader.get_model_metadata.assert_called_once()
@@ -2657,10 +2733,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             scoped_page.text,
         )
         unchanged_project = context.workspace_states.repository.get(
-            registered.project_id
+            registered.workspace_id
         )
         unchanged_scope = self._post(
-            f"/workspaces/{registered.project_id}/schema",
+            f"/workspaces/{registered.workspace_id}/schema",
             {
                 "csrf_token": self.csrf,
                 "revision": str(unchanged_project.revision),
@@ -2671,7 +2747,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.local_odoo_reader.get_model_metadata.assert_called_once()
         context.local_stack = LocalStackService()
         cached_schema_page = self.client.get(
-            f"/workspaces/{registered.project_id}/schema"
+            f"/workspaces/{registered.workspace_id}/schema"
         )
         self.assertIn(
             "Odoo details are ready",
@@ -2692,12 +2768,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.local_odoo_reader.get_model_metadata.side_effect = ConnectorError(
             "raw local reader failure"
         )
-        project = context.workspace_states.repository.get(registered.project_id)
+        workspace_state = context.workspace_states.repository.get(registered.workspace_id)
         failed_load = self.client.post(
-            f"/workspaces/{registered.project_id}/schema",
+            f"/workspaces/{registered.workspace_id}/schema",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "permitted_models": "product.template",
             },
             headers=POST_HEADERS,
@@ -2718,7 +2794,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertNotIn("We could not complete that action", failed_load.text)
         saved_after_failure = context.workspace_states.repository.get(
-            registered.project_id
+            registered.workspace_id
         )
         self.assertEqual(
             saved_after_failure.intended_models,
@@ -2735,7 +2811,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             models={"product.template": product_model},
         )
         recovered = self._post(
-            f"/workspaces/{registered.project_id}/schema/capture",
+            f"/workspaces/{registered.workspace_id}/schema/capture",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(recovered.status_code, 303)
@@ -2760,9 +2836,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 303)
-        project_id = _created_workspace_id(self.app, created)
+        workspace_id = _created_workspace_id(self.app, created)
         data_project_id = self.app.state.context.migration_workspaces.get(
-            project_id,
+            workspace_id,
             actor=self.app.state.context.actor,
         ).project_id
         self.assertEqual(
@@ -2771,10 +2847,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         project_page = self.client.get(created.headers["location"])
         self.assertIn(
-            f'href="/workspaces/{project_id}/overview"',
+            f'href="/workspaces/{workspace_id}/overview"',
             project_page.text,
         )
-        target_page = self.client.get(f"/workspaces/{project_id}/target")
+        target_page = self.client.get(f"/workspaces/{workspace_id}/target")
         self.assertIn("Connect the Odoo source", target_page.text)
         self.assertIn(
             "Moving records between two Odoo databases is not available yet.",
@@ -2782,14 +2858,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn("It does not discover models or fields", target_page.text)
         files = self.client.get(
-            f"/workspaces/{project_id}/files",
+            f"/workspaces/{workspace_id}/files",
             follow_redirects=False,
         )
         self.assertEqual(files.status_code, 303)
-        self.assertEqual(files.headers["location"], f"/workspaces/{project_id}/target")
+        self.assertEqual(files.headers["location"], f"/workspaces/{workspace_id}/target")
 
         unchecked = self._post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": "1",
@@ -2804,7 +2880,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Check the Odoo connection before continuing", unchecked.text)
 
         checked = self._post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": "2",
@@ -2817,11 +2893,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(checked.status_code, 303)
         self.assertEqual(
             self.read_identity_calls,
-            [(project_id, "read-secret", ("res.users",))],
+            [(workspace_id, "read-secret", ("res.users",))],
         )
 
         target = self._post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             {
                 "csrf_token": self.csrf,
                 "revision": "3",
@@ -2833,28 +2909,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(
             target.headers["location"],
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
         )
-        project = self.app.state.context.workspace_states.repository.get(project_id)
-        self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
-        self.assertEqual(project.source_mode, SourceMode.ODOO)
-        self.assertEqual(project.source_system, "Odoo 19")
-        self.assertEqual(project.source_files, ())
-        self.assertIsNone(project.export_date)
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
+        self.assertEqual(workspace_state.status, WorkspaceStatus.REGISTERED)
+        self.assertEqual(workspace_state.source_mode, SourceMode.ODOO)
+        self.assertEqual(workspace_state.source_system, "Odoo 19")
+        self.assertEqual(workspace_state.source_files, ())
 
-        schema_page = self.client.get(f"/workspaces/{project_id}/schema")
+        schema_page = self.client.get(f"/workspaces/{workspace_id}/schema")
         self.assertIn("Stage 1 of 6", schema_page.text)
         self.assertIn("Odoo data", schema_page.text)
         self.assertIn("Choose the Odoo source record type", schema_page.text)
 
         refreshed = self._post(
-            f"/workspaces/{project_id}/schema/models/refresh",
+            f"/workspaces/{workspace_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed.status_code, 303)
-        current = self.app.state.context.workspace_states.repository.get(project_id)
+        current = self.app.state.context.workspace_states.repository.get(workspace_id)
         scoped = self._post(
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
             {
                 "csrf_token": self.csrf,
                 "revision": str(current.revision),
@@ -2862,15 +2937,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(scoped.status_code, 303)
-        self.assertEqual(self.schema_calls, [(project_id, "read-secret")])
+        self.assertEqual(self.schema_calls, [(workspace_id, "read-secret")])
 
-        source_page = self.client.get(f"/workspaces/{project_id}/sources")
+        source_page = self.client.get(f"/workspaces/{workspace_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertIn("Define a bounded Odoo capture", source_page.text)
         self.assertIn("Freezing is read-only", source_page.text)
         calls_before_selection = len(self.schema_calls)
         selected = self._post(
-            f"/workspaces/{project_id}/sources/odoo-selection",
+            f"/workspaces/{workspace_id}/sources/odoo-selection",
             {
                 "csrf_token": self.csrf,
                 "dataset_name": "odoo_contacts",
@@ -2884,7 +2959,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(len(self.schema_calls), calls_before_selection)
         selection = (
             self.app.state.context.sources.sources
-            .get_current_odoo_capture_selection(project_id)
+            .get_current_odoo_capture_selection(workspace_id)
         )
         self.assertIsNotNone(selection)
         self.assertEqual(selection.field_names, ("name",))
@@ -2894,7 +2969,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Ready to freeze", saved_page.text)
 
         stale = self._post(
-            f"/workspaces/{project_id}/sources/odoo-capture",
+            f"/workspaces/{workspace_id}/sources/odoo-capture",
             {
                 "csrf_token": self.csrf,
                 "selection_id": selection.selection_id,
@@ -2905,14 +2980,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(stale.status_code, 422)
         self.assertIn("out of date", stale.text)
 
-        schema = self.app.state.context.queries.get_odoo_schema_catalog(project_id)
+        schema = self.app.state.context.queries.get_odoo_schema_catalog(workspace_id)
         self.assertIsNotNone(schema)
-        gateway = _BrowserOdooCaptureGateway(project, schema)
+        gateway = _BrowserOdooCaptureGateway(workspace_state, schema)
         self.app.state.context.source_capture_factory = (
-            lambda selected_project, _secret: gateway
+            lambda selected_workspace_state, _secret: gateway
         )
         started = self._post(
-            f"/workspaces/{project_id}/sources/odoo-capture",
+            f"/workspaces/{workspace_id}/sources/odoo-capture",
             {
                 "csrf_token": self.csrf,
                 "selection_id": selection.selection_id,
@@ -2937,7 +3012,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Protected history", frozen_page.text)
         self.assertIn("Frozen versions", frozen_page.text)
 
-        mapping_page = self.client.get(f"/workspaces/{project_id}/mapping")
+        mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)
         self.assertIn("Update only the records selected from Odoo", mapping_page.text)
         self.assertIn("Allow Impodo to update this field", mapping_page.text)
@@ -2946,7 +3021,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
 
         source_selection = (
-            self.app.state.context.queries.get_mapping_source_selection(project_id)
+            self.app.state.context.queries.get_mapping_source_selection(workspace_id)
         )
         self.assertIsNotNone(source_selection)
         assert source_selection is not None
@@ -2977,13 +3052,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ["approved_write_field_0", "name"],
         ]
         checked = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": mapping_entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
         self.assertEqual(checked.status_code, 200, checked.text)
-        revision = self.app.state.context.queries.get_mapping_revision(project_id)
-        working = self.app.state.context.queries.get_mapping_working_draft(project_id)
+        revision = self.app.state.context.queries.get_mapping_revision(workspace_id)
+        working = self.app.state.context.queries.get_mapping_working_draft(workspace_id)
         self.assertIsNotNone(revision)
         self.assertIsNotNone(working)
         assert revision is not None
@@ -2995,30 +3070,30 @@ class ProjectSetupWizardTests(unittest.TestCase):
             str(working.version),
         ]
         submitted = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": mapping_entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
         self.assertEqual(submitted.status_code, 200, submitted.text)
-        prepared_page = self.client.get(f"/workspaces/{project_id}/prepare")
+        prepared_page = self.client.get(f"/workspaces/{workspace_id}/prepare")
         self.assertEqual(prepared_page.status_code, 200)
         self.assertIn("Prepare data", prepared_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         normalization = self.app.state.context.preparation.prepare(
-            project_id,
+            workspace_id,
             actor=self.app.state.context.actor,
         )
         self.assertEqual(
             normalization.eligible_record_count,
             2,
-            self.app.state.context.quality.current_summary(project_id),
+            self.app.state.context.quality.current_summary(workspace_id),
         )
-        normalization_page = self.client.get(f"/workspaces/{project_id}/normalization")
+        normalization_page = self.client.get(f"/workspaces/{workspace_id}/normalization")
         self.assertEqual(normalization_page.status_code, 200)
         self.assertIn("Review prepared changes", normalization_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         approved = self._post(
-            f"/workspaces/{project_id}/normalization/approve",
+            f"/workspaces/{workspace_id}/normalization/approve",
             {
                 "csrf_token": self.csrf,
                 "run_id": normalization.run_id,
@@ -3028,7 +3103,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(approved.status_code, 303)
         self.assertEqual(
             approved.headers["location"],
-            f"/workspaces/{project_id}/summary",
+            f"/workspaces/{workspace_id}/summary",
         )
         approved_page = self.client.get(approved.headers["location"])
         self.assertIn("Compare the approved data with Odoo", approved_page.text)
@@ -3036,11 +3111,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Final review", approved_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
 
-        def pinned_reader(selected_project, metadata_requests, record_requests):
+        def pinned_reader(
+            selected_workspace_state,
+            metadata_requests,
+            record_requests,
+        ):
             self.readiness_calls.append(
-                (selected_project.project_id, metadata_requests, record_requests)
+                (
+                    selected_workspace_state.workspace_id,
+                    metadata_requests,
+                    record_requests,
+                )
             )
-            available = _browser_schema(selected_project)
+            available = _browser_schema(selected_workspace_state)
             metadata = replace(
                 available,
                 models={
@@ -3084,7 +3167,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.readiness_reader = pinned_reader
         compared = self._post(
-            f"/workspaces/{project_id}/summary/compare",
+            f"/workspaces/{workspace_id}/summary/compare",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(compared.status_code, 303, compared.text)
@@ -3096,7 +3179,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Create review workbook", comparison_page.text)
         self.assertIn("Load into Odoo", comparison_page.text)
         self.assertIn("Not yet available", comparison_page.text)
-        report = self.app.state.context.preflight.current_report(project_id)
+        report = self.app.state.context.preflight.current_report(workspace_id)
         self.assertIsNotNone(report)
         assert report is not None
         self.assertEqual(report.create_count, 0)
@@ -3104,7 +3187,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(report.blocked_count, 0)
         protected_comparison = (
             self.app.state.context.preflight.current_odoo_comparison(
-                project_id,
+                workspace_id,
                 actor=self.app.state.context.actor,
             )
         )
@@ -3119,7 +3202,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             {OdooComparisonOutcome.UPDATE},
         )
         with self.app.state.context.artifacts.materialize_report(
-            project_id,
+            workspace_id,
             report.run_id,
             MANIFEST_NAME,
         ) as manifest_path:
@@ -3127,14 +3210,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn('"odoo_id"', portable_manifest)
         self.assertNotIn("Alice", portable_manifest)
         self.assertEqual(len(self.readiness_calls), 1)
-        _project, _metadata_requests, record_requests = self.readiness_calls[0]
+        _workspace_id, _metadata_requests, record_requests = self.readiness_calls[0]
         self.assertEqual(len(record_requests), 1)
         self.assertEqual(record_requests[0].fields, ("name", "write_date"))
         self.assertEqual(record_requests[0].domain, (["id", "in", [11, 12]],))
 
-        def conflicting_reader(selected_project, metadata_requests, record_requests):
+        def conflicting_reader(
+            selected_workspace_state,
+            metadata_requests,
+            record_requests,
+        ):
             metadata, records = pinned_reader(
-                selected_project,
+                selected_workspace_state,
                 metadata_requests,
                 record_requests,
             )
@@ -3159,7 +3246,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.readiness_reader = conflicting_reader
         blocked_compare = self._post(
-            f"/workspaces/{project_id}/summary/compare",
+            f"/workspaces/{workspace_id}/summary/compare",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(blocked_compare.status_code, 303, blocked_compare.text)
@@ -3167,12 +3254,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Refresh the captured Odoo records", blocked_page.text)
         self.assertIn("Needs refresh", blocked_page.text)
         self.assertNotIn("data-preflight-compare", blocked_page.text)
-        blocked_report = self.app.state.context.preflight.current_report(project_id)
+        blocked_report = self.app.state.context.preflight.current_report(workspace_id)
         self.assertIsNotNone(blocked_report)
         assert blocked_report is not None
         self.assertEqual(blocked_report.blocked_count, 1)
         blocked_artifact = self.app.state.context.preflight.current_odoo_comparison(
-            project_id,
+            workspace_id,
             actor=self.app.state.context.actor,
         )
         self.assertIsNotNone(blocked_artifact)
@@ -3183,10 +3270,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         previous_source_hash = source_selection.content_hash
-        refresh_gateway = _BrowserOdooCaptureGateway(project, schema)
+        refresh_gateway = _BrowserOdooCaptureGateway(workspace_state, schema)
         refreshed_publication = (
             self.app.state.context.odoo_capture_publication.publish(
-                project_id,
+                workspace_id,
                 refresh_gateway,
                 actor=self.app.state.context.actor,
             )
@@ -3196,20 +3283,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
             previous_source_hash,
         )
         self.assertIsNone(
-            self.app.state.context.queries.get_mapping_revision(project_id)
+            self.app.state.context.queries.get_mapping_revision(workspace_id)
         )
         self.assertIsNone(
-            self.app.state.context.preflight.current_staging(project_id)
+            self.app.state.context.preflight.current_staging(workspace_id)
         )
         self.assertIsNone(
-            self.app.state.context.normalization.current_summary(project_id)
+            self.app.state.context.normalization.current_summary(workspace_id)
         )
         self.assertIsNone(
-            self.app.state.context.preflight.current_report(project_id)
+            self.app.state.context.preflight.current_report(workspace_id)
         )
         self.assertIsNone(
             self.app.state.context.preflight.current_odoo_comparison(
-                project_id,
+                workspace_id,
                 actor=self.app.state.context.actor,
             )
         )
@@ -3226,9 +3313,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system_identity": "Fictional ERP",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
+        workspace_id = _created_workspace_id(self.app, created)
         uploaded = self.client.post(
-            f"/workspaces/{project_id}/files",
+            f"/workspaces/{workspace_id}/files",
             data={"csrf_token": self.csrf, "revision": "1"},
             files={
                 "source_file": (
@@ -3242,26 +3329,26 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(uploaded.status_code, 303)
         context = self.app.state.context
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         registered = self._post(
-            f"/workspaces/{project_id}/register",
+            f"/workspaces/{workspace_id}/register",
             {
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
             },
         )
         self.assertEqual(registered.status_code, 303)
 
         inspected = self.client.post(
-            f"/workspaces/{project_id}/sources/inspect",
+            f"/workspaces/{workspace_id}/sources/inspect",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
         )
         self.assertEqual(inspected.status_code, 303)
-        catalog = context.queries.get_source_catalogs(project_id)[0]
+        catalog = context.queries.get_source_catalogs(workspace_id)[0]
         confirmed = self.client.post(
-            f"/workspaces/{project_id}/sources/{catalog.file_id}/configure",
+            f"/workspaces/{workspace_id}/sources/{catalog.file_id}/configure",
             data={
                 "csrf_token": self.csrf,
                 "action": "confirm",
@@ -3278,22 +3365,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Save the tables for this data version", source_page.text)
         self.assertIn('name="dataset_name_0"', source_page.text)
         self.assertIn(
-            f'action="/workspaces/{project_id}/datasets/freeze"',
+            f'action="/workspaces/{workspace_id}/datasets/freeze"',
             source_page.text,
         )
 
-        old_page = self.client.get(
-            f"/workspaces/{project_id}/datasets",
+        unfinished_page = self.client.get(
+            f"/workspaces/{workspace_id}/datasets",
             follow_redirects=False,
         )
-        self.assertEqual(old_page.status_code, 303)
+        self.assertEqual(unfinished_page.status_code, 303)
         self.assertEqual(
-            old_page.headers["location"],
-            f"/workspaces/{project_id}/sources#table-choices",
+            unfinished_page.headers["location"],
+            f"/workspaces/{workspace_id}/sources#table-choices",
         )
 
         frozen = self.client.post(
-            f"/workspaces/{project_id}/datasets/freeze",
+            f"/workspaces/{workspace_id}/datasets/freeze",
             data={
                 "csrf_token": self.csrf,
                 "dataset_name_0": "customers",
@@ -3318,9 +3405,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 303)
-        project_id = _created_workspace_id(self.app, created)
+        workspace_id = _created_workspace_id(self.app, created)
         data_project_id = self.app.state.context.migration_workspaces.get(
-            project_id,
+            workspace_id,
             actor=self.app.state.context.actor,
         ).project_id
         self.assertEqual(
@@ -3329,7 +3416,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         uploaded = self.client.post(
-            f"/workspaces/{project_id}/files",
+            f"/workspaces/{workspace_id}/files",
             data={"csrf_token": self.csrf, "revision": "1"},
             files=[
                 (
@@ -3356,15 +3443,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(uploaded.status_code, 303)
 
         registered = self._post(
-            f"/workspaces/{project_id}/register",
+            f"/workspaces/{workspace_id}/register",
             {"csrf_token": self.csrf, "revision": "3"},
         )
         self.assertEqual(registered.status_code, 303)
         self.assertEqual(
             registered.headers["location"],
-            f"/workspaces/{project_id}/sources",
+            f"/workspaces/{workspace_id}/sources",
         )
-        summary = self.client.get(f"/workspaces/{project_id}/overview")
+        summary = self.client.get(f"/workspaces/{workspace_id}/overview")
         self.assertIn("Data version overview", summary.text)
         self.assertIn("Ready for source check", summary.text)
         self.assertIn("Check source data", summary.text)
@@ -3379,23 +3466,32 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Source data", summary.text)
         self.assertIn("Load into Odoo", summary.text)
         self.assertIn(
-            f'href="/workspaces/{project_id}/sources"',
+            f'href="/workspaces/{workspace_id}/sources"',
             summary.text,
         )
-        project = self.app.state.context.workspace_states.repository.get(project_id)
-        self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
-        self.assertIsNone(project.odoo_connection_mode)
-        self.assertIsNone(project.export_date)
-        self.assertEqual(project.data_manager, "")
-        self.assertEqual(project.mapping_version, None)
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
+        self.assertEqual(workspace_state.status, WorkspaceStatus.REGISTERED)
+        self.assertIsNone(workspace_state.odoo_connection_mode)
+        self.assertEqual(workspace_state.mapping_version, None)
         manifest = (
-            self.app.state.context.workspace_states.repository.workspace_directory(project_id)
+            self.app.state.context.workspace_states.repository.workspace_directory(workspace_id)
             / "audit"
-            / f"project-registration-r{project.revision}.json"
+            / f"workspace-registration-r{workspace_state.revision}.json"
         )
         self.assertTrue(manifest.is_file())
-        self.assertIn('"odoo_connection_mode":null', manifest.read_text())
-        self.assertIn('"export_date":null', manifest.read_text())
+        manifest_text = manifest.read_text()
+        self.assertIn('"contract_version":6', manifest_text)
+        self.assertIn('"odoo_connection_mode":null', manifest_text)
+        for removed_field in (
+            "business_unit",
+            "data_manager",
+            "description",
+            "export_date",
+            "export_status",
+            "functional_owner",
+            "support_access",
+        ):
+            self.assertNotIn(f'"{removed_field}"', manifest_text)
 
         source_discovery = self.client.get(registered.headers["location"])
         self.assertEqual(source_discovery.status_code, 200)
@@ -3408,7 +3504,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-source-review-page", source_discovery.text)
         self.assertIn("data-source-review-form", source_discovery.text)
         inspected = self.client.post(
-            f"/workspaces/{project_id}/sources/inspect",
+            f"/workspaces/{workspace_id}/sources/inspect",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -3416,7 +3512,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(inspected.status_code, 303)
         self.assertEqual(
             inspected.headers["location"],
-            f"/workspaces/{project_id}/sources#source-files",
+            f"/workspaces/{workspace_id}/sources#source-files",
         )
         inspection_page = self.client.get(inspected.headers["location"])
         self.assertIn("Checked 2 source file", inspection_page.text)
@@ -3430,17 +3526,26 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Use separate Excel tables instead", inspection_page.text)
         self.assertIn("Likely content", inspection_page.text)
         self.assertIn("data-source-review-card", inspection_page.text)
-        catalogs = self.app.state.context.sources.sources.get_source_catalogs(project_id)
+        catalogs = self.app.state.context.sources.sources.get_source_catalogs(workspace_id)
         self.assertEqual(len(catalogs), 2)
-        self.assertEqual(catalogs[0].source_sha256, project.source_files[0].sha256)
+        catalogs_by_name = {catalog.display_name: catalog for catalog in catalogs}
+        customer_catalog = catalogs_by_name["customers.csv"]
+        product_catalog = catalogs_by_name["products.xlsx"]
+        source_files_by_name = {
+            source.display_name: source for source in workspace_state.source_files
+        }
+        self.assertEqual(
+            customer_catalog.source_sha256,
+            source_files_by_name["customers.csv"].sha256,
+        )
         self.assertIn("Data in customers.csv", inspection_page.text)
         self.assertNotIn(
-            f"<h3>{catalogs[0].tables[0].name}</h3>",
+            f"<h3>{customer_catalog.tables[0].name}</h3>",
             inspection_page.text,
         )
 
         configured = self.client.post(
-            f"/workspaces/{project_id}/sources/{catalogs[0].file_id}/configure",
+            f"/workspaces/{workspace_id}/sources/{customer_catalog.file_id}/configure",
             data={
                 "csrf_token": self.csrf,
                 "action": "confirm",
@@ -3455,13 +3560,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(configured.status_code, 303)
         self.assertEqual(
             configured.headers["location"],
-            f"/workspaces/{project_id}/sources#source-{catalogs[0].file_id}",
+            f"/workspaces/{workspace_id}/sources#source-{customer_catalog.file_id}",
         )
         configured_page = self.client.get(configured.headers["location"])
         self.assertIn("Confirmed customers.csv", configured_page.text)
 
         workbook_configured = self.client.post(
-            f"/workspaces/{project_id}/sources/{catalogs[1].file_id}/configure",
+            f"/workspaces/{workspace_id}/sources/{product_catalog.file_id}/configure",
             data={
                 "csrf_token": self.csrf,
                 "action": "confirm",
@@ -3476,13 +3581,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(workbook_configured.status_code, 303)
         self.assertEqual(
             workbook_configured.headers["location"],
-            f"/workspaces/{project_id}/sources#source-{catalogs[1].file_id}",
+            f"/workspaces/{workspace_id}/sources#source-{product_catalog.file_id}",
         )
         configured_page = self.client.get(workbook_configured.headers["location"])
         self.assertIn("Confirmed products.xlsx", configured_page.text)
         self.assertIn("Save the tables for this data version", configured_page.text)
         self.assertIn(
-            f'action="/workspaces/{project_id}/datasets/freeze"',
+            f'action="/workspaces/{workspace_id}/datasets/freeze"',
             configured_page.text,
         )
         self.assertIn('name="dataset_name_0"', configured_page.text)
@@ -3493,16 +3598,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         datasets = self.client.get(
-            f"/workspaces/{project_id}/datasets",
+            f"/workspaces/{workspace_id}/datasets",
             follow_redirects=False,
         )
         self.assertEqual(datasets.status_code, 303)
         self.assertEqual(
             datasets.headers["location"],
-            f"/workspaces/{project_id}/sources#table-choices",
+            f"/workspaces/{workspace_id}/sources#table-choices",
         )
         frozen = self.client.post(
-            f"/workspaces/{project_id}/datasets/freeze",
+            f"/workspaces/{workspace_id}/datasets/freeze",
             data={
                 "csrf_token": self.csrf,
                 "dataset_name_0": "customers",
@@ -3514,7 +3619,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(frozen.status_code, 303)
         self.assertEqual(
             frozen.headers["location"],
-            f"/workspaces/{project_id}/datasets#tables-ready",
+            f"/workspaces/{workspace_id}/datasets#tables-ready",
         )
         saved_datasets = self.client.get(frozen.headers["location"])
         self.assertIn("Saved source tables", saved_datasets.text)
@@ -3525,24 +3630,24 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Save tables for this data version", saved_datasets.text)
 
         odoo_data = self.client.get(
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
             follow_redirects=False,
         )
         self.assertEqual(odoo_data.status_code, 303)
         self.assertEqual(
             odoo_data.headers["location"],
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
         )
         target_page = self.client.get(odoo_data.headers["location"])
         self.assertIn("Connect the Odoo destination", target_page.text)
         self.assertIn("It does not discover models or fields", target_page.text)
 
-        project = self.app.state.context.queries.get(project_id)
+        workspace_state = self.app.state.context.queries.get(workspace_id)
         tested_target = self.client.post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.test",
                 "odoo_database": "odoo19_target",
@@ -3555,14 +3660,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(tested_target.status_code, 303)
         self.assertEqual(
             self.connection_calls,
-            [(project_id, "super-secret-token", OdooConnectionMode.REMOTE)],
+            [(workspace_id, "super-secret-token", OdooConnectionMode.REMOTE)],
         )
-        project = self.app.state.context.queries.get(project_id)
+        workspace_state = self.app.state.context.queries.get(workspace_id)
         saved_target = self._post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             {
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.test",
                 "odoo_database": "odoo19_target",
@@ -3571,21 +3676,21 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(
             saved_target.headers["location"],
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
         )
-        project = self.app.state.context.queries.get(project_id)
-        self.assertEqual(project.status, WorkspaceStatus.REGISTERED)
-        self.assertEqual(project.odoo_connection_mode, OdooConnectionMode.REMOTE)
+        workspace_state = self.app.state.context.queries.get(workspace_id)
+        self.assertEqual(workspace_state.status, WorkspaceStatus.REGISTERED)
+        self.assertEqual(workspace_state.odoo_connection_mode, OdooConnectionMode.REMOTE)
         self.assertNotIn(
             b"super-secret-token",
             (
-                self.app.state.context.workspace_states.repository.workspace_directory(project_id)
+                self.app.state.context.workspace_states.repository.workspace_directory(workspace_id)
                 / "workspace-engine.duckdb"
             ).read_bytes(),
         )
 
         derived_page = self.client.get(
-            f"/workspaces/{project_id}/derived-entities"
+            f"/workspaces/{workspace_id}/derived-entities"
         )
         self.assertIn("Separate combined information", derived_page.text)
         self.assertIn("Stage 1 of 6", derived_page.text)
@@ -3610,18 +3715,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Show available Odoo record types", derived_page.text)
         self.assertNotIn(
             (
-                f'action="/workspaces/{project_id}/derived-entities/'
+                f'action="/workspaces/{workspace_id}/derived-entities/'
                 'lookup/preview#lookup-preview"'
             ),
             derived_page.text,
         )
         selection = (
-            self.app.state.context.sources.sources.get_source_selection(project_id)
+            self.app.state.context.sources.sources.get_source_selection(workspace_id)
         )
         self.assertIsNotNone(selection)
         source_choices = _source_value_choices(
             self.app.state.context,
-            project_id,
+            workspace_id,
             selection.datasets[0].dataset_id,
             selection.datasets[0].columns[0].stable_key,
         )
@@ -3629,7 +3734,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         product_name = selection.datasets[1].columns[1]
         product_code = selection.datasets[1].columns[0]
         related_preview = self.client.post(
-            f"/workspaces/{project_id}/derived-entities/related/preview",
+            f"/workspaces/{workspace_id}/derived-entities/related/preview",
             data={
                 "csrf_token": self.csrf,
                 "expected_parent_version": "",
@@ -3647,7 +3752,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Review before creating", related_preview.text)
         self.assertIn("Create these separate tables", related_preview.text)
         saved_related = self.client.post(
-            f"/workspaces/{project_id}/derived-entities/related/save",
+            f"/workspaces/{workspace_id}/derived-entities/related/save",
             data={
                 "csrf_token": self.csrf,
                 "expected_parent_version": "",
@@ -3669,12 +3774,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             related_page.text,
         )
         related_plan = (
-            self.app.state.context.derived_entities.derived_entities.get_derived_entity_plan(project_id)
+            self.app.state.context.derived_entities.derived_entities.get_derived_entity_plan(workspace_id)
         )
         self.assertIsNotNone(related_plan)
         removed_related = self.client.post(
             (
-                f"/workspaces/{project_id}/derived-entities/"
+                f"/workspaces/{workspace_id}/derived-entities/"
                 f"{related_plan.rules[0].rule_id}/delete"
             ),
             data={
@@ -3699,7 +3804,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "blank_policy": "block",
         }
         blocked_without_models = self.client.post(
-            f"/workspaces/{project_id}/derived-entities/lookup/preview",
+            f"/workspaces/{workspace_id}/derived-entities/lookup/preview",
             data=derived_rule_data,
             headers=POST_HEADERS,
         )
@@ -3709,19 +3814,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
             blocked_without_models.text,
         )
 
-        project = self.app.state.context.workspace_states.repository.get(project_id)
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
         refreshed_lookup_models = self._post(
-            f"/workspaces/{project_id}/derived-entities/models/refresh",
+            f"/workspaces/{workspace_id}/derived-entities/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed_lookup_models.status_code, 303)
         self.assertEqual(
             refreshed_lookup_models.headers["location"],
-            f"/workspaces/{project_id}/derived-entities#lookup-extraction",
+            f"/workspaces/{workspace_id}/derived-entities#lookup-extraction",
         )
         self.assertEqual(
             self.model_catalog_calls,
-            [(project_id, "super-secret-token")],
+            [(workspace_id, "super-secret-token")],
         )
         lookup_model_page = self.client.get(
             refreshed_lookup_models.headers["location"]
@@ -3729,7 +3834,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Odoo record types are ready", lookup_model_page.text)
         self.assertIn(
             (
-                f'action="/workspaces/{project_id}/derived-entities/'
+                f'action="/workspaces/{workspace_id}/derived-entities/'
                 'lookup/preview#lookup-preview"'
             ),
             lookup_model_page.text,
@@ -3740,7 +3845,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Article and Service", lookup_model_page.text)
 
         rejected_lookup_model = self.client.post(
-            f"/workspaces/{project_id}/derived-entities/lookup/preview",
+            f"/workspaces/{workspace_id}/derived-entities/lookup/preview",
             data={**derived_rule_data, "target_model": "x.not.available"},
             headers=POST_HEADERS,
         )
@@ -3750,7 +3855,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             rejected_lookup_model.text,
         )
         rejected_lookup_save = self.client.post(
-            f"/workspaces/{project_id}/derived-entities/save",
+            f"/workspaces/{workspace_id}/derived-entities/save",
             data={**derived_rule_data, "target_model": "x.not.available"},
             headers=POST_HEADERS,
         )
@@ -3760,7 +3865,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             rejected_lookup_save.text,
         )
         lookup_preview = self.client.post(
-            f"/workspaces/{project_id}/derived-entities/lookup/preview",
+            f"/workspaces/{workspace_id}/derived-entities/lookup/preview",
             data=derived_rule_data,
             headers=POST_HEADERS,
         )
@@ -3769,7 +3874,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('id="lookup-preview"', lookup_preview.text)
         self.assertIn("Create this related table", lookup_preview.text)
         saved_derived = self.client.post(
-            f"/workspaces/{project_id}/derived-entities/save",
+            f"/workspaces/{workspace_id}/derived-entities/save",
             data=derived_rule_data,
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -3777,7 +3882,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(saved_derived.status_code, 303)
         saved_plan = (
             self.app.state.context.derived_entities.derived_entities.get_derived_entity_plan(
-                project_id
+                workspace_id
             )
         )
         self.assertIsNotNone(saved_plan)
@@ -3789,7 +3894,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(
             saved_derived.headers["location"],
             (
-                f"/workspaces/{project_id}/derived-entities"
+                f"/workspaces/{workspace_id}/derived-entities"
                 f"#lookup-rule-{saved_rule.rule_id}"
             ),
         )
@@ -3808,15 +3913,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("entity:P001", derived_preview.text)
 
         refreshed_models = self._post(
-            f"/workspaces/{project_id}/schema/models/refresh",
+            f"/workspaces/{workspace_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
         )
         self.assertEqual(refreshed_models.status_code, 303)
         self.assertEqual(
             self.model_catalog_calls,
             [
-                (project_id, "super-secret-token"),
-                (project_id, "super-secret-token"),
+                (workspace_id, "super-secret-token"),
+                (workspace_id, "super-secret-token"),
             ],
         )
         model_page = self.client.get(refreshed_models.headers["location"])
@@ -3833,7 +3938,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             model_page.text,
         )
         self.assertIn(
-            f'action="/workspaces/{project_id}/schema"',
+            f'action="/workspaces/{workspace_id}/schema"',
             model_page.text,
         )
         self.assertIn('aria-live="polite"', model_page.text)
@@ -3856,10 +3961,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("label.model-choice[hidden]", model_picker_styles.text)
 
         rejected_scope = self.client.post(
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "permitted_models": "x.not.available",
             },
             headers=POST_HEADERS,
@@ -3871,34 +3976,34 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         scope = self.client.post(
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "permitted_models": "res.partner",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
         )
         self.assertEqual(scope.status_code, 303)
-        project = self.app.state.context.workspace_states.repository.get(project_id)
-        self.assertEqual(project.intended_models, ("res.partner",))
-        self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
-        project = self.app.state.context.workspace_states.repository.get(project_id)
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
+        self.assertEqual(workspace_state.intended_models, ("res.partner",))
+        self.assertEqual(self.schema_calls, [(workspace_id, "super-secret-token")])
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
         read_credential = get_target_credential(
             self.secrets,
-            project,
+            workspace_state,
             TargetCredentialRole.READ,
         )
         assert read_credential is not None
         model_catalog = (
             self.app.state.context.schema_workspace.schemas.get_odoo_model_catalog(
-                project_id
+                workspace_id
             )
         )
         schema_catalog = (
             self.app.state.context.schema_workspace.schemas.get_odoo_schema_catalog(
-                project_id
+                workspace_id
             )
         )
         assert model_catalog is not None
@@ -3937,7 +4042,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Reference", schema_page.text)
         self.assertIn("Support options for combined matching", schema_page.text)
         governed = self.client.post(
-            f"/workspaces/{project_id}/schema/govern",
+            f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "ref",
@@ -4075,10 +4180,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn(".source-table-title", mapping_styles.text)
 
         selection = (
-            self.app.state.context.sources.sources.get_source_selection(project_id)
+            self.app.state.context.sources.sources.get_source_selection(workspace_id)
         )
         schema_governance = (
-            self.app.state.context.schema_workspace.schemas.get_schema_governance(project_id)
+            self.app.state.context.schema_workspace.schemas.get_schema_governance(workspace_id)
         )
         self.assertIsNotNone(selection)
         self.assertIsNotNone(schema_governance)
@@ -4087,7 +4192,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         product_code, product_name = product.columns
         mapping_selection = (
             self.app.state.context.sources.sources.get_mapping_source_selection(
-                project_id
+                workspace_id
             )
         )
         self.assertIsNotNone(mapping_selection)
@@ -4113,7 +4218,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"mapping_dataset={customer_index}&relation_page=1"
         )
         saved_progress = self.client.post(
-            f"/workspaces/{project_id}/mapping/save?{mapping_filter_query}",
+            f"/workspaces/{workspace_id}/mapping/save?{mapping_filter_query}",
             data={
                 "csrf_token": self.csrf,
                 "action": "save_progress",
@@ -4141,7 +4246,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(
             saved_progress.headers["location"],
             (
-                f"/workspaces/{project_id}/mapping?{mapping_filter_query}"
+                f"/workspaces/{workspace_id}/mapping?{mapping_filter_query}"
                 f"#mapping-dataset-{customer_index}"
             ),
         )
@@ -4159,11 +4264,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         saved_draft = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
-                project_id
+                workspace_id
             )
         )
         current_mapping_selection = (
-            self.app.state.context.queries.get_mapping_source_selection(project_id)
+            self.app.state.context.queries.get_mapping_source_selection(workspace_id)
         )
         self.assertIsNotNone(saved_draft)
         self.assertIsNotNone(current_mapping_selection)
@@ -4172,7 +4277,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             current_mapping_selection.content_hash,
         )
         current_governance = (
-            self.app.state.context.queries.get_schema_governance(project_id)
+            self.app.state.context.queries.get_schema_governance(workspace_id)
         )
         self.assertIsNotNone(current_governance)
         self.assertEqual(
@@ -4183,7 +4288,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Your saved work is loaded", saved_progress_page.text)
         working_draft = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
-                project_id
+                workspace_id
             )
         )
         self.assertEqual(working_draft.version, 1)
@@ -4196,7 +4301,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "",
         )
         self.assertIsNone(
-            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
+            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(workspace_id)
         )
         mapping_data = {
                 "csrf_token": self.csrf,
@@ -4251,7 +4356,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 f"scalar_null_{product_index}_1": "distinct",
         }
         checked = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "draft",
@@ -4267,19 +4372,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Ready to confirm", checked_page.text)
         checked_draft = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
-                project_id
+                workspace_id
             )
         )
         self.assertEqual(checked_draft.version, 2)
         checked_revision = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_revision(
-                project_id
+                workspace_id
             )
         )
         self.assertEqual(checked_revision.version, 1)
 
         premature_submit = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "submit",
@@ -4297,7 +4402,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         rule_preview = self.client.post(
-            f"/workspaces/{project_id}/mapping/transformation-impact/prepare",
+            f"/workspaces/{workspace_id}/mapping/transformation-impact/prepare",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4305,7 +4410,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(rule_preview.status_code, 303)
 
         submitted = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "submit",
@@ -4318,29 +4423,29 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(submitted.status_code, 303)
         self.assertEqual(
             submitted.headers["location"],
-            f"/workspaces/{project_id}/prepare",
+            f"/workspaces/{workspace_id}/prepare",
         )
         submitted_page = self.client.get(submitted.headers["location"])
         self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("Prepare all source rows", submitted_page.text)
         confirmed_mapping_page = self.client.get(
-            f"/workspaces/{project_id}/mapping"
+            f"/workspaces/{workspace_id}/mapping"
         )
         self.assertIn("Field matches are confirmed", confirmed_mapping_page.text)
         self.assertIn("Continue to Prepare data", confirmed_mapping_page.text)
         self.assertRegex(
             confirmed_mapping_page.text,
-            rf'class="button secondary" href="/workspaces/{project_id}/prepare"',
+            rf'class="button secondary" href="/workspaces/{workspace_id}/prepare"',
         )
         revision = (
-            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
+            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(workspace_id)
         )
         self.assertEqual(revision.version, 1)
         self.assertEqual(
             [
                 item.version
                 for item in self.app.state.context.mapping_workspace.mappings.list_mapping_revisions(
-                    project_id
+                    workspace_id
                 )
             ],
             [1],
@@ -4382,7 +4487,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(product_field.validation.character_class, "uppercase")
 
         impact_link = (
-            f"/workspaces/{project_id}/mapping/transformation-impact"
+            f"/workspaces/{workspace_id}/mapping/transformation-impact"
         )
         self.assertIn("Review rule effects", confirmed_mapping_page.text)
         impact_page = self.client.get(impact_link)
@@ -4423,27 +4528,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
         mapping_script = self.client.get("/static/app.js")
         self.assertNotIn("data-impact-export", mapping_script.text)
 
-        prepare_page = self.client.get(f"/workspaces/{project_id}/prepare")
+        prepare_page = self.client.get(f"/workspaces/{workspace_id}/prepare")
         self.assertEqual(prepare_page.status_code, 200)
         self.assertIn("Stage 4 of 6", prepare_page.text)
         self.assertIn("Prepare data", prepare_page.text)
         self.assertIn("Prepare all source rows", prepare_page.text)
         self.assertIn(
-            "Impodo prepares from the source copy stored inside this project",
+            "Impodo prepares from the accepted Data version selected by this workspace",
             prepare_page.text,
         )
         self.assertIn(
-            f'action="/workspaces/{project_id}/summary/check"',
+            f'action="/workspaces/{workspace_id}/summary/check"',
             prepare_page.text,
         )
         self.assertIn('aria-current="step"', prepare_page.text)
         self.assertIn('aria-current="page"', prepare_page.text)
 
-        summary = self.client.get(f"/workspaces/{project_id}/summary")
+        summary = self.client.get(f"/workspaces/{workspace_id}/summary")
         self.assertIn("Prepare and review data", summary.text)
         self.assertIn("Uses Impodo’s stored local copy", summary.text)
         checked = self.client.post(
-            f"/workspaces/{project_id}/summary/check",
+            f"/workspaces/{workspace_id}/summary/check",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4486,10 +4591,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(len(self.readiness_calls), 0)
 
         context = self.app.state.context
-        quality_summary = context.quality.current_summary(project_id)
+        quality_summary = context.quality.current_summary(workspace_id)
         assert quality_summary is not None
         quality_page = context.queries.get_quality_review_page(
-            project_id,
+            workspace_id,
             quality_summary.run_id,
             status="",
             dataset="",
@@ -4498,7 +4603,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertLessEqual(len(quality_page.items), 20)
         prepared_summary_page = self.client.get(
-            f"/workspaces/{project_id}/summary"
+            f"/workspaces/{workspace_id}/summary"
         )
         self.assertIn(
             f"Records 1-{min(20, quality_page.matching_count)} "
@@ -4509,14 +4614,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.assertIn("Records per page:", prepared_summary_page.text)
 
         normalization_service = self.app.state.context.normalization
-        review = normalization_service.current_review(project_id)
+        review = normalization_service.current_review(workspace_id)
         assert review is not None
         normalization, evaluation, dry_run = review
         decision_group = next(
             group for group in evaluation.groups if group.requires_decision
         )
         rejected = self.client.post(
-            f"/workspaces/{project_id}/normalization/groups/"
+            f"/workspaces/{workspace_id}/normalization/groups/"
             f"{decision_group.group_id}/reject?status=pending&page=2",
             data={
                 "csrf_token": self.csrf,
@@ -4533,10 +4638,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("The prepared value needs another review", blocked_page.text)
         self.assertIn("Reopen review", blocked_page.text)
         self.assertNotIn("Accept this change", blocked_page.text)
-        normalization = normalization_service.current_summary(project_id)
+        normalization = normalization_service.current_summary(workspace_id)
         assert normalization is not None
         reopened = self.client.post(
-            f"/workspaces/{project_id}/normalization/reopen",
+            f"/workspaces/{workspace_id}/normalization/reopen",
             data={
                 "csrf_token": self.csrf,
                 "run_id": normalization.run_id,
@@ -4548,12 +4653,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(reopened.status_code, 303)
         self.assertEqual(
             reopened.headers["location"],
-            f"/workspaces/{project_id}/normalization?status=pending#review-groups",
+            f"/workspaces/{workspace_id}/normalization?status=pending#review-groups",
         )
-        normalization = normalization_service.current_summary(project_id)
+        normalization = normalization_service.current_summary(workspace_id)
         assert normalization is not None
         approved = self.client.post(
-            f"/workspaces/{project_id}/normalization/approve",
+            f"/workspaces/{workspace_id}/normalization/approve",
             data={
                 "csrf_token": self.csrf,
                 "run_id": normalization.run_id,
@@ -4563,17 +4668,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(approved.status_code, 303)
-        normalization = normalization_service.current_summary(project_id)
+        normalization = normalization_service.current_summary(workspace_id)
         assert normalization is not None
         self.assertTrue(normalization.frozen)
-        frozen_review = normalization_service.current_review(project_id)
+        frozen_review = normalization_service.current_review(workspace_id)
         assert frozen_review is not None
         self.assertEqual(
             frozen_review[2].approved_groups,
             frozen_review[2].summary.required_group_keys,
         )
         workspace = self.app.state.context.migration_workspaces.get(
-            project_id,
+            workspace_id,
             actor=self.app.state.context.actor,
         )
         package = (
@@ -4590,7 +4695,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         source_artifact.unlink()
         compared = self.client.post(
-            f"/workspaces/{project_id}/summary/compare",
+            f"/workspaces/{workspace_id}/summary/compare",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4637,7 +4742,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             readiness_page.text,
         )
 
-        report = self.app.state.context.preflight.current_report(project_id)
+        report = self.app.state.context.preflight.current_report(workspace_id)
         assert report is not None
         self.assertEqual(
             report.create_count
@@ -4647,13 +4752,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             + report.blocked_count,
             report.total_count,
         )
-        staging = self.app.state.context.preflight.current_staging(project_id)
+        staging = self.app.state.context.preflight.current_staging(workspace_id)
         assert staging is not None
         self.assertEqual(report.staging_run_id, staging.run_id)
         self.assertEqual(report.staging_content_hash, staging.content_hash)
         restored_staging = (
             self.app.state.context.preflight.staging.get_canonical_staging_run(
-                project_id,
+                workspace_id,
                 staging.run_id,
             )
         )
@@ -4670,14 +4775,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         )
         restarted_report = restart_app.state.context.preflight.current_report(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(restarted_report)
         assert restarted_report is not None
         self.assertEqual(restarted_report.run_id, report.run_id)
 
         sample_row = self.app.state.context.preflight.readiness_rows(
-            project_id,
+            workspace_id,
             report.run_id,
         ).items[0]
         self.assertIn(
@@ -4686,7 +4791,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         database_path = (
-            self.app.state.context.workspace_states.repository.workspace_directory(project_id)
+            self.app.state.context.workspace_states.repository.workspace_directory(workspace_id)
             / "workspace-engine.duckdb"
         )
         staging_repository = self.app.state.context.preflight.staging
@@ -4718,7 +4823,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
         try:
             rejected_tamper = self.client.post(
-                f"/workspaces/{project_id}/summary/compare",
+                f"/workspaces/{workspace_id}/summary/compare",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
                 follow_redirects=False,
@@ -4737,13 +4842,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(len(self.readiness_calls), 1)
 
         compared_again = self.client.post(
-            f"/workspaces/{project_id}/summary/compare",
+            f"/workspaces/{workspace_id}/summary/compare",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
         )
         self.assertEqual(compared_again.status_code, 303, compared_again.text)
-        repeated_report = self.app.state.context.preflight.current_report(project_id)
+        repeated_report = self.app.state.context.preflight.current_report(workspace_id)
         assert repeated_report is not None
         self.assertNotEqual(repeated_report.run_id, report.run_id)
         self.assertEqual(repeated_report.staging_run_id, report.staging_run_id)
@@ -4770,16 +4875,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(run_count, (2,))
         self.assertEqual(current_run, (repeated_report.run_id,))
         self.assertEqual(superseded, (repeated_report.run_id,))
-        current_normalization = normalization_service.current_summary(project_id)
+        current_normalization = normalization_service.current_summary(workspace_id)
         assert current_normalization is not None
         self.assertEqual(
             current_normalization.run_id,
             report.normalization_run_id,
         )
 
-        load_preview = self.app.state.context.execution.current_preview(project_id)
+        load_preview = self.app.state.context.execution.current_preview(workspace_id)
         assert load_preview is not None
-        final_review = self.client.get(f"/workspaces/{project_id}/summary")
+        final_review = self.client.get(f"/workspaces/{workspace_id}/summary")
         self.assertIn("Final review complete", final_review.text)
         self.assertNotIn("Preview the Odoo load", final_review.text)
         self.assertLess(
@@ -4787,7 +4892,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             final_review.text.index("Final review complete"),
         )
         load_landing = self.client.get(
-            f"/workspaces/{project_id}/load",
+            f"/workspaces/{workspace_id}/load",
             follow_redirects=False,
         )
         self.assertEqual(load_landing.status_code, 303)
@@ -4800,7 +4905,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Continue to confirmation", load_page.text)
         self.assertNotIn('name="write_api_key"', load_page.text)
         outcome_before_load = self.client.get(
-            f"/workspaces/{project_id}/load/outcome",
+            f"/workspaces/{workspace_id}/load/outcome",
             follow_redirects=False,
         )
         self.assertEqual(outcome_before_load.status_code, 303)
@@ -4808,7 +4913,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             outcome_before_load.headers["location"].endswith("/load/review")
         )
         confirmation_page = self.client.get(
-            f"/workspaces/{project_id}/load/confirm"
+            f"/workspaces/{workspace_id}/load/confirm"
         )
         self.assertEqual(confirmation_page.status_code, 200)
         self.assertIn("Confirm the Odoo load", confirmation_page.text)
@@ -4926,7 +5031,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.app.state.context.readback_reader_factory = readback_factory
         self.app.state.context.write_identity_probe = write_identity_probe
         missing_write_key = self.client.post(
-            f"/workspaces/{project_id}/load",
+            f"/workspaces/{workspace_id}/load",
             data={
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
@@ -4941,7 +5046,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(readback_factory_keys, [])
 
         loaded = self.client.post(
-            f"/workspaces/{project_id}/load",
+            f"/workspaces/{workspace_id}/load",
             data={
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
@@ -4985,7 +5090,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         report = repeated_report
         sample_row = self.app.state.context.preflight.readiness_rows(
-            project_id,
+            workspace_id,
             report.run_id,
         ).items[0]
         paged_rows = tuple(
@@ -5026,7 +5131,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with self.subTest("persisted readiness paging"):
             first_page = self.client.get(
-                f"/workspaces/{project_id}/summary"
+                f"/workspaces/{workspace_id}/summary"
             )
             self.assertEqual(
                 first_page.text.count("data-readiness-row"),
@@ -5050,7 +5155,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.assertEqual(next_query["page"], ["2"])
 
             second_page = self.client.get(
-                f"/workspaces/{project_id}/summary?page=2"
+                f"/workspaces/{workspace_id}/summary?page=2"
             )
             self.assertEqual(
                 second_page.text.count("data-readiness-row"),
@@ -5062,7 +5167,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.assertNotIn("ROW-0001", second_page.text)
 
             clamped_page = self.client.get(
-                f"/workspaces/{project_id}/summary?page=999"
+                f"/workspaces/{workspace_id}/summary?page=999"
             )
             self.assertEqual(
                 clamped_page.text.count("data-readiness-row"),
@@ -5073,7 +5178,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.assertIn("ROW-0201", clamped_page.text)
 
             filtered_page = self.client.get(
-                f"/workspaces/{project_id}/summary",
+                f"/workspaces/{workspace_id}/summary",
                 params={
                     "status": "blocked",
                     "dataset": sample_row.dataset,
@@ -5113,7 +5218,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertTrue(all(item.domain for item in readiness_requests))
         evidence = self.client.get(
-            f"/workspaces/{project_id}/summary/manifest"
+            f"/workspaces/{workspace_id}/summary/manifest"
         )
         self.assertEqual(evidence.status_code, 200)
         self.assertIn(
@@ -5125,7 +5230,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 workbook
             ).write_bytes(b"review package")
             packaged = self.client.post(
-                f"/workspaces/{project_id}/summary/package",
+                f"/workspaces/{workspace_id}/summary/package",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
                 follow_redirects=False,
@@ -5135,7 +5240,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Download review workbook", packaged_page.text)
         self.assertIn("Recreate review workbook", packaged_page.text)
         workbook = self.client.get(
-            f"/workspaces/{project_id}/summary/workbook"
+            f"/workspaces/{workspace_id}/summary/workbook"
         )
         self.assertEqual(workbook.status_code, 200)
         self.assertIn(
@@ -5143,11 +5248,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             workbook.headers["content-type"],
         )
 
-        project = self.app.state.context.workspace_states.repository.get(project_id)
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
 
-        def company_schema_reader(project, api_key):
-            self.schema_calls.append((project.project_id, api_key))
-            snapshot = _browser_schema(project)
+        def company_schema_reader(workspace_state, api_key):
+            self.schema_calls.append((workspace_state.workspace_id, api_key))
+            snapshot = _browser_schema(workspace_state)
             company = replace(
                 snapshot.models["res.partner"],
                 model="res.company",
@@ -5156,23 +5261,23 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.schema_reader = company_schema_reader
         changed_scope = self.client.post(
-            f"/workspaces/{project_id}/schema",
+            f"/workspaces/{workspace_id}/schema",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "permitted_models": "res.company",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
         )
         self.assertEqual(changed_scope.status_code, 303)
-        project = self.app.state.context.workspace_states.repository.get(project_id)
-        self.assertEqual(project.intended_models, ("res.company",))
-        self.assertIsNone(project.mapping_version)
-        self.assertEqual(project.approval_status.value, "INVALIDATED")
+        workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
+        self.assertEqual(workspace_state.intended_models, ("res.company",))
+        self.assertIsNone(workspace_state.mapping_version)
+        self.assertEqual(workspace_state.approval_status.value, "INVALIDATED")
         refreshed_schema = (
             self.app.state.context.schema_workspace.schemas.get_odoo_schema_catalog(
-                project_id
+                workspace_id
             )
         )
         self.assertIsNotNone(refreshed_schema)
@@ -5181,27 +5286,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ("res.company",),
         )
         self.assertIsNone(
-            self.app.state.context.schema_workspace.schemas.get_schema_governance(project_id)
+            self.app.state.context.schema_workspace.schemas.get_schema_governance(workspace_id)
         )
         self.assertIsNone(
-            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
+            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(workspace_id)
         )
         self.assertIsNone(
-            self.app.state.context.preflight.current_staging(project_id)
+            self.app.state.context.preflight.current_staging(workspace_id)
         )
         self.assertIsNotNone(
             self.app.state.context.preflight.staging.get_canonical_staging_run(
-                project_id,
+                workspace_id,
                 staging.run_id,
             )
         )
         self.assertIsNotNone(
             self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
-                project_id
+                workspace_id
             )
         )
         stale_mapping = self.client.get(
-            f"/workspaces/{project_id}/mapping"
+            f"/workspaces/{workspace_id}/mapping"
         )
         self.assertIn(
             "Your source tables or Odoo choices changed, so older matching work was not loaded",
@@ -5218,13 +5323,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system_identity": "Other",
             },
         )
-        project_id = _created_workspace_id(self.app, created)
-        project = self._complete_setup_before_target(project_id)
+        workspace_id = _created_workspace_id(self.app, created)
+        workspace_state = self._complete_setup_before_target(workspace_id)
         local = self._post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             {
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "revision": str(workspace_state.revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:8069",
                 "odoo_database": "odoo19_local",
@@ -5235,10 +5340,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(local.status_code, 303)
 
         remote = self.client.post(
-            f"/workspaces/{project_id}/target",
+            f"/workspaces/{workspace_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": str(project.revision + 1),
+                "revision": str(workspace_state.revision + 1),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "odoo_review",
@@ -5256,14 +5361,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(self.secrets.values, {})
 
     def test_first_identity_mapping_save_persists_without_validation(self) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=30
         )
         source_identity = dataset.columns[0]
         context = self.app.state.context
 
         saved = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={
                 "entries": [
                     ["csrf_token", self.csrf],
@@ -5293,23 +5398,23 @@ class ProjectSetupWizardTests(unittest.TestCase):
             saved.json()["message"],
             "Progress saved. Check matches when ready.",
         )
-        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id)
         self.assertIsNotNone(working)
         self.assertEqual(working.version, 1)
         self.assertEqual(
             working.definition.datasets[0].target_identity[0].source_column_keys,
             (source_identity.stable_key,),
         )
-        self.assertIsNone(context.mapping_workspace.mappings.get_mapping_revision(project_id))
+        self.assertIsNone(context.mapping_workspace.mappings.get_mapping_revision(workspace_id))
 
     def test_selection_choices_load_and_save_from_the_mapping_dialog(self) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
             selection_field=True,
         )
         source_identity, source_value = dataset.columns
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertIn("data-value-match-dialog", page.text)
         self.assertIn("Match values", page.text)
@@ -5341,7 +5446,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         ):
             choices = self.client.post(
-                f"/workspaces/{project_id}/mapping/value-choices",
+                f"/workspaces/{workspace_id}/mapping/value-choices",
                 data={
                     "csrf_token": self.csrf,
                     "kind": "scalar",
@@ -5387,14 +5492,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ],
         ]
         saved = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
 
         self.assertEqual(saved.status_code, 200)
         working = self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
-            project_id
+            workspace_id
         )
         self.assertEqual(
             working.definition.datasets[0].fields[0].value_mappings,
@@ -5408,7 +5513,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_relationship_choices_are_read_once_without_exposing_odoo_ids(
         self,
     ) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
             relationship_field_count=1,
         )
@@ -5416,9 +5521,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context = self.app.state.context
         calls = []
 
-        def readiness_reader(project, metadata_requests, record_requests):
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
             calls.append((metadata_requests, record_requests))
-            metadata = _browser_schema(project)
+            metadata = _browser_schema(workspace_state)
             return metadata, RecordSnapshot(
                 fingerprint=metadata.fingerprint,
                 records={
@@ -5438,7 +5543,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             return_value=({"value": "FRA", "count": 3},),
         ):
             response = self.client.post(
-                f"/workspaces/{project_id}/mapping/value-choices",
+                f"/workspaces/{workspace_id}/mapping/value-choices",
                 data={
                     "csrf_token": self.csrf,
                     "kind": "relationship",
@@ -5465,7 +5570,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("odoo_id", response.text)
         source_identity = dataset.columns[0]
         saved = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={
                 "entries": [
                     ["csrf_token", self.csrf],
@@ -5499,7 +5604,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 200)
-        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id)
         self.assertEqual(
             working.definition.datasets[0]
             .relationships[0]
@@ -5512,13 +5617,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
     def test_matching_rule_without_description_uses_odoo_field_label(self) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
             relationship_field_count=1,
             business_key_description="",
         )
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn(">\n                        Reference\n", page.text)
@@ -5528,7 +5633,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_country_matching_uses_reviewed_code_without_schema_recapture(
         self,
     ) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
             relationship_field_count=1,
             relationship_model="res.country",
@@ -5537,9 +5642,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context = self.app.state.context
         calls = []
 
-        def readiness_reader(project, metadata_requests, record_requests):
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
             calls.append((metadata_requests, record_requests))
-            available = _browser_schema(project)
+            available = _browser_schema(workspace_state)
             metadata = replace(
                 available,
                 models={
@@ -5581,10 +5686,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
 
         context.readiness_reader = readiness_reader
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
-        schema = context.schema_workspace.schemas.get_odoo_schema_catalog(project_id)
+        schema = context.schema_workspace.schemas.get_odoo_schema_catalog(workspace_id)
         self.assertNotEqual(
             schema.content_hash,
             target_identity_hash(
@@ -5619,17 +5724,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "business_key_id": "odoo-standard:res.country:code",
             }
             choices = self.client.post(
-                f"/workspaces/{project_id}/mapping/value-choices",
+                f"/workspaces/{workspace_id}/mapping/value-choices",
                 data=request_data,
                 headers=POST_HEADERS,
             )
             reused = self.client.post(
-                f"/workspaces/{project_id}/mapping/value-choices",
+                f"/workspaces/{workspace_id}/mapping/value-choices",
                 data=request_data,
                 headers=POST_HEADERS,
             )
             refreshed = self.client.post(
-                f"/workspaces/{project_id}/mapping/value-choices",
+                f"/workspaces/{workspace_id}/mapping/value-choices",
                 data={**request_data, "refresh": "1"},
                 headers=POST_HEADERS,
             )
@@ -5657,7 +5762,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("odoo_id", choices.text)
 
         saved = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={
                 "entries": [
                     ["csrf_token", self.csrf],
@@ -5694,7 +5799,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 200)
-        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id)
         resolver = working.definition.datasets[0].relationships[0].resolver
         self.assertEqual(
             resolver.key_mappings,
@@ -5711,13 +5816,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ("res.currency", "Currency code — recommended"),
         ):
             with self.subTest(related_model=related_model):
-                project_id, _dataset, _business_key = self._mapping_ready_project(
+                workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
                     scalar_field_count=0,
                     relationship_field_count=1,
                     relationship_model=related_model,
                 )
 
-                page = self.client.get(f"/workspaces/{project_id}/mapping")
+                page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
                 self.assertEqual(page.status_code, 200)
                 self.assertIn(label, page.text)
@@ -5726,13 +5831,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_relationship_without_matching_rule_has_clear_disabled_state(
         self,
     ) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
             relationship_field_count=1,
             relationship_model="res.company",
         )
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("No matching rule available", page.text)
@@ -5745,14 +5850,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_relationship_catalog_is_searchable_and_progressively_disclosed(
         self,
     ) -> None:
-        project_id, dataset, _business_key = self._mapping_ready_project(
+        workspace_id, dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
             relationship_field_count=51,
         )
         source_identity, source_value = dataset.columns
         context = self.app.state.context
         initial = context.mapping_workspace.save_working_draft(
-            project_id,
+            workspace_id,
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
@@ -5789,7 +5894,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(initial.version, 1)
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertEqual(page.text.count("data-relation-field-row"), 3)
         self.assertIn("Showing 3 of 51 linked fields", page.text)
@@ -5801,13 +5906,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("relation_0002</code>", page.text)
 
         expanded = self.client.get(
-            f"/workspaces/{project_id}/mapping?relation_page_size=20"
+            f"/workspaces/{workspace_id}/mapping?relation_page_size=20"
         )
         self.assertEqual(expanded.text.count("data-relation-field-row"), 20)
         self.assertIn('data-relation-page-size="20"', expanded.text)
 
         searched = self.client.get(
-            f"/workspaces/{project_id}/mapping?relation_query=relation_0049"
+            f"/workspaces/{workspace_id}/mapping?relation_query=relation_0049"
         )
         self.assertEqual(searched.status_code, 200)
         self.assertEqual(searched.text.count("data-relation-field-row"), 1)
@@ -5815,7 +5920,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Showing 1 of 1 linked fields", searched.text)
 
         fragment = self.client.get(
-            f"/workspaces/{project_id}/mapping/field-catalog"
+            f"/workspaces/{workspace_id}/mapping/field-catalog"
             "?catalog=relation&relation_query=relation_0049"
         )
         self.assertEqual(fragment.status_code, 200)
@@ -5826,7 +5931,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("projection;dur=", fragment.headers["server-timing"])
 
         searched_by_model = self.client.get(
-            f"/workspaces/{project_id}/mapping?relation_query=res.partner"
+            f"/workspaces/{workspace_id}/mapping?relation_query=res.partner"
         )
         self.assertEqual(
             searched_by_model.text.count("data-relation-field-row"),
@@ -5835,13 +5940,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Showing 3 of 51 linked fields", searched_by_model.text)
 
         last_page = self.client.get(
-            f"/workspaces/{project_id}/mapping?relation_page=17"
+            f"/workspaces/{workspace_id}/mapping?relation_page=17"
         )
         self.assertEqual(last_page.text.count("data-relation-field-row"), 3)
         self.assertIn("relation_0049", last_page.text)
 
         rejected_size = self.client.get(
-            f"/workspaces/{project_id}/mapping?relation_page_size=100"
+            f"/workspaces/{workspace_id}/mapping?relation_page_size=100"
         )
         self.assertEqual(
             rejected_size.text.count("data-relation-field-row"),
@@ -5852,7 +5957,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_readonly_field_matches_are_hidden_and_recovered_as_one_decision(
         self,
     ) -> None:
-        project_id, dataset, _business_key = self._mapping_ready_project(
+        workspace_id, dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=4,
             readonly_scalar_indexes=(1, 2),
         )
@@ -5883,7 +5988,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         )
         _revision, validation = context.mapping_workspace.check_definition(
-            project_id,
+            workspace_id,
             datasets=(mapping,),
             expected_parent_version=None,
             expected_working_draft_version=None,
@@ -5899,7 +6004,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ["field_0001"],
         )
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("Odoo manages 1 selected field", page.text)
@@ -5915,7 +6020,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         recovered = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "remove_readonly",
@@ -5934,7 +6039,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertNotIn("Odoo manages 1 selected field", recovered_page.text)
         working = context.mapping_workspace.mappings.get_mapping_working_draft(
-            project_id
+            workspace_id
         )
         self.assertEqual(working.version, 2)
         self.assertEqual(
@@ -5945,14 +6050,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_required_field_blocker_stays_visible_and_can_be_left_to_odoo(
         self,
     ) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
             required_scalar_indexes=(0,),
         )
         source_identity, _source_value = dataset.columns
         context = self.app.state.context
         _revision, validation = context.mapping_workspace.check_definition(
-            project_id,
+            workspace_id,
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
@@ -5974,7 +6079,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
         page = self.client.get(
-            f"/workspaces/{project_id}/mapping?field_query=not-visible"
+            f"/workspaces/{workspace_id}/mapping?field_query=not-visible"
         )
 
         self.assertEqual(page.status_code, 200)
@@ -6006,7 +6111,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn('data-target-field="field_0000"', page.text)
 
         decision = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:field_0000:odoo_default",
@@ -6021,7 +6126,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             decision.headers["location"].endswith("#next-step-blockers")
         )
         working = context.mapping_workspace.mappings.get_mapping_working_draft(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(working)
         assert working is not None
@@ -6058,7 +6163,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "target_field_disposition_0": "field_0000:odoo_default",
         }
         checked = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 **mapping_data,
                 "action": "draft",
@@ -6075,14 +6180,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("I reviewed this warning", checked_page.text)
         self.assertIn("Confirm field matches", checked_page.text)
         current_revision = context.mapping_workspace.mappings.get_mapping_revision(
-            project_id
+            workspace_id
         )
         current_working = (
-            context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
+            context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id)
         )
         current_validation = (
             context.mapping_workspace.mappings.get_mapping_validation(
-                project_id,
+                workspace_id,
                 current_revision.version,
             )
         )
@@ -6095,7 +6200,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         submitted = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={
                 "entries": [
                     *mapping_data.items(),
@@ -6114,7 +6219,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(submitted.status_code, 200)
         self.assertEqual(
             submitted.json()["redirect_url"],
-            f"/workspaces/{project_id}/prepare",
+            f"/workspaces/{workspace_id}/prepare",
         )
         submitted_page = self.client.get(submitted.json()["redirect_url"])
         self.assertIn("Field matches confirmed", submitted_page.text)
@@ -6123,14 +6228,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_required_field_decisions_keep_other_checked_items_available(
         self,
     ) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=2,
             required_scalar_indexes=(0, 1),
         )
         source_identity, _source_value = dataset.columns
         context = self.app.state.context
         _revision, validation = context.mapping_workspace.check_definition(
-            project_id,
+            workspace_id,
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
@@ -6152,7 +6257,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
         first_decision = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:field_0000:odoo_default",
@@ -6175,7 +6280,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         second_decision = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:field_0001:odoo_default",
@@ -6187,7 +6292,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(second_decision.status_code, 303)
         working = context.mapping_workspace.mappings.get_mapping_working_draft(
-            project_id
+            workspace_id
         )
         self.assertEqual(
             [
@@ -6200,7 +6305,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
     def test_required_managed_relationship_can_be_left_to_odoo(self) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
             relationship_field_count=1,
             relationship_field_type="one2many",
@@ -6209,7 +6314,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         source_identity = dataset.columns[0]
         context = self.app.state.context
         _revision, validation = context.mapping_workspace.check_definition(
-            project_id,
+            workspace_id,
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
@@ -6230,7 +6335,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertIn("Linked Field 0000 needs attention", page.text)
         self.assertIn(
             'value="set_disposition:0:relation_0000:odoo_managed"',
@@ -6238,7 +6343,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         decision = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "set_disposition:0:relation_0000:odoo_managed",
@@ -6250,7 +6355,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(decision.status_code, 303)
         working = context.mapping_workspace.mappings.get_mapping_working_draft(
-            project_id
+            workspace_id
         )
         self.assertEqual(
             working.definition.datasets[0]
@@ -6264,13 +6369,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_readonly_relationship_fields_are_hidden_without_shifting_indexes(
         self,
     ) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
             relationship_field_count=3,
             readonly_relationship_indexes=(1,),
         )
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn('data-target-field="relation_0000"', page.text)
@@ -6279,13 +6384,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('name="relation_source_0_2"', page.text)
 
     def test_large_mapping_catalog_is_paged_and_saved_sparsely(self) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1500
         )
         source_identity, source_value = dataset.columns
         context = self.app.state.context
         initial = context.mapping_workspace.save_working_draft(
-            project_id,
+            workspace_id,
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
@@ -6313,7 +6418,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(initial.version, 1)
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertEqual(page.text.count("data-scalar-mapping-row"), 3)
         self.assertIn("Showing 3 of 1500 fields", page.text)
@@ -6324,14 +6429,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertLess(page.text.count(source_value.stable_key), 100)
 
         last_page = self.client.get(
-            f"/workspaces/{project_id}/mapping?scalar_page=500"
+            f"/workspaces/{workspace_id}/mapping?scalar_page=500"
         )
         self.assertEqual(last_page.text.count("data-scalar-mapping-row"), 3)
         self.assertIn("field_1499", last_page.text)
         self.assertIn("scalar_page=500", last_page.text)
 
         expanded = self.client.get(
-            f"/workspaces/{project_id}/mapping?scalar_page_size=50"
+            f"/workspaces/{workspace_id}/mapping?scalar_page_size=50"
         )
         self.assertEqual(expanded.text.count("data-scalar-mapping-row"), 50)
         self.assertIn("field_0049", expanded.text)
@@ -6339,7 +6444,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('data-scalar-page-size="50"', expanded.text)
 
         rejected_size = self.client.get(
-            f"/workspaces/{project_id}/mapping?scalar_page_size=100"
+            f"/workspaces/{workspace_id}/mapping?scalar_page_size=100"
         )
         self.assertEqual(
             rejected_size.text.count("data-scalar-mapping-row"),
@@ -6348,7 +6453,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('data-scalar-page-size="3"', rejected_size.text)
 
         searched = self.client.get(
-            f"/workspaces/{project_id}/mapping?field_query=field_1499"
+            f"/workspaces/{workspace_id}/mapping?field_query=field_1499"
         )
         self.assertEqual(searched.status_code, 200)
         self.assertEqual(searched.text.count("data-scalar-mapping-row"), 1)
@@ -6356,7 +6461,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("field_0000</code>", searched.text)
 
         fragment = self.client.get(
-            f"/workspaces/{project_id}/mapping/field-catalog"
+            f"/workspaces/{workspace_id}/mapping/field-catalog"
             "?field_query=field_1499"
         )
         self.assertEqual(fragment.status_code, 200)
@@ -6388,7 +6493,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ["scalar_null_0_1", "distinct"],
         ]
         saved = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": entries},
             headers={
                 **POST_HEADERS,
@@ -6401,7 +6506,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("saved_at", saved.json())
         self.assertEqual(
             saved.json()["redirect_url"],
-            f"/workspaces/{project_id}/mapping#mapping-dataset-0",
+            f"/workspaces/{workspace_id}/mapping#mapping-dataset-0",
         )
         saved_again_entries = [list(entry) for entry in entries]
         for entry in saved_again_entries:
@@ -6410,7 +6515,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             elif entry[0] == "scalar_literal_0_1":
                 entry[1] = "Updated safely again"
         saved_again = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": saved_again_entries},
             headers={
                 **POST_HEADERS,
@@ -6422,7 +6527,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             saved_again.json()["expected_working_draft_version"],
             3,
         )
-        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id)
         self.assertEqual(working.version, 3)
         self.assertEqual(len(working.definition.datasets[0].fields), 1500)
         updated = {
@@ -6439,7 +6544,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         denied = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": entries},
             headers={
                 **POST_HEADERS,
@@ -6448,7 +6553,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(denied.status_code, 403)
         self.assertEqual(
-            context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
+            context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id).version,
             3,
         )
 
@@ -6463,7 +6568,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             elif item[0] == "expected_working_draft_version":
                 item[1] = "3"
         invalid = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": invalid_entries},
             headers={
                 **POST_HEADERS,
@@ -6475,12 +6580,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNone(invalid.json()["expected_parent_version"])
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(
-                project_id
+                workspace_id
             ).version,
             3,
         )
         self.assertIsNone(
-            context.mapping_workspace.mappings.get_mapping_revision(project_id)
+            context.mapping_workspace.mappings.get_mapping_revision(workspace_id)
         )
 
         retry_entries = [list(item) for item in entries]
@@ -6490,7 +6595,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             elif item[0] == "expected_parent_version":
                 item[1] = ""
         retried = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             json={"entries": retry_entries},
             headers={
                 **POST_HEADERS,
@@ -6499,7 +6604,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(retried.status_code, 200)
         self.assertEqual(
-            context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
+            context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id).version,
             4,
         )
 
@@ -6507,7 +6612,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             b"x" * (5 * 1024 * 1024)
         ) + b'"]]}'
         rejected = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             content=oversized,
             headers={
                 **POST_HEADERS,
@@ -6517,7 +6622,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 413)
         self.assertEqual(
-            context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
+            context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id).version,
             4,
         )
 
@@ -6525,7 +6630,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             [f"field_{index}=x" for index in range(25_001)]
         )
         recovered = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             content=excessive_form,
             headers={
                 **POST_HEADERS,
@@ -6539,7 +6644,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("No mapping change was saved", recovery_page.text)
 
     def test_saved_prepared_data_has_plain_recovery_ui(self) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
         )
         context = self.app.state.context
@@ -6563,7 +6668,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 return_value=None,
             ),
         ):
-            page = self.client.get(f"/workspaces/{project_id}/summary")
+            page = self.client.get(f"/workspaces/{workspace_id}/summary")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("Your prepared data is safe", page.text)
@@ -6578,7 +6683,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(
         self,
     ) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
         )
         context = self.app.state.context
@@ -6596,14 +6701,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         )
         revision, validation = context.mapping_workspace.check_definition(
-            project_id,
+            workspace_id,
             datasets=(mapping,),
             expected_parent_version=None,
             expected_working_draft_version=None,
             actor=context.actor,
         )
         submission = context.mapping_workspace.submit_current(
-            project_id,
+            workspace_id,
             datasets=(mapping,),
             expected_version=revision.version,
             expected_working_draft_version=1,
@@ -6611,14 +6716,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertNotEqual(validation.status, MappingValidationStatus.INVALID)
         self.assertIsNotNone(submission)
-        selection = context.sources.sources.get_source_selection(project_id)
+        selection = context.sources.sources.get_source_selection(workspace_id)
         assert selection is not None
         corrupted = json.loads(selection.to_json())
         corrupted["datasets"][0]["source"]["source_sha256"] = (
             "sha256:not-a-digest"
         )
         database_path = (
-            context.workspace_states.repository.workspace_directory(project_id) / "workspace-engine.duckdb"
+            context.workspace_states.repository.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )
         with context.workspace_states.repository._connect(database_path) as connection:
             connection.execute(
@@ -6628,7 +6733,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
 
         failed = self.client.post(
-            f"/workspaces/{project_id}/summary/check",
+            f"/workspaces/{workspace_id}/summary/check",
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -6636,7 +6741,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(failed.status_code, 303)
         self.assertIn(
-            f"/workspaces/{project_id}/preparation/",
+            f"/workspaces/{workspace_id}/preparation/",
             failed.headers["location"],
         )
         completed_job = _wait_for_preparation(
@@ -6645,10 +6750,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(completed_job["status"], "FAILED")
         self.assertTrue(completed_job["failure_code"])
-        self.assertIsNone(context.preflight.current_staging(project_id))
-        self.assertIsNone(context.quality.current_summary(project_id))
+        self.assertIsNone(context.preflight.current_staging(workspace_id))
+        self.assertIsNone(context.quality.current_summary(workspace_id))
         self.assertIsNone(
-            context.normalization.current_summary(project_id)
+            context.normalization.current_summary(workspace_id)
         )
         self.assertEqual(self.readiness_calls, [])
 
@@ -6672,20 +6777,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(retried_job["status"], "FAILED")
 
     def test_data_manager_can_save_an_optional_named_total(self) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
             numeric_field=True,
         )
         source_identity, source_value = dataset.columns
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertIn("Check a known total (optional)", page.text)
         self.assertIn("Allowed difference", page.text)
         self.assertNotIn("control_totals_json", page.text)
 
         saved = self.client.post(
-            f"/workspaces/{project_id}/mapping/save",
+            f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "save_progress",
@@ -6714,7 +6819,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(saved.status_code, 303)
         working = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
-                project_id
+                workspace_id
             )
         )
         control = working.definition.datasets[0].effective_control_totals[0]
@@ -6727,7 +6832,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_active_preparation_blocks_mapping_autosave_before_database_read(
         self,
     ) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
         )
         context = self.app.state.context
@@ -6737,16 +6842,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with patch.object(manager, "active", return_value=active):
             mapping_page = self.client.get(
-                f"/workspaces/{project_id}/mapping",
+                f"/workspaces/{workspace_id}/mapping",
                 follow_redirects=False,
             )
             autosave = self.client.post(
-                f"/workspaces/{project_id}/mapping/save",
+                f"/workspaces/{workspace_id}/mapping/save",
                 json={"entries": []},
                 headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
             )
 
-        progress_url = f"/workspaces/{project_id}/preparation/{active.job_id}"
+        progress_url = f"/workspaces/{workspace_id}/preparation/{active.job_id}"
         self.assertEqual(mapping_page.status_code, 303)
         self.assertEqual(mapping_page.headers["location"], progress_url)
         self.assertEqual(autosave.status_code, 409)
@@ -6754,14 +6859,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Wait for it to finish", autosave.json()["detail"])
 
     def test_data_manager_can_save_a_guided_business_data_check(self) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=2,
         )
         source_identity, source_value = dataset.columns
         context = self.app.state.context
         _revision, validation = (
             context.mapping_workspace.check_definition(
-                project_id,
+                workspace_id,
                 datasets=(
                     DatasetMapping(
                         dataset_id=dataset.dataset_id,
@@ -6802,7 +6907,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             MappingValidationStatus.INVALID,
         )
 
-        page = self.client.get(f"/workspaces/{project_id}/mapping")
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(page.status_code, 200)
         self.assertIn("Data checks", page.text)
         self.assertIn("Recommended checks are already on", page.text)
@@ -6810,7 +6915,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("ruleset_json", page.text)
 
         saved = self.client.post(
-            f"/workspaces/{project_id}/mapping/quality",
+            f"/workspaces/{workspace_id}/mapping/quality",
             data={
                 "csrf_token": self.csrf,
                 "quality_dataset_id": dataset.dataset_id,
@@ -6827,7 +6932,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 303)
-        ruleset = context.quality.quality.get_current_quality_ruleset(project_id)
+        ruleset = context.quality.quality.get_current_quality_ruleset(workspace_id)
         self.assertIsNotNone(ruleset)
         self.assertEqual(len(ruleset.manager_rules), 1)
         rule = ruleset.manager_rules[0]
@@ -6840,7 +6945,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Functional owner", restored.text)
 
     def test_failed_named_total_has_plain_review_ui_and_blocks_package(self) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
         )
         context = self.app.state.context
@@ -6890,9 +6995,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 return_value=report,
             ),
         ):
-            page = self.client.get(f"/workspaces/{project_id}/summary")
+            page = self.client.get(f"/workspaces/{workspace_id}/summary")
             package = self.client.post(
-                f"/workspaces/{project_id}/summary/package",
+                f"/workspaces/{workspace_id}/summary/package",
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
             )
@@ -6909,14 +7014,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_transformation_impact_uses_server_filters_and_100_row_pages(
         self,
     ) -> None:
-        project_id, dataset, business_key = self._mapping_ready_project(
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
         )
         source_identity, source_value = dataset.columns
         context = self.app.state.context
         revision, validation = (
             context.mapping_workspace.check_definition(
-                project_id,
+                workspace_id,
                 datasets=(
                     DatasetMapping(
                         dataset_id=dataset.dataset_id,
@@ -6982,7 +7087,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 )
             )
 
-        impact_url = f"/workspaces/{project_id}/mapping/transformation-impact"
+        impact_url = f"/workspaces/{workspace_id}/mapping/transformation-impact"
         first_visit = self.client.get(impact_url)
         self.assertIn("Prepare the comparison", first_visit.text)
         self.assertIn("data-transformation-impact-prepare", first_visit.text)
@@ -7040,17 +7145,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_schema_governance_keeps_duplicate_fields_out_of_one_rule(
         self,
     ) -> None:
-        project_id, _dataset, original_key = self._mapping_ready_project(
+        workspace_id, _dataset, original_key = self._mapping_ready_workspace(
             scalar_field_count=1,
         )
         context = self.app.state.context
         original_governance = (
-            context.schema_workspace.schemas.get_schema_governance(project_id)
+            context.schema_workspace.schemas.get_schema_governance(workspace_id)
         )
         self.assertIsNotNone(original_governance)
 
         duplicate_simple = self.client.post(
-            f"/workspaces/{project_id}/schema/govern",
+            f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "ref",
@@ -7089,7 +7194,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         )
         unchanged_governance = (
-            context.schema_workspace.schemas.get_schema_governance(project_id)
+            context.schema_workspace.schemas.get_schema_governance(workspace_id)
         )
         self.assertIsNotNone(unchanged_governance)
         self.assertEqual(
@@ -7099,7 +7204,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(unchanged_governance.business_keys, (original_key,))
 
         duplicate_combined = self.client.post(
-            f"/workspaces/{project_id}/schema/govern",
+            f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "",
@@ -7116,7 +7221,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Repeated combined reference", duplicate_combined.text)
 
         valid = self.client.post(
-            f"/workspaces/{project_id}/schema/govern",
+            f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
                 "primary_key_field_0": "field_0000",
@@ -7131,7 +7236,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(valid.status_code, 303)
         saved_governance = (
-            context.schema_workspace.schemas.get_schema_governance(project_id)
+            context.schema_workspace.schemas.get_schema_governance(workspace_id)
         )
         self.assertIsNotNone(saved_governance)
         self.assertEqual(
@@ -7153,15 +7258,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_preparation_worker_and_progress_page_do_not_open_locked_databases(
         self,
     ) -> None:
-        project_id, _dataset, _business_key = self._mapping_ready_project(
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
         )
         context = self.app.state.context
-        project = context.queries.get(project_id)
-        selection = context.queries.get_source_selection(project_id)
+        workspace_state = context.queries.get(workspace_id)
+        selection = context.queries.get_source_selection(workspace_id)
         assert selection is not None
         migration_workspace = context.migration_workspaces.get(
-            project_id,
+            workspace_id,
             actor=context.actor,
         )
         workspace = PreparationWorkspace.from_context(
@@ -7180,20 +7285,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
         root = Path(self.temporary.name)
         registry_path = root / "registry.duckdb"
         project_path = (
-            context.workspace_states.repository.workspace_directory(project_id)
+            context.workspace_states.repository.workspace_directory(workspace_id)
             / "workspace-engine.duckdb"
         )
 
         with _spawned_duckdb_locks(registry_path):
             job = manager.enqueue(
-                project_id,
-                project.name,
+                workspace_id,
+                workspace_state.name,
                 sum(item.row_count for item in selection.datasets),
                 actor=context.actor,
                 workspace=workspace,
             )
             progress_url = (
-                f"/workspaces/{project_id}/preparation/{job.job_id}"
+                f"/workspaces/{workspace_id}/preparation/{job.job_id}"
             )
             completed = _wait_for_preparation(
                 self.client,
@@ -7221,7 +7326,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn('aria-current="page"', progress_page.text)
 
-    def _mapping_ready_project(
+    def _mapping_ready_workspace(
         self,
         *,
         scalar_field_count: int,
@@ -7257,9 +7362,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context.workspace_states.repository.save(
             registered,
             expected_revision=created.revision,
-            event_type="TEST_PROJECT_REGISTERED",
+            event_type="WORKSPACE_REGISTERED",
             event_detail="",
             actor=context.actor,
+        )
+        _replace_run_target_setup(
+            context,
+            registered.workspace_id,
+            connection_mode=OdooConnectionMode.LOCAL,
+            base_url="http://127.0.0.1:8069",
+            database="odoo19_local",
         )
         dataset = SourceDataset(
             dataset_id="dataset:large",
@@ -7280,7 +7392,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         )
         migration_workspace = context.migration_workspaces.get(
-            registered.project_id,
+            registered.workspace_id,
             actor=context.actor,
         )
         data_version = context.data_versions.get(
@@ -7294,10 +7406,37 @@ class ProjectSetupWizardTests(unittest.TestCase):
         assert current_package is not None
         source_file_id = str(uuid4())
         source_hash = "sha256:" + "1" * 64
+        source_catalog = SourceFileCatalog(
+            contract_version=CATALOG_CONTRACT_VERSION,
+            file_id=source_file_id,
+            display_name="large-contacts.csv",
+            source_sha256=source_hash,
+            source_size_bytes=128,
+            format="CSV",
+            inspected_at=now,
+            encoding="utf-8",
+            delimiter=",",
+            tables=(
+                SourceTableCatalog(
+                    table_key="contacts",
+                    name="large_contacts",
+                    kind="CSV",
+                    hidden=False,
+                    header_row=1,
+                    row_count=1,
+                    column_count=2,
+                    columns=(
+                        _source_column_profile(1, "Reference", "P001"),
+                        _source_column_profile(2, "Value", "Example"),
+                    ),
+                    preview_rows=(("P001", "Example"),),
+                ),
+            ),
+        )
         package_catalog = SourcePackageCatalog(
             file_id=source_file_id,
             source_sha256=source_hash,
-            payload={"format": "CSV", "tables": ["large_contacts"]},
+            payload=json.loads(source_catalog.to_json()),
         )
         package_dataset = SourcePackageDataset(
             dataset_id=dataset.dataset_id,
@@ -7363,7 +7502,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             operation_id=str(uuid4()),
         )
         context.data_version_source_projection.projections.materialize(
-            registered.project_id,
+            registered.workspace_id,
             actor=context.actor,
             dataset_ids=(dataset.dataset_id,),
             expected_workspace_revision=(
@@ -7374,14 +7513,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=registered.project_id,
+            data_version_id=data_version.data_version_id,
             created_at=now,
             created_by=context.actor.identity.display_name,
             datasets=(dataset,),
             content_hash="sha256:" + "3" * 64,
         )
         context.sources.sources.save_source_selection(
-            registered.project_id,
+            registered.workspace_id,
             selection,
             actor=context.actor,
         )
@@ -7439,7 +7578,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
         )
         schema = OdooSchemaCatalog(
-            project_id=registered.project_id,
+            workspace_id=registered.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=now,
             captured_by=context.actor.identity.display_name,
@@ -7456,7 +7595,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             connection_target_hash=_browser_schema(registered).fingerprint.target_hash,
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
-            registered.project_id,
+            registered.workspace_id,
             schema,
             actor=context.actor,
         )
@@ -7470,7 +7609,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         governance = SchemaGovernance(
             governance_id=str(uuid4()),
             version=1,
-            project_id=registered.project_id,
+            workspace_id=registered.workspace_id,
             catalog_hash=schema.content_hash,
             permitted_models=("res.partner",),
             business_keys=(business_key,),
@@ -7478,11 +7617,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             recorded_by=context.actor.identity.display_name,
         )
         context.schema_workspace.schemas.save_schema_governance(
-            registered.project_id,
+            registered.workspace_id,
             governance,
             actor=context.actor,
         )
-        return registered.project_id, dataset, business_key
+        return registered.workspace_id, dataset, business_key
 
     def _post(self, path: str, data: dict[str, str]):
         submitted = dict(data)
@@ -7503,16 +7642,16 @@ def _csrf(html: str) -> str:
     return matched.group(1)
 
 
-def _browser_schema(project) -> MetadataSnapshot:
+def _browser_schema(workspace_state) -> MetadataSnapshot:
     return MetadataSnapshot(
         fingerprint=TargetFingerprint(
             target_hash=target_identity_hash(
-                connection_mode=project.odoo_connection_mode.value,
-                base_url=project.odoo_base_url,
-                database=project.odoo_database,
+                connection_mode=workspace_state.odoo_connection_mode.value,
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
             ),
-            connection_mode=project.odoo_connection_mode.value,
-            database=project.odoo_database,
+            connection_mode=workspace_state.odoo_connection_mode.value,
+            database=workspace_state.odoo_database,
             odoo_version="19.0",
             snapshot_timestamp="2026-07-29T12:00:00Z",
             module_versions={"base": "19.0.1.0"},
@@ -7589,8 +7728,8 @@ def _browser_schema(project) -> MetadataSnapshot:
 
 
 class _BrowserOdooCaptureGateway:
-    def __init__(self, project, schema: OdooSchemaCatalog) -> None:
-        self.project = project
+    def __init__(self, workspace_state, schema: OdooSchemaCatalog) -> None:
+        self.workspace_state = workspace_state
         self.schema = schema
         self.now = datetime.now(timezone.utc)
         self.calls: list[str] = []
@@ -7617,7 +7756,7 @@ class _BrowserOdooCaptureGateway:
 
     def probe_schema(self, request, context, *, cancellation=None):
         self.calls.append("schema")
-        return _browser_schema(self.project)
+        return _browser_schema(self.workspace_state)
 
     def open_capture(self, request, context, *, cancellation=None):
         self.calls.append("open")
@@ -7667,15 +7806,15 @@ class _BrowserOdooCaptureSession:
         return self._accounting
 
 
-def _browser_model_catalog(project) -> RecordSnapshot:
+def _browser_model_catalog(workspace_state) -> RecordSnapshot:
     fingerprint = TargetFingerprint(
         target_hash=target_identity_hash(
-            connection_mode=project.odoo_connection_mode.value,
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
+            connection_mode=workspace_state.odoo_connection_mode.value,
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
         ),
-        connection_mode=project.odoo_connection_mode.value,
-        database=project.odoo_database,
+        connection_mode=workspace_state.odoo_connection_mode.value,
+        database=workspace_state.odoo_database,
         odoo_version="19.0",
         snapshot_timestamp="2026-07-30T12:00:00Z",
         module_versions={"base": "19.0.1.0"},

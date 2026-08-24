@@ -1,4 +1,4 @@
-"""Create the exact isolated MigrationWorkspace store generation for M2."""
+"""Create the exact isolated MigrationWorkspace reference store."""
 
 from __future__ import annotations
 
@@ -8,9 +8,10 @@ import duckdb
 
 from ....migration_foundation import MigrationStorageCompatibilityError
 from ....migration_workspaces import MigrationWorkspace
+from ....workspace_access import WorkspaceAccessContext
 
 
-MIGRATION_WORKSPACE_GENERATION = "impodo-migration-workspace-2026-08-m2"
+MIGRATION_WORKSPACE_GENERATION = "impodo-migration-workspace-2026-08-reference-only"
 MIGRATION_WORKSPACE_VERSION = 1
 EXPECTED_WORKSPACE_STORE_COLUMNS = {
     "schema_version": ("singleton_id", "generation", "version"),
@@ -93,6 +94,26 @@ def ensure_migration_workspace_store(
     database_path: Path,
     workspace: MigrationWorkspace,
 ) -> None:
+    ensure_workspace_linkage(
+        connection,
+        database_path,
+        WorkspaceAccessContext(
+            project_id=workspace.project_id,
+            workspace_id=workspace.workspace_id,
+            data_version_id=workspace.data_version_id,
+            migration_run_id=workspace.migration_run_id,
+            recipe_application_id=workspace.recipe_application_id,
+        ),
+    )
+
+
+def ensure_workspace_linkage(
+    connection: duckdb.DuckDBPyConnection,
+    database_path: Path,
+    expected: WorkspaceAccessContext,
+) -> None:
+    """Reject old, mixed, or cross-wired workspace stores before evidence reads."""
+
     try:
         matches = _matches_exact_schema(connection)
     except duckdb.Error as error:
@@ -108,11 +129,11 @@ def ensure_migration_workspace_store(
         """
     ).fetchone()
     if row != (
-        workspace.workspace_id,
-        workspace.project_id,
-        workspace.data_version_id,
-        workspace.migration_run_id,
-        workspace.recipe_application_id,
+        expected.workspace_id,
+        expected.project_id,
+        expected.data_version_id,
+        expected.migration_run_id,
+        expected.recipe_application_id,
     ):
         raise _compatibility_error(database_path)
 

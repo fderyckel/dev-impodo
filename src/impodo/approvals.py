@@ -6,7 +6,7 @@ for a future clean-package/import-plan workflow: no application service,
 repository, browser route, or executor currently creates or consumes them.
 Their presence must not be interpreted as Odoo write authorization.
 
-Stages J–K remain outside this module. The practical local writer and journal
+Stages J-K remain outside this module. The practical local writer and journal
 do not consume these optional higher-risk approvals, and post-write
 reconciliation is not implemented yet.
 """
@@ -108,7 +108,7 @@ class FrozenExportPlan:
     """
 
     plan_id: str
-    project_id: str
+    workspace_id: str
     run_id: str
     source_hashes: Mapping[str, str]
     mapping_hash: str
@@ -117,16 +117,16 @@ class FrozenExportPlan:
     target_snapshot_hash: str
     actions_hash: str
     frozen_at: datetime
-    contract_version: int = 2
+    contract_version: int = 3
 
     def __post_init__(self) -> None:
-        for name in ("plan_id", "project_id", "run_id"):
+        for name in ("plan_id", "workspace_id", "run_id"):
             object.__setattr__(
                 self,
                 name,
                 _required_text(getattr(self, name), name),
             )
-        if self.contract_version != 2:
+        if self.contract_version != 3:
             raise ValueError("unsupported export-plan contract version")
         if self.frozen_at.utcoffset() is None:
             raise ValueError("frozen_at must be timezone-aware")
@@ -164,7 +164,7 @@ class FrozenExportPlan:
             "frozen_at": self.frozen_at.isoformat(),
             "mapping_hash": self.mapping_hash,
             "plan_id": self.plan_id,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "ruleset_hash": self.ruleset_hash,
             "run_id": self.run_id,
             "source_hashes": dict(self.source_hashes),

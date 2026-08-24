@@ -24,7 +24,8 @@ MigrationProject
 |-- DataVersion 1..many
 |   `-- complete immutable source package
 |-- MigrationRun 1..many
-|   |-- one TargetBinding and unioned requirement plan
+|   |-- one mutable target setup before capture
+|   |-- one immutable TargetBinding and unioned requirement plan
 |   `-- RecipeApplication 0..many
 |       `-- one isolated MigrationWorkspace
 |           |-- bounded DataVersion dataset references
@@ -46,20 +47,47 @@ restart-safe workflow. It does not create a Recipe. The Project overview at
 `/projects/{project_id}` shows the bounded registry projection and opens the
 authoring work through `/workspaces/{workspace_id}`.
 
+The registry also owns the workspace's `DRAFT` or `READY` setup state and its
+optimistic revision. The contained engine has no independent workspace
+lifecycle. Its flat `WorkspaceState` API is a workbench projection keyed by
+`workspace_id`, not another identity or aggregate root. The engine persists a
+singleton `workspace_projection_cache` with no embedded Project, DataVersion,
+run, or workspace identity.
+
+Every authenticated `/workspaces/{workspace_id}` request resolves one verified
+`WorkspaceAccessContext` from the registry before route code opens a contained
+store or external boundary. Authorization uses the context's genuine parent
+Project ID. The request reuses that immutable lineage, and Odoo capture and
+load workers receive the same context instead of separate UUID strings.
+Missing, wrong-kind, mismatched, and inaccessible workspace identities return
+the same opaque result before workspace evidence, credentials, protected
+artifacts, or Odoo adapters open.
+
 ## Source and workspace boundary
 
-One DataVersion owns the complete accepted source package: immutable file
+One DataVersion owns the complete draft and accepted source package: immutable file
 references, inspection catalogues, parsing confirmations, logical datasets,
 source-snapshot references, and protected Odoo capture references when the
 source is Odoo. Source bytes, snapshots, and protected Odoo origin sidecars are
 stored under the DataVersion identity.
 
 A MigrationWorkspace stores only the dataset identities and snapshot hashes
-it selects from that frozen package. The mapping engine reads those contracts
-through `WorkspaceMappingSourceProjection`; it does not copy the DataVersion
-database, source bytes, or source rows. Preparation workers receive the exact
-Project, DataVersion, run, and workspace identities before spawn and verify
-the isolated stores without opening the shared registry.
+it selects from that frozen package in `workspace.duckdb`. The mapping engine
+reads those contracts through `WorkspaceMappingSourceProjection`; it does not
+copy the DataVersion database, source bytes, or source rows. During Authoring,
+the contained engine retains bounded invalidation caches for draft source
+inspection decisions, while canonical catalogues and confirmations are read
+from and written to the DataVersion package. Preparation workers receive the
+exact Project, DataVersion, run, application, and workspace identities before
+spawn and verify both isolated stores against `workspace_linkage` before
+reading evidence.
+
+One MigrationRun owns the mutable Odoo target choice used during setup. A
+successful target capture replaces that draft choice with an immutable
+`TargetBinding`; neither value belongs to an individual workspace. Workspace
+pages receive an explicit `WorkspaceOwnerView` containing the Project,
+MigrationWorkspace, DataVersion, MigrationRun, source package, and optional
+run target setup.
 
 ## Optional Recipe publication
 
@@ -98,15 +126,14 @@ The authoring workspace retains the six data-manager stages:
 6. **Load into Odoo** requires explicit confirmation, records each write, and
    reconciles the committed result.
 
-Completing these stages does not require Recipe publication. M4 can plan one
-integrated Test run over several exact Recipe revisions and create fresh,
-isolated application drafts. M5 binds that run to an immutable CutoverPlan
-revision, requires ordered execution and verified read-back in every
-application, publishes exact integrated qualification, and records rollout
-selection separately. M6 applies that exact selected meaning to a fresh
-Production DataVersion and different Odoo 19 target with independent
-credentials and evidence. The Project-owned flow does not restore the
-superseded Recipe-owned lifecycle.
+Completing these stages does not require Recipe publication. A Project can plan
+one integrated Test run over several exact Recipe revisions and create fresh,
+isolated application drafts. The Project binds that run to an immutable
+CutoverPlan revision, requires ordered execution and verified read-back in
+every application, publishes exact integrated qualification, and records
+rollout selection separately. Production applies that selected meaning to a
+fresh DataVersion and different Odoo 19 target with independent credentials
+and evidence.
 
 ## Integrated Test run boundary
 
@@ -115,6 +142,9 @@ planner selects only each Recipe's logical datasets, validates the dependency
 graph and conservative field-level write ownership, and provisions one
 workspace per application. The run captures one filtered Odoo 19 schema and
 one filtered supporting-reference bundle for the union of requirements.
+`MigrationRunTargetSchema` and `MigrationRunReferenceBundle` carry the
+`migration_run_id`; they retain the source workspace provenance without
+pretending that the run UUID is a workspace UUID.
 
 Run-aware adapters expose only an application's required slice to the existing
 mapping services and reject per-application target recapture. Integrated
@@ -155,8 +185,8 @@ checked again before writer construction.
 <root>/registry.duckdb
 <root>/.recipes-protected/
 <root>/.project-evidence-protected/
-<root>/artifacts/<data_version_id>/
-<root>/artifacts/<workspace_id>/
+<root>/artifacts/dv/<data_version_id>/
+<root>/artifacts/ws/<workspace_id>/
 <root>/projects/<project_id>/data_versions/<data_version_id>/data-version.duckdb
 <root>/projects/<project_id>/workspaces/<workspace_id>/workspace.duckdb
 <root>/projects/<project_id>/workspaces/<workspace_id>/workspace-engine.duckdb
@@ -167,13 +197,16 @@ Production activation, Recipe application, workspace, Recipe, issue, and
 operation projections. The
 DataVersion database stores the source package. The small workspace database
 stores exact source references. `workspace-engine.duckdb` is the contained current
-mapping engine state; its historical filename is not a Project aggregate
-identity.
+mapping engine state. Its schema uses workspace-owned field names and audit
+facts; the historical filename is not a Project aggregate identity. Every
+workspace-store or engine open verifies the complete Project, workspace,
+DataVersion, run, and optional application linkage first.
 
-Impodo opens only the exact M6 registry generation and unchanged exact M2
-DataVersion/workspace-store generations. Earlier development or Recipe-first
-storage is rejected without mutation and requires the reviewed development
-reset. There is no upgrade, adoption, backfill, alias, or dual-write path.
+Impodo opens only the exact current registry, DataVersion, workspace-store,
+and `impodo-workspace-engine-2026-08-workspace-owned` engine generations. Earlier
+development, mixed-owner, or Recipe-first storage is rejected without
+mutation and requires the reviewed development reset. There is no upgrade,
+adoption, backfill, identity alias, or dual-write compatibility path.
 
 ## Odoo and performance boundaries
 
@@ -187,7 +220,10 @@ currently opens only its one Authoring workspace when computing Recipe
 publication readiness; it does not open a workspace per Project, DataVersion,
 run, Recipe, or list row. Odoo readers batch fields and records per model,
 comparison builds reusable indexes, and no workflow may introduce one Odoo or
-repository call per source row.
+repository call per source row. One normal workspace request resolves one
+Project-owned lineage row. A progress request for a verified preparation,
+Odoo-capture, or load job reuses its immutable lineage packet and performs no
+second registry read.
 
 ## Main implementation boundaries
 
@@ -198,6 +234,7 @@ repository call per source row.
 | Project-native creation | `application/migration_project_authoring_service.py` |
 | DataVersion source ownership | `data_version_sources.py`, `application/workspace_data_version_source_service.py` |
 | Mapping read projection | `application/workspace_source_projection.py` |
+| Owner-specific artifact storage | `artifacts.py` (`DataVersionSourceArtifactStore`, `WorkspaceArtifactStore`) |
 | Optional Recipe publication | `recipes.py`, `application/recipe_publication_service.py`, `adapters/duckdb/recipe_repository.py` |
 | Integrated Test planning | `migration_run_planning.py`, `application/migration_run_planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
 | Fresh Recipe application | `application/recipe_application_service.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |

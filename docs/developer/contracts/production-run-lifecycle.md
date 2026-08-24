@@ -11,7 +11,7 @@ status: current
 This contract governs use of one selected qualified CutoverPlan with a fresh
 complete Production DataVersion and a different compatible Odoo 19 target. It
 defines setup, activation, evidence separation, execution authority, recovery,
-and bounded persistence. The current M6 path accepts file-source plans only;
+and bounded persistence. The current Production path accepts file-source plans only;
 Odoo-source round-trip writes remain unsupported.
 
 ## Fresh identities and ownership
@@ -90,9 +90,9 @@ and source dataset references without source copying.
 
 ## Verification
 
-- `tests/test_migration_project_phase_m6_production_rollout.py`
-- `tests/test_migration_project_phase_m5_cutover_qualification.py`
-- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
+- `tests/test_production_rollout.py`
+- `tests/test_cutover_qualification.py`
+- `tests/test_integrated_recipe_runs.py`
 
 ## Related documentation
 

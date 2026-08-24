@@ -24,9 +24,9 @@ from .domain.coverage import ReferenceBundle
 from .staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun, StagingDisposition
 
 
-QUALITY_CONTRACT_VERSION = 2
+QUALITY_CONTRACT_VERSION = 3
 QUALITY_EVALUATOR_VERSION = 2
-QUALITY_RULESET_CONTRACT_VERSION = 2
+QUALITY_RULESET_CONTRACT_VERSION = 3
 MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
     "REQUIRED_VALUES",
@@ -231,7 +231,7 @@ class QualityRuleSet:
     """Versioned rule contract bound to one mapping and schema hash."""
 
     ruleset_id: str
-    project_id: str
+    workspace_id: str
     version: int
     parent_version: int | None
     mapping_hash: str
@@ -244,7 +244,7 @@ class QualityRuleSet:
     def __post_init__(self) -> None:
         if self.contract_version != QUALITY_RULESET_CONTRACT_VERSION:
             raise ValueError("Quality-rule contract version is unsupported")
-        if not self.ruleset_id or not self.project_id or self.version < 1:
+        if not self.ruleset_id or not self.workspace_id or self.version < 1:
             raise ValueError("Quality-rule set identity is invalid")
         if self.parent_version is not None and self.parent_version >= self.version:
             raise ValueError("Quality-rule parent version is invalid")
@@ -293,7 +293,7 @@ class QualityRuleSet:
 
         payload = {
             "contract_version": self.contract_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "mapping_hash": self.mapping_hash,
             "schema_hash": self.schema_hash,
             "rules": [item.to_portable_dict() for item in self.rules],
@@ -314,7 +314,7 @@ class QualityRuleSet:
         payload = {
             "contract_version": self.contract_version,
             "ruleset_id": self.ruleset_id,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "version": self.version,
             "parent_version": self.parent_version,
             "mapping_hash": self.mapping_hash,
@@ -339,7 +339,7 @@ class QualityRuleSet:
         ruleset = cls(
             contract_version=int(payload["contract_version"]),
             ruleset_id=str(payload["ruleset_id"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             version=int(payload["version"]),
             parent_version=(int(payload["parent_version"]) if payload.get("parent_version") is not None else None),
             mapping_hash=str(payload["mapping_hash"]),
@@ -610,7 +610,7 @@ class QualityRun:
     ``quarantine`` routes correctable records. The run is the input to Stage G.
     """
 
-    project_id: str
+    workspace_id: str
     staging_content_hash: str
     ruleset_hash: str
     mapping_hash: str
@@ -633,7 +633,7 @@ class QualityRun:
         if self.effective_dataset_hash is None:
             raise ValueError("Current quality evidence requires an effective dataset")
         _require_hash(self.effective_dataset_hash, "quality effective-dataset hash")
-        if not self.project_id:
+        if not self.workspace_id:
             raise ValueError("Quality evidence identity is incomplete")
         for value, label in ((self.staging_content_hash, "quality staging hash"), (self.ruleset_hash, "quality ruleset hash"), (self.mapping_hash, "quality mapping hash"), (self.schema_hash, "quality schema hash"), (self.retention_context_hash, "quality retention hash")):
             _require_hash(value, label)
@@ -725,7 +725,7 @@ class QualityRun:
         payload = {
             "contract_version": self.contract_version,
             "evaluator_version": self.evaluator_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "staging_content_hash": self.staging_content_hash,
             "ruleset_hash": self.ruleset_hash,
             "mapping_hash": self.mapping_hash,
@@ -753,7 +753,7 @@ class QualityRun:
         run = cls(
             contract_version=int(payload["contract_version"]),
             evaluator_version=int(payload.get("evaluator_version", 0)),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
             ruleset_hash=str(payload["ruleset_hash"]),
             mapping_hash=str(payload["mapping_hash"]),
@@ -790,7 +790,7 @@ class StoredQualityRun:
     order while the application avoids retaining every object at once.
     """
 
-    project_id: str
+    workspace_id: str
     staging_content_hash: str
     ruleset_hash: str
     mapping_hash: str
@@ -813,7 +813,7 @@ class StoredQualityRun:
             or self.evaluator_version != QUALITY_EVALUATOR_VERSION
         ):
             raise ValueError("Quality evidence version is unsupported")
-        if not self.project_id:
+        if not self.workspace_id:
             raise ValueError("Quality evidence identity is incomplete")
         for value, label in (
             (self.staging_content_hash, "quality staging hash"),
@@ -886,7 +886,7 @@ class QualityRunSummary:
     """Small lifecycle/count projection for the currently published run."""
 
     run_id: str
-    project_id: str
+    workspace_id: str
     content_hash: str
     staging_run_id: str
     staging_content_hash: str
@@ -936,7 +936,7 @@ class QualityReviewPage:
 
 def default_quality_ruleset(
     *,
-    project_id: str,
+    workspace_id: str,
     mapping_hash: str,
     schema_hash: str,
     datasets: Iterable[str],
@@ -961,7 +961,7 @@ def default_quality_ruleset(
             name, explanation = labels[family]
             rules.append(
                 QualityRule(
-                    rule_id=_rule_id(project_id, dataset, family, name),
+                    rule_id=_rule_id(workspace_id, dataset, family, name),
                     dataset=dataset,
                     family=family,
                     name=name,
@@ -974,10 +974,10 @@ def default_quality_ruleset(
                 )
             )
     rules.extend(manager_rules)
-    ruleset_id = "quality:" + sha256(project_id.encode("utf-8")).hexdigest()[:32]
+    ruleset_id = "quality:" + sha256(workspace_id.encode("utf-8")).hexdigest()[:32]
     return QualityRuleSet(
         ruleset_id=ruleset_id,
-        project_id=project_id,
+        workspace_id=workspace_id,
         version=version,
         parent_version=parent_version,
         mapping_hash=mapping_hash,
@@ -988,7 +988,7 @@ def default_quality_ruleset(
 
 def manager_quality_rule(
     *,
-    project_id: str,
+    workspace_id: str,
     dataset: str,
     family: QualityRuleFamily,
     name: str,
@@ -1003,7 +1003,7 @@ def manager_quality_rule(
         raise ValueError("Business checks must use a guided cross-field rule")
     fields = tuple(input_fields)
     return QualityRule(
-        rule_id=_rule_id(project_id, dataset, family, name, fields, parameters or {}, outcome.value, owner_role.value),
+        rule_id=_rule_id(workspace_id, dataset, family, name, fields, parameters or {}, outcome.value, owner_role.value),
         dataset=dataset,
         family=family,
         name=name,
@@ -1016,23 +1016,21 @@ def manager_quality_rule(
     )
 
 
-def retention_context_hash(project: WorkspaceState) -> str:
-    """Hash project ownership, retention, and classification policy inputs."""
+def retention_context_hash(workspace_state: WorkspaceState) -> str:
+    """Hash the retained classification and retention policy inputs."""
 
     return _hash(
         {
-            "project_id": project.project_id,
-            "data_manager": project.data_manager,
-            "functional_owner": project.functional_owner,
-            "retention_days": project.retention_days,
-            "data_classification": project.data_classification.value,
+            "workspace_id": workspace_state.workspace_id,
+            "retention_days": workspace_state.retention_days,
+            "data_classification": workspace_state.data_classification.value,
         }
     )
 
 
 def evaluate_quality(
     *,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     staging: CanonicalStagingRun,
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
@@ -1042,15 +1040,15 @@ def evaluate_quality(
 ) -> QualityRun:
     """Evaluate a complete quality overlay without database or Odoo access."""
 
-    if staging.project_id != project.project_id or ruleset.project_id != project.project_id:
-        raise QualityError("Quality evidence belongs to another project")
+    if staging.workspace_id != workspace_state.workspace_id or ruleset.workspace_id != workspace_state.workspace_id:
+        raise QualityError("Quality evidence belongs to another workspace")
     if ruleset.mapping_hash != staging.mapping_hash or ruleset.schema_hash != staging.schema_hash:
         raise QualityError("Data checks no longer match the submitted field matches")
     staging_content_hash = (
         published_staging_content_hash or staging.content_hash
     )
     if effective is not None and (
-        effective.project_id != project.project_id
+        effective.workspace_id != workspace_state.workspace_id
         or effective.staging_content_hash != staging_content_hash
     ):
         raise QualityError("Resolved data no longer matches current prepared data")
@@ -1063,7 +1061,7 @@ def evaluate_quality(
     ruleset_hash = ruleset.content_hash
     if ruleset.reference_bundle_hash is not None and (
         reference_bundle is None
-        or reference_bundle.project_id != project.project_id
+        or reference_bundle.workspace_id != workspace_state.workspace_id
         or reference_bundle.content_hash != ruleset.reference_bundle_hash
     ):
         raise QualityError("Approved reference data is missing or has changed")
@@ -1092,7 +1090,7 @@ def evaluate_quality(
         if family.value in MANDATORY_QUALITY_FAMILIES and (dataset.dataset, family) not in rules_by_family
     ]
     for dataset, family in missing:
-        issue = _setup_issue(project, dataset, family, "QUALITY_RULE_MISSING", "An automatic data check is missing. Restore the recommended checks before continuing.")
+        issue = _setup_issue(workspace_state, dataset, family, "QUALITY_RULE_MISSING", "An automatic data check is missing. Restore the recommended checks before continuing.")
         issue_map[issue.issue_id] = issue
     available_fields: dict[str, set[str]] = {}
     rows_by_dataset: dict[str, list[CanonicalRow]] = {}
@@ -1116,7 +1114,7 @@ def evaluate_quality(
         if rule.rule_id not in invalid_manager_rules:
             continue
         issue = _setup_issue(
-            project,
+            workspace_state,
             rule.dataset,
             rule.family,
             "QUALITY_RULE_FIELD_MISSING",
@@ -1129,7 +1127,7 @@ def evaluate_quality(
         if rule.rule_id not in invalid_advanced_rules:
             continue
         issue = _setup_issue(
-            project,
+            workspace_state,
             rule.dataset,
             rule.family,
             "QUALITY_RULE_FIELD_MISSING",
@@ -1145,7 +1143,7 @@ def evaluate_quality(
             if rule is None:
                 continue
             policy = QualityOutcomePolicy.WARNING if item.severity == "warning" else rule.outcome
-            issue = _quality_issue(project, rule, row, item.code, item.message, (item.field,) if item.field else (), policy=policy)
+            issue = _quality_issue(workspace_state, rule, row, item.code, item.message, (item.field,) if item.field else (), policy=policy)
             issue_map[issue.issue_id] = issue
             row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
@@ -1167,11 +1165,11 @@ def evaluate_quality(
                 if rule is None:
                     continue
                 policy = QualityOutcomePolicy.WARNING if item.severity == "warning" else rule.outcome
-                issue = _quality_issue(project, rule, row, item.code, item.message, (item.field,) if item.field else (), policy=policy)
+                issue = _quality_issue(workspace_state, rule, row, item.code, item.message, (item.field,) if item.field else (), policy=policy)
                 issue_map[issue.issue_id] = issue
                 row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
         elif item.dataset:
-            issue = _setup_issue(project, item.dataset, _family_for_issue(item), item.code, item.message)
+            issue = _setup_issue(workspace_state, item.dataset, _family_for_issue(item), item.code, item.message)
             issue_map[issue.issue_id] = issue
 
     collision_groups: dict[bytes, CanonicalRow | list[CanonicalRow]] = {}
@@ -1193,7 +1191,7 @@ def evaluate_quality(
             rule = rules_by_family.get((row.dataset, QualityRuleFamily.IDENTITY_COLLISION))
             if rule is None:
                 continue
-            issue = _quality_issue(project, rule, row, "POST_TRANSFORM_IDENTITY_COLLISION", f"{len(group)} prepared records would use the same Odoo match. All were set aside for review.", (), policy=rule.outcome)
+            issue = _quality_issue(workspace_state, rule, row, "POST_TRANSFORM_IDENTITY_COLLISION", f"{len(group)} prepared records would use the same Odoo match. All were set aside for review.", (), policy=rule.outcome)
             issue_map[issue.issue_id] = issue
             row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
@@ -1207,7 +1205,7 @@ def evaluate_quality(
             failed, reason = _business_rule_failed(rule, row)
             if not failed:
                 continue
-            issue = _quality_issue(project, rule, row, "BUSINESS_CHECK_FAILED", reason, rule.input_fields, policy=rule.outcome)
+            issue = _quality_issue(workspace_state, rule, row, "BUSINESS_CHECK_FAILED", reason, rule.input_fields, policy=rule.outcome)
             issue_map[issue.issue_id] = issue
             row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
@@ -1230,7 +1228,7 @@ def evaluate_quality(
             if not failed:
                 continue
             issue = _quality_issue(
-                project,
+                workspace_state,
                 rule,
                 row,
                 "ADVANCED_CHECK_FAILED",
@@ -1258,7 +1256,7 @@ def evaluate_quality(
         )
         if failed:
             issue = _run_quality_issue(
-                project,
+                workspace_state,
                 rule,
                 "METRIC_BOUNDARY_FAILED",
                 f"The governed {rule.parameters['metric']} metric was {format(metric, 'f')}, outside its approved boundary.",
@@ -1291,7 +1289,7 @@ def evaluate_quality(
             if lower <= value <= upper:
                 continue
             issue = _quality_issue(
-                project,
+                workspace_state,
                 rule,
                 row,
                 "IQR_OUTLIER",
@@ -1379,7 +1377,7 @@ def evaluate_quality(
         rule = relationship_rule_by_row[row_id]
         row = rows_by_id[row_id]
         issue = _quality_issue(
-            project,
+            workspace_state,
             rule,
             row,
             "INCOMING_RELATIONSHIP_NOT_READY",
@@ -1500,12 +1498,12 @@ def evaluate_quality(
             )
 
     return QualityRun(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         staging_content_hash=staging_content_hash,
         ruleset_hash=ruleset_hash,
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
-        retention_context_hash=retention_context_hash(project),
+        retention_context_hash=retention_context_hash(workspace_state),
         row_results=row_results,
         source_accounting=source_accounting,
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
@@ -1515,7 +1513,7 @@ def evaluate_quality(
 
 
 def _quality_issue(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     rule: QualityRule,
     row: CanonicalRow,
     reason_code: str,
@@ -1538,13 +1536,13 @@ def _quality_issue(
         affected_fields=affected_fields,
         policy=policy,
         owner_role=rule.owner_role,
-        owner_label=_owner_label(project, rule.owner_role),
+        owner_label=_owner_label(workspace_state, rule.owner_role),
         evidence_display=rule.evidence_display,
     )
 
 
 def _setup_issue(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     dataset: str,
     family: QualityRuleFamily,
     reason_code: str,
@@ -1553,7 +1551,7 @@ def _setup_issue(
     rule_id: str | None = None,
 ) -> QualityIssue:
     rule_id = rule_id or _rule_id(
-        project.project_id,
+        workspace_state.workspace_id,
         dataset,
         family,
         "Missing automatic check",
@@ -1570,7 +1568,7 @@ def _setup_issue(
         affected_fields=(),
         policy=QualityOutcomePolicy.BLOCK,
         owner_role=QualityOwnerRole.DATA_MANAGER,
-        owner_label=_owner_label(project, QualityOwnerRole.DATA_MANAGER),
+        owner_label=_owner_label(workspace_state, QualityOwnerRole.DATA_MANAGER),
     )
 
 
@@ -1852,7 +1850,7 @@ def _quartile(values: list[Decimal], fraction: Decimal) -> Decimal:
 
 
 def _run_quality_issue(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     rule: QualityRule,
     reason_code: str,
     message: str,
@@ -1875,7 +1873,7 @@ def _run_quality_issue(
         affected_fields=tuple(sorted(rule.input_fields)),
         policy=rule.outcome,
         owner_role=rule.owner_role,
-        owner_label=_owner_label(project, rule.owner_role),
+        owner_label=_owner_label(workspace_state, rule.owner_role),
         evidence_display=rule.evidence_display,
     )
 
@@ -1895,10 +1893,10 @@ def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
     return tuple(found)
 
 
-def _owner_label(project: WorkspaceState, role: QualityOwnerRole) -> str:
+def _owner_label(workspace_state: WorkspaceState, role: QualityOwnerRole) -> str:
     if role is QualityOwnerRole.FUNCTIONAL_OWNER:
-        return project.functional_owner or "Functional owner"
-    return project.data_manager or "Data manager"
+        return "Functional owner"
+    return "Data manager"
 
 
 def _record_label(row: CanonicalRow) -> str:
@@ -1929,8 +1927,8 @@ def _business_rule_explanation(family: QualityRuleFamily) -> str:
     }[family]
 
 
-def _rule_id(project_id: str, dataset: str, family: QualityRuleFamily, name: str, *extra: object) -> str:
-    return _hash({"project_id": project_id, "dataset": dataset, "family": family.value, "name": name, "extra": portable_value(extra)})
+def _rule_id(workspace_id: str, dataset: str, family: QualityRuleFamily, name: str, *extra: object) -> str:
+    return _hash({"workspace_id": workspace_id, "dataset": dataset, "family": family.value, "name": name, "extra": portable_value(extra)})
 
 
 def _hash(payload: object) -> str:
@@ -1944,4 +1942,3 @@ def _require_hash(value: str, label: str) -> None:
         int(value[7:], 16)
     except ValueError as error:
         raise ValueError(f"{label} must be a canonical sha256 hash") from error
-

@@ -9,7 +9,7 @@ import os
 from typing import Iterable, Protocol
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
+from ..access import Actor, Capability
 from ..adapters.protected_odoo_provenance import (
     decode_capture_provenance,
     encode_capture_provenance,
@@ -30,24 +30,25 @@ from ..workspace_state import WorkspaceState, WorkspaceStateRepository, SourceMo
 from ..models import canonical_json_bytes
 from ..secrets import SecretStore, SecretStoreError
 from ..workspace_errors import WorkspaceError
+from ..workspace_access import WorkspaceAccessService
 
 
 class OdooProvenanceStore(Protocol):
     """Protected repository port kept separate from portable source storage."""
 
-    def get_current(self, project_id: str) -> OdooCaptureManifest | None: ...
+    def get_current(self, workspace_id: str) -> OdooCaptureManifest | None: ...
 
-    def history(self, project_id: str) -> tuple[OdooCaptureManifest, ...]: ...
+    def history(self, workspace_id: str) -> tuple[OdooCaptureManifest, ...]: ...
 
     def read_encrypted(
         self,
-        project_id: str,
+        workspace_id: str,
         manifest: OdooCaptureManifest,
     ) -> bytes: ...
 
     def invalidate_current(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         reason: str,
         actor: Actor,
@@ -55,7 +56,7 @@ class OdooProvenanceStore(Protocol):
 
     def purge_expired_history(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         now: datetime,
         actor: Actor,
@@ -65,7 +66,7 @@ class OdooProvenanceStore(Protocol):
 class OdooCaptureSelectionReader(Protocol):
     def get_current_odoo_capture_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooCaptureSelection | None: ...
 
 
@@ -91,13 +92,13 @@ class OdooProvenanceService:
 
     def __init__(
         self,
-        projects: WorkspaceStateRepository,
+        workspaces: WorkspaceStateRepository,
         selections: OdooCaptureSelectionReader,
         provenance: OdooProvenanceStore,
         secrets: SecretStore,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAccessService,
     ) -> None:
-        self._projects = projects
+        self._workspaces = workspaces
         self._selections = selections
         self._provenance = provenance
         self._secrets = secrets
@@ -105,7 +106,7 @@ class OdooProvenanceService:
 
     def prepare_capture_origins(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
         header: OdooCaptureOriginHeader,
@@ -120,14 +121,14 @@ class OdooProvenanceService:
     ) -> OdooCaptureProvenanceCandidate:
         """Encode origins once and return a candidate for atomic publication."""
 
-        self._authorization.require(
+        context = self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_MANAGE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self._projects.get(project_id)
-        self._require_odoo_project(project)
-        selection = self._selections.get_current_odoo_capture_selection(project_id)
+        workspace = self._workspaces.get(workspace_id)
+        self._require_odoo_workspace(workspace)
+        selection = self._selections.get_current_odoo_capture_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Current Odoo capture selection is missing")
         if row_count < 0 or row_count > selection.max_rows:
@@ -144,7 +145,7 @@ class OdooProvenanceService:
         manifest_id = str(uuid4())
         binding = OdooProvenanceBinding(
             manifest_id=manifest_id,
-            project_id=project_id,
+            data_version_id=context.data_version_id,
             selection_hash=selection.content_hash,
             dataset_id=dataset_id,
             model=selection.model,
@@ -153,7 +154,7 @@ class OdooProvenanceService:
             read_principal_hash=selection.read_principal_hash,
             context_hash=selection.context_hash,
         )
-        key = self._project_key(project_id, create=True)
+        key = self._data_version_key(context.data_version_id, create=True)
         encoded = encode_capture_provenance(
             binding=binding,
             header=header,
@@ -163,7 +164,7 @@ class OdooProvenanceService:
         if encoded.row_count != row_count:
             raise WorkspaceError("Odoo origin and values row counts differ")
         retention_until = capture_finished_at.astimezone(timezone.utc) + timedelta(
-            days=project.retention_days
+            days=workspace.retention_days
         )
         storage_key = f"captures/{encoded.artifact_hash.removeprefix('sha256:')}.iprv"
         manifest = OdooCaptureManifest.create(
@@ -192,45 +193,45 @@ class OdooProvenanceService:
 
     def current_manifest(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> OdooCaptureManifest | None:
         self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_READ,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        return self._provenance.get_current(project_id)
+        return self._provenance.get_current(workspace_id)
 
     def history(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> tuple[OdooCaptureManifest, ...]:
         self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_READ,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        return self._provenance.history(project_id)
+        return self._provenance.history(workspace_id)
 
     def read_current_origins(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
         now: datetime | None = None,
     ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]] | None:
         """Decrypt an authorized, unexpired current sidecar with bounded output."""
 
-        self._authorization.require(
+        context = self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_READ,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        manifest = self._provenance.get_current(project_id)
+        manifest = self._provenance.get_current(workspace_id)
         if manifest is None:
             return None
         current_time = now or datetime.now(timezone.utc)
@@ -238,35 +239,35 @@ class OdooProvenanceService:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
         if manifest.retention_until <= current_time:
             raise WorkspaceError("Protected Odoo provenance has expired")
-        encrypted = self._provenance.read_encrypted(project_id, manifest)
+        encrypted = self._provenance.read_encrypted(workspace_id, manifest)
         return decode_capture_provenance(
             binding=manifest.provenance_binding,
             encrypted_bytes=encrypted,
             expected_logical_hash=manifest.provenance_logical_hash,
             expected_artifact_hash=manifest.provenance_sha256,
             expected_row_count=manifest.row_count,
-            key=self._project_key(project_id, create=False),
+            key=self._data_version_key(context.data_version_id, create=False),
         )
 
     def protect_comparison(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         capture_manifest_hash: str,
         plaintext: bytes,
         *,
         actor: Actor,
     ) -> ProtectedOdooComparisonCandidate:
-        """Encrypt one comparison under its project, capture, and run binding."""
+        """Encrypt one comparison under its workspace, capture, and run binding."""
 
         self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_MANAGE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self._projects.get(project_id)
-        self._require_odoo_project(project)
-        manifest = self._provenance.get_current(project_id)
+        workspace = self._workspaces.get(workspace_id)
+        self._require_odoo_workspace(workspace)
+        manifest = self._provenance.get_current(workspace_id)
         if manifest is None or manifest.content_hash != capture_manifest_hash:
             raise WorkspaceError(
                 "The protected Odoo capture changed before comparison publication"
@@ -274,11 +275,11 @@ class OdooProvenanceService:
         encoded: EncodedOdooComparison = encode_odoo_comparison(
             plaintext,
             authenticated_binding=_comparison_binding(
-                project_id,
+                workspace_id,
                 run_id,
                 capture_manifest_hash,
             ),
-            key=self._project_key(project_id, create=False),
+            key=self._workspace_key(workspace_id, create=True),
         )
         return ProtectedOdooComparisonCandidate(
             encrypted_bytes=encoded.encrypted_bytes,
@@ -288,7 +289,7 @@ class OdooProvenanceService:
 
     def open_comparison(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         capture_manifest_hash: str,
         encrypted_bytes: bytes,
@@ -302,9 +303,9 @@ class OdooProvenanceService:
         self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_READ,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        manifest = self._provenance.get_current(project_id)
+        manifest = self._provenance.get_current(workspace_id)
         if manifest is None or manifest.content_hash != capture_manifest_hash:
             raise WorkspaceError(
                 "The protected Odoo comparison no longer matches the current capture"
@@ -312,18 +313,18 @@ class OdooProvenanceService:
         return decode_odoo_comparison(
             encrypted_bytes,
             authenticated_binding=_comparison_binding(
-                project_id,
+                workspace_id,
                 run_id,
                 capture_manifest_hash,
             ),
             expected_logical_hash=expected_logical_hash,
             expected_artifact_hash=expected_artifact_hash,
-            key=self._project_key(project_id, create=False),
+            key=self._workspace_key(workspace_id, create=False),
         )
 
     def invalidate_current(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
         reason: str,
@@ -331,17 +332,17 @@ class OdooProvenanceService:
         self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_MANAGE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         return self._provenance.invalidate_current(
-            project_id,
+            workspace_id,
             reason=reason,
             actor=actor,
         )
 
     def enforce_retention(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
         now: datetime | None = None,
@@ -351,36 +352,42 @@ class OdooProvenanceService:
         self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_MANAGE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         current_time = now or datetime.now(timezone.utc)
         if current_time.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
-        current = self._provenance.get_current(project_id)
+        current = self._provenance.get_current(workspace_id)
         if current is not None and current.retention_until <= current_time:
             self._provenance.invalidate_current(
-                project_id,
+                workspace_id,
                 reason="RETENTION_EXPIRED",
                 actor=actor,
             )
         return self._provenance.purge_expired_history(
-            project_id,
+            workspace_id,
             now=current_time,
             actor=actor,
         )
 
-    def delete_recipe_workspace_key(self, project_id: str, *, actor: Actor) -> None:
+    def delete_recipe_workspace_key(self, workspace_id: str, *, actor: Actor) -> None:
         """Remove one workspace key during governed Recipe deletion."""
 
-        self._authorization.require(
+        context = self._authorization.require(
             actor,
             Capability.RECIPE_DELETE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        self._secrets.delete(_key_id(project_id))
+        self._secrets.delete(_workspace_key_id(workspace_id))
+        self._secrets.delete(_data_version_key_id(context.data_version_id))
 
-    def _project_key(self, project_id: str, *, create: bool) -> bytes:
-        key_id = _key_id(project_id)
+    def _data_version_key(self, data_version_id: str, *, create: bool) -> bytes:
+        return self._evidence_key(_data_version_key_id(data_version_id), create=create)
+
+    def _workspace_key(self, workspace_id: str, *, create: bool) -> bytes:
+        return self._evidence_key(_workspace_key_id(workspace_id), create=create)
+
+    def _evidence_key(self, key_id: str, *, create: bool) -> bytes:
         encoded = self._secrets.get(key_id)
         if encoded is None:
             if not create:
@@ -400,17 +407,21 @@ class OdooProvenanceService:
         return key
 
     @staticmethod
-    def _require_odoo_project(project: WorkspaceState) -> None:
-        if project.source_mode is not SourceMode.ODOO:
+    def _require_odoo_workspace(workspace: WorkspaceState) -> None:
+        if workspace.source_mode is not SourceMode.ODOO:
             raise WorkspaceError("Protected Odoo provenance requires an Odoo source")
 
 
-def _key_id(project_id: str) -> str:
-    return f"{project_id}:protected:origin-v1"
+def _data_version_key_id(data_version_id: str) -> str:
+    return f"data-version:{data_version_id}:protected:origin-v2"
+
+
+def _workspace_key_id(workspace_id: str) -> str:
+    return f"workspace:{workspace_id}:protected:comparison-v2"
 
 
 def _comparison_binding(
-    project_id: str,
+    workspace_id: str,
     run_id: str,
     capture_manifest_hash: str,
 ) -> bytes:
@@ -418,8 +429,7 @@ def _comparison_binding(
         {
             "capture_manifest_hash": capture_manifest_hash,
             "contract": "odoo-pinned-comparison-v1",
-            "project_id": project_id,
+            "workspace_id": workspace_id,
             "run_id": run_id,
         }
     )
-

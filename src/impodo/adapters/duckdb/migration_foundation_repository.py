@@ -1,4 +1,4 @@
-"""Persist the clean M1-M2 Project, source, run, and workspace roots."""
+"""Persist current Project, source, run, and workspace roots."""
 
 from __future__ import annotations
 
@@ -48,16 +48,22 @@ from ...migration_runs import (
     MigrationRunPurpose,
     MigrationRunState,
 )
+from ...migration_run_setup import (
+    MigrationRunTargetSetup,
+    OdooConnectionMode,
+)
 from ...migration_workspaces import (
     MigrationWorkspace,
+    MigrationWorkspaceSetupState,
     MigrationWorkspaceState,
 )
 from ...workspace_contracts import SourceDatasetColumn
+from ...workspace_access import WorkspaceAccessContext
 from .migration_foundation_database import MigrationFoundationDatabase
 
 
 class MigrationFoundationRepository:
-    """Implement the M1-M2 root and source ports over exact stores."""
+    """Implement the current root and source ports over exact stores."""
 
     def __init__(self, database: MigrationFoundationDatabase) -> None:
         self.database = database
@@ -779,6 +785,145 @@ class MigrationFoundationRepository:
             )
         return self._run_from_row(row)
 
+    def migration_run_project_id(self, migration_run_id: str) -> str:
+        return self.get_migration_run(migration_run_id).project_id
+
+    def get_migration_run_target_setup(
+        self,
+        migration_run_id: str,
+    ) -> MigrationRunTargetSetup | None:
+        migration_run_id = require_uuid(migration_run_id, "migration_run_id")
+        with self.database.connect(self.registry_path) as connection:
+            self._exact_row(
+                connection,
+                table="migration_run",
+                id_column="migration_run_id",
+                identity=migration_run_id,
+                expected_kind="MIGRATION_RUN",
+            )
+            row = connection.execute(
+                "SELECT * FROM migration_run_target_setup "
+                "WHERE migration_run_id = ?",
+                [migration_run_id],
+            ).fetchone()
+            columns = (
+                [item[0] for item in connection.description]
+                if row is not None
+                else []
+            )
+        if row is None:
+            return None
+        value = dict(zip(columns, row, strict=True))
+        return MigrationRunTargetSetup(
+            migration_run_id=str(value["migration_run_id"]),
+            project_id=str(value["project_id"]),
+            revision=int(value["revision"]),
+            connection_mode=OdooConnectionMode(str(value["connection_mode"])),
+            base_url=str(value["base_url"]),
+            database=str(value["database"]),
+            intended_applications=tuple(
+                str(item)
+                for item in json.loads(str(value["intended_applications_json"]))
+            ),
+            updated_at=datetime.fromisoformat(str(value["updated_at"])),
+        )
+
+    def replace_migration_run_target_setup(
+        self,
+        setup: MigrationRunTargetSetup,
+        *,
+        expected_revision: int | None,
+        actor: Actor,
+    ) -> MigrationRunTargetSetup:
+        with self.database.connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                run = connection.execute(
+                    "SELECT project_id FROM migration_run "
+                    "WHERE migration_run_id = ?",
+                    [setup.migration_run_id],
+                ).fetchone()
+                if run != (setup.project_id,):
+                    raise MigrationConflictError(
+                        "MigrationRun target setup has inconsistent ownership"
+                    )
+                current = connection.execute(
+                    "SELECT revision FROM migration_run_target_setup "
+                    "WHERE migration_run_id = ?",
+                    [setup.migration_run_id],
+                ).fetchone()
+                if current is None:
+                    if expected_revision is not None or setup.revision != 1:
+                        raise MigrationConflictError(
+                            "MigrationRun target setup changed; reload and retry"
+                        )
+                    connection.execute(
+                        "INSERT INTO migration_run_target_setup "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        [
+                            setup.migration_run_id,
+                            setup.project_id,
+                            setup.revision,
+                            setup.connection_mode.value,
+                            setup.base_url,
+                            setup.database,
+                            canonical_json(list(setup.intended_applications)),
+                            setup.updated_at.isoformat(),
+                        ],
+                    )
+                else:
+                    expected = require_revision(
+                        expected_revision,
+                        "expected_target_setup_revision",
+                    )
+                    if current != (expected,) or setup.revision != expected + 1:
+                        raise MigrationConflictError(
+                            "MigrationRun target setup changed; reload and retry"
+                        )
+                    updated = connection.execute(
+                        """
+                        UPDATE migration_run_target_setup
+                           SET revision = ?, connection_mode = ?, base_url = ?,
+                               database = ?, intended_applications_json = ?,
+                               updated_at = ?
+                         WHERE migration_run_id = ? AND revision = ?
+                         RETURNING migration_run_id
+                        """,
+                        [
+                            setup.revision,
+                            setup.connection_mode.value,
+                            setup.base_url,
+                            setup.database,
+                            canonical_json(list(setup.intended_applications)),
+                            setup.updated_at.isoformat(),
+                            setup.migration_run_id,
+                            expected,
+                        ],
+                    ).fetchone()
+                    if updated is None:
+                        raise MigrationConflictError(
+                            "MigrationRun target setup changed; reload and retry"
+                        )
+                self._insert_event(
+                    connection,
+                    project_id=setup.project_id,
+                    aggregate_kind="MIGRATION_RUN_TARGET_SETUP",
+                    aggregate_id=setup.migration_run_id,
+                    aggregate_revision=setup.revision,
+                    event_type="MIGRATION_RUN_TARGET_SETUP_REPLACED",
+                    detail={},
+                    actor=actor,
+                    occurred_at=setup.updated_at,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        saved = self.get_migration_run_target_setup(setup.migration_run_id)
+        if saved is None:
+            raise MigrationConflictError("MigrationRun target setup was not saved")
+        return saved
+
     def list_migration_runs(self, project_id: str) -> tuple[MigrationRun, ...]:
         project_id = require_uuid(project_id, "project_id")
         with self.database.connect(self.registry_path) as connection:
@@ -927,6 +1072,54 @@ class MigrationFoundationRepository:
             )
         return self._workspace_from_row(row)
 
+    def resolve_workspace_access_context(
+        self,
+        workspace_id: str,
+    ) -> WorkspaceAccessContext:
+        """Resolve and verify all workspace lineage in one registry query."""
+
+        workspace_id = require_uuid(workspace_id, "workspace_id")
+        with self.database.connect(self.registry_path) as connection:
+            row = connection.execute(
+                """
+                SELECT w.project_id, w.workspace_id, w.data_version_id,
+                       w.migration_run_id, w.recipe_application_id
+                  FROM migration_workspace w
+                  JOIN migration_project p
+                    ON p.project_id = w.project_id
+                  JOIN data_version d
+                    ON d.data_version_id = w.data_version_id
+                   AND d.project_id = w.project_id
+                  JOIN migration_run r
+                    ON r.migration_run_id = w.migration_run_id
+                   AND r.project_id = w.project_id
+                   AND r.data_version_id = w.data_version_id
+             LEFT JOIN recipe_application a
+                    ON a.application_id = w.recipe_application_id
+                   AND a.project_id = w.project_id
+                   AND a.migration_run_id = w.migration_run_id
+                   AND a.data_version_id = w.data_version_id
+                   AND a.workspace_id = w.workspace_id
+                 WHERE w.workspace_id = ?
+                   AND (
+                       w.recipe_application_id IS NULL
+                       OR a.application_id IS NOT NULL
+                   )
+                """,
+                [workspace_id],
+            ).fetchone()
+        if row is None:
+            raise MigrationNotFoundError(
+                "Verified MigrationWorkspace access context not found"
+            )
+        return WorkspaceAccessContext(
+            project_id=str(row[0]),
+            workspace_id=str(row[1]),
+            data_version_id=str(row[2]),
+            migration_run_id=str(row[3]),
+            recipe_application_id=str(row[4]) if row[4] else None,
+        )
+
     def list_migration_workspaces(
         self,
         migration_run_id: str,
@@ -981,16 +1174,19 @@ class MigrationFoundationRepository:
                 updated = connection.execute(
                     """
                     UPDATE migration_workspace
-                       SET display_name = ?, state = ?, optimistic_revision = ?,
-                           updated_at = ?, closed_at = ?
+                           SET display_name = ?, state = ?, setup_state = ?,
+                           optimistic_revision = ?, updated_at = ?,
+                           setup_completed_at = ?, closed_at = ?
                      WHERE workspace_id = ? AND optimistic_revision = ?
                      RETURNING workspace_id
                     """,
                     [
                         workspace.display_name,
                         workspace.state.value,
+                        workspace.setup_state.value,
                         new_revision,
                         workspace.updated_at.isoformat(),
+                        self._time(workspace.setup_completed_at),
                         self._time(workspace.closed_at),
                         workspace.workspace_id,
                         expected_revision,
@@ -1446,7 +1642,7 @@ class MigrationFoundationRepository:
                     )
                     connection.execute(
                         "INSERT INTO migration_workspace VALUES "
-                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         self._workspace_values(workspace),
                     )
                     next_revision = self._advance_project(
@@ -2221,9 +2417,11 @@ class MigrationFoundationRepository:
             value.recipe_application_id,
             value.display_name,
             value.state.value,
+            value.setup_state.value,
             value.optimistic_revision,
             value.created_at.isoformat(),
             value.updated_at.isoformat(),
+            MigrationFoundationRepository._time(value.setup_completed_at),
             MigrationFoundationRepository._time(value.closed_at),
         ]
 
@@ -2237,9 +2435,13 @@ class MigrationFoundationRepository:
             "recipe_application_id": value.recipe_application_id,
             "display_name": value.display_name,
             "state": value.state.value,
+            "setup_state": value.setup_state.value,
             "optimistic_revision": value.optimistic_revision,
             "created_at": value.created_at.isoformat(),
             "updated_at": value.updated_at.isoformat(),
+            "setup_completed_at": MigrationFoundationRepository._time(
+                value.setup_completed_at
+            ),
             "closed_at": MigrationFoundationRepository._time(value.closed_at),
         }
 
@@ -2257,9 +2459,13 @@ class MigrationFoundationRepository:
             ),
             display_name=str(value["display_name"]),
             state=MigrationWorkspaceState(str(value["state"])),
+            setup_state=MigrationWorkspaceSetupState(str(value["setup_state"])),
             optimistic_revision=int(value["optimistic_revision"]),
             created_at=datetime.fromisoformat(str(value["created_at"])),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
+            setup_completed_at=MigrationFoundationRepository._optional_time(
+                value.get("setup_completed_at")
+            ),
             closed_at=MigrationFoundationRepository._optional_time(
                 value.get("closed_at")
             ),

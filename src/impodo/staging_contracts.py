@@ -29,7 +29,7 @@ from .domain.compiler.contracts import CompiledMigrationPlan
 from .source import PreparedBundle
 
 
-STAGING_CONTRACT_VERSION = 5
+STAGING_CONTRACT_VERSION = 6
 BROWSER_EVALUATOR_VERSION = 6
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -636,7 +636,7 @@ class CanonicalStagingRun:
     one immutable unit before quality evaluation can consume it.
     """
 
-    project_id: str
+    workspace_id: str
     mapping_id: str
     physical_selection_hash: str
     source_selection_hash: str
@@ -669,7 +669,7 @@ class CanonicalStagingRun:
             raise ValueError("Staging contract version is unsupported")
         if self.evaluator_version != BROWSER_EVALUATOR_VERSION:
             raise ValueError("Browser evaluator version is unsupported")
-        if not self.project_id or not self.mapping_id:
+        if not self.workspace_id or not self.mapping_id:
             raise ValueError("Staging run must identify its project and mapping")
         expected_order = tuple(sorted(self.rows, key=_row_order))
         if self.rows != expected_order:
@@ -739,7 +739,7 @@ class CanonicalStagingRun:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "evaluator_version": self.evaluator_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "mapping_id": self.mapping_id,
             "physical_selection_hash": self.physical_selection_hash,
             "source_selection_hash": self.source_selection_hash,
@@ -771,7 +771,7 @@ class CanonicalStagingRun:
         if set(payload) != {
             "contract_version",
             "evaluator_version",
-            "project_id",
+            "workspace_id",
             "mapping_id",
             "physical_selection_hash",
             "source_selection_hash",
@@ -790,7 +790,7 @@ class CanonicalStagingRun:
         run = cls(
             contract_version=int(payload["contract_version"]),
             evaluator_version=int(payload["evaluator_version"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             mapping_id=str(payload["mapping_id"]),
             physical_selection_hash=str(payload["physical_selection_hash"]),
             source_selection_hash=str(payload["source_selection_hash"]),
@@ -839,7 +839,7 @@ class CanonicalStagingRun:
     def from_prepared(
         cls,
         *,
-        project_id: str,
+        workspace_id: str,
         mapping_id: str,
         physical_selection_hash: str,
         source_selection_hash: str,
@@ -949,7 +949,7 @@ class CanonicalStagingRun:
             )
         )
         return cls(
-            project_id=project_id,
+            workspace_id=workspace_id,
             mapping_id=mapping_id,
             physical_selection_hash=physical_selection_hash,
             source_selection_hash=source_selection_hash,

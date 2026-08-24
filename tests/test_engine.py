@@ -367,7 +367,7 @@ class PreflightClassificationTests(unittest.TestCase):
             allowed_names={"Other product"}
         )
         captured = OdooSchemaCatalog(
-            project_id="project:test",
+            workspace_id="workspace:test",
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=datetime(2026, 8, 7, tzinfo=timezone.utc),
             captured_by="Test operator",

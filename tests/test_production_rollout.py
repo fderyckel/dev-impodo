@@ -1,4 +1,4 @@
-"""Verify M6 latest-data rollout without reusing Test authority or evidence."""
+"""Verify latest-data rollout without reusing Test authority or evidence."""
 
 from __future__ import annotations
 
@@ -23,19 +23,19 @@ from impodo.migration_production import (
 )
 from impodo.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.web.app import create_local_app
-from tests import test_migration_project_phase_m4_multi_recipe_runs as m4
-from tests import test_migration_project_phase_m5_cutover_qualification as m5
+from tests import test_cutover_qualification as qualification
+from tests import test_integrated_recipe_runs as integrated_runs
 
 
-class MigrationProjectPhaseM6Tests(unittest.TestCase):
+class ProductionRolloutTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.m5_fixture = m5.MigrationProjectPhaseM5Tests(
+        self.qualification_fixture = qualification.CutoverQualificationTests(
             methodName="test_plan_qualification_and_selection_pin_exact_test_evidence"
         )
-        self.m5_fixture.setUp()
-        self.fixture = self.m5_fixture.fixture
+        self.qualification_fixture.setUp()
+        self.fixture = self.qualification_fixture.fixture
         self.test_bundle = self.fixture._start()
-        review = self.m5_fixture.service.review(
+        review = self.qualification_fixture.service.review(
             self.test_bundle.run.project_id,
             self.test_bundle.run.migration_run_id,
             actor=LOCAL_ACTOR,
@@ -44,7 +44,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
             self.test_bundle.run.project_id,
             actor=LOCAL_ACTOR,
         )
-        self.qualification = self.m5_fixture.service.qualify(
+        self.qualification = self.qualification_fixture.service.qualify(
             self.test_bundle.run.project_id,
             self.test_bundle.run.migration_run_id,
             expected_workspace_revision=project.optimistic_revision,
@@ -56,7 +56,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
             self.test_bundle.run.project_id,
             actor=LOCAL_ACTOR,
         )
-        self.selection = self.m5_fixture.service.select(
+        self.selection = self.qualification_fixture.service.select(
             self.test_bundle.run.project_id,
             self.qualification.qualification_id,
             expected_workspace_revision=project.optimistic_revision,
@@ -80,7 +80,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        self.m5_fixture.tearDown()
+        self.qualification_fixture.tearDown()
 
     def _start_setup(self, *, operation_id: str | None = None):
         project = self.fixture.projects.get(
@@ -108,7 +108,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         target_hash = content_hash("production-target")
         schema = replace(
             self.fixture.schema,
-            project_id=setup.setup_workspace.workspace_id,
+            workspace_id=setup.setup_workspace.workspace_id,
             database="production_2026",
             connection_target_hash=target_hash,
             read_credential_binding_hash=read_generation,
@@ -121,7 +121,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
             setup.setup_workspace.workspace_id
         )
         self.fixture.workspace_states.update_target(
-            state.project_id,
+            state.workspace_id,
             actor=LOCAL_ACTOR,
             expected_revision=state.revision,
             odoo_connection_mode="REMOTE",
@@ -307,7 +307,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         self._accept_latest_data(setup)
         reused_test_schema = replace(
             self.fixture.schema,
-            project_id=setup.setup_workspace.workspace_id,
+            workspace_id=setup.setup_workspace.workspace_id,
         )
         with self.assertRaises(ProductionRunError) as caught:
             self._activate(setup, reused_test_schema)
@@ -319,8 +319,8 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
 
         app = create_local_app(
             self.fixture.root,
-            launch_token="m6-launch",
-            session_secret="m6-session",
+            launch_token="production-launch",
+            session_secret="production-session",
             secret_store=self.fixture.secret_store,
             preparation_jobs_enabled=False,
             odoo_capture_jobs_enabled=False,
@@ -328,7 +328,7 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
         with TestClient(app) as client:
             self.assertEqual(
                 client.get(
-                    "/launch?token=m6-launch",
+                    "/launch?token=production-launch",
                     follow_redirects=False,
                 ).status_code,
                 303,
@@ -353,9 +353,9 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
 
         def fault(stage):
             if stage == "REGISTRY_COMMITTED":
-                raise m4.SimulatedCrash(stage)
+                raise integrated_runs.SimulatedCrash(stage)
 
-        with self.assertRaises(m4.SimulatedCrash):
+        with self.assertRaises(integrated_runs.SimulatedCrash):
             self._activate(
                 setup,
                 schema,
@@ -385,9 +385,9 @@ class MigrationProjectPhaseM6Tests(unittest.TestCase):
 
         def fault(stage):
             if stage == "INTENT_RESERVED":
-                raise m4.SimulatedCrash(stage)
+                raise integrated_runs.SimulatedCrash(stage)
 
-        with self.assertRaises(m4.SimulatedCrash):
+        with self.assertRaises(integrated_runs.SimulatedCrash):
             self._activate(
                 setup,
                 schema,

@@ -20,10 +20,15 @@ from ..load_jobs import (
     LoadJobStatus,
     LoadPhase,
 )
+from ..migration_foundation import MigrationIdentifierConfusionError
+from ..workspace_access import (
+    WorkspaceAccessContext,
+    bind_workspace_access_context,
+)
 
 
 class LoadJobNotFoundError(LookupError):
-    """Raised when a load job is missing or belongs to another project."""
+    """Raised when a load job is missing or belongs to another workspace."""
 
 
 class LoadJobStateError(ValueError):
@@ -39,7 +44,10 @@ class LoadJobResult:
 
 
 LoadProgress = Callable[[ExecutionRun], None]
-LoadWork = Callable[[LoadProgress, LoadProgress], LoadJobResult]
+LoadWork = Callable[
+    [WorkspaceAccessContext, LoadProgress, LoadProgress],
+    LoadJobResult,
+]
 
 
 class LoadJobManager:
@@ -55,28 +63,39 @@ class LoadJobManager:
 
     def enqueue(
         self,
-        project_id: str,
-        project_name: str,
+        workspace_id: str,
+        migration_project_name: str,
         *,
         target_database: str,
         target_server: str,
         target_environment: str,
         total_rows: int,
+        access_context: WorkspaceAccessContext,
         work: LoadWork,
     ) -> LoadJob:
-        """Create one load attempt or return the project's active attempt."""
+        """Create one load attempt or return the workspace's active attempt."""
+
+        if access_context.workspace_id != workspace_id:
+            raise MigrationIdentifierConfusionError(
+                "Load access context does not belong to this workspace"
+            )
 
         with self._condition:
             if self._stopping:
                 raise LoadJobStateError("Odoo load jobs are stopping")
-            active = self._active_locked(project_id)
+            active = self._active_locked(workspace_id)
             if active is not None:
+                if active.access_context != access_context:
+                    raise MigrationIdentifierConfusionError(
+                        "Active load belongs to another workspace context"
+                    )
                 return active
             now = _now()
             job = LoadJob(
                 job_id=str(uuid4()),
-                project_id=project_id,
-                project_name=project_name.strip()[:300] or "Data project",
+                access_context=access_context,
+                workspace_id=workspace_id,
+                migration_project_name=migration_project_name.strip()[:300] or "Data project",
                 target_database=target_database.strip()[:200],
                 target_server=target_server.strip()[:300],
                 target_environment=target_environment.strip()[:50] or "Target",
@@ -110,21 +129,21 @@ class LoadJobManager:
             self._condition.notify()
             return job
 
-    def get(self, project_id: str, job_id: str) -> LoadJob:
+    def get(self, workspace_id: str, job_id: str) -> LoadJob:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.project_id != project_id:
+            if job is None or job.workspace_id != workspace_id:
                 raise LoadJobNotFoundError("Odoo load job not found")
             return job
 
-    def active(self, project_id: str) -> LoadJob | None:
+    def active(self, workspace_id: str) -> LoadJob | None:
         with self._lock:
-            return self._active_locked(project_id)
+            return self._active_locked(workspace_id)
 
-    def latest(self, project_id: str) -> LoadJob | None:
+    def latest(self, workspace_id: str) -> LoadJob | None:
         with self._lock:
             return max(
-                (job for job in self._jobs.values() if job.project_id == project_id),
+                (job for job in self._jobs.values() if job.workspace_id == workspace_id),
                 key=lambda job: job.created_at,
                 default=None,
             )
@@ -155,11 +174,14 @@ class LoadJobManager:
                     return
                 job_id, work = self._pending.popleft()
                 self._mark_running(job_id)
+                access_context = self._jobs[job_id].access_context
             try:
-                result = work(
-                    lambda run: self._report_writing(job_id, run),
-                    lambda run: self._report_verifying(job_id, run),
-                )
+                with bind_workspace_access_context(access_context):
+                    result = work(
+                        access_context,
+                        lambda run: self._report_writing(job_id, run),
+                        lambda run: self._report_verifying(job_id, run),
+                    )
             except Exception as error:
                 with self._lock:
                     self._finish_failed(job_id, _safe_failure_message(error))
@@ -244,12 +266,12 @@ class LoadJobManager:
             )
         )
 
-    def _active_locked(self, project_id: str) -> LoadJob | None:
+    def _active_locked(self, workspace_id: str) -> LoadJob | None:
         return max(
             (
                 job
                 for job in self._jobs.values()
-                if job.project_id == project_id and job.active
+                if job.workspace_id == workspace_id and job.active
             ),
             key=lambda job: job.created_at,
             default=None,

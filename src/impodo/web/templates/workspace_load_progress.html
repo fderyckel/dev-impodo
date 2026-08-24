@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Loading into Odoo &middot; {{ project.name }} &middot; Impodo{% endblock %}
+{% block title %}Loading into Odoo &middot; {{ job.migration_project_name }} &middot; Impodo{% endblock %}
 {% block content %}
   {% set active = job.status.value in ('QUEUED', 'RUNNING') %}
   <div
     class="load-progress-page"
     data-load-job
-    data-status-url="/workspaces/{{ job.project_id }}/load/progress/{{ job.job_id }}/status"
+    data-status-url="/workspaces/{{ job.workspace_id }}/load/progress/{{ job.job_id }}/status"
   >
     <nav class="load-stepper" aria-label="Load into Odoo progress">
       <ol>
         <li class="load-step complete">
-          <a href="/workspaces/{{ job.project_id }}/load/review">
+          <a href="/workspaces/{{ job.workspace_id }}/load/review">
             <span class="load-step-number" aria-hidden="true">1</span>
             <span><strong>Check changes</strong><small>Complete</small></span>
           </a>
@@ -25,7 +25,7 @@
           </span>
         </li>
         <li class="load-step {% if job.status.value == 'SUCCEEDED' %}available{% else %}locked{% endif %}">
-          {% if job.status.value == 'SUCCEEDED' %}<a href="/workspaces/{{ job.project_id }}/load/outcome">{% else %}<span aria-disabled="true">{% endif %}
+          {% if job.status.value == 'SUCCEEDED' %}<a href="/workspaces/{{ job.workspace_id }}/load/outcome">{% else %}<span aria-disabled="true">{% endif %}
             <span class="load-step-number" aria-hidden="true">3</span>
             <span><strong>Verify result</strong><small>{% if job.status.value == 'SUCCEEDED' %}Available{% else %}Not ready{% endif %}</small></span>
           {% if job.status.value == 'SUCCEEDED' %}</a>{% else %}</span>{% endif %}
@@ -36,8 +36,8 @@
     <div class="page-heading">
       <div>
         <p class="eyebrow">Stage 6 of 6 &middot; Confirm and load</p>
-        <h1>Loading {{ project.name }} into {{ job.target_environment }} Odoo</h1>
-        <p>Impodo records each completed Odoo call before reporting it here. You can leave this page and return to the load from this project.</p>
+        <h1>Loading {{ job.migration_project_name }} into {{ job.target_environment }} Odoo</h1>
+        <p>Impodo records each completed Odoo call before reporting it here. You can leave this page and return to the load from this workspace_state.</p>
       </div>
       <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% else %}ready{% endif %}" data-load-state>
         {% if job.status.value == 'SUCCEEDED' %}Finished{% elif job.status.value == 'FAILED' %}Stopped{% else %}In progress{% endif %}
@@ -108,7 +108,7 @@
         <h2>Verify the saved Odoo result</h2>
         <p>The verification result will open automatically. Use the button if it does not.</p>
       </div>
-      <a class="button primary" data-load-continue href="/workspaces/{{ job.project_id }}/load/outcome">Verify result</a>
+      <a class="button primary" data-load-continue href="/workspaces/{{ job.workspace_id }}/load/outcome">Verify result</a>
     </section>
 
     <div class="load-progress-actions" data-load-active {% if not active %}hidden{% endif %}>

@@ -84,13 +84,13 @@
                 <a
                   class="sidebar-current-project-link"
                   href="/projects/{{ migration_context.project_id }}"
-                  aria-label="Open data project overview: {{ navigation.project_name }}"
+                  aria-label="Open data project overview: {{ navigation.migration_project_name }}"
                   {% if request.url.path == '/projects/' ~ migration_context.project_id %}aria-current="page"{% endif %}
                 >
-                  <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
+                  <strong title="{{ navigation.migration_project_name }}">{{ navigation.migration_project_name }}</strong>
                 </a>
               {% else %}
-                <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
+                <strong title="{{ navigation.migration_project_name }}">{{ navigation.migration_project_name }}</strong>
               {% endif %}
             </div>
 
@@ -201,11 +201,11 @@
               <a href="/projects">Data projects</a>
               <span aria-hidden="true">/</span>
               {% if migration_context is defined %}
-                <a href="/projects/{{ migration_context.project_id }}">{{ navigation.project_name }}</a>
+                <a href="/projects/{{ migration_context.project_id }}">{{ navigation.migration_project_name }}</a>
                 <span aria-hidden="true">/</span>
                 <a href="{{ navigation.overview_href }}">Data version {{ migration_context.data_version_number }}</a>
               {% else %}
-                <a href="{{ navigation.overview_href }}">{{ navigation.project_name }}</a>
+                <a href="{{ navigation.overview_href }}">{{ navigation.migration_project_name }}</a>
               {% endif %}
               {% if navigation.viewed_stage %}
                 <span aria-hidden="true">/</span>

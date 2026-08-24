@@ -4,8 +4,8 @@
   {% set step = "files" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">{{ project.name }} · Source data</p>
-    <h1>Add the files for this project</h1>
+    <p class="eyebrow">{{ migration_project.display_name }} · Source data</p>
+    <h1>Add files to this Data version</h1>
     {% include "_setup_blockers.html" %}
     <p>
       CSV and modern XLSX only. Legacy <code>.xls</code> files must be opened
@@ -13,16 +13,16 @@
       sufficient. Impodo keeps an unchanged copy of every file.
     </p>
 
-    {% if project.source_files %}
+    {% if workspace_state.source_files %}
       <div class="file-list">
-        {% for file in project.source_files %}
+        {% for file in workspace_state.source_files %}
           <div class="file-row">
             <div>
               <strong>{{ file.display_name }}</strong>
               <span>{{ file.size_bytes }} bytes</span>
             </div>
             <div class="source-file-actions">
-              <span>Added to this project</span>
+              <span>Added to this Data version</span>
               {% set return_to = "files" %}
               {% include "_source_file_remove_form.html" %}
             </div>
@@ -32,22 +32,22 @@
       {% include "_source_file_remove_dialog.html" %}
     {% endif %}
 
-    <form method="post" enctype="multipart/form-data" action="/workspaces/{{ project.project_id }}/files">
+    <form method="post" enctype="multipart/form-data" action="/workspaces/{{ workspace_id }}/files">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="revision" value="{{ project.revision }}">
+      <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
       <label>
         Select files
         <input type="file" name="source_file" accept=".csv,.xlsx" multiple required>
         <small>Maximum accepted size: 100 MB per file.</small>
       </label>
       <div class="actions">
-        <button class="button {% if project.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add files</button>
+        <button class="button {% if workspace_state.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add files</button>
       </div>
     </form>
-    {% if project.source_files %}
-      <form method="post" action="/workspaces/{{ project.project_id }}/register">
+    {% if workspace_state.source_files %}
+      <form method="post" action="/workspaces/{{ workspace_id }}/register">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="revision" value="{{ project.revision }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
         <div class="actions">
           <a class="button secondary" href="/projects/{{ migration_context.project_id }}">Save and exit</a>
           <button class="button primary" type="submit">Use these files and continue</button>

@@ -15,7 +15,7 @@ from ..workspace_state import WorkspaceState, WorkspaceStateError
 
 
 def _probe_write_identity(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
     scope: OdooApiScope,
 ) -> OdooWriteIdentity:
@@ -26,10 +26,10 @@ def _probe_write_identity(
     connector = Json2WriteIdentityConnector(
         target_record_read_config(
             Json2Config(
-                base_url=project.odoo_base_url,
-                database=project.odoo_database,
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
                 api_key=api_key,
-                connection_mode=project.odoo_connection_mode.value,
+                connection_mode=workspace_state.odoo_connection_mode.value,
                 retries=0,
             )
         )
@@ -41,7 +41,7 @@ def _probe_write_identity(
 
 
 def _write_executor(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
     scope: OdooApiScope,
 ) -> OdooWriteExecutor:
@@ -51,10 +51,10 @@ def _write_executor(
         raise WorkspaceStateError("Enter an Odoo API key for this load")
     return Json2WriteExecutor(
         Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
             api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
+            connection_mode=workspace_state.odoo_connection_mode.value,
             retries=0,
         ),
         scope,
@@ -62,7 +62,7 @@ def _write_executor(
 
 
 def _readback_reader(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
     scope: OdooApiScope,
 ) -> OdooReadbackReader:
@@ -73,10 +73,10 @@ def _readback_reader(
     return Json2ReadbackReader(
         target_record_read_config(
             Json2Config(
-                base_url=project.odoo_base_url,
-                database=project.odoo_database,
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
                 api_key=api_key,
-                connection_mode=project.odoo_connection_mode.value,
+                connection_mode=workspace_state.odoo_connection_mode.value,
                 retries=0,
             )
         ),

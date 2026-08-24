@@ -28,6 +28,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ..access import (
     Actor,
+    AuthorizationError,
     AuthorizationPolicy,
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
@@ -73,7 +74,7 @@ from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.transformation_impact_service import TransformationImpactService
-from ..artifacts import ArtifactStore, LocalArtifactStore
+from ..artifacts import GovernedArtifactStores, LocalArtifactStore
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
@@ -104,7 +105,6 @@ from ..adapters.duckdb.run_aware_schema_repository import (
 from ..adapters.duckdb.run_aware_advanced_coverage_repository import (
     RunAwareAdvancedCoverageRepository,
 )
-from ..adapters.data_version_artifact_store import DataVersionAwareArtifactStore
 from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from ..adapters.duckdb.mapping_repository import MappingRepository
 from ..adapters.duckdb.mapping_field_catalog_repository import (
@@ -123,7 +123,9 @@ from ..adapters.duckdb.recipe_quality_seed_repository import (
 )
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
-from ..adapters.duckdb.source_repository import SourceRepository
+from ..adapters.duckdb.data_version_source_repository import (
+    DataVersionOwnedSourceRepository,
+)
 from ..adapters.duckdb.supporting_lookup_repository import (
     SupportingLookupRepository,
 )
@@ -154,10 +156,19 @@ from ..data_version_sources import (
 from ..data_versions import DataVersionService
 from ..migration_projects import MigrationProjectService
 from ..migration_runs import MigrationRunService
+from ..migration_run_setup import MigrationRunTargetSetupService
 from ..migration_workspaces import MigrationWorkspaceService
 from ..recipes import RecipeError, RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
-from ..migration_foundation import MigrationNotFoundError
+from ..migration_foundation import (
+    MigrationIdentifierConfusionError,
+    MigrationNotFoundError,
+)
+from ..workspace_access import (
+    WorkspaceAccessContext,
+    WorkspaceAccessService,
+)
+from ..workspace_views import WorkspaceOwnerViewService
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from .context import (
     BrowserReadinessReader,
@@ -205,7 +216,11 @@ from .routers.sources import build_sources_router
 from .routers.summary import build_summary_router
 from .routers.target import build_target_router
 from .remote_connection import RemoteConnectionStatusService
-from .security import BuildConsistencyMiddleware, LoopbackSecurityMiddleware
+from .security import (
+    BuildConsistencyMiddleware,
+    LoopbackSecurityMiddleware,
+    WorkspaceAccessMiddleware,
+)
 
 
 def create_local_app(
@@ -226,7 +241,7 @@ def create_local_app(
     readback_reader_factory: OdooReadbackReaderFactory | None = None,
     actor: Actor = LOCAL_ACTOR,
     authorization: AuthorizationPolicy | None = None,
-    artifact_store: ArtifactStore | None = None,
+    artifact_store: GovernedArtifactStores | None = None,
     job_dispatcher: JobDispatcher | None = None,
     local_stack_service: LocalStackService | None = None,
     local_odoo_reader: LocalOdooMetadataReader | None = None,
@@ -258,12 +273,8 @@ def create_local_app(
         foundation_database,
         lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
     )
-    base_artifacts = artifact_store or LocalArtifactStore(
+    artifacts = artifact_store or LocalArtifactStore(
         Path(project_root) / "artifacts"
-    )
-    resolved_artifacts = DataVersionAwareArtifactStore(
-        base_artifacts,
-        foundation_repository,
     )
     workspace_state_repository = MigrationWorkspaceStateRepository(
         database,
@@ -275,10 +286,11 @@ def create_local_app(
         foundation_repository,
         derived_entity_repository,
     )
-    source_repository = SourceRepository(
+    source_repository = DataVersionOwnedSourceRepository(
         database,
         derived_entity_repository,
         workspace_mapping_sources,
+        foundation=foundation_repository,
     )
     local_schema_repository = SchemaRepository(database)
     run_planning_repository = MigrationRunPlanningRepository(
@@ -291,10 +303,10 @@ def create_local_app(
     mapping_repository = MappingRepository(database, workspace_mapping_sources)
     supporting_lookup_repository = SupportingLookupRepository(database)
     mapping_field_catalog_repository = MappingFieldCatalogRepository(database)
-    staging_repository = StagingRepository(database, resolved_artifacts)
+    staging_repository = StagingRepository(database, artifacts)
     preparation_session_repository = PreparationSessionRepository(
         database,
-        resolved_artifacts,
+        artifacts,
     )
     local_advanced_coverage_repository = AdvancedCoverageRepository(database)
     advanced_coverage_repository = RunAwareAdvancedCoverageRepository(
@@ -311,6 +323,10 @@ def create_local_app(
     reconciliation_repository = ReconciliationRepository(database)
     transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
+    workspace_access = WorkspaceAccessService(
+        foundation_repository,
+        resolved_authorization,
+    )
     resolved_secret_store = secret_store or CredentialVault()
     protected_recipe_store = ProtectedRecipeStore(
         project_root,
@@ -327,10 +343,11 @@ def create_local_app(
     )
     odoo_provenance_repository = OdooProvenanceRepository(
         database,
-        resolved_artifacts,
+        artifacts,
         protected_root=lambda workspace_id: (
             foundation_database.root
             / "artifacts"
+            / "dv"
             / foundation_repository.get_migration_workspace(
                 workspace_id
             ).data_version_id
@@ -342,23 +359,24 @@ def create_local_app(
         source_repository,
         odoo_provenance_repository,
         resolved_secret_store,
-        resolved_authorization,
+        workspace_access,
     )
     odoo_capture_publication = OdooCapturePublicationService(
         OdooSourceCaptureService(
             workspace_state_repository,
             source_repository,
             schema_repository,
-            resolved_authorization,
+            workspace_access,
         ),
         source_repository,
         odoo_provenance_service,
         odoo_provenance_repository,
-        resolved_artifacts,
+        artifacts,
+        workspace_access,
     )
     workspace_states = WorkspaceStateService(
         workspace_state_repository,
-        resolved_authorization,
+        workspace_access,
     )
     migration_projects = MigrationProjectService(
         foundation_repository,
@@ -369,6 +387,10 @@ def create_local_app(
         resolved_authorization,
     )
     migration_runs = MigrationRunService(
+        foundation_repository,
+        resolved_authorization,
+    )
+    migration_run_target_setup = MigrationRunTargetSetupService(
         foundation_repository,
         resolved_authorization,
     )
@@ -419,19 +441,19 @@ def create_local_app(
     )
     categorical_coverage = CategoricalCoverageService(
         source_repository,
-        resolved_artifacts,
+        artifacts,
     )
     schema_workspace = SchemaWorkspaceService(
         workspace_state_repository,
         source_repository,
         schema_repository,
-        resolved_authorization,
+        workspace_access,
     )
     mapping_workspace = MappingWorkspaceService(
         workspace_mapping_sources,
         schema_repository,
         mapping_repository,
-        resolved_authorization,
+        workspace_access,
         categorical_coverage=categorical_coverage,
         transformation_impacts=transformation_impact_repository,
     )
@@ -479,7 +501,7 @@ def create_local_app(
     )
     normalization = NormalizationService(
         normalization_repository,
-        resolved_authorization,
+        workspace_access,
     )
     resolution = ResolutionService(advanced_coverage_repository, staging_repository)
     preparation = PreparationService(
@@ -489,8 +511,8 @@ def create_local_app(
         mapping_repository,
         staging_repository,
         preparation_session_repository,
-        resolved_artifacts,
-        resolved_authorization,
+        artifacts,
+        workspace_access,
         quality,
         normalization,
         resolution,
@@ -504,16 +526,16 @@ def create_local_app(
         workspace_state_repository,
         source_repository,
         preflight_repository,
-        resolved_artifacts,
-        resolved_authorization,
+        artifacts,
+        workspace_access,
         advanced_coverage_repository,
         schema_repository,
         odoo_provenance_service,
     )
 
-    def current_read_credential_binding(project: WorkspaceState) -> str:
+    def current_read_credential_binding(workspace_state: WorkspaceState) -> str:
         credential_owner = production_runs.credential_workspace(
-            project.project_id,
+            workspace_state.workspace_id,
             actor=actor,
         )
         if credential_owner.odoo_connection_mode is OdooConnectionMode.LOCAL:
@@ -534,7 +556,7 @@ def create_local_app(
         workspace_state_repository,
         preflight,
         execution_repository,
-        resolved_authorization,
+        workspace_access,
         require_remote_read_identity=True,
         require_remote_write_identity=True,
         current_read_credential_binding=current_read_credential_binding,
@@ -543,7 +565,7 @@ def create_local_app(
         preflight,
         execution_repository,
         reconciliation_repository,
-        resolved_authorization,
+        workspace_access,
     )
     cutover_plans = CutoverPlanService(
         projects=migration_projects,
@@ -599,9 +621,15 @@ def create_local_app(
             transformation_impact_repository,
             workspace_mapping_sources,
         ),
+        workspace_access=workspace_access,
+        workspace_views=WorkspaceOwnerViewService(
+            foundation_repository,
+            workspace_access,
+        ),
         migration_projects=migration_projects,
         data_versions=data_versions,
         migration_runs=migration_runs,
+        migration_run_target_setup=migration_run_target_setup,
         migration_workspaces=migration_workspaces,
         project_authoring=project_authoring,
         recipes=recipes,
@@ -611,30 +639,34 @@ def create_local_app(
         production_runs=production_runs,
         data_version_source_projection=data_version_source_projection,
         workspace_states=workspace_states,
-        intake=SourceIntakeService(workspace_states, resolved_artifacts),
+        intake=SourceIntakeService(
+            workspace_states,
+            artifacts,
+            workspace_access,
+        ),
         inspections=SourceInspectionService(
             workspace_state_repository,
             source_repository,
-            resolved_artifacts,
-            resolved_authorization,
+            artifacts,
+            workspace_access,
         ),
         sources=SourceWorkspaceService(
             workspace_state_repository,
             source_repository,
-            resolved_authorization,
-            resolved_artifacts,
+            workspace_access,
+            artifacts,
             schemas=schema_repository,
         ),
         derived_entities=DerivedEntityWorkspaceService(
             source_repository,
             derived_entity_repository,
-            resolved_authorization,
+            workspace_access,
         ),
         schema_workspace=schema_workspace,
         mapping_workspace=mapping_workspace,
         supporting_lookups=SupportingLookupService(
             supporting_lookup_repository,
-            resolved_authorization,
+            workspace_access,
         ),
         categorical_coverage=categorical_coverage,
         preparation=preparation,
@@ -652,13 +684,13 @@ def create_local_app(
             source_repository,
             derived_entity_repository,
             transformation_impact_repository,
-            resolved_artifacts,
-            resolved_authorization,
+            artifacts,
+            workspace_access,
         ),
         odoo_capture_publication=odoo_capture_publication,
         odoo_capture_jobs=odoo_capture_jobs,
         odoo_provenance=odoo_provenance_service,
-        artifacts=resolved_artifacts,
+        artifacts=artifacts,
         actor=actor,
         authorization=resolved_authorization,
         jobs=job_dispatcher or InlineJobDispatcher(),
@@ -713,6 +745,54 @@ def create_local_app(
         StaticFiles(directory=package_dir / "static"),
         name="static",
     )
+
+    def trusted_job_context(
+        path: str,
+        workspace_id: str,
+    ) -> WorkspaceAccessContext | None:
+        """Reuse an already verified job packet without reopening the registry."""
+
+        parts = path.strip("/").split("/")
+        if len(parts) < 4 or parts[:2] != ["workspaces", workspace_id]:
+            return None
+        try:
+            if (
+                parts[2] == "preparation"
+                and context.preparation_jobs is not None
+            ):
+                job = context.preparation_jobs.get(workspace_id, parts[3])
+                return WorkspaceAccessContext(
+                    project_id=job.workspace.project_id,
+                    workspace_id=job.workspace.workspace_id,
+                    data_version_id=job.workspace.data_version_id,
+                    migration_run_id=job.workspace.migration_run_id,
+                    recipe_application_id=job.workspace.recipe_application_id,
+                )
+            if (
+                len(parts) >= 5
+                and parts[2:4] == ["load", "progress"]
+                and context.load_jobs is not None
+            ):
+                return context.load_jobs.get(workspace_id, parts[4]).access_context
+            if (
+                len(parts) >= 5
+                and parts[2:4] == ["sources", "odoo-capture"]
+                and context.odoo_capture_jobs is not None
+            ):
+                return context.odoo_capture_jobs.get(
+                    workspace_id,
+                    parts[4],
+                ).access_context
+        except LookupError:
+            return None
+        return None
+
+    app.add_middleware(
+        WorkspaceAccessMiddleware,
+        access=context.workspace_access,
+        actor=lambda: context.actor,
+        trusted_context_resolver=trusted_job_context,
+    )
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret or secrets.token_urlsafe(48),
@@ -737,6 +817,22 @@ def create_local_app(
     @app.exception_handler(MigrationNotFoundError)
     async def migration_not_found(_request: Request, _error: MigrationNotFoundError):
         return HTMLResponse("Migration record not found", status_code=404)
+
+    @app.exception_handler(MigrationIdentifierConfusionError)
+    async def workspace_identity_mismatch(
+        request: Request,
+        _error: MigrationIdentifierConfusionError,
+    ):
+        message = (
+            "Workspace not found"
+            if request.url.path.startswith("/workspaces/")
+            else "Migration record not found"
+        )
+        return HTMLResponse(message, status_code=404)
+
+    @app.exception_handler(AuthorizationError)
+    async def command_not_authorized(_request: Request, _error: AuthorizationError):
+        return HTMLResponse("Not authorized", status_code=403)
 
     @app.exception_handler(RecipeError)
     async def recipe_error(_request: Request, error: RecipeError):
@@ -779,4 +875,3 @@ def create_local_app(
         app.include_router(router)
 
     return app
-

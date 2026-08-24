@@ -55,7 +55,7 @@ class WorkspaceNavigation:
     """Complete navigation context for one rendered workspace page."""
 
     workspace_id: str
-    project_name: str
+    migration_project_name: str
     registered: bool
     setup_active: bool
     setup_href: str
@@ -127,16 +127,16 @@ _TEMPLATE_LOCATION = {
 
 def build_workspace_navigation(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     template_name: str,
     *,
     current_path: str = "",
-    project_name: str | None = None,
+    migration_project_name: str | None = None,
 ) -> WorkspaceNavigation:
     """Return one request-scoped workflow snapshot for the rendered page."""
 
-    current_project = context.queries.get(project.project_id)
-    navigation_name = project_name or current_project.name
+    current_workspace_state = context.queries.get(workspace_state.workspace_id)
+    navigation_name = migration_project_name or current_workspace_state.name
     viewed_stage_id, viewed_page_label = _TEMPLATE_LOCATION.get(
         template_name,
         ("", "Project setup"),
@@ -148,19 +148,19 @@ def build_workspace_navigation(
             viewed_page_label = "Verify result"
         else:
             viewed_page_label = "Check changes"
-    if current_project.status is not WorkspaceStatus.REGISTERED:
-        stages = _locked_stages(current_project.project_id)
+    if current_workspace_state.status is not WorkspaceStatus.REGISTERED:
+        stages = _locked_stages(current_workspace_state.workspace_id)
         setup_page = (
             "files"
-            if current_project.source_mode is SourceMode.FILE
+            if current_workspace_state.source_mode is SourceMode.FILE
             else "target"
         )
         return WorkspaceNavigation(
-            workspace_id=current_project.project_id,
-            project_name=navigation_name,
+            workspace_id=current_workspace_state.workspace_id,
+            migration_project_name=navigation_name,
             registered=False,
             setup_active=True,
-            setup_href=f"/workspaces/{current_project.project_id}/{setup_page}",
+            setup_href=f"/workspaces/{current_workspace_state.workspace_id}/{setup_page}",
             overview_href=None,
             overview_active=False,
             current_stage_id="setup",
@@ -170,29 +170,29 @@ def build_workspace_navigation(
             stages=stages,
         )
 
-    if current_project.source_mode is SourceMode.ODOO:
+    if current_workspace_state.source_mode is SourceMode.ODOO:
         model_catalog = context.queries.get_odoo_model_catalog(
-            current_project.project_id
+            current_workspace_state.workspace_id
         )
         schema = context.queries.get_odoo_schema_catalog(
-            current_project.project_id
+            current_workspace_state.workspace_id
         )
         capture_selection = (
             context.queries.get_current_odoo_capture_selection(
-                current_project.project_id
+                current_workspace_state.workspace_id
             )
             if schema is not None
             else None
         )
         try:
             frozen_source = context.queries.get_source_selection(
-                current_project.project_id
+                current_workspace_state.workspace_id
             )
         except WorkspaceError:
             frozen_source = None
         stages = [
             _stage(
-                current_project.project_id,
+                current_workspace_state.workspace_id,
                 "odoo",
                 1,
                 "Odoo source data",
@@ -201,14 +201,14 @@ def build_workspace_navigation(
                 status_label=("Complete" if schema is not None else "Current"),
                 pages=(
                     _page(
-                        current_project.project_id,
+                        current_workspace_state.workspace_id,
                         "odoo-models",
                         "Choose Odoo record type",
                         "/schema",
                         complete=model_catalog is not None,
                     ),
                     _page(
-                        current_project.project_id,
+                        current_workspace_state.workspace_id,
                         "odoo-fields",
                         "Capture eligible fields",
                         "/schema#odoo-details",
@@ -221,7 +221,7 @@ def build_workspace_navigation(
                 number=2,
                 label="Freeze Odoo records",
                 href=(
-                    f"/workspaces/{current_project.project_id}/sources"
+                    f"/workspaces/{current_workspace_state.workspace_id}/sources"
                     if schema is not None
                     else None
                 ),
@@ -243,14 +243,14 @@ def build_workspace_navigation(
                 ),
                 pages=(
                     _page(
-                        current_project.project_id,
+                        current_workspace_state.workspace_id,
                         "odoo-capture-selection",
                         "Define bounded capture",
                         "/sources",
                         complete=capture_selection is not None,
                     ),
                     _page(
-                        current_project.project_id,
+                        current_workspace_state.workspace_id,
                         "odoo-capture",
                         "Freeze Odoo records",
                         "/sources#current-capture",
@@ -260,20 +260,20 @@ def build_workspace_navigation(
             ),
         ]
         if frozen_source is None:
-            stages.extend(_locked_stages(current_project.project_id, after="source"))
+            stages.extend(_locked_stages(current_workspace_state.workspace_id, after="source"))
             return _navigation(
-                current_project,
+                current_workspace_state,
                 template_name,
                 viewed_stage_id,
                 viewed_page_label,
                 stages,
-                project_name=navigation_name,
+                migration_project_name=navigation_name,
             )
 
-        project_id = current_project.project_id
-        revision = context.queries.get_mapping_revision(project_id)
+        workspace_id = current_workspace_state.workspace_id
+        revision = context.queries.get_mapping_revision(workspace_id)
         submission = (
-            context.queries.get_mapping_submission(project_id, revision.version)
+            context.queries.get_mapping_submission(workspace_id, revision.version)
             if revision is not None
             else None
         )
@@ -291,7 +291,7 @@ def build_workspace_navigation(
         )
         stages.append(
             _stage(
-                project_id,
+                workspace_id,
                 "match",
                 3,
                 "Match data",
@@ -300,7 +300,7 @@ def build_workspace_navigation(
                 status_label=("Complete" if mapping_complete else "Current"),
                 pages=(
                     _page(
-                        project_id,
+                        workspace_id,
                         "mapping",
                         "Choose and approve update fields",
                         "/mapping",
@@ -310,26 +310,26 @@ def build_workspace_navigation(
             )
         )
         if not mapping_complete:
-            stages.extend(_locked_stages(project_id, after="match"))
+            stages.extend(_locked_stages(workspace_id, after="match"))
             return _navigation(
-                current_project,
+                current_workspace_state,
                 template_name,
                 viewed_stage_id,
                 viewed_page_label,
                 stages,
-                project_name=navigation_name,
+                migration_project_name=navigation_name,
             )
 
         active_job = (
-            context.preparation_jobs.active(project_id)
+            context.preparation_jobs.active(workspace_id)
             if context.preparation_jobs is not None
             else None
         )
-        staging = context.preflight.current_staging(project_id)
-        quality = context.quality.current_summary(project_id) if staging else None
+        staging = context.preflight.current_staging(workspace_id)
+        quality = context.quality.current_summary(workspace_id) if staging else None
         if quality is not None and quality.staging_run_id != staging.run_id:
             quality = None
-        normalization = context.normalization.current_summary(project_id) if quality else None
+        normalization = context.normalization.current_summary(workspace_id) if quality else None
         if normalization is not None and (
             normalization.staging_run_id != staging.run_id
             or normalization.quality_run_id != quality.run_id
@@ -361,7 +361,7 @@ def build_workspace_navigation(
         )
         stages.append(
             _stage(
-                project_id,
+                workspace_id,
                 "prepare",
                 4,
                 "Prepare data",
@@ -370,14 +370,14 @@ def build_workspace_navigation(
                 status_label=preparation_label,
                 pages=(
                     _page(
-                        project_id,
+                        workspace_id,
                         "prepare",
                         "Prepare captured records",
                         "/prepare",
                         complete=staging is not None,
                     ),
                     _page(
-                        project_id,
+                        workspace_id,
                         "normalization",
                         "Review prepared changes",
                         "/normalization",
@@ -386,7 +386,7 @@ def build_workspace_navigation(
                 ),
             )
         )
-        report = context.preflight.current_report(project_id) if preparation_complete else None
+        report = context.preflight.current_report(workspace_id) if preparation_complete else None
         review_status = (
             "complete"
             if report is not None and report.status == "READY"
@@ -398,7 +398,7 @@ def build_workspace_navigation(
         )
         stages.append(
             _stage(
-                project_id,
+                workspace_id,
                 "review",
                 5,
                 "Final review",
@@ -419,7 +419,7 @@ def build_workspace_navigation(
                 ),
                 pages=(
                     _page(
-                        project_id,
+                        workspace_id,
                         "summary",
                         "Compare with Odoo",
                         "/summary",
@@ -440,31 +440,31 @@ def build_workspace_navigation(
             )
         )
         return _navigation(
-            current_project,
+            current_workspace_state,
             template_name,
             viewed_stage_id,
             viewed_page_label,
             stages,
-            project_name=navigation_name,
+            migration_project_name=navigation_name,
         )
 
-    project_id = current_project.project_id
+    workspace_id = current_workspace_state.workspace_id
     try:
-        source_selection = context.queries.get_source_selection(project_id)
-        source_configurations = context.queries.get_source_configurations(project_id)
-        derived_plan = context.queries.get_derived_entity_plan(project_id)
+        source_selection = context.queries.get_source_selection(workspace_id)
+        source_configurations = context.queries.get_source_configurations(workspace_id)
+        derived_plan = context.queries.get_derived_entity_plan(workspace_id)
     except WorkspaceError:
         source_selection = None
         source_configurations = ()
         derived_plan = None
-    sources_confirmed = bool(current_project.source_files) and (
-        len(source_configurations) == len(current_project.source_files)
+    sources_confirmed = bool(current_workspace_state.source_files) and (
+        len(source_configurations) == len(current_workspace_state.source_files)
         and all(item.selected_table_keys for item in source_configurations)
     )
     source_complete = source_selection is not None
     stages: list[WorkflowStage] = [
         _stage(
-            project_id,
+            workspace_id,
             "source",
             1,
             "Source data",
@@ -473,14 +473,14 @@ def build_workspace_navigation(
             status_label=("Complete" if source_complete else "Current"),
             pages=(
                 _page(
-                    project_id,
+                    workspace_id,
                     "source-files",
                     "Check source files",
                     "/sources",
                     complete=sources_confirmed or source_complete,
                 ),
                 _page(
-                    project_id,
+                    workspace_id,
                     "datasets",
                     (
                         "Saved source tables"
@@ -495,7 +495,7 @@ def build_workspace_navigation(
                     complete=source_complete,
                 ),
                 _page(
-                    project_id,
+                    workspace_id,
                     "derived-entities",
                     "Separate combined information",
                     "/derived-entities",
@@ -506,22 +506,22 @@ def build_workspace_navigation(
         )
     ]
     if not source_complete:
-        stages.extend(_locked_stages(project_id, after="source"))
+        stages.extend(_locked_stages(workspace_id, after="source"))
         return _navigation(
-            current_project,
+            current_workspace_state,
             template_name,
             viewed_stage_id,
             viewed_page_label,
             stages,
-            project_name=navigation_name,
+            migration_project_name=navigation_name,
         )
 
-    schema = context.queries.get_odoo_schema_catalog(project_id)
-    governance = context.queries.get_schema_governance(project_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    governance = context.queries.get_schema_governance(workspace_id)
     schema_complete = schema is not None and governance is not None
     stages.append(
         _stage(
-            project_id,
+            workspace_id,
             "odoo",
             2,
             "Odoo data",
@@ -530,7 +530,7 @@ def build_workspace_navigation(
             status_label=("Complete" if schema_complete else "Current"),
             pages=(
                 _page(
-                    project_id,
+                    workspace_id,
                     "schema",
                     "Choose Odoo records",
                     "/schema",
@@ -540,19 +540,19 @@ def build_workspace_navigation(
         )
     )
     if not schema_complete:
-        stages.extend(_locked_stages(project_id, after="odoo"))
+        stages.extend(_locked_stages(workspace_id, after="odoo"))
         return _navigation(
-            current_project,
+            current_workspace_state,
             template_name,
             viewed_stage_id,
             viewed_page_label,
             stages,
-            project_name=navigation_name,
+            migration_project_name=navigation_name,
         )
 
-    revision = context.queries.get_mapping_revision(project_id)
+    revision = context.queries.get_mapping_revision(workspace_id)
     submission = (
-        context.queries.get_mapping_submission(project_id, revision.version)
+        context.queries.get_mapping_submission(workspace_id, revision.version)
         if revision is not None
         else None
     )
@@ -572,7 +572,7 @@ def build_workspace_navigation(
     )
     stages.append(
         _stage(
-            project_id,
+            workspace_id,
             "match",
             3,
             "Match data",
@@ -581,14 +581,14 @@ def build_workspace_navigation(
             status_label=("Complete" if mapping_complete else "Current"),
             pages=(
                 _page(
-                    project_id,
+                    workspace_id,
                     "mapping",
                     "Match fields",
                     "/mapping",
                     complete=mapping_complete,
                 ),
                 _page(
-                    project_id,
+                    workspace_id,
                     "transformation-impact",
                     "Review rule effects",
                     "/mapping/transformation-impact",
@@ -598,25 +598,25 @@ def build_workspace_navigation(
         )
     )
     if not mapping_complete:
-        stages.extend(_locked_stages(project_id, after="match"))
+        stages.extend(_locked_stages(workspace_id, after="match"))
         return _navigation(
-            current_project,
+            current_workspace_state,
             template_name,
             viewed_stage_id,
             viewed_page_label,
             stages,
-            project_name=navigation_name,
+            migration_project_name=navigation_name,
         )
 
     active_job = (
-        context.preparation_jobs.active(project_id)
+        context.preparation_jobs.active(workspace_id)
         if context.preparation_jobs is not None
         else None
     )
     if active_job is not None:
         stages.append(
             _stage(
-                project_id,
+                workspace_id,
                 "prepare",
                 4,
                 "Prepare data",
@@ -625,7 +625,7 @@ def build_workspace_navigation(
                 status_label="In progress",
                 pages=(
                     _page(
-                        project_id,
+                        workspace_id,
                         "prepare",
                         "Start preparation",
                         "/prepare",
@@ -634,7 +634,7 @@ def build_workspace_navigation(
                         page_id="preparation-progress",
                         label="Preparation progress",
                         href=(
-                            f"/workspaces/{project_id}/preparation/"
+                            f"/workspaces/{workspace_id}/preparation/"
                             f"{active_job.job_id}"
                         ),
                         status="current",
@@ -643,22 +643,22 @@ def build_workspace_navigation(
                 ),
             )
         )
-        stages.extend(_locked_stages(project_id, after="prepare"))
+        stages.extend(_locked_stages(workspace_id, after="prepare"))
         return _navigation(
-            current_project,
+            current_workspace_state,
             template_name,
             viewed_stage_id,
             viewed_page_label,
             stages,
-            project_name=navigation_name,
+            migration_project_name=navigation_name,
         )
 
-    staging = context.preflight.current_staging(project_id)
-    resolution = context.resolution.current_summary(project_id) if staging else None
-    quality = context.quality.current_summary(project_id) if staging else None
+    staging = context.preflight.current_staging(workspace_id)
+    resolution = context.resolution.current_summary(workspace_id) if staging else None
+    quality = context.quality.current_summary(workspace_id) if staging else None
     if quality is not None and quality.staging_run_id != staging.run_id:
         quality = None
-    normalization = context.normalization.current_summary(project_id) if quality else None
+    normalization = context.normalization.current_summary(workspace_id) if quality else None
     if normalization is not None and (
         normalization.staging_run_id != staging.run_id
         or normalization.quality_run_id != quality.run_id
@@ -684,7 +684,7 @@ def build_workspace_navigation(
     )
     preparation_pages = [
         _page(
-            project_id,
+            workspace_id,
             "prepare",
             "Start preparation",
             "/prepare",
@@ -704,7 +704,7 @@ def build_workspace_navigation(
     if resolution is not None:
         preparation_pages.append(
             _page(
-                project_id,
+                workspace_id,
                 "resolution",
                 "Review possible duplicates",
                 "/resolution",
@@ -715,7 +715,7 @@ def build_workspace_navigation(
     if normalization is not None:
         preparation_pages.append(
             _page(
-                project_id,
+                workspace_id,
                 "normalization",
                 "Approve prepared data",
                 "/normalization",
@@ -725,7 +725,7 @@ def build_workspace_navigation(
         )
     stages.append(
         _stage(
-            project_id,
+            workspace_id,
             "prepare",
             4,
             "Prepare data",
@@ -736,17 +736,17 @@ def build_workspace_navigation(
         )
     )
     if not preparation_complete:
-        stages.extend(_locked_stages(project_id, after="prepare"))
+        stages.extend(_locked_stages(workspace_id, after="prepare"))
         return _navigation(
-            current_project,
+            current_workspace_state,
             template_name,
             viewed_stage_id,
             viewed_page_label,
             stages,
-            project_name=navigation_name,
+            migration_project_name=navigation_name,
         )
 
-    report = context.preflight.current_report(project_id)
+    report = context.preflight.current_report(workspace_id)
     review_complete = bool(report and report.status == "READY")
     review_attention = bool(report and report.status != "READY")
     review_status = (
@@ -761,7 +761,7 @@ def build_workspace_navigation(
     )
     stages.append(
         _stage(
-            project_id,
+            workspace_id,
             "review",
             5,
             "Final review",
@@ -770,7 +770,7 @@ def build_workspace_navigation(
             status_label=review_label,
             pages=(
                 _page(
-                    project_id,
+                    workspace_id,
                     "summary",
                     "Review and compare",
                     "/summary",
@@ -781,25 +781,25 @@ def build_workspace_navigation(
         )
     )
     if not review_complete:
-        stages.extend(_locked_stages(project_id, after="review"))
+        stages.extend(_locked_stages(workspace_id, after="review"))
         return _navigation(
-            current_project,
+            current_workspace_state,
             template_name,
             viewed_stage_id,
             viewed_page_label,
             stages,
-            project_name=navigation_name,
+            migration_project_name=navigation_name,
         )
 
     load_status = "current"
     load_label = "Current"
     active_load_job = (
-        context.load_jobs.active(project_id)
+        context.load_jobs.active(workspace_id)
         if context.load_jobs is not None
         else None
     )
     try:
-        preview = context.execution.current_preview(project_id)
+        preview = context.execution.current_preview(workspace_id)
     except (ReadinessError, WorkspaceError):
         preview = None
         load_status = "attention"
@@ -812,7 +812,7 @@ def build_workspace_navigation(
             load_status = "complete"
             load_label = "No changes needed"
         elif preview.current_run is not None:
-            reconciliation = context.reconciliation.current(project_id)
+            reconciliation = context.reconciliation.current(workspace_id)
             if (
                 reconciliation is not None
                 and reconciliation.status is ReconciliationRunStatus.VERIFIED
@@ -828,7 +828,7 @@ def build_workspace_navigation(
             load_status = "attention"
             load_label = "Needs attention"
     review_page = _page(
-        project_id,
+        workspace_id,
         "load-review",
         "Check changes",
         "/load/review",
@@ -840,7 +840,7 @@ def build_workspace_navigation(
             page_id="load-confirm",
             label="Confirm and load",
             href=(
-                f"/workspaces/{project_id}/load/progress/"
+                f"/workspaces/{workspace_id}/load/progress/"
                 f"{active_load_job.job_id}"
             ),
             status="current",
@@ -862,7 +862,7 @@ def build_workspace_navigation(
             status_label="Complete",
         )
         outcome_page = _page(
-            project_id,
+            workspace_id,
             "load-outcome",
             "Verify result",
             "/load/outcome",
@@ -878,7 +878,7 @@ def build_workspace_navigation(
     else:
         confirm_page = (
             _page(
-                project_id,
+                workspace_id,
                 "load-confirm",
                 "Confirm and load",
                 "/load/confirm",
@@ -901,7 +901,7 @@ def build_workspace_navigation(
         )
     stages.append(
         _stage(
-            project_id,
+            workspace_id,
             "load",
             6,
             "Load into Odoo",
@@ -912,23 +912,23 @@ def build_workspace_navigation(
         )
     )
     return _navigation(
-        current_project,
+        current_workspace_state,
         template_name,
         viewed_stage_id,
         viewed_page_label,
         stages,
-        project_name=navigation_name,
+        migration_project_name=navigation_name,
     )
 
 
 def _navigation(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     template_name: str,
     viewed_stage_id: str,
     viewed_page_label: str,
     stages: list[WorkflowStage],
     *,
-    project_name: str | None = None,
+    migration_project_name: str | None = None,
 ) -> WorkspaceNavigation:
     current_stage = next(
         (
@@ -961,12 +961,12 @@ def _navigation(
         for stage in stages
     )
     return WorkspaceNavigation(
-        workspace_id=project.project_id,
-        project_name=project_name or project.name,
+        workspace_id=workspace_state.workspace_id,
+        migration_project_name=migration_project_name or workspace_state.name,
         registered=True,
         setup_active=False,
-        setup_href=f"/workspaces/{project.project_id}/details",
-        overview_href=f"/workspaces/{project.project_id}/overview",
+        setup_href=f"/workspaces/{workspace_state.workspace_id}/overview",
+        overview_href=f"/workspaces/{workspace_state.workspace_id}/overview",
         overview_active=template_name == "workspace_overview.html",
         current_stage_id=current_stage.stage_id,
         current_stage_label=current_stage.label,
@@ -979,14 +979,14 @@ def _navigation(
 def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavigation:
     """Build Stage-4 navigation entirely from the in-memory job snapshot."""
 
-    project_id = job.project_id
-    progress_url = f"/workspaces/{project_id}/preparation/{job.job_id}"
+    workspace_id = job.workspace_id
+    progress_url = f"/workspaces/{workspace_id}/preparation/{job.job_id}"
     stages = (
         WorkflowStage(
             stage_id="source",
             number=1,
             label="Source data",
-            href=f"/workspaces/{project_id}/sources",
+            href=f"/workspaces/{workspace_id}/sources",
             status="complete",
             status_label="Complete",
         ),
@@ -994,7 +994,7 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
             stage_id="odoo",
             number=2,
             label="Odoo data",
-            href=f"/workspaces/{project_id}/schema",
+            href=f"/workspaces/{workspace_id}/schema",
             status="complete",
             status_label="Complete",
         ),
@@ -1002,7 +1002,7 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
             stage_id="match",
             number=3,
             label="Match data",
-            href=f"/workspaces/{project_id}/mapping",
+            href=f"/workspaces/{workspace_id}/mapping",
             status="complete",
             status_label="Complete",
         ),
@@ -1010,14 +1010,14 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
             stage_id="prepare",
             number=4,
             label="Prepare data",
-            href=f"/workspaces/{project_id}/prepare",
+            href=f"/workspaces/{workspace_id}/prepare",
             status="current",
             status_label=("In progress" if job.active else "Saved attempt"),
             pages=(
                 WorkflowPage(
                     page_id="prepare",
                     label="Start preparation",
-                    href=f"/workspaces/{project_id}/prepare",
+                    href=f"/workspaces/{workspace_id}/prepare",
                 ),
                 WorkflowPage(
                     page_id="preparation-progress",
@@ -1030,15 +1030,15 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
             ),
             active=True,
         ),
-        *_locked_stages(project_id, after="prepare"),
+        *_locked_stages(workspace_id, after="prepare"),
     )
     return WorkspaceNavigation(
-        workspace_id=project_id,
-        project_name=job.project_name,
+        workspace_id=workspace_id,
+        migration_project_name=job.migration_project_name,
         registered=True,
         setup_active=False,
-        setup_href=f"/workspaces/{project_id}/details",
-        overview_href=f"/workspaces/{project_id}/overview",
+        setup_href=f"/workspaces/{workspace_id}/overview",
+        overview_href=f"/workspaces/{workspace_id}/overview",
         overview_active=False,
         current_stage_id="prepare",
         current_stage_label="Prepare data",
@@ -1051,8 +1051,8 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
 def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
     """Build Stage-6 navigation without opening the busy workspace database."""
 
-    project_id = job.project_id
-    progress_url = f"/workspaces/{project_id}/load/progress/{job.job_id}"
+    workspace_id = job.workspace_id
+    progress_url = f"/workspaces/{workspace_id}/load/progress/{job.job_id}"
     load_status = (
         "current"
         if job.active
@@ -1072,7 +1072,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
             stage_id="source",
             number=1,
             label="Source data",
-            href=f"/workspaces/{project_id}/sources",
+            href=f"/workspaces/{workspace_id}/sources",
             status="complete",
             status_label="Complete",
         ),
@@ -1080,7 +1080,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
             stage_id="odoo",
             number=2,
             label="Odoo data",
-            href=f"/workspaces/{project_id}/schema",
+            href=f"/workspaces/{workspace_id}/schema",
             status="complete",
             status_label="Complete",
         ),
@@ -1088,7 +1088,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
             stage_id="match",
             number=3,
             label="Match data",
-            href=f"/workspaces/{project_id}/mapping",
+            href=f"/workspaces/{workspace_id}/mapping",
             status="complete",
             status_label="Complete",
         ),
@@ -1096,7 +1096,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
             stage_id="prepare",
             number=4,
             label="Prepare data",
-            href=f"/workspaces/{project_id}/prepare",
+            href=f"/workspaces/{workspace_id}/prepare",
             status="complete",
             status_label="Complete",
         ),
@@ -1104,7 +1104,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
             stage_id="review",
             number=5,
             label="Final review",
-            href=f"/workspaces/{project_id}/summary",
+            href=f"/workspaces/{workspace_id}/summary",
             status="complete",
             status_label="Complete",
         ),
@@ -1120,7 +1120,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
             WorkflowPage(
                 page_id="load-review",
                 label="Check changes",
-                href=f"/workspaces/{project_id}/load/review",
+                href=f"/workspaces/{workspace_id}/load/review",
                 status="complete",
                 status_label="Complete",
             ),
@@ -1136,7 +1136,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
                 page_id="load-outcome",
                 label="Verify result",
                 href=(
-                    f"/workspaces/{project_id}/load/outcome"
+                    f"/workspaces/{workspace_id}/load/outcome"
                     if job.status.value == "SUCCEEDED"
                     else None
                 ),
@@ -1149,12 +1149,12 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
         active=True,
     )
     return WorkspaceNavigation(
-        workspace_id=project_id,
-        project_name=job.project_name,
+        workspace_id=workspace_id,
+        migration_project_name=job.migration_project_name,
         registered=True,
         setup_active=False,
-        setup_href=f"/workspaces/{project_id}/details",
-        overview_href=f"/workspaces/{project_id}/overview",
+        setup_href=f"/workspaces/{workspace_id}/overview",
+        overview_href=f"/workspaces/{workspace_id}/overview",
         overview_active=False,
         current_stage_id="load",
         current_stage_label="Load into Odoo",
@@ -1165,7 +1165,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
 
 
 def _stage(
-    project_id: str,
+    workspace_id: str,
     stage_id: str,
     number: int,
     label: str,
@@ -1179,7 +1179,7 @@ def _stage(
         stage_id=stage_id,
         number=number,
         label=label,
-        href=f"/workspaces/{project_id}{suffix}",
+        href=f"/workspaces/{workspace_id}{suffix}",
         status=status,
         status_label=status_label,
         pages=pages,
@@ -1187,7 +1187,7 @@ def _stage(
 
 
 def _page(
-    project_id: str,
+    workspace_id: str,
     page_id: str,
     label: str,
     suffix: str,
@@ -1207,7 +1207,7 @@ def _page(
     return WorkflowPage(
         page_id=page_id,
         label=label,
-        href=f"/workspaces/{project_id}{suffix}",
+        href=f"/workspaces/{workspace_id}{suffix}",
         status=status,
         status_label=status_label,
         optional=optional,
@@ -1215,7 +1215,7 @@ def _page(
 
 
 def _locked_stages(
-    project_id: str,
+    workspace_id: str,
     *,
     after: str | None = None,
 ) -> tuple[WorkflowStage, ...]:

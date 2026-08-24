@@ -51,8 +51,6 @@ _STEP_LABELS = {
 }
 
 _TEMPLATE_STEPS = {
-    "workspace_details.html": WorkspaceSetupStep.DETAILS,
-    "workspace_governance.html": WorkspaceSetupStep.GOVERNANCE,
     "workspace_files.html": WorkspaceSetupStep.FILES,
     "workspace_target.html": WorkspaceSetupStep.TARGET,
     "workspace_review.html": WorkspaceSetupStep.REVIEW,
@@ -60,26 +58,26 @@ _TEMPLATE_STEPS = {
 
 
 def workspace_setup_step_order(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
 ) -> tuple[WorkspaceSetupStep, ...]:
     """Return the setup sequence for the draft's selected source mode."""
 
     return (
         (WorkspaceSetupStep.FILES,)
-        if project.source_mode is SourceMode.FILE
+        if workspace_state.source_mode is SourceMode.FILE
         else (WorkspaceSetupStep.TARGET,)
     )
 
 
 def build_workspace_setup_view(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     template_name: str,
 ) -> WorkspaceSetupView:
     """Build one request-scoped setup view from the current project only."""
 
-    requirements = workspace_setup_requirements(project)
+    requirements = workspace_setup_requirements(workspace_state)
     current_step = _TEMPLATE_STEPS.get(template_name)
-    order = workspace_setup_step_order(project)
+    order = workspace_setup_step_order(workspace_state)
     step_views: list[WorkspaceSetupStepView] = []
     recovery_views: list[WorkspaceSetupRecoveryView] = []
     earlier_steps_complete = True
@@ -98,15 +96,15 @@ def build_workspace_setup_view(
             status_label = (
                 "Needs attention" if step_requirements else "Current"
             )
-            href = _setup_step_url(project.project_id, step)
+            href = _setup_step_url(workspace_state.workspace_id, step)
         elif step_requirements:
             status = "attention"
             status_label = "Needs attention"
-            href = _setup_step_url(project.project_id, step)
+            href = _setup_step_url(workspace_state.workspace_id, step)
         else:
             status = "complete"
             status_label = "Complete"
-            href = _setup_step_url(project.project_id, step)
+            href = _setup_step_url(workspace_state.workspace_id, step)
 
         step_views.append(
             WorkspaceSetupStepView(
@@ -124,7 +122,7 @@ def build_workspace_setup_view(
                 WorkspaceSetupRecoveryView(
                     step_id=step.value,
                     label=_STEP_LABELS[step],
-                    href=_setup_step_url(project.project_id, step),
+                    href=_setup_step_url(workspace_state.workspace_id, step),
                     requirements=step_requirements,
                 )
             )
@@ -141,26 +139,26 @@ def build_workspace_setup_view(
 
 
 def blocking_setup_url(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     requested_step: WorkspaceSetupStep,
 ) -> str | None:
     """Return the earliest incomplete page before ``requested_step``."""
 
-    order = workspace_setup_step_order(project)
+    order = workspace_setup_step_order(workspace_state)
     try:
         requested_index = order.index(requested_step)
     except ValueError:
         return None
-    requirements = workspace_setup_requirements(project)
+    requirements = workspace_setup_requirements(workspace_state)
     for step in order[:requested_index]:
         if any(item.step is step for item in requirements):
             return (
-                f"{_setup_step_url(project.project_id, step)}"
+                f"{_setup_step_url(workspace_state.workspace_id, step)}"
                 "?blocked=1#setup-blockers"
             )
     return None
 
 
-def _setup_step_url(project_id: str, step: WorkspaceSetupStep) -> str:
-    return f"/workspaces/{project_id}/{step.value}"
+def _setup_step_url(workspace_id: str, step: WorkspaceSetupStep) -> str:
+    return f"/workspaces/{workspace_id}/{step.value}"
 

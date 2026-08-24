@@ -527,7 +527,7 @@ def _write_prepared_snapshot(
         destination,
     )
     return destination, PreparedSnapshot.create(
-        project_id=snapshot.project_id,
+        workspace_id="11111111-1111-4111-8111-111111111111",
         dataset_id=snapshot.dataset_id,
         dataset_name=snapshot.dataset_name,
         source_snapshot_hash=snapshot.content_hash,
@@ -584,7 +584,7 @@ def _selection() -> SourceSelection:
     return SourceSelection(
         selection_id="selection-polars",
         version=1,
-        project_id="project-polars",
+        data_version_id="project-polars",
         created_at=NOW,
         created_by="tester",
         datasets=(dataset,),
@@ -837,7 +837,7 @@ def _write_snapshot(
     writer.append_source_rows(rows)
     candidate = writer.finalize()
     snapshot = SourceSnapshot.create(
-        project_id=selection.project_id,
+        data_version_id=selection.data_version_id,
         dataset_id=dataset.dataset_id,
         dataset_name=dataset.name,
         source=dataset.source,

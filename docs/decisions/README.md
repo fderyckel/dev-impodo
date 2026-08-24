@@ -310,8 +310,8 @@ record.
 
 ## ADR-013 — Recipe is the aggregate root and target bindings are application-specific
 
-**Status:** Superseded by ADR-014 on 2026-08-22. Phase M7 removed the remaining
-Recipe-first ownership path on 2026-08-23.
+**Status:** Superseded by ADR-014 on 2026-08-22. The former Recipe-owned
+Project model is not part of the current implementation.
 
 ADR-014 retains this decision's portable Recipe revision, independent target
 binding, credential separation, immutable qualification, and fresh Production
@@ -399,27 +399,21 @@ current lifecycle contracts.
 
 ## ADR-014 — Migration projects coordinate reusable Recipes and cutover plans
 
-**Status:** Accepted. Phases M0 through M6 are complete. M7 implemented the
-structural cutover on 2026-08-23, but final internal workspace-identity
-conformance remains open.
+**Status:** Accepted and implemented.
 
 **Supersedes:** ADR-012 and ADR-013 for aggregate ownership, DataVersion
 ownership, and cutover coordination.
 
-**Current implementation note:** The structural M7 cutover passed on
-2026-08-23. The browser
-and active persistence path now use Project roots, Project-owned DataVersion
-source packages, runs, workspaces, optional Project-scoped Recipes, and
-integrated Test planning with isolated Recipe applications. Exact CutoverPlan
-qualification and rollout-candidate selection are Project-owned. A selected
-plan now starts a fresh Production DataVersion, setup workspace, run-level
-target, and isolated applications without transferring Test credentials or
-evidence. Recipe-first ownership, schema migration, creation routes, and
-compatibility code are no longer part of the active implementation. The
-retained workspace engine still uses `project_id` for its contained workspace
-identity and must resolve the genuine parent Project before Project-scoped
-authorization. ADR-014 is not fully implemented until that dual meaning is
-removed.
+**Current implementation note:** The browser and persistence path use Project
+roots, Project-owned DataVersion source packages, runs, workspaces, optional
+Project-scoped Recipes, and integrated Test planning with isolated Recipe
+applications. Workspace requests and background jobs resolve the verified
+parent Project before opening child stores or Odoo boundaries. Exact
+CutoverPlan qualification and rollout-candidate selection are Project-owned.
+A selected plan starts a fresh Production DataVersion, setup workspace,
+run-level target, and isolated applications without transferring Test
+credentials or evidence. Retired ownership, storage-upgrade, creation-route,
+and compatibility paths are absent from the active implementation.
 
 **Decision:** `MigrationProject` is Impodo's operator-facing business identity
 and Project-level governance root. A Project owns its DataVersion,

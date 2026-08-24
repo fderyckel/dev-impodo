@@ -72,42 +72,42 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/workspaces/{project_id}/mapping", response_class=HTMLResponse)
-    async def project_mapping(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/mapping", response_class=HTMLResponse)
+    async def workspace_mapping(request: Request, workspace_id: str):
         require_session(request)
-        active_url = _active_preparation_url(context, project_id)
+        active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             return RedirectResponse(active_url, status_code=303)
-        return _render_mapping(request, context, project_id)
+        return _render_mapping(request, context, workspace_id)
 
     @router.get(
-        "/workspaces/{project_id}/mapping/field-catalog",
+        "/workspaces/{workspace_id}/mapping/field-catalog",
         response_class=HTMLResponse,
     )
-    async def project_mapping_field_catalog(
+    async def workspace_mapping_field_catalog(
         request: Request,
-        project_id: str,
+        workspace_id: str,
     ):
         """Return only the saved scalar-field catalogue for browser search."""
 
         require_session(request)
-        _require_mapping_idle(context, project_id)
+        _require_mapping_idle(context, workspace_id)
         return await run_in_threadpool(
             _render_mapping_field_catalog,
             request,
             context,
-            project_id,
+            workspace_id,
         )
 
-    @router.post("/workspaces/{project_id}/mapping/value-choices")
-    async def project_mapping_value_choices(
+    @router.post("/workspaces/{workspace_id}/mapping/value-choices")
+    async def workspace_mapping_value_choices(
         request: Request,
-        project_id: str,
+        workspace_id: str,
     ):
         """Return bounded source and Odoo choices for the mapping dialog."""
 
         require_session(request)
-        _require_mapping_idle(context, project_id)
+        _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(
             request,
@@ -128,10 +128,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             if kind not in {"scalar", "relationship"}:
                 raise WorkspaceError("Choose a supported Odoo field")
             selection = context.queries.get_mapping_source_selection(
-                project_id
+                workspace_id
             )
-            schema = context.queries.get_odoo_schema_catalog(project_id)
-            governance = context.queries.get_schema_governance(project_id)
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            governance = context.queries.get_schema_governance(workspace_id)
             if selection is None or schema is None:
                 raise WorkspaceError(
                     "Freeze the source and confirm the Odoo schema first"
@@ -153,7 +153,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             source_choices = await run_in_threadpool(
                 _source_value_choices,
                 context,
-                project_id,
+                workspace_id,
                 dataset_id,
                 source_column_key,
             )
@@ -217,7 +217,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     raise WorkspaceError(
                         "Choose how the related Odoo record is identified first"
                     )
-                project = context.queries.get(project_id)
+                workspace_state = context.queries.get(workspace_id)
                 (
                     target_choices,
                     ambiguous_values,
@@ -226,7 +226,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 ) = await run_in_threadpool(
                     _relationship_value_choices,
                     context,
-                    project,
+                    workspace_state,
                     schema,
                     target_model,
                     field,
@@ -254,27 +254,27 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             return JSONResponse({"detail": str(error)}, status_code=422)
 
     @router.get(
-        "/workspaces/{project_id}/mapping/transformation-impact",
+        "/workspaces/{workspace_id}/mapping/transformation-impact",
         response_class=HTMLResponse,
     )
-    async def project_transformation_impact(request: Request, project_id: str):
+    async def workspace_transformation_impact(request: Request, workspace_id: str):
         """Render one bounded page from prepared transformation evidence."""
 
         require_session(request)
-        active_url = _active_preparation_url(context, project_id)
+        active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             return RedirectResponse(active_url, status_code=303)
         try:
-            evidence = _transformation_impact_evidence(context, project_id)
+            evidence = _transformation_impact_evidence(context, workspace_id)
         except WorkspaceError as error:
             return _render_mapping(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
-        project, revision, physical_selection, effective_selection, plan = evidence
+        workspace_state, revision, physical_selection, effective_selection, plan = evidence
         identity = _transformation_impact_identity(
             revision,
             physical_selection,
@@ -282,7 +282,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             plan,
         )
         snapshot = context.queries.get_transformation_impact_snapshot(
-            project_id,
+            workspace_id,
             identity,
         )
         (
@@ -291,7 +291,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             field_choices,
             selection_labels,
         ) = _transformation_impact_labels(
-            context, project_id, revision, effective_selection
+            context, workspace_id, revision, effective_selection
         )
         filters = _transformation_impact_filters(
             dataset=request.query_params.get("dataset", ""),
@@ -307,7 +307,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         rows = ()
         outcome_urls = {
             outcome: _transformation_impact_url(
-                project_id,
+                workspace_id,
                 replace(filters, outcome=outcome),
             )
             for outcome in TRANSFORMATION_IMPACT_OUTCOMES
@@ -324,7 +324,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
             )
             page = context.queries.get_transformation_impact_page(
-                project_id,
+                workspace_id,
                 identity,
                 filters,
                 page_size=TRANSFORMATION_IMPACT_PAGE_SIZE,
@@ -334,26 +334,26 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             rows = _transformation_impact_row_views(page.rows)
             if page.previous_before is not None:
                 previous_url = _transformation_impact_url(
-                    project_id,
+                    workspace_id,
                     filters,
                     before=page.previous_before,
                 )
             if page.next_after is not None:
                 next_url = _transformation_impact_url(
-                    project_id,
+                    workspace_id,
                     filters,
                     after=page.next_after,
                 )
         return _render(
             request,
             "workspace_transformation_impact.html",
-            project=project,
+            workspace_state=workspace_state,
             revision=revision,
             snapshot=snapshot,
             report=snapshot.report if snapshot is not None else None,
             rule_impact_views=_transformation_rule_impact_views(
                 request,
-                project_id,
+                workspace_id,
                 snapshot,
                 revision,
                 effective_selection,
@@ -373,31 +373,31 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
     @router.post(
-        "/workspaces/{project_id}/mapping/transformation-impact/prepare"
+        "/workspaces/{workspace_id}/mapping/transformation-impact/prepare"
     )
-    async def prepare_transformation_impact(request: Request, project_id: str):
+    async def prepare_transformation_impact(request: Request, workspace_id: str):
         """Prepare one hash-bound local snapshot without contacting Odoo."""
 
         require_session(request)
-        _require_mapping_idle(context, project_id)
+        _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
-            evidence = _transformation_impact_evidence(context, project_id)
+            evidence = _transformation_impact_evidence(context, workspace_id)
         except WorkspaceError as error:
             return _render_mapping(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
-        project, revision, _physical_selection, effective_selection, _plan = evidence
+        workspace_state, revision, _physical_selection, effective_selection, _plan = evidence
 
         try:
             await run_in_threadpool(
                 context.transformation_impacts.prepare_snapshot,
-                project_id,
+                workspace_id,
                 actor=context.actor,
             )
         except (OSError, ReadinessError, WorkspaceError) as error:
@@ -407,12 +407,12 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 field_choices,
                 _selection_labels,
             ) = _transformation_impact_labels(
-                context, project_id, revision, effective_selection
+                context, workspace_id, revision, effective_selection
             )
             return _render(
                 request,
                 "workspace_transformation_impact.html",
-                project=project,
+                workspace_state=workspace_state,
                 revision=revision,
                 snapshot=None,
                 report=None,
@@ -431,16 +431,16 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
         _flash(request, "The changed-value comparison is ready.")
         return RedirectResponse(
-            f"/workspaces/{project_id}/mapping/transformation-impact",
+            f"/workspaces/{workspace_id}/mapping/transformation-impact",
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/mapping/transformation-impact.csv")
-    async def download_transformation_impact(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/mapping/transformation-impact.csv")
+    async def download_transformation_impact(request: Request, workspace_id: str):
         """Download matching persisted impact rows without recomputing them."""
 
         require_session(request)
-        _require_mapping_idle(context, project_id)
+        _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(
             request,
@@ -448,7 +448,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             {"csrf_token", "dataset", "outcome", "field", "q"},
         )
         try:
-            evidence = _transformation_impact_evidence(context, project_id)
+            evidence = _transformation_impact_evidence(context, workspace_id)
         except WorkspaceError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         _project, revision, physical_selection, effective_selection, plan = evidence
@@ -464,7 +464,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             field_choices,
             _selection_labels,
         ) = _transformation_impact_labels(
-            context, project_id, revision, effective_selection
+            context, workspace_id, revision, effective_selection
         )
         filters = _transformation_impact_filters(
             dataset=_text(form, "dataset"),
@@ -475,7 +475,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             allowed_fields={item[0] for item in field_choices},
         )
         if context.queries.get_transformation_impact_snapshot(
-            project_id,
+            workspace_id,
             identity,
         ) is None:
             raise HTTPException(
@@ -531,7 +531,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             stream.truncate(0)
             for index, row in enumerate(
                 context.queries.iter_transformation_impact_rows(
-                    project_id,
+                    workspace_id,
                     identity,
                     filters,
                 ),
@@ -568,18 +568,18 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             },
         )
 
-    @router.post("/workspaces/{project_id}/mapping/save")
-    async def save_project_mapping(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/mapping/save")
+    async def save_workspace_mapping(request: Request, workspace_id: str):
         """Run one explicit save, check, or confirmation command."""
 
         require_session(request)
         json_request = _is_json_request(request)
         if json_request:
             require_csrf(request, request.headers.get("x-csrf-token", ""))
-        active_url = _active_preparation_url(context, project_id)
+        active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             message = (
-                "Preparation is using this project's saved data. Wait for it "
+                "Preparation is using this workspace's saved data. Wait for it "
                 "to finish before changing field matches."
             )
             if json_request:
@@ -589,7 +589,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
             _flash(request, message)
             return RedirectResponse(active_url, status_code=303)
-        selection = context.queries.get_mapping_source_selection(project_id)
+        selection = context.queries.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise HTTPException(status_code=422, detail="Source selection missing")
         requested_dataset = _optional_nonnegative_query_int(
@@ -600,12 +600,12 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             max(len(selection.datasets) - 1, 0),
         )
         mapping_return_url = (
-            f"{_mapping_return_url(request, project_id)}"
+            f"{_mapping_return_url(request, workspace_id)}"
             f"#mapping-dataset-{active_dataset}"
         )
 
-        schema = context.queries.get_odoo_schema_catalog(project_id)
-        governance = context.queries.get_schema_governance(project_id)
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        governance = context.queries.get_schema_governance(workspace_id)
         if schema is None:
             raise HTTPException(status_code=422, detail="Odoo schema missing")
         try:
@@ -653,7 +653,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 draft = await run_in_threadpool(
                     context.mapping_workspace.set_target_field_disposition,
-                    project_id,
+                    workspace_id,
                     dataset_id=selection.datasets[dataset_index].dataset_id,
                     target_field=parts[2],
                     handling=handling,
@@ -669,7 +669,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 decision_return_url = (
                     _mapping_return_url(
                         request,
-                        project_id,
+                        workspace_id,
                         mapping_dataset=dataset_index,
                     )
                     + "#next-step-blockers"
@@ -687,7 +687,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             if action == "remove_readonly":
                 working_draft, removed_count = await run_in_threadpool(
                     context.mapping_workspace.remove_readonly_field_mappings,
-                    project_id,
+                    workspace_id,
                     expected_version=expected_working_version,
                     actor=context.actor,
                 )
@@ -710,7 +710,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 return RedirectResponse(mapping_return_url, status_code=303)
             active_definition = _active_mapping_definition(
                 context,
-                project_id,
+                workspace_id,
                 selection,
                 schema,
                 governance,
@@ -720,7 +720,6 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 selection,
                 schema,
                 governance,
-                active_definition,
             )
             datasets = _merge_partial_mapping_datasets(
                 datasets,
@@ -732,7 +731,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             if action == "save_progress":
                 working_draft = await run_in_threadpool(
                     context.mapping_workspace.save_working_draft,
-                    project_id,
+                    workspace_id,
                     datasets=datasets,
                     expected_version=expected_working_version,
                     actor=context.actor,
@@ -757,7 +756,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             if action == "draft":
                 revision, validation = await run_in_threadpool(
                     context.mapping_workspace.check_definition,
-                    project_id,
+                    workspace_id,
                     datasets=datasets,
                     expected_parent_version=expected_parent,
                     expected_working_draft_version=(
@@ -768,7 +767,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 if validation.status.value == "INVALID":
                     message = "Matches checked. Review the items that need attention."
                     mapping_return_url = (
-                        f"{_mapping_return_url(request, project_id)}"
+                        f"{_mapping_return_url(request, workspace_id)}"
                         "#next-step-blockers"
                     )
                 else:
@@ -777,7 +776,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             else:
                 await run_in_threadpool(
                     context.mapping_workspace.submit_current,
-                    project_id,
+                    workspace_id,
                     datasets=datasets,
                     expected_version=expected_parent,
                     expected_working_draft_version=(
@@ -790,21 +789,21 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 message = "Field matches confirmed."
                 _flash(request, message)
-                mapping_return_url = f"/workspaces/{project_id}/prepare"
+                mapping_return_url = f"/workspaces/{workspace_id}/prepare"
         except HTTPException as error:
             return _mapping_save_error_response(
                 request,
-                project_id,
+                workspace_id,
                 error,
                 json_request=json_request,
             )
         except (ValueError, WorkspaceError) as error:
             if json_request:
                 current_working = (
-                    context.queries.get_mapping_working_draft(project_id)
+                    context.queries.get_mapping_working_draft(workspace_id)
                 )
                 current_revision = context.queries.get_mapping_revision(
-                    project_id
+                    workspace_id
                 )
                 return JSONResponse(
                     {
@@ -836,22 +835,22 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
     @router.post(
-        "/workspaces/{project_id}/mapping/transformation-impact/acknowledge"
+        "/workspaces/{workspace_id}/mapping/transformation-impact/acknowledge"
     )
     async def acknowledge_transformation_rule(
         request: Request,
-        project_id: str,
+        workspace_id: str,
     ):
         """Acknowledge one zero-match or overlap fact for the current snapshot."""
 
         require_session(request)
-        _require_mapping_idle(context, project_id)
+        _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "rule_fingerprint"})
         try:
             await run_in_threadpool(
                 context.transformation_impacts.acknowledge_rule,
-                project_id,
+                workspace_id,
                 _text(form, "rule_fingerprint"),
                 actor=context.actor,
             )
@@ -859,27 +858,27 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(error)) from error
         _flash(request, "The rule result was reviewed.")
         return RedirectResponse(
-            f"/workspaces/{project_id}/mapping/transformation-impact",
+            f"/workspaces/{workspace_id}/mapping/transformation-impact",
             status_code=303,
         )
 
     return router
 
 
-def _active_preparation_url(context: WebContext, project_id: str) -> str:
+def _active_preparation_url(context: WebContext, workspace_id: str) -> str:
     manager = context.preparation_jobs
-    active = manager.active(project_id) if manager is not None else None
+    active = manager.active(workspace_id) if manager is not None else None
     if active is None:
         return ""
-    return f"/workspaces/{project_id}/preparation/{active.job_id}"
+    return f"/workspaces/{workspace_id}/preparation/{active.job_id}"
 
 
-def _require_mapping_idle(context: WebContext, project_id: str) -> None:
-    if _active_preparation_url(context, project_id):
+def _require_mapping_idle(context: WebContext, workspace_id: str) -> None:
+    if _active_preparation_url(context, workspace_id):
         raise HTTPException(
             status_code=409,
             detail=(
-                "Preparation is using this project's saved data. Wait for it "
+                "Preparation is using this workspace's saved data. Wait for it "
                 "to finish before reviewing or changing field matches."
             ),
         )

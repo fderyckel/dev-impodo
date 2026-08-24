@@ -1,4 +1,4 @@
-"""Define the clean Project business root introduced by Phase M1."""
+"""Define the Project business and governance root."""
 
 from __future__ import annotations
 

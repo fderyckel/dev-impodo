@@ -2,7 +2,7 @@
 
 This module contains validation and failure types used by the Project,
 DataVersion, MigrationRun, and MigrationWorkspace roots introduced from Phase
-M1 onward. It has no database or web dependency.
+current architecture. It has no database or web dependency.
 """
 
 from __future__ import annotations

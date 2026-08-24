@@ -18,7 +18,7 @@ from ..models import canonical_json_text, portable_value, restore_portable_value
 from .serialization import content_hash
 
 
-ODOO_COMPARISON_CONTRACT_VERSION = 1
+ODOO_COMPARISON_CONTRACT_VERSION = 2
 
 
 class OdooComparisonError(ValueError):
@@ -162,7 +162,7 @@ class OdooComparisonArtifact:
     """Hash-bound protected evidence for one read-only comparison run."""
 
     run_id: str
-    project_id: str
+    workspace_id: str
     capture_manifest_hash: str
     frozen_input_hash: str
     model: str
@@ -179,7 +179,7 @@ class OdooComparisonArtifact:
     def __post_init__(self, _calculate_content_hash: bool) -> None:
         if self.contract_version != ODOO_COMPARISON_CONTRACT_VERSION:
             raise OdooComparisonError("Unsupported Odoo comparison contract")
-        for value, label in ((self.run_id, "run"), (self.project_id, "project")):
+        for value, label in ((self.run_id, "run"), (self.workspace_id, "project")):
             try:
                 UUID(value)
             except (ValueError, AttributeError) as error:
@@ -230,7 +230,7 @@ class OdooComparisonArtifact:
             "contract_version": self.contract_version,
             "frozen_input_hash": self.frozen_input_hash,
             "model": self.model,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "read_principal_hash": self.read_principal_hash,
             "rows": [item.to_dict() for item in self.rows],
             "run_id": self.run_id,
@@ -251,7 +251,7 @@ class OdooComparisonArtifact:
                 {
                     "capture_manifest_hash", "checked_at", "connection_target_hash",
                     "content_hash", "context_hash", "contract_version",
-                    "frozen_input_hash", "model", "project_id",
+                    "frozen_input_hash", "model", "workspace_id",
                     "read_principal_hash", "rows", "run_id", "schema_scope_hash",
                 },
             )
@@ -260,7 +260,7 @@ class OdooComparisonArtifact:
                 raise OdooComparisonError("Odoo comparison rows are invalid")
             return cls(
                 run_id=str(payload["run_id"]),
-                project_id=str(payload["project_id"]),
+                workspace_id=str(payload["workspace_id"]),
                 capture_manifest_hash=str(payload["capture_manifest_hash"]),
                 frozen_input_hash=str(payload["frozen_input_hash"]),
                 model=str(payload["model"]),

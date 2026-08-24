@@ -96,7 +96,8 @@ capture and freeze responsibility.
 The captured file-mode target is fresh evidence owned by the current
 DataVersion. Optional Recipe publication can compile required portable Odoo
 semantics, but the server identity, schema capture, and credentials never
-become Recipe meaning. Project-owned application planning belongs to Phase M4.
+become Recipe meaning. Project-owned application planning belongs to the
+integrated Test workflow.
 
 ## Invalidation and recovery
 

@@ -19,13 +19,13 @@ class SupportingLookupRepositoryPort(Protocol):
 
     def get_current(
         self,
-        project_id: str,
+        workspace_id: str,
         lookup_key: str,
     ) -> SupportingLookupSnapshot | None: ...
 
     def save(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot: SupportingLookupSnapshot,
         *,
         actor: Actor,
@@ -45,7 +45,7 @@ class SupportingLookupService:
 
     def current(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         relation_model: str,
         key_fields: tuple[str, ...],
@@ -62,7 +62,7 @@ class SupportingLookupService:
         self._authorization.require(
             actor,
             Capability.MAPPING_EDIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         lookup_key = supporting_lookup_key(
             relation_model=relation_model,
@@ -70,18 +70,18 @@ class SupportingLookupService:
             scope_fields=scope_fields,
             display_field=display_field,
         )
-        snapshot = self._repository.get_current(project_id, lookup_key)
+        snapshot = self._repository.get_current(workspace_id, lookup_key)
         if snapshot is None:
             return None
         expected = (
-            project_id,
+            workspace_id,
             target_hash,
             read_credential_binding_hash,
             read_principal_hash,
             read_context_hash,
         )
         actual = (
-            snapshot.project_id,
+            snapshot.workspace_id,
             snapshot.target_hash,
             snapshot.read_credential_binding_hash,
             snapshot.read_principal_hash,
@@ -96,7 +96,7 @@ class SupportingLookupService:
 
     def capture(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         relation_model: str,
         key_fields: tuple[str, ...],
@@ -117,10 +117,10 @@ class SupportingLookupService:
         self._authorization.require(
             actor,
             Capability.MAPPING_EDIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         snapshot = SupportingLookupSnapshot.capture(
-            project_id=project_id,
+            workspace_id=workspace_id,
             relation_model=relation_model,
             key_fields=key_fields,
             scope_fields=scope_fields,
@@ -137,5 +137,5 @@ class SupportingLookupService:
             choices=choices,
             ambiguous_values=ambiguous_values,
         )
-        self._repository.save(project_id, snapshot, actor=actor)
+        self._repository.save(workspace_id, snapshot, actor=actor)
         return snapshot

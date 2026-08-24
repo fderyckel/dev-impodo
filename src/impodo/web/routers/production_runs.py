@@ -132,7 +132,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             target_schema, target_references = (
                 context.run_planning.target_evidence_from_workspace(
                     project_id,
-                    setup_state.project_id,
+                    setup_state.workspace_id,
                     actor=context.actor,
                 )
             )

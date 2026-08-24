@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
-from ..artifacts import ArtifactStore, ArtifactStoreError
+from ..artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from ..columnar_runtime import configure_columnar_runtime
 from ..domain.mapping.contracts import (
     MAX_VALUE_MAPPINGS,
@@ -70,14 +70,14 @@ CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
 class CategoricalSourceRepository(Protocol):
     """Read frozen source selections and their current immutable snapshots."""
 
-    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None: ...
 
     def get_mapping_source_selection(
-        self, project_id: str
+        self, workspace_id: str
     ) -> SourceSelection | None: ...
 
     def get_current_source_snapshots(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceSnapshot, ...]: ...
 
 
@@ -108,20 +108,20 @@ class CategoricalCoverageService:
     def __init__(
         self,
         sources: CategoricalSourceRepository,
-        artifacts: ArtifactStore,
+        artifacts: DataVersionSourceArtifactStore,
     ) -> None:
         self.sources = sources
         self.artifacts = artifacts
 
     def source_value_choices(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         source_column_key: str,
     ) -> tuple[dict[str, object], ...]:
         """Return bounded choices without materializing rich source rows."""
 
-        selection = self.sources.get_source_selection(project_id)
+        selection = self.sources.get_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         dataset = next(
@@ -137,7 +137,7 @@ class CategoricalCoverageService:
         }:
             raise WorkspaceError("Choose one current source column")
         frame = self._scan_dataset(
-            project_id,
+            workspace_id,
             selection,
             dataset_id,
             (source_column_key,),
@@ -157,22 +157,19 @@ class CategoricalCoverageService:
 
     def collect(
         self,
-        project_id: str,
+        workspace_id: str,
         definition: MappingDefinition,
         selection: SourceSelection,
         schema: OdooSchemaCatalog,
     ) -> CategoricalCoverageCollection:
-        """Build hash-bound evidence and blocking issues for a v11 mapping."""
-
-        if definition.contract_version < 11:
-            raise ValueError("Categorical evidence requires mapping contract v11")
+        """Build hash-bound evidence and blocking issues for the current mapping."""
         fields = _coverage_fields(definition, schema)
         by_dataset: dict[str, list[_CoverageField]] = {}
         for item in fields:
             by_dataset.setdefault(item.dataset.dataset_id, []).append(item)
         results: list[CategoricalFieldResult] = []
         issues: list[MappingValidationIssue] = []
-        physical_selection = self.sources.get_source_selection(project_id)
+        physical_selection = self.sources.get_source_selection(workspace_id)
         if physical_selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         selection_dataset_ids = {
@@ -229,7 +226,7 @@ class CategoricalCoverageService:
             if not scan_fields:
                 continue
             frame = self._scan_dataset(
-                project_id,
+                workspace_id,
                 physical_selection,
                 dataset_id,
                 source_keys,
@@ -242,7 +239,7 @@ class CategoricalCoverageService:
 
         snapshots = tuple(
             sorted(
-                self.sources.get_current_source_snapshots(project_id),
+                self.sources.get_current_source_snapshots(workspace_id),
                 key=lambda item: item.dataset_id,
             )
         )
@@ -282,7 +279,7 @@ class CategoricalCoverageService:
 
     def _scan_dataset(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: SourceSelection,
         dataset_id: str,
         source_column_keys: Sequence[str],
@@ -294,7 +291,7 @@ class CategoricalCoverageService:
         snapshot = next(
             (
                 item
-                for item in self.sources.get_current_source_snapshots(project_id)
+                for item in self.sources.get_current_source_snapshots(workspace_id)
                 if item.dataset_id == dataset_id
             ),
             None,
@@ -310,7 +307,7 @@ class CategoricalCoverageService:
             if any(key not in value_columns for key in source_column_keys):
                 raise SourceLoadError("Source snapshot projection is incomplete")
             with self.artifacts.materialize_source_snapshot(
-                project_id,
+                selection.data_version_id,
                 snapshot.parquet_storage_key,
                 expected_sha256=snapshot.parquet_sha256,
             ) as path:

@@ -1,5 +1,8 @@
 # Reusable recipes Phase 1 mapping-contract report — 2026-08-18
 
+**Historical evidence:** This report records a superseded mapping contract.
+The current evidence contract and current code own supported payload shapes.
+
 ## Outcome
 
 Phase 1 is complete. Impodo now has the strict current mapping and validation

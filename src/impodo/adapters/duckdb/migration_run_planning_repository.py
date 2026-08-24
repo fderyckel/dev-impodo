@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime
 import json
 from typing import Mapping
@@ -26,6 +25,8 @@ from ...migration_run_planning import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
     MigrationRunRequirementPlan,
+    MigrationRunReferenceBundle,
+    MigrationRunTargetSchema,
     OdooModelRequirement,
     PlannedRecipeApplication,
     RecipeApplicationStatus,
@@ -56,8 +57,8 @@ class MigrationRunPlanningRepository:
         target_binding: RunTargetBinding,
         requirement_plan: MigrationRunRequirementPlan,
         applications: tuple[PlannedRecipeApplication, ...],
-        target_schema: OdooSchemaCatalog,
-        reference_bundle: ReferenceBundle | None,
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
         expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
@@ -126,8 +127,8 @@ class MigrationRunPlanningRepository:
         target_binding: RunTargetBinding,
         requirement_plan: MigrationRunRequirementPlan,
         applications: tuple[PlannedRecipeApplication, ...],
-        target_schema: OdooSchemaCatalog,
-        reference_bundle: ReferenceBundle | None,
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
         expected_workspace_revision: int,
         operation_id: str,
         request_hash: str,
@@ -297,7 +298,10 @@ class MigrationRunPlanningRepository:
             raise MigrationNotFoundError("MigrationRun requirement plan not found")
         return self._plan_from_row(rows[0])
 
-    def get_run_target_schema(self, migration_run_id: str) -> OdooSchemaCatalog:
+    def get_run_target_schema(
+        self,
+        migration_run_id: str,
+    ) -> MigrationRunTargetSchema:
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
         with self.database.connect(self.registry_path) as connection:
             row = connection.execute(
@@ -308,7 +312,7 @@ class MigrationRunPlanningRepository:
         if row is None:
             self.foundation.get_migration_run(migration_run_id)
             raise MigrationNotFoundError("MigrationRun target schema not found")
-        schema = OdooSchemaCatalog.from_json(str(row[1]))
+        schema = MigrationRunTargetSchema.from_json(str(row[1]))
         if schema.content_hash != str(row[0]):
             raise MigrationConflictError("MigrationRun target schema is inconsistent")
         return schema
@@ -316,7 +320,7 @@ class MigrationRunPlanningRepository:
     def get_run_reference_bundle(
         self,
         migration_run_id: str,
-    ) -> ReferenceBundle | None:
+    ) -> MigrationRunReferenceBundle | None:
         """Read the immutable reference evidence captured once for a run."""
 
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
@@ -330,7 +334,7 @@ class MigrationRunPlanningRepository:
         if row is None:
             self.foundation.get_migration_run(migration_run_id)
             return None
-        bundle = ReferenceBundle.from_dict(json.loads(str(row[1])))
+        bundle = MigrationRunReferenceBundle.from_dict(json.loads(str(row[1])))
         if bundle.content_hash != str(row[0]):
             raise MigrationConflictError(
                 "MigrationRun reference bundle is inconsistent"
@@ -384,7 +388,7 @@ class MigrationRunPlanningRepository:
                 )
             datasets.append(dataset)
         return ReferenceBundle(
-            project_id=workspace_id,
+            workspace_id=workspace_id,
             datasets=tuple(
                 sorted(
                     datasets,
@@ -465,11 +469,10 @@ class MigrationRunPlanningRepository:
                 "workspace_id": workspace_id,
             }
         )
-        return replace(
-            schema,
-            project_id=workspace_id,
+        return schema.for_workspace(
+            workspace_id,
             models=models,
-            content_hash=projection_hash,
+            projection_hash=projection_hash,
         )
 
     def list_applications(
@@ -701,8 +704,8 @@ class MigrationRunPlanningRepository:
         target_binding: RunTargetBinding,
         requirement_plan: MigrationRunRequirementPlan,
         applications: tuple[PlannedRecipeApplication, ...],
-        target_schema: OdooSchemaCatalog,
-        reference_bundle: ReferenceBundle | None,
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
         expected_workspace_revision: int,
         operation_id: str,
         actor: Actor,
@@ -810,8 +813,8 @@ class MigrationRunPlanningRepository:
         target_binding: RunTargetBinding,
         requirement_plan: MigrationRunRequirementPlan,
         applications: tuple[PlannedRecipeApplication, ...],
-        target_schema: OdooSchemaCatalog,
-        reference_bundle: ReferenceBundle | None,
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
     ) -> None:
         data_version = connection.execute(
             "SELECT project_id, purpose, state FROM data_version "
@@ -940,8 +943,8 @@ class MigrationRunPlanningRepository:
         target_binding: RunTargetBinding,
         requirement_plan: MigrationRunRequirementPlan,
         applications: tuple[PlannedRecipeApplication, ...],
-        target_schema: OdooSchemaCatalog,
-        reference_bundle: ReferenceBundle | None,
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
         expected_workspace_revision: int,
         operation_id: str,
         actor: Actor,
@@ -1125,8 +1128,8 @@ class MigrationRunPlanningRepository:
         target_binding: RunTargetBinding,
         requirement_plan: MigrationRunRequirementPlan,
         applications: tuple[PlannedRecipeApplication, ...],
-        target_schema: OdooSchemaCatalog,
-        reference_bundle: ReferenceBundle | None,
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
     ) -> None:
         """Insert one run-level capture and bounded application projections."""
 
@@ -1173,7 +1176,7 @@ class MigrationRunPlanningRepository:
             )
             connection.execute(
                 "INSERT INTO migration_workspace VALUES "
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 self.foundation._workspace_values(item.workspace),
             )
             connection.execute(
@@ -1262,9 +1265,11 @@ class MigrationRunPlanningRepository:
             self._target_from_dict(dict(detail["target_binding"])),
             self._plan_from_dict(dict(detail["requirement_plan"])),
             applications,
-            OdooSchemaCatalog.from_json(str(detail["target_schema_json"])),
+            MigrationRunTargetSchema.from_json(str(detail["target_schema_json"])),
             (
-                ReferenceBundle.from_dict(dict(detail["reference_bundle"]))
+                MigrationRunReferenceBundle.from_dict(
+                    dict(detail["reference_bundle"])
+                )
                 if detail.get("reference_bundle") is not None
                 else None
             ),

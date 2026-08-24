@@ -63,16 +63,13 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(database)
+        self.workspace_states = WorkspaceStateRepository(database)
         self.repository = PreparationSessionRepository(database)
         now = datetime.now(timezone.utc)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Bounded preparation",
             source_system="CSV",
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Operations",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
@@ -80,7 +77,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         self.bindings = PreparationSessionBindings(
             mapping_id="mapping:contacts",
             mapping_version=1,
@@ -102,7 +99,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         self,
     ) -> None:
         session = self.repository.begin_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.bindings,
             actor=LOCAL_ACTOR,
         )
@@ -146,7 +143,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 )
             )
         self.repository.append_direct_rows(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             rows,
         )
@@ -194,13 +191,13 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 "injected interrupted finalization",
             ):
                 self.repository.finalize_direct_session(
-                    self.project.project_id,
+                    self.workspace_state.workspace_id,
                     session.session_id,
                     **finalization_arguments,
                 )
 
         stored = self.repository.finalize_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             **finalization_arguments,
         )
@@ -218,7 +215,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             )
         )
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -236,7 +233,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         self.assertEqual(counts, (2, "PENDING"))
 
         self.repository.fail_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             "DIRECT_PUBLICATION_FAILED",
         )
@@ -256,7 +253,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
 
         def snapshot(source_digit: str, parquet_digit: str) -> PreparedSnapshot:
             return PreparedSnapshot.create(
-                project_id=self.project.project_id,
+                workspace_id=self.workspace_state.workspace_id,
                 dataset_id=dataset_id,
                 dataset_name="contacts",
                 source_snapshot_hash="sha256:" + source_digit * 64,
@@ -271,29 +268,29 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
 
         first = snapshot("7", "9")
         published = self.repository.begin_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.bindings,
             actor=LOCAL_ACTOR,
         )
         self.repository.bind_prepared_snapshot(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.session_id,
             first,
         )
         self.assertEqual(
             self.repository.find_prepared_snapshot(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 dataset_id,
                 first.logical_hash,
             ),
             first,
         )
         self.assertEqual(
-            self.repository.current_prepared_snapshots(self.project.project_id),
+            self.repository.current_prepared_snapshots(self.workspace_state.workspace_id),
             (),
         )
         self.repository.finalize_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.session_id,
             dataset_evidence={
                 "contacts": (
@@ -319,37 +316,37 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             ),
         )
         self.repository.mark_published(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.session_id,
         )
         self.assertEqual(
-            self.repository.current_prepared_snapshots(self.project.project_id),
+            self.repository.current_prepared_snapshots(self.workspace_state.workspace_id),
             (first,),
         )
 
         second = snapshot("6", "5")
         failed = self.repository.begin_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.bindings,
             actor=LOCAL_ACTOR,
         )
         self.repository.bind_prepared_snapshot(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             failed.session_id,
             second,
         )
         self.repository.fail_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             failed.session_id,
             "BOUNDED_PREPARATION_FAILED",
         )
         self.assertEqual(
-            self.repository.current_prepared_snapshots(self.project.project_id),
+            self.repository.current_prepared_snapshots(self.workspace_state.workspace_id),
             (first,),
         )
         self.assertEqual(
             self.repository.find_prepared_snapshot(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 dataset_id,
                 second.logical_hash,
             ),
@@ -364,7 +361,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             source_hashes={"bom": SOURCE_HASH, "products": SOURCE_HASH},
         )
         session = self.repository.begin_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             bindings,
             actor=LOCAL_ACTOR,
         )
@@ -520,12 +517,12 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             ),
         )
         self.repository.append_direct_rows(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             rows,
         )
         stored = self.repository.finalize_direct_session(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
             dataset_evidence={
                 "bom": (
@@ -558,7 +555,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         )
 
         database_path = (
-            Path(self.temporary.name) / self.project.project_id / "workspace-engine.duckdb"
+            Path(self.temporary.name) / self.workspace_state.workspace_id / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
             states = connection.execute(
@@ -638,7 +635,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
 
         materialized = materialize_staging_run(stored)
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("bom", "products"),
@@ -648,7 +645,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             "dataset:products": (2, 3, 4, 5, 6, 7, 8, 9),
         }
         expected = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=materialized,
             physical_rows=physical_rows,
             ruleset=ruleset,
@@ -660,7 +657,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             wraps=self.repository._bounded_relationship_findings,
         ) as relationship_pass:
             bounded = build_bounded_quality_run(
-                project=self.project,
+                workspace_state=self.workspace_state,
                 staging=stored,
                 physical_rows=physical_rows,
                 ruleset=ruleset,
@@ -668,7 +665,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             )
         self.assertEqual(relationship_pass.call_count, 1)
         observed = QualityRun(
-            project_id=bounded.project_id,
+            workspace_id=bounded.workspace_id,
             staging_content_hash=bounded.staging_content_hash,
             ruleset_hash=bounded.ruleset_hash,
             mapping_hash=bounded.mapping_hash,
@@ -698,14 +695,14 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             ),
         )
         warning_expected = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=materialized,
             physical_rows=physical_rows,
             ruleset=warning_ruleset,
             published_staging_content_hash=stored.validated_content_hash,
         )
         warning_bounded = build_bounded_quality_run(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=stored,
             physical_rows=physical_rows,
             ruleset=warning_ruleset,
@@ -732,7 +729,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 [session.session_id],
             )
         self.repository.mark_published(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             session.session_id,
         )
         with self.repository._connect(database_path) as connection:

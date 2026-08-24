@@ -111,23 +111,23 @@ class LocalOdooMetadataReader:
 
     def get_target_fingerprint(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         profile: LocalStackProfile,
     ) -> TargetFingerprint:
         """Read only target identity/version evidence for the selected local stack."""
 
-        payload = self._invoke(project, profile, _fingerprint_script())
-        return self._fingerprint(project, payload)
+        payload = self._invoke(workspace_state, profile, _fingerprint_script())
+        return self._fingerprint(workspace_state, payload)
 
     def get_model_catalog(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         profile: LocalStackProfile,
     ) -> RecordSnapshot:
         """Read the bounded persistent ``ir.model`` catalogue for Stage C."""
 
-        payload = self._invoke(project, profile, _model_catalog_script())
-        fingerprint = self._fingerprint(project, payload)
+        payload = self._invoke(workspace_state, profile, _model_catalog_script())
+        fingerprint = self._fingerprint(workspace_state, payload)
         raw_records = payload.get("records")
         if not isinstance(raw_records, list):
             raise LocalOdooReaderError(
@@ -174,7 +174,7 @@ class LocalOdooMetadataReader:
 
     def get_model_metadata(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         profile: LocalStackProfile,
         models: Sequence[str],
     ) -> MetadataSnapshot:
@@ -190,11 +190,11 @@ class LocalOdooMetadataReader:
                 "The local Odoo model allowlist contains an invalid name."
             )
         payload = self._invoke(
-            project,
+            workspace_state,
             profile,
             _model_metadata_script(requested),
         )
-        fingerprint = self._fingerprint(project, payload)
+        fingerprint = self._fingerprint(workspace_state, payload)
         raw_models = payload.get("models")
         if not isinstance(raw_models, Mapping) or set(raw_models) != set(requested):
             raise LocalOdooReaderError(
@@ -251,7 +251,7 @@ class LocalOdooMetadataReader:
 
     def get_preflight_snapshots(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         profile: LocalStackProfile,
         metadata_requests: Sequence[MetadataRequest],
         record_requests: Sequence[RecordRequest],
@@ -276,7 +276,7 @@ class LocalOdooMetadataReader:
                 "The local related-model allowlist is invalid."
             )
         permitted_models = {
-            *project.intended_models,
+            *workspace_state.intended_models,
             *permitted_related_models,
         }
         requested_models = {
@@ -307,11 +307,11 @@ class LocalOdooMetadataReader:
                     "The local readiness record request is invalid."
                 )
         payload = self._invoke(
-            project,
+            workspace_state,
             profile,
             _preflight_script(metadata, records),
         )
-        fingerprint = self._fingerprint(project, payload)
+        fingerprint = self._fingerprint(workspace_state, payload)
         raw_models = payload.get("models")
         raw_records = payload.get("records")
         if not isinstance(raw_models, Mapping) or not isinstance(
@@ -412,13 +412,13 @@ class LocalOdooMetadataReader:
 
     def _invoke(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         profile: LocalStackProfile,
         script: str,
     ) -> Mapping[str, Any]:
         """Run one fixed script against the validated local stack and parse it."""
 
-        _validate_local_binding(project, profile)
+        _validate_local_binding(workspace_state, profile)
         assert profile.python_path is not None
         assert profile.odoo_bin_path is not None
         command = (
@@ -428,7 +428,7 @@ class LocalOdooMetadataReader:
             "-c",
             str(profile.config_path),
             "-d",
-            project.odoo_database,
+            workspace_state.odoo_database,
             "--no-http",
             "--log-level=error",
         )
@@ -476,12 +476,12 @@ class LocalOdooMetadataReader:
 
     @staticmethod
     def _fingerprint(
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         payload: Mapping[str, Any],
     ) -> TargetFingerprint:
         database = str(payload.get("database") or "")
         version = str(payload.get("version") or "")
-        if database != project.odoo_database:
+        if database != workspace_state.odoo_database:
             raise LocalOdooReaderError(
                 "The local Odoo shell opened a different database."
             )
@@ -489,14 +489,14 @@ class LocalOdooMetadataReader:
             raise LocalOdooReaderError(
                 f"Local schema capture requires Odoo 19; received {version or 'unknown'}."
             )
-        assert project.odoo_connection_mode is not None
+        assert workspace_state.odoo_connection_mode is not None
         return TargetFingerprint(
             target_hash=target_identity_hash(
-                connection_mode=project.odoo_connection_mode.value,
-                base_url=project.odoo_base_url,
-                database=project.odoo_database,
+                connection_mode=workspace_state.odoo_connection_mode.value,
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
             ),
-            connection_mode=project.odoo_connection_mode.value,
+            connection_mode=workspace_state.odoo_connection_mode.value,
             database=database,
             odoo_version=version,
             snapshot_timestamp=datetime.now(timezone.utc)
@@ -507,18 +507,18 @@ class LocalOdooMetadataReader:
 
 
 def _validate_local_binding(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     profile: LocalStackProfile,
 ) -> None:
-    if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
+    if workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL:
         raise LocalOdooReaderError(
             "The local Odoo reader is available only in Local mode."
         )
-    if project.odoo_base_url.rstrip("/") != profile.base_url.rstrip("/"):
+    if workspace_state.odoo_base_url.rstrip("/") != profile.base_url.rstrip("/"):
         raise LocalOdooReaderError(
-            "The selected odoo.conf does not match this project's local URL."
+            "The selected odoo.conf does not match this migration run's local URL."
         )
-    if _DATABASE_NAME.fullmatch(project.odoo_database) is None:
+    if _DATABASE_NAME.fullmatch(workspace_state.odoo_database) is None:
         raise LocalOdooReaderError("The local Odoo database name is invalid.")
     if profile.python_path is None or profile.odoo_bin_path is None:
         raise LocalOdooReaderError(

@@ -21,8 +21,8 @@ from threading import RLock
 from typing import Iterable, Mapping, Protocol
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import ArtifactStore, ArtifactStoreError
+from ..access import Actor, Capability
+from ..artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from ..domain.source_snapshot import (
     SourceSnapshot,
 )
@@ -50,10 +50,12 @@ from ..workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
+    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
     OdooSchemaCatalog,
     SchemaOrigin,
 )
 from ..workspace_errors import WorkspaceError
+from ..workspace_access import WorkspaceAccessService
 from ..domain.serialization import content_hash
 
 
@@ -61,7 +63,7 @@ _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 class WorkspaceStateReader(Protocol):
     """Read the workspace lifecycle needed before dataset freezing."""
 
-    def get(self, project_id: str) -> WorkspaceState:
+    def get(self, workspace_id: str) -> WorkspaceState:
         """Return the project whose registration gates dataset freezing."""
         ...
 
@@ -71,21 +73,21 @@ class SourceWorkspaceRepository(Protocol):
 
     def get_source_catalogs(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[SourceFileCatalog, ...]:
         """Return the current hash-bound catalog for each registered file."""
         ...
 
     def get_source_configurations(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[SourceConfiguration, ...]:
         """Return confirmed table/parsing choices in registered-file order."""
         ...
 
     def save_source_configuration(
         self,
-        project_id: str,
+        workspace_id: str,
         configuration: SourceConfiguration,
         *,
         actor: Actor,
@@ -93,13 +95,13 @@ class SourceWorkspaceRepository(Protocol):
         """Persist one exact catalog confirmation and retire its dependents."""
         ...
 
-    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return the current complete frozen selection, if one exists."""
         ...
 
     def save_source_selection(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: SourceSelection,
         *,
         actor: Actor,
@@ -109,7 +111,7 @@ class SourceWorkspaceRepository(Protocol):
 
     def publish_source_selection_with_snapshots(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: SourceSelection,
         snapshots: Iterable[SourceSnapshot],
         *,
@@ -120,20 +122,20 @@ class SourceWorkspaceRepository(Protocol):
 
     def find_source_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         logical_hash: str,
     ) -> SourceSnapshot | None:
         """Return a registered matching logical snapshot, when available."""
         ...
 
-    def source_snapshot_storage_keys(self, project_id: str) -> frozenset[str]:
+    def source_snapshot_storage_keys(self, workspace_id: str) -> frozenset[str]:
         """Return every immutable snapshot path referenced by DuckDB."""
         ...
 
     def get_current_odoo_capture_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooCaptureSelection | None:
         """Return the current protected Odoo capture selection."""
 
@@ -141,7 +143,7 @@ class SourceWorkspaceRepository(Protocol):
 
     def save_odoo_capture_selection(
         self,
-        project_id: str,
+        workspace_id: str,
         selection: OdooCaptureSelection,
         *,
         actor: Actor,
@@ -156,7 +158,7 @@ class OdooCaptureSchemaReader(Protocol):
 
     def get_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooSchemaCatalog | None: ...
 
 
@@ -172,8 +174,8 @@ class SourceWorkspaceService:
         self,
         workspace_states: WorkspaceStateReader,
         sources: SourceWorkspaceRepository,
-        authorization: AuthorizationPolicy,
-        artifacts: ArtifactStore | None = None,
+        authorization: WorkspaceAccessService,
+        artifacts: DataVersionSourceArtifactStore | None = None,
         *,
         schemas: OdooCaptureSchemaReader | None = None,
     ) -> None:
@@ -189,7 +191,7 @@ class SourceWorkspaceService:
 
     def define_odoo_capture_selection(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         dataset_name: str,
         model: str,
@@ -200,23 +202,23 @@ class SourceWorkspaceService:
     ) -> OdooCaptureSelection:
         """Save a closed, bounded capture plan without contacting Odoo."""
 
-        self.authorization.require(
+        context = self.authorization.require(
             actor,
             Capability.SOURCE_SELECT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.workspace_states.get(project_id)
-        if project.status is not WorkspaceStatus.REGISTERED:
+        workspace_state = self.workspace_states.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before selecting Odoo source records"
             )
-        if project.source_mode is not SourceMode.ODOO:
+        if workspace_state.source_mode is not SourceMode.ODOO:
             raise WorkspaceError(
                 "Odoo capture selections are available only for Odoo-source projects"
             )
         if self.schemas is None:
             raise WorkspaceError("Odoo capture schema access is not configured")
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
         if schema is None:
             raise WorkspaceError(
                 "Capture the eligible Odoo fields before selecting records"
@@ -272,12 +274,12 @@ class SourceWorkspaceService:
                 f"Odoo capture row limit must be between 1 and "
                 f"{MAX_ODOO_CAPTURE_ROWS}"
             )
-        current = self.sources.get_current_odoo_capture_selection(project_id)
+        current = self.sources.get_current_odoo_capture_selection(workspace_id)
         try:
             selection = OdooCaptureSelection.create(
                 selection_id=(current.selection_id if current else str(uuid4())),
                 version=(current.version + 1 if current else 1),
-                project_id=project_id,
+                data_version_id=context.data_version_id,
                 dataset_name=dataset_name.strip(),
                 model=model,
                 field_names=normalized_fields,
@@ -303,7 +305,7 @@ class SourceWorkspaceService:
         except OdooCaptureContractError as error:
             raise WorkspaceError(str(error)) from error
         self.sources.save_odoo_capture_selection(
-            project_id,
+            workspace_id,
             selection,
             actor=actor,
         )
@@ -311,7 +313,7 @@ class SourceWorkspaceService:
 
     def confirm_source(
         self,
-        project_id: str,
+        workspace_id: str,
         file_id: str,
         *,
         selected_table_keys: Iterable[str],
@@ -327,9 +329,9 @@ class SourceWorkspaceService:
         self.authorization.require(
             actor,
             Capability.SOURCE_CONFIGURE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        catalog = _catalog(self.sources, project_id, file_id)
+        catalog = _catalog(self.sources, workspace_id, file_id)
         selected = tuple(dict.fromkeys(selected_table_keys))
         available = {table.table_key: table for table in catalog.tables}
         if not selected or any(key not in available for key in selected):
@@ -393,7 +395,7 @@ class SourceWorkspaceService:
             confirmed_by=actor.identity.display_name,
         )
         self.sources.save_source_configuration(
-            project_id,
+            workspace_id,
             configuration,
             actor=actor,
         )
@@ -401,7 +403,7 @@ class SourceWorkspaceService:
 
     def freeze_selection(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         dataset_names: Mapping[tuple[str, str], str],
         actor: Actor,
@@ -410,14 +412,14 @@ class SourceWorkspaceService:
 
         with self._snapshot_lock:
             return self._freeze_selection_locked(
-                project_id,
+                workspace_id,
                 dataset_names=dataset_names,
                 actor=actor,
             )
 
     def _freeze_selection_locked(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         dataset_names: Mapping[tuple[str, str], str],
         actor: Actor,
@@ -429,22 +431,22 @@ class SourceWorkspaceService:
         to detect later replacement or reinterpretation.
         """
 
-        self.authorization.require(
+        context = self.authorization.require(
             actor,
             Capability.SOURCE_SELECT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.workspace_states.get(project_id)
-        if project.status is not WorkspaceStatus.REGISTERED:
+        workspace_state = self.workspace_states.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before selecting datasets"
             )
         catalogs = {
             catalog.file_id: catalog
-            for catalog in self.sources.get_source_catalogs(project_id)
+            for catalog in self.sources.get_source_catalogs(workspace_id)
         }
-        configurations = self.sources.get_source_configurations(project_id)
-        if len(configurations) != len(project.source_files):
+        configurations = self.sources.get_source_configurations(workspace_id)
+        if len(configurations) != len(workspace_state.source_files):
             raise WorkspaceError(
                 "Confirm every source file before freezing datasets"
             )
@@ -507,17 +509,18 @@ class SourceWorkspaceService:
                 )
         if not datasets:
             raise WorkspaceError("Select at least one source dataset")
-        previous = self.sources.get_source_selection(project_id)
+        previous = self.sources.get_source_selection(workspace_id)
         version = previous.version + 1 if previous else 1
         content = {
-            "project_id": project_id,
+            "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+            "data_version_id": context.data_version_id,
             "version": version,
             "datasets": [item.to_dict() for item in datasets],
         }
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=version,
-            project_id=project_id,
+            data_version_id=context.data_version_id,
             created_at=datetime.now(timezone.utc),
             created_by=actor.identity.display_name,
             datasets=tuple(datasets),
@@ -528,13 +531,13 @@ class SourceWorkspaceService:
             # composition always supplies it and therefore always publishes
             # snapshots before advancing the frozen-selection pointer.
             self.sources.save_source_selection(
-                project_id,
+                workspace_id,
                 selection,
                 actor=actor,
             )
             return selection
 
-        source_files = {item.file_id: item for item in project.source_files}
+        source_files = {item.file_id: item for item in workspace_state.source_files}
         snapshots: list[SourceSnapshot] = []
         try:
             for dataset in selection.datasets:
@@ -545,7 +548,7 @@ class SourceWorkspaceService:
                     raise WorkspaceError("Frozen source evidence is incomplete")
                 snapshots.append(
                     self.snapshot_publisher.publish(
-                        project,
+                        workspace_state,
                         selection,
                         dataset,
                         catalog,
@@ -553,32 +556,48 @@ class SourceWorkspaceService:
                     ).snapshot
                 )
             self.sources.publish_source_selection_with_snapshots(
-                project_id,
+                workspace_id,
                 selection,
                 snapshots,
                 actor=actor,
             )
         except WorkspaceError:
-            self._cleanup_snapshot_orphans(project_id)
+            self._cleanup_snapshot_orphans(
+                workspace_id,
+                context.data_version_id,
+            )
             raise
         except (ArtifactStoreError, SourceLoadError, OSError) as error:
-            self._cleanup_snapshot_orphans(project_id)
+            self._cleanup_snapshot_orphans(
+                workspace_id,
+                context.data_version_id,
+            )
             raise WorkspaceError(
                 "Impodo could not create the immutable source snapshot: "
                 f"{error}"
             ) from error
         except Exception as error:
-            self._cleanup_snapshot_orphans(project_id)
+            self._cleanup_snapshot_orphans(
+                workspace_id,
+                context.data_version_id,
+            )
             raise WorkspaceError(
                 "Impodo could not publish the immutable source snapshot"
             ) from error
-        self._cleanup_snapshot_orphans(project_id)
+        self._cleanup_snapshot_orphans(
+            workspace_id,
+            context.data_version_id,
+        )
         return selection
 
-    def _cleanup_snapshot_orphans(self, project_id: str) -> None:
+    def _cleanup_snapshot_orphans(
+        self,
+        workspace_id: str,
+        data_version_id: str,
+    ) -> None:
         assert self.artifacts is not None
-        referenced = self.sources.source_snapshot_storage_keys(project_id)
-        self.artifacts.cleanup_source_snapshots(project_id, referenced)
+        referenced = self.sources.source_snapshot_storage_keys(workspace_id)
+        self.artifacts.cleanup_source_snapshots(data_version_id, referenced)
 
 
 def _unsafe_cell_problem(
@@ -614,13 +633,13 @@ def _unsafe_cell_problem(
 
 def _catalog(
     repository: SourceWorkspaceRepository,
-    project_id: str,
+    workspace_id: str,
     file_id: str,
 ) -> SourceFileCatalog:
     try:
         return next(
             catalog
-            for catalog in repository.get_source_catalogs(project_id)
+            for catalog in repository.get_source_catalogs(workspace_id)
             if catalog.file_id == file_id
         )
     except StopIteration as error:
@@ -641,4 +660,3 @@ def _dataset_key(file_id: str, table_key: str) -> str:
 
     digest = sha256(f"{file_id}\0{table_key}".encode("utf-8")).hexdigest()
     return f"dataset:{digest[:24]}"
-

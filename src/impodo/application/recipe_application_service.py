@@ -1,4 +1,4 @@
-"""Adapt the existing Recipe compiler to clean M4 application workspaces."""
+"""Adapt the Recipe compiler to current application workspaces."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from ..migration_run_planning import (
     ReferenceRequirement,
     RecipeApplicationStatus,
 )
-from ..workspace_contracts import OdooSchemaCatalog, SourceSelection
+from ..workspace_contracts import OdooSchemaCatalog, SourceDatasetSet
 from .recipe_application_compilation import RecipeApplicationCompiler
 
 
@@ -91,7 +91,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         *,
         recipe_id: str,
         definition: Mapping[str, object],
-        source_selection: SourceSelection,
+        source_selection: SourceDatasetSet,
         target_schema: OdooSchemaCatalog,
         reference_bundle: ReferenceBundle | None,
         parameter_values: Mapping[str, object],
@@ -99,19 +99,19 @@ class RecipeApplicationService(RecipeApplicationCompiler):
     ) -> RecipeApplicationAssessment:
         """Assess one Recipe without writing a workspace or calling Odoo."""
 
-        legacy_issues: list[RecipeApplicationIssue] = []
+        application_issues: list[RecipeApplicationIssue] = []
         bindings, _candidates, source_issues = self._source_assessment(
             definition,
             source_selection,
             {},
         )
-        legacy_issues.extend(source_issues)
+        application_issues.extend(source_issues)
         _target_hash, target_issues = self._target_assessment(
             definition,
             target_schema,
         )
-        legacy_issues.extend(target_issues)
-        legacy_issues.extend(
+        application_issues.extend(target_issues)
+        application_issues.extend(
             self._reference_assessment(definition, reference_bundle)
         )
         normalized_parameters: Mapping[str, object] = {}
@@ -127,7 +127,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 parameter_values,
             )
         except (KeyError, TypeError, ValueError, RecipeApplicationError) as error:
-            legacy_issues.append(
+            application_issues.append(
                 self._block(
                     "RECIPE_PARAMETER_REVIEW_REQUIRED",
                     str(error),
@@ -146,7 +146,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 control_values,
             )
         except (KeyError, TypeError, ValueError, RecipeApplicationError) as error:
-            legacy_issues.append(
+            application_issues.append(
                 self._block(
                     "RECIPE_CONTROL_REVIEW_REQUIRED",
                     str(error),
@@ -161,7 +161,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 if logical.startswith("dataset:")
             )
         )
-        issues = self._issues(recipe_id, tuple(legacy_issues))
+        issues = self._issues(recipe_id, tuple(application_issues))
         binding_hash = content_hash(
             {
                 "control_values": dict(sorted(normalized_controls.items())),

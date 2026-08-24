@@ -52,7 +52,7 @@ class PreparedSnapshotContractTests(unittest.TestCase):
         self.assertEqual(
             key,
             (
-                "snapshots/prepared/v2/0123456789abcdef01234567/"
+                "snapshots/prepared/v3/0123456789abcdef01234567/"
                 "abd7a54048ca55aed975af8e803e2a6e"
                 "e68098d851e968bed684075b43e9bc99.parquet"
             ),
@@ -72,7 +72,7 @@ class PreparedSnapshotContractTests(unittest.TestCase):
 
         self.assertLessEqual(len(str(path)), 259)
 
-    def test_legacy_v1_storage_key_is_rejected(self) -> None:
+    def test_retired_storage_key_is_rejected(self) -> None:
         snapshot = _snapshot(HASH_E, created_at=NOW)
         payload = json.loads(snapshot.to_json())
         payload["parquet_storage_key"] = (
@@ -88,7 +88,7 @@ class PreparedSnapshotContractTests(unittest.TestCase):
 
     def test_logical_hash_changes_with_every_transformation_binding(self) -> None:
         base = dict(
-            project_id="project",
+            workspace_id="workspace",
             dataset_id=DATASET_ID,
             dataset_name="products",
             source_snapshot_hash=HASH_A,
@@ -118,7 +118,7 @@ class PreparedSnapshotContractTests(unittest.TestCase):
 
 def _snapshot(parquet_hash: str, *, created_at: datetime) -> PreparedSnapshot:
     return PreparedSnapshot.create(
-        project_id="project",
+        workspace_id="workspace",
         dataset_id=DATASET_ID,
         dataset_name="products",
         source_snapshot_hash=HASH_A,

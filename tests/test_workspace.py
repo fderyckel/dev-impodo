@@ -8,10 +8,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.access import (
-    CapabilityAuthorizationPolicy,
-    LOCAL_ACTOR,
-)
+from impodo.access import LOCAL_ACTOR
 from impodo.connectors import MetadataSnapshot, RecordSnapshot
 from impodo.inspection import (
     SourceColumnProfile,
@@ -72,6 +69,7 @@ from impodo.workspace_contracts import (
     SchemaOrigin,
 )
 from impodo.workspace_errors import WorkspaceError
+from tests.workspace_access_helpers import workspace_access_service
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,7 +82,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.database = database
-        self.project_repository = WorkspaceStateRepository(database)
+        self.workspace_state_repository = WorkspaceStateRepository(database)
         derived_entity_repository = DerivedEntityRepository(database)
         self.derived_entity_repository = derived_entity_repository
         self.source_repository = SourceRepository(
@@ -105,13 +103,10 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             sha256="a" * 64,
             received_at=now,
         )
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Customer migration",
             source_system="CSV",
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Example Business Unit",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
@@ -120,28 +115,28 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.project_repository.create_unlinked(self.project, actor=LOCAL_ACTOR)
-        self.project = replace(
-            self.project,
+        self.workspace_state_repository.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
+        self.workspace_state = replace(
+            self.workspace_state,
             source_files=(self.source,),
             revision=2,
             updated_at=now,
         )
-        self.project_repository.add_source_file(
-            self.project,
+        self.workspace_state_repository.add_source_file(
+            self.workspace_state,
             self.source,
             expected_revision=1,
             actor=LOCAL_ACTOR,
         )
-        self.authorization = CapabilityAuthorizationPolicy()
+        self.authorization = workspace_access_service()
         self.sources = SourceWorkspaceService(
-            self.project_repository,
+            self.workspace_state_repository,
             self.source_repository,
             self.authorization,
             schemas=self.schema_repository,
         )
         self.schemas = SchemaWorkspaceService(
-            self.project_repository,
+            self.workspace_state_repository,
             self.source_repository,
             self.schema_repository,
             self.authorization,
@@ -155,7 +150,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.catalog = _catalog(self.source, now)
         self.source_repository.save_source_catalogs(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             (self.catalog,),
             actor=LOCAL_ACTOR,
         )
@@ -165,26 +160,26 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
     def _capture_authenticated_schema(self):
         self.schemas.discover_models(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _model_catalog_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("ir.model",)),
             actor=LOCAL_ACTOR,
         )
         self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
         return self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash="sha256:" + "8" * 64,
             read_identity=_read_identity(("res.partner",)),
@@ -195,7 +190,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self,
     ) -> None:
         catalog = self.schemas.discover_models(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _model_catalog_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
@@ -208,14 +203,14 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(catalog.models[0].label, "Contact")
         self.assertEqual(catalog.models[0].modules, ("base", "contacts"))
         self.assertEqual(
-            self.schema_repository.get_odoo_model_catalog(self.project.project_id),
+            self.schema_repository.get_odoo_model_catalog(self.workspace_state.workspace_id),
             catalog,
         )
 
     def test_mapping_field_catalog_snapshot_uses_one_connection(self) -> None:
         schema = self._capture_authenticated_schema()
         selection = self.source_repository.get_source_selection(
-            self.project.project_id
+            self.workspace_state.workspace_id
         )
 
         with patch.object(
@@ -225,7 +220,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         ) as connect:
             snapshot = (
                 self.mapping_field_catalog_repository
-                .get_mapping_field_catalog_snapshot(self.project.project_id)
+                .get_mapping_field_catalog_snapshot(self.workspace_state.workspace_id)
             )
 
         self.assertEqual(connect.call_count, 1)
@@ -242,14 +237,14 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     ) -> None:
         self._capture_authenticated_schema()
         selection = self.source_repository.get_source_selection(
-            self.project.project_id
+            self.workspace_state.workspace_id
         )
         assert selection is not None
         dataset = selection.datasets[0]
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             source_selection_hash=selection.content_hash,
             rules=(
                 RelatedDatasetRule(
@@ -265,7 +260,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             updated_by=LOCAL_ACTOR.identity.display_name,
         )
         self.derived_entity_repository.save_derived_entity_plan(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             plan,
             expected_parent_version=None,
             actor=LOCAL_ACTOR,
@@ -273,7 +268,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         snapshot = (
             self.mapping_field_catalog_repository
-            .get_mapping_field_catalog_snapshot(self.project.project_id)
+            .get_mapping_field_catalog_snapshot(self.workspace_state.workspace_id)
         )
 
         self.assertEqual(snapshot.preparation_plan, plan)
@@ -283,27 +278,27 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self,
     ) -> None:
         self.schemas.discover_models(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _model_catalog_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
 
         with self.assertRaisesRegex(WorkspaceError, "credential changed"):
             self.schemas.capture(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 _metadata_snapshot(),
                 read_credential_binding_hash="sha256:" + "8" * 64,
                 actor=LOCAL_ACTOR,
@@ -313,27 +308,27 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self,
     ) -> None:
         self.schemas.discover_models(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _model_catalog_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("ir.model",)),
             actor=LOCAL_ACTOR,
         )
         self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
 
         schema = self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash="sha256:" + "8" * 64,
             read_identity=_read_identity(("res.partner",)),
@@ -346,7 +341,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     def test_equivalent_schema_access_rebind_preserves_governance(self) -> None:
         schema = self._capture_authenticated_schema()
         governance = self.schemas.govern(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             business_keys=(
                 BusinessKeyDefinition(
                     key_id="partner-name",
@@ -360,7 +355,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
 
         rebound = self.schemas.rebind_current_access(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash="sha256:" + "7" * 64,
             read_identity=_read_identity(("res.partner",)),
@@ -374,12 +369,12 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(
             self.schema_repository.get_schema_governance(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             governance,
         )
         database_path = (
-            self.schema_repository.workspace_directory(self.project.project_id)
+            self.schema_repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.schema_repository._connect(database_path) as connection:
@@ -398,7 +393,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     ) -> None:
         schema = self._capture_authenticated_schema()
         governance = self.schemas.govern(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             business_keys=(
                 BusinessKeyDefinition(
                     key_id="partner-name",
@@ -430,7 +425,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "available Odoo fields"):
             self.schemas.rebind_current_access(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 changed,
                 read_credential_binding_hash="sha256:" + "7" * 64,
                 read_identity=_read_identity(("res.partner",)),
@@ -439,41 +434,41 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         self.assertEqual(
             self.schema_repository.get_odoo_schema_catalog(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             schema,
         )
         self.assertEqual(
             self.schema_repository.get_schema_governance(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             governance,
         )
 
     def test_schema_capture_rejects_a_changed_authenticated_principal(self) -> None:
         self.schemas.discover_models(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _model_catalog_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("ir.model",)),
             actor=LOCAL_ACTOR,
         )
         self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
 
         with self.assertRaisesRegex(WorkspaceError, "principal or context changed"):
             self.schemas.capture(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 _metadata_snapshot(),
                 read_credential_binding_hash="sha256:" + "8" * 64,
                 read_identity=_read_identity(
@@ -488,28 +483,28 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     ) -> None:
         with self.assertRaisesRegex(WorkspaceError, "Freeze source datasets"):
             self.schemas.capture(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 _metadata_snapshot(),
                 read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
                 actor=LOCAL_ACTOR,
             )
 
         odoo_project = replace(
-            self.project,
+            self.workspace_state,
             source_mode=SourceMode.ODOO,
-            revision=self.project.revision + 1,
+            revision=self.workspace_state.revision + 1,
         )
-        self.project_repository.save(
+        self.workspace_state_repository.save(
             odoo_project,
-            expected_revision=self.project.revision,
+            expected_revision=self.workspace_state.revision,
             event_type="TEST_ODOO_SOURCE_MODE",
             event_detail="",
             actor=LOCAL_ACTOR,
         )
-        self.project = odoo_project
+        self.workspace_state = odoo_project
 
         schema = self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
@@ -521,7 +516,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "Freeze the selected Odoo source records",
         ):
             self.schemas.govern(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 business_keys=(
                     BusinessKeyDefinition(
                         key_id="partner-name",
@@ -538,20 +533,20 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self,
     ) -> None:
         odoo_project = replace(
-            self.project,
+            self.workspace_state,
             source_mode=SourceMode.ODOO,
-            revision=self.project.revision + 1,
+            revision=self.workspace_state.revision + 1,
         )
-        self.project_repository.save(
+        self.workspace_state_repository.save(
             odoo_project,
-            expected_revision=self.project.revision,
+            expected_revision=self.workspace_state.revision,
             event_type="TEST_ODOO_SOURCE_MODE",
             event_detail="",
             actor=LOCAL_ACTOR,
         )
-        self.project = odoo_project
+        self.workspace_state = odoo_project
         schema = self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("res.partner",)),
@@ -559,7 +554,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
 
         first = self.sources.define_odoo_capture_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_name="odoo_contacts",
             model="res.partner",
             field_names=("name", "active", "name"),
@@ -568,7 +563,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
         second = self.sources.define_odoo_capture_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_name="odoo_contacts",
             model="res.partner",
             field_names=("name",),
@@ -583,26 +578,26 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(second.version, 2)
         self.assertEqual(
             self.source_repository.get_current_odoo_capture_selection(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             second,
         )
         self.assertEqual(
             self.source_repository.get_odoo_capture_selection_history(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             (first, second),
         )
         self.assertTrue(
-            self.project_repository.has_audit_event(
-                self.project.project_id,
+            self.workspace_state_repository.has_audit_event(
+                self.workspace_state.workspace_id,
                 "ODOO_CAPTURE_SELECTION_SAVED",
             )
         )
         self.assertEqual(first.connection_target_hash, schema.connection_target_hash)
 
         self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("res.partner",)),
@@ -611,13 +606,13 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         self.assertIsNone(
             self.source_repository.get_current_odoo_capture_selection(
-                self.project.project_id
+                self.workspace_state.workspace_id
             )
         )
         self.assertEqual(
             len(
                 self.source_repository.get_odoo_capture_selection_history(
-                    self.project.project_id
+                    self.workspace_state.workspace_id
                 )
             ),
             2,
@@ -627,7 +622,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self,
     ) -> None:
         configuration = self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
@@ -636,19 +631,19 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(configuration.catalog_hash, self.catalog.content_hash)
 
         selection = self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(selection.version, 1)
         self.assertEqual(selection.datasets[0].name, "customers")
         self.assertEqual(
-            self.source_repository.get_source_selection(self.project.project_id),
+            self.source_repository.get_source_selection(self.workspace_state.workspace_id),
             selection,
         )
 
         schema = self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
@@ -671,7 +666,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             ),
         )
         draft = self.mappings.save_working_draft(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(dataset_mapping,),
             expected_version=None,
             actor=LOCAL_ACTOR,
@@ -679,7 +674,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(draft.version, 1)
         self.assertEqual(
             self.mapping_repository.get_mapping_working_draft(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             draft,
         )
@@ -690,20 +685,20 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             warning="Catalog regenerated",
         )
         self.source_repository.save_source_catalog(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             replacement,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(
-            self.source_repository.get_source_configurations(self.project.project_id),
+            self.source_repository.get_source_configurations(self.workspace_state.workspace_id),
             (),
         )
         self.assertIsNone(
-            self.source_repository.get_source_selection(self.project.project_id)
+            self.source_repository.get_source_selection(self.workspace_state.workspace_id)
         )
         self.assertEqual(
             self.mapping_repository.get_mapping_working_draft(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             draft,
         )
@@ -725,7 +720,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             tables=(table,),
         )
         self.source_repository.save_source_catalog(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             catalog,
             actor=LOCAL_ACTOR,
         )
@@ -736,7 +731,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "AX2012 - PLW - ClientsV4.xlsx",
         ):
             self.sources.confirm_source(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 self.source.file_id,
                 selected_table_keys=("sheet:Sheet1",),
                 warnings_acknowledged=True,
@@ -762,7 +757,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             tables=(worksheet, excel_table),
         )
         self.source_repository.save_source_catalog(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             catalog,
             actor=LOCAL_ACTOR,
         )
@@ -772,7 +767,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "Choose either worksheet 'Sheet1' or its Excel tables, not both",
         ):
             self.sources.confirm_source(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 self.source.file_id,
                 selected_table_keys=(
                     "sheet:Sheet1",
@@ -784,20 +779,20 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
     def test_local_manual_schema_draft_needs_no_odoo_credential(self) -> None:
         self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         selection = self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
 
         schema = self.schemas.capture_local_manual(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             (
                 SchemaModel(
                     name="res.partner",
@@ -825,7 +820,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "unverified local draft (expected Odoo 19)",
         )
         self.assertEqual(
-            self.schema_repository.get_odoo_schema_catalog(self.project.project_id),
+            self.schema_repository.get_odoo_schema_catalog(self.workspace_state.workspace_id),
             schema,
         )
 
@@ -841,14 +836,14 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             ),
         )
         draft = self.mappings.save_working_draft(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(dataset_mapping,),
             expected_version=None,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(draft.version, 1)
         checked, _validation = self.mappings.check_definition(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(dataset_mapping,),
             expected_parent_version=None,
             expected_working_draft_version=1,
@@ -856,7 +851,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(WorkspaceError, "live Odoo schema"):
             self.mappings.submit_current(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 datasets=(dataset_mapping,),
                 expected_version=checked.version,
                 expected_working_draft_version=2,
@@ -865,25 +860,25 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
     def test_governed_mapping_revisions_and_submission_are_exact(self) -> None:
         self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         selection = self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
         schema = self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         governance = self.schemas.govern(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             business_keys=(
                 BusinessKeyDefinition(
                     key_id="partner-name",
@@ -915,7 +910,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
 
         first, validation = self.mappings.check_definition(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(mapping,),
             expected_parent_version=None,
             expected_working_draft_version=None,
@@ -925,7 +920,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(validation.status, MappingValidationStatus.VALID)
 
         second, repeated_validation = self.mappings.check_definition(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(mapping,),
             expected_parent_version=1,
             expected_working_draft_version=1,
@@ -934,7 +929,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(second, first)
         self.assertEqual(repeated_validation, validation)
         submission = self.mappings.submit_current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(mapping,),
             expected_version=1,
             expected_working_draft_version=1,
@@ -946,19 +941,19 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(submission.validation_hash, validation.validation_hash)
         self.assertEqual(
-            self.project_repository.get(self.project.project_id).mapping_version,
+            self.workspace_state_repository.get(self.workspace_state.workspace_id).mapping_version,
             "1",
         )
         self.assertEqual(
             [item.version for item in self.mapping_repository.list_mapping_revisions(
-                self.project.project_id
+                self.workspace_state.workspace_id
             )],
             [1],
         )
 
         with self.assertRaisesRegex(WorkspaceError, "modified"):
             self.mappings.check_definition(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 datasets=(mapping,),
                 expected_parent_version=None,
                 expected_working_draft_version=1,
@@ -966,22 +961,22 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             )
 
         recaptured = self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         self.assertNotEqual(recaptured.captured_at, schema.captured_at)
         self.assertIsNone(
-            self.mapping_repository.get_mapping_revision(self.project.project_id)
+            self.mapping_repository.get_mapping_revision(self.workspace_state.workspace_id)
         )
         next_governance = self.schemas.govern(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             business_keys=governance.business_keys,
             actor=LOCAL_ACTOR,
         )
         third, _validation = self.mappings.check_definition(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(mapping,),
             expected_parent_version=None,
             expected_working_draft_version=1,
@@ -1002,7 +997,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             ),
         )
         warning_revision, warning_validation = self.mappings.check_definition(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(warning_mapping,),
             expected_parent_version=2,
             expected_working_draft_version=2,
@@ -1011,14 +1006,14 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(warning_revision.version, 3)
         with self.assertRaisesRegex(WorkspaceError, "Acknowledge"):
             self.mappings.submit_current(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 datasets=(warning_mapping,),
                 expected_version=3,
                 expected_working_draft_version=3,
                 actor=LOCAL_ACTOR,
             )
         warning_revision = self.mapping_repository.get_mapping_revision(
-            self.project.project_id
+            self.workspace_state.workspace_id
         )
         self.assertEqual(warning_revision.version, 3)
         self.assertEqual(
@@ -1031,7 +1026,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             if item.severity == "warning"
         )
         warning_submission = self.mappings.submit_current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(warning_mapping,),
             expected_version=warning_revision.version,
             expected_working_draft_version=3,
@@ -1043,7 +1038,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             warning_fingerprints,
         )
         repeated_submission = self.mappings.submit_current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(warning_mapping,),
             expected_version=warning_revision.version,
             expected_working_draft_version=3,
@@ -1054,7 +1049,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         invalid = replace(mapping, target_identity=())
         failed_revision, invalid_validation = self.mappings.check_definition(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(invalid,),
             expected_parent_version=3,
             expected_working_draft_version=3,
@@ -1067,7 +1062,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(WorkspaceError, "cannot be submitted"):
             self.mappings.submit_current(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 datasets=(invalid,),
                 expected_version=4,
                 expected_working_draft_version=4,
@@ -1075,19 +1070,19 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             )
         self.assertEqual(
             self.mapping_repository.get_mapping_revision(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             failed_revision,
         )
         self.assertIsNone(
             self.mapping_repository.get_mapping_submission(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 failed_revision.version,
             )
         )
         with self.assertRaisesRegex(WorkspaceError, "validation gate"):
             self.mapping_repository.save_mapping_submission(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 MappingSubmission(
                     submission_id=str(uuid4()),
                     mapping_id=failed_revision.mapping_id,
@@ -1107,25 +1102,25 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self,
     ) -> None:
         self.sources.confirm_source(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         selection = self.sources.freeze_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
         self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         governance = self.schemas.govern(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             business_keys=(
                 BusinessKeyDefinition(
                     key_id="partner-name",
@@ -1151,7 +1146,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
 
         first = self.mappings.save_working_draft(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(incomplete,),
             expected_version=None,
             actor=LOCAL_ACTOR,
@@ -1164,39 +1159,39 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "",
         )
         self.assertIsNone(
-            self.mapping_repository.get_mapping_revision(self.project.project_id)
+            self.mapping_repository.get_mapping_revision(self.workspace_state.workspace_id)
         )
         self.assertEqual(
             self.mapping_repository.get_mapping_working_draft(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             first,
         )
 
         with self.assertRaisesRegex(WorkspaceError, "modified"):
             self.mappings.save_working_draft(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 datasets=(incomplete,),
                 expected_version=None,
                 actor=LOCAL_ACTOR,
             )
 
         second = self.mappings.save_working_draft(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             datasets=(incomplete,),
             expected_version=1,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(second.version, 2)
         self.schemas.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             _metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(
             self.mapping_repository.get_mapping_working_draft(
-                self.project.project_id
+                self.workspace_state.workspace_id
             ),
             second,
         )

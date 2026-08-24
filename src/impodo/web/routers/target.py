@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
+from ...access import Capability
 from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
 from ...connectors import ConnectorError
@@ -54,12 +55,12 @@ _LOCAL_STACK_RETURN_VALUES = {
 }
 
 
-def _connection_purpose(project) -> OdooConnectionPurpose:
+def _connection_purpose(workspace_state) -> OdooConnectionPurpose:
     """Return the read purpose represented by the shared connection page."""
 
     return (
         OdooConnectionPurpose.SOURCE_READ
-        if project.source_mode is SourceMode.ODOO
+        if workspace_state.source_mode is SourceMode.ODOO
         else OdooConnectionPurpose.TARGET_READ
     )
 
@@ -71,13 +72,13 @@ def _local_stack_return_to(form) -> str:
     return value
 
 
-def _local_stack_return_location(project_id: str, return_to: str) -> str:
+def _local_stack_return_location(workspace_id: str, return_to: str) -> str:
     if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
         return (
-            f"/workspaces/{project_id}/summary?local_stack=1"
+            f"/workspaces/{workspace_id}/summary?local_stack=1"
             "#compare-with-odoo"
         )
-    return f"/workspaces/{project_id}/target?local_stack=1"
+    return f"/workspaces/{workspace_id}/target?local_stack=1"
 
 
 def _target_read_key_persistence(form) -> bool:
@@ -96,20 +97,20 @@ def _target_read_key_persistence(form) -> bool:
 def _render_local_stack_error(
     request: Request,
     context: WebContext,
-    project,
+    workspace_state,
     error: Exception,
     *,
     return_to: str,
 ):
     if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
         context.local_stack.mark_connection_error(
-            project.project_id,
+            workspace_state.workspace_id,
             detail=str(error),
         )
         return _render_summary(
             request,
             context,
-            project.project_id,
+            workspace_state.workspace_id,
             local_stack_error=(
                 "Local Odoo is not ready yet. Review the checks below and "
                 "choose the matching setup if needed."
@@ -121,7 +122,7 @@ def _render_local_stack_error(
     return _render_target(
         request,
         context,
-        project,
+        workspace_state,
         error=str(error),
         status_code=422,
         open_local_stack=True,
@@ -130,16 +131,16 @@ def _render_local_stack_error(
 
 async def _validate_selected_local_connection(
     context: WebContext,
-    project,
+    workspace_state,
     status: LocalStackStatus | None = None,
 ) -> LocalStackStatus:
     current = status
     if current is None:
         current = await run_in_threadpool(
             context.local_stack.refresh,
-            project.project_id,
+            workspace_state.workspace_id,
         )
-    local_profile = _selected_local_profile(context, project)
+    local_profile = _selected_local_profile(context, workspace_state)
     if local_profile is None:
         raise LocalStackError(
             "Choose and validate odoo.conf before testing database access."
@@ -156,11 +157,11 @@ async def _validate_selected_local_connection(
         )
     fingerprint = await run_in_threadpool(
         context.local_odoo_reader.get_target_fingerprint,
-        project,
+        workspace_state,
         local_profile,
     )
     return context.local_stack.mark_connection_ready(
-        project.project_id,
+        workspace_state.workspace_id,
         database=fingerprint.database,
         odoo_version=fingerprint.odoo_version,
     )
@@ -169,153 +170,153 @@ async def _validate_selected_local_connection(
 def build_target_router(context: WebContext) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/workspaces/{project_id}/target", response_class=HTMLResponse)
-    async def project_target_form(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/target", response_class=HTMLResponse)
+    async def workspace_target_form(request: Request, workspace_id: str):
         require_session(request)
-        project = context.queries.get(project_id)
-        if project.status is WorkspaceStatus.CLOSED:
+        workspace_state = context.queries.get(workspace_id)
+        if workspace_state.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
-                f"/workspaces/{project.project_id}/summary",
+                f"/workspaces/{workspace_state.workspace_id}/summary",
                 status_code=303,
             )
         if (
-            project.status is WorkspaceStatus.DRAFT
-            and project.source_mode is SourceMode.FILE
+            workspace_state.status is WorkspaceStatus.DRAFT
+            and workspace_state.source_mode is SourceMode.FILE
         ):
             return RedirectResponse(
-                f"/workspaces/{project.project_id}/files",
+                f"/workspaces/{workspace_state.workspace_id}/files",
                 status_code=303,
             )
-        if project.status is WorkspaceStatus.DRAFT:
-            blocked = blocking_setup_url(project, WorkspaceSetupStep.TARGET)
+        if workspace_state.status is WorkspaceStatus.DRAFT:
+            blocked = blocking_setup_url(workspace_state, WorkspaceSetupStep.TARGET)
             if blocked is not None:
                 return RedirectResponse(blocked, status_code=303)
         return _render_target(
             request,
             context,
-            project,
+            workspace_state,
             open_local_stack=request.query_params.get("local_stack") == "1",
         )
 
-    @router.post("/workspaces/{project_id}/local-stack/select-config")
-    async def select_local_stack_config(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/local-stack/select-config")
+    async def select_local_stack_config(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "return_to"})
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         return_to = _LOCAL_STACK_RETURN_TARGET
         try:
             return_to = _local_stack_return_to(form)
-            _require_local_stack_access(context, project)
+            _require_local_stack_access(context, workspace_state)
             selected = context.local_stack.pick_config()
             if selected is None:
                 _flash(request, "No local Odoo setup was selected.")
             else:
                 status = await run_in_threadpool(
                     context.local_stack.select_config,
-                    project_id,
+                    workspace_id,
                     selected,
                 )
                 if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
                     await _validate_selected_local_connection(
                         context,
-                        project,
+                        workspace_state,
                         status,
                     )
         except (ConnectorError, LocalStackError, WorkspaceError) as error:
             return _render_local_stack_error(
                 request,
                 context,
-                project,
+                workspace_state,
                 error,
                 return_to=return_to,
             )
         return RedirectResponse(
-            _local_stack_return_location(project_id, return_to),
+            _local_stack_return_location(workspace_id, return_to),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/local-stack/refresh")
-    async def refresh_local_stack(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/local-stack/refresh")
+    async def refresh_local_stack(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "return_to"})
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         return_to = _LOCAL_STACK_RETURN_TARGET
         try:
             return_to = _local_stack_return_to(form)
-            _require_local_stack_access(context, project)
+            _require_local_stack_access(context, workspace_state)
             status = await run_in_threadpool(
                 context.local_stack.refresh,
-                project_id,
+                workspace_id,
             )
             if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
                 await _validate_selected_local_connection(
                     context,
-                    project,
+                    workspace_state,
                     status,
                 )
         except (ConnectorError, LocalStackError, WorkspaceError) as error:
             return _render_local_stack_error(
                 request,
                 context,
-                project,
+                workspace_state,
                 error,
                 return_to=return_to,
             )
         return RedirectResponse(
-            _local_stack_return_location(project_id, return_to),
+            _local_stack_return_location(workspace_id, return_to),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/local-stack/start")
-    async def start_local_stack(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/local-stack/start")
+    async def start_local_stack(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(
             request,
             form,
             {"csrf_token", "confirm_start", "return_to"},
         )
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         return_to = _LOCAL_STACK_RETURN_TARGET
         try:
             return_to = _local_stack_return_to(form)
-            _require_local_stack_start(context, project)
+            _require_local_stack_start(context, workspace_state)
             if _text(form, "confirm_start") != "1":
                 raise LocalStackError(
                     "Confirm the detected paths before starting the local stack."
                 )
             status = await run_in_threadpool(
                 context.local_stack.start,
-                project_id,
+                workspace_id,
             )
             if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
                 await _validate_selected_local_connection(
                     context,
-                    project,
+                    workspace_state,
                     status,
                 )
         except (ConnectorError, LocalStackError, WorkspaceError) as error:
             return _render_local_stack_error(
                 request,
                 context,
-                project,
+                workspace_state,
                 error,
                 return_to=return_to,
             )
         _flash(request, "The local Odoo check is complete.")
         return RedirectResponse(
-            _local_stack_return_location(project_id, return_to),
+            _local_stack_return_location(workspace_id, return_to),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/local-stack/control")
-    async def control_local_stack(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/local-stack/control")
+    async def control_local_stack(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(
             request,
             form,
             {"csrf_token", "confirm_control", "action", "return_to"},
         )
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         return_to = _LOCAL_STACK_RETURN_TARGET
         action = _text(form, "action")
         try:
@@ -325,20 +326,20 @@ def build_target_router(context: WebContext) -> APIRouter:
                     "Confirm control of the Impodo-managed services first."
                 )
             if action == "stop":
-                _require_local_stack_stop(context, project)
-                await run_in_threadpool(context.local_stack.stop, project_id)
+                _require_local_stack_stop(context, workspace_state)
+                await run_in_threadpool(context.local_stack.stop, workspace_id)
                 message = "The local Odoo services started by Impodo were stopped."
             elif action == "restart":
-                _require_local_stack_stop(context, project)
-                _require_local_stack_start(context, project)
+                _require_local_stack_stop(context, workspace_state)
+                _require_local_stack_start(context, workspace_state)
                 status = await run_in_threadpool(
                     context.local_stack.restart,
-                    project_id,
+                    workspace_id,
                 )
                 if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
                     await _validate_selected_local_connection(
                         context,
-                        project,
+                        workspace_state,
                         status,
                     )
                 message = "The local Odoo services started by Impodo were restarted."
@@ -348,18 +349,18 @@ def build_target_router(context: WebContext) -> APIRouter:
             return _render_local_stack_error(
                 request,
                 context,
-                project,
+                workspace_state,
                 error,
                 return_to=return_to,
             )
         _flash(request, message)
         return RedirectResponse(
-            _local_stack_return_location(project_id, return_to),
+            _local_stack_return_location(workspace_id, return_to),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/target")
-    async def project_target(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/target")
+    async def workspace_target(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(
             request,
@@ -379,10 +380,10 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "action",
             },
         )
-        current = context.queries.get(project_id)
+        current = context.queries.get(workspace_id)
         if current.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
-                f"/workspaces/{current.project_id}/summary",
+                f"/workspaces/{current.workspace_id}/summary",
                 status_code=303,
             )
         if (
@@ -390,7 +391,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             and current.source_mode is SourceMode.FILE
         ):
             return RedirectResponse(
-                f"/workspaces/{current.project_id}/files",
+                f"/workspaces/{current.workspace_id}/files",
                 status_code=303,
             )
         if current.status is WorkspaceStatus.DRAFT:
@@ -403,9 +404,9 @@ def build_target_router(context: WebContext) -> APIRouter:
         shared_test_requested = False
         show_local_results = False
         try:
-            previous_project = context.queries.get(project_id)
-            project = context.workspace_states.update_target(
-                project_id,
+            previous_workspace_state = context.queries.get(workspace_id)
+            workspace_state = context.workspace_states.update_target(
+                workspace_id,
                 actor=context.actor,
                 expected_revision=_revision(form),
                 odoo_connection_mode=_text(form, "odoo_connection_mode"),
@@ -414,52 +415,52 @@ def build_target_router(context: WebContext) -> APIRouter:
                 intended_applications=form.getlist("intended_applications"),
             )
             target_changed = (
-                target_read_credential_id(previous_project)
-                != target_read_credential_id(project)
-                or target_write_credential_id(previous_project)
-                != target_write_credential_id(project)
+                target_read_credential_id(previous_workspace_state)
+                != target_read_credential_id(workspace_state)
+                or target_write_credential_id(previous_workspace_state)
+                != target_write_credential_id(workspace_state)
             )
             if target_changed:
                 removal_receipts = delete_target_credentials(
                     context.secret_store,
-                    previous_project,
+                    previous_workspace_state,
                     reason=TargetCredentialRemovalReason.TARGET_CHANGED,
                 )
                 audit_removed_target_credentials(
                     context.workspace_states,
-                    previous_project,
+                    previous_workspace_state,
                     removal_receipts,
                     actor=context.actor,
                 )
-                context.remote_connections.clear(project_id)
+                context.remote_connections.clear(workspace_id)
             action = _text(form, "action")
             local_test_requested = (
                 action == "test"
-                and project.odoo_connection_mode is OdooConnectionMode.LOCAL
+                and workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
             )
             remote_test_requested = (
                 action == "test"
-                and project.odoo_connection_mode is OdooConnectionMode.REMOTE
+                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
             )
             shared_test_requested = action == "test" and (
-                remote_test_requested or project.source_mode is SourceMode.ODOO
+                remote_test_requested or workspace_state.source_mode is SourceMode.ODOO
             )
             submitted_key = _text(form, "read_api_key") or _text(
                 form,
                 "api_key",
             )
             if submitted_key:
-                context.remote_connections.clear(project_id)
+                context.remote_connections.clear(workspace_id)
                 read_credential = store_target_credential(
                     context.secret_store,
-                    project,
+                    workspace_state,
                     TargetCredentialRole.READ,
                     submitted_key,
                     persistent=_target_read_key_persistence(form),
                 )
                 audit_stored_target_credential(
                     context.workspace_states,
-                    project,
+                    workspace_state,
                     TargetCredentialRole.READ,
                     read_credential,
                     actor=context.actor,
@@ -467,30 +468,30 @@ def build_target_router(context: WebContext) -> APIRouter:
             else:
                 read_credential = get_target_credential(
                     context.secret_store,
-                    project,
+                    workspace_state,
                     TargetCredentialRole.READ,
                 )
             if action == "test":
-                local_profile = _selected_local_profile(context, project)
+                local_profile = _selected_local_profile(context, workspace_state)
                 if local_profile is not None:
-                    if project.source_mode is SourceMode.ODOO and read_credential is None:
+                    if workspace_state.source_mode is SourceMode.ODOO and read_credential is None:
                         raise OdooReadCredentialMissingError(
                             "Enter a read-only Odoo API key before checking an Odoo source."
                         )
                     show_local_results = True
                     await _validate_selected_local_connection(
                         context,
-                        project,
+                        workspace_state,
                     )
-                    if project.source_mode is SourceMode.ODOO:
+                    if workspace_state.source_mode is SourceMode.ODOO:
                         result = await run_in_threadpool(
                             context.odoo_connection_tests.test_read,
-                            project,
+                            workspace_state,
                             read_credential.secret,
                             purpose=purpose,
                         )
                         context.remote_connections.mark_checked(
-                            project,
+                            workspace_state,
                             result.fingerprint,
                             result.read_identity,
                             purpose=purpose,
@@ -498,7 +499,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 else:
                     if read_credential is None:
                         if (
-                            project.odoo_connection_mode
+                            workspace_state.odoo_connection_mode
                             is OdooConnectionMode.LOCAL
                         ):
                             raise OdooReadCredentialMissingError(
@@ -512,17 +513,17 @@ def build_target_router(context: WebContext) -> APIRouter:
                         )
                     result = await run_in_threadpool(
                         context.odoo_connection_tests.test_read,
-                        project,
+                        workspace_state,
                         read_credential.secret,
                         purpose=purpose,
                     )
                     context.remote_connections.mark_checked(
-                        project,
+                        workspace_state,
                         result.fingerprint,
                         result.read_identity,
                         purpose=purpose,
                     )
-                target_url = f"/workspaces/{project_id}/target"
+                target_url = f"/workspaces/{workspace_id}/target"
                 if local_test_requested:
                     _flash(
                         request,
@@ -545,116 +546,121 @@ def build_target_router(context: WebContext) -> APIRouter:
         ) as error:
             if local_test_requested:
                 context.local_stack.mark_connection_error(
-                    project_id,
+                    workspace_id,
                     detail=str(error),
                 )
             if shared_test_requested:
-                project = context.queries.get(project_id)
+                workspace_state = context.queries.get(workspace_id)
                 context.remote_connections.mark_error(
-                    project,
+                    workspace_state,
                     error,
                     purpose=purpose,
                 )
                 if remote_test_requested:
                     return RedirectResponse(
-                        f"/workspaces/{project_id}/target#remote-connection-status",
+                        f"/workspaces/{workspace_id}/target#remote-connection-status",
                         status_code=303,
                     )
             return _render_target(
                 request,
                 context,
-                context.queries.get(project_id),
+                context.queries.get(workspace_id),
                 error=str(error),
                 status_code=422,
                 open_local_stack=local_test_requested,
             )
         if workspace_setup_requirements_for_step(
-            project,
+            workspace_state,
             WorkspaceSetupStep.TARGET,
         ):
             return _render_target(
                 request,
                 context,
-                project,
+                workspace_state,
                 setup_attention_requested=True,
                 status_code=422,
             )
         local_ready = (
-            project.odoo_connection_mode is OdooConnectionMode.LOCAL
-            and context.local_stack.get(project.project_id).metadata_ready
+            workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
+            and context.local_stack.get(workspace_state.workspace_id).metadata_ready
         )
-        if local_ready and project.source_mode is SourceMode.ODOO:
-            local_ready = context.remote_connections.get(project, purpose).ready
+        if local_ready and workspace_state.source_mode is SourceMode.ODOO:
+            local_ready = context.remote_connections.get(workspace_state, purpose).ready
         remote_ready = (
-            project.odoo_connection_mode is OdooConnectionMode.REMOTE
-            and context.remote_connections.get(project, purpose).ready
+            workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+            and context.remote_connections.get(workspace_state, purpose).ready
         )
         if not (local_ready or remote_ready):
             return _render_target(
                 request,
                 context,
-                project,
+                workspace_state,
                 error="Check the Odoo connection before continuing. Nothing was changed in Odoo.",
                 status_code=422,
             )
-        if project.source_mode is SourceMode.ODOO and read_credential is None:
+        if workspace_state.source_mode is SourceMode.ODOO and read_credential is None:
             return _render_target(
                 request,
                 context,
-                project,
+                workspace_state,
                 error="Enter a read-only Odoo API key before continuing.",
                 status_code=422,
             )
-        if project.status is WorkspaceStatus.DRAFT:
+        if workspace_state.status is WorkspaceStatus.DRAFT:
             try:
-                project = context.workspace_states.register(
-                    project.project_id,
+                workspace_state = context.workspace_states.register(
+                    workspace_state.workspace_id,
                     actor=context.actor,
-                    expected_revision=project.revision,
+                    expected_revision=workspace_state.revision,
                 )
             except WorkspaceStateError as error:
                 return _render_target(
                     request,
                     context,
-                    project,
+                    workspace_state,
                     error=str(error),
                     status_code=422,
                 )
         return RedirectResponse(
-            f"/workspaces/{project.project_id}/schema",
+            f"/workspaces/{workspace_state.workspace_id}/schema",
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/target/read-credential/delete")
-    async def forget_target_read_credential(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/target/read-credential/delete")
+    async def forget_target_read_credential(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
-        project = context.queries.get(project_id)
-        if project.status is WorkspaceStatus.CLOSED:
+        workspace_state = context.queries.get(workspace_id)
+        if workspace_state.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
-                f"/workspaces/{project.project_id}/summary",
+                f"/workspaces/{workspace_state.workspace_id}/summary",
                 status_code=303,
             )
         try:
+            context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.PROJECT_EDIT,
+            )
             receipt = delete_target_credential(
                 context.secret_store,
-                project,
+                workspace_state,
                 TargetCredentialRole.READ,
                 reason=TargetCredentialRemovalReason.USER_REQUESTED,
             )
             if receipt is not None:
                 audit_removed_target_credentials(
                     context.workspace_states,
-                    project,
+                    workspace_state,
                     (receipt,),
                     actor=context.actor,
                 )
-            context.remote_connections.clear(project_id)
+            context.remote_connections.clear(workspace_id)
         except SecretStoreError as error:
             return _render_target(
                 request,
                 context,
-                project,
+                workspace_state,
                 error=str(error),
                 status_code=422,
             )
@@ -663,9 +669,8 @@ def build_target_router(context: WebContext) -> APIRouter:
             "The read-only Odoo key was forgotten. Nothing was changed in Odoo.",
         )
         return RedirectResponse(
-            f"/workspaces/{project_id}/target#read-credential-status",
+            f"/workspaces/{workspace_id}/target#read-credential-status",
             status_code=303,
         )
 
     return router
-

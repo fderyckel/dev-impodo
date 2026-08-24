@@ -1,4 +1,4 @@
-"""Define the isolated technical workspace root introduced by Phase M1."""
+"""Define the isolated technical MigrationWorkspace root."""
 
 from __future__ import annotations
 
@@ -25,6 +25,13 @@ class MigrationWorkspaceState(StrEnum):
     CLOSED = "CLOSED"
 
 
+class MigrationWorkspaceSetupState(StrEnum):
+    """Track whether the contained workspace may start governed authoring."""
+
+    DRAFT = "DRAFT"
+    READY = "READY"
+
+
 @dataclass(frozen=True, slots=True)
 class MigrationWorkspace:
     """Own one isolated mapping and execution work area inside a run."""
@@ -39,6 +46,8 @@ class MigrationWorkspace:
     optimistic_revision: int
     created_at: datetime
     updated_at: datetime
+    setup_state: MigrationWorkspaceSetupState = MigrationWorkspaceSetupState.DRAFT
+    setup_completed_at: datetime | None = None
     closed_at: datetime | None = None
 
     def __post_init__(self) -> None:
@@ -57,11 +66,28 @@ class MigrationWorkspace:
             required_text(self.display_name, "display_name", maximum=200),
         )
         object.__setattr__(self, "state", MigrationWorkspaceState(self.state))
+        object.__setattr__(
+            self,
+            "setup_state",
+            MigrationWorkspaceSetupState(self.setup_state),
+        )
         require_revision(self.optimistic_revision, "optimistic_revision")
         require_aware(self.created_at, "created_at")
         require_aware(self.updated_at, "updated_at")
         if self.closed_at is not None:
             require_aware(self.closed_at, "closed_at")
+        if self.setup_completed_at is not None:
+            require_aware(self.setup_completed_at, "setup_completed_at")
+        if (
+            self.setup_state is MigrationWorkspaceSetupState.READY
+            and self.setup_completed_at is None
+        ):
+            raise ValueError("A ready MigrationWorkspace requires a setup time")
+        if (
+            self.setup_state is MigrationWorkspaceSetupState.DRAFT
+            and self.setup_completed_at is not None
+        ):
+            raise ValueError("A draft MigrationWorkspace cannot have a setup time")
 
 
 class MigrationWorkspaceRepository(Protocol):
@@ -195,6 +221,44 @@ class MigrationWorkspaceService:
             ),
             expected_revision=require_revision(expected_revision),
             event_type="MIGRATION_WORKSPACE_CLOSED",
+            actor=actor,
+        )
+
+    def complete_setup(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> MigrationWorkspace:
+        """Mark setup ready on the canonical MigrationWorkspace root."""
+
+        self.authorization.require(actor, Capability.MIGRATION_WORKSPACE_EDIT)
+        current = self.repository.get_migration_workspace(
+            require_uuid(workspace_id, "workspace_id")
+        )
+        self.authorization.require(
+            actor,
+            Capability.MIGRATION_WORKSPACE_EDIT,
+            project_id=current.project_id,
+        )
+        if current.state is not MigrationWorkspaceState.OPEN:
+            raise ValueError("A closed MigrationWorkspace cannot complete setup")
+        expected_revision = require_revision(expected_revision)
+        if current.optimistic_revision != expected_revision:
+            raise ValueError("MigrationWorkspace setup revision is stale")
+        if current.setup_state is MigrationWorkspaceSetupState.READY:
+            return current
+        now = utc_now()
+        return self.repository.save_migration_workspace(
+            replace(
+                current,
+                setup_state=MigrationWorkspaceSetupState.READY,
+                setup_completed_at=now,
+                updated_at=now,
+            ),
+            expected_revision=expected_revision,
+            event_type="MIGRATION_WORKSPACE_SETUP_COMPLETED",
             actor=actor,
         )
 

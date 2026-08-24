@@ -86,14 +86,14 @@ class _SparseSourceAccounting(_SparseEvidence):
 
 class QualityEvaluationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.project = _project()
+        self.workspace_state = _workspace_state()
 
     def test_high_volume_bounded_rejection_never_materializes(self) -> None:
         rows = (_canonical_row("5", 2),)
-        staging = _staging(self.project.project_id, rows)
+        staging = _staging(self.workspace_state.workspace_id, rows)
         stored = _stored_staging(staging)
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
@@ -127,7 +127,7 @@ class QualityEvaluationTests(unittest.TestCase):
             ),
         ):
             service.evaluate_and_publish(
-                self.project,
+                self.workspace_state,
                 revision,
                 selection,
                 stored,
@@ -144,7 +144,7 @@ class QualityEvaluationTests(unittest.TestCase):
 
     def test_recipe_business_rule_seed_survives_first_fresh_ruleset(self) -> None:
         seed = manager_quality_rule(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             dataset="contacts",
             family=QualityRuleFamily.EQUALITY,
             name="Names agree",
@@ -169,7 +169,7 @@ class QualityEvaluationTests(unittest.TestCase):
             schema_hash=SCHEMA_HASH,
         )
         context = QualityConfigurationContext(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             revision=SimpleNamespace(definition=definition),
             selection=SimpleNamespace(
                 datasets=(
@@ -190,7 +190,7 @@ class QualityEvaluationTests(unittest.TestCase):
 
         self.assertIn(seed, ruleset.manager_rules)
         seed_repository.get_quality_seed.assert_called_once_with(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             MAPPING_HASH,
         )
 
@@ -200,23 +200,23 @@ class QualityEvaluationTests(unittest.TestCase):
             _canonical_row("6", 3, source_identity=("B",), target_identity=("SAME",)),
             _canonical_row("7", 4, source_identity=("C",), target_identity=("SAFE",)),
         )
-        staging = _staging(self.project.project_id, rows)
+        staging = _staging(self.workspace_state.workspace_id, rows)
         prepared = _prepared(rows)
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
 
         first = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={"dataset:contacts": (2, 3, 4)},
             ruleset=ruleset,
         )
         repeated = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={"dataset:contacts": (2, 3, 4)},
             ruleset=ruleset,
@@ -249,16 +249,16 @@ class QualityEvaluationTests(unittest.TestCase):
             disposition=StagingDisposition.BLOCKED,
             issues=(issue,),
         )
-        staging = _staging(self.project.project_id, (row,))
+        staging = _staging(self.workspace_state.workspace_id, (row,))
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
 
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
@@ -268,7 +268,7 @@ class QualityEvaluationTests(unittest.TestCase):
             run.row_results[0].effective_disposition,
             QualityDisposition.QUARANTINED,
         )
-        self.assertEqual(run.issues[0].owner_label, "Data Manager")
+        self.assertEqual(run.issues[0].owner_label, "Data manager")
         self.assertIn("Correct the source", run.quarantine[0].correction_route)
 
     def test_relationship_to_quarantined_incoming_record_is_propagated(self) -> None:
@@ -309,16 +309,16 @@ class QualityEvaluationTests(unittest.TestCase):
                 )
             },
         )
-        staging = _staging(self.project.project_id, (parent, child))
+        staging = _staging(self.workspace_state.workspace_id, (parent, child))
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("categories", "products"),
         )
 
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={
                 "dataset:categories": (2,),
@@ -390,15 +390,15 @@ class QualityEvaluationTests(unittest.TestCase):
             for index, row in enumerate(rows)
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("categories",),
         )
 
         run = evaluate_quality(
-            project=self.project,
-            staging=_staging(self.project.project_id, rows),
+            workspace_state=self.workspace_state,
+            staging=_staging(self.workspace_state.workspace_id, rows),
             physical_rows={
                 "dataset:categories": tuple(range(2, row_count + 2)),
             },
@@ -464,15 +464,15 @@ class QualityEvaluationTests(unittest.TestCase):
         )
         rows = (first, second)
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("categories",),
         )
 
         run = evaluate_quality(
-            project=self.project,
-            staging=_staging(self.project.project_id, rows),
+            workspace_state=self.workspace_state,
+            staging=_staging(self.workspace_state.workspace_id, rows),
             physical_rows={"dataset:categories": (2, 3)},
             ruleset=ruleset,
         )
@@ -507,21 +507,21 @@ class QualityEvaluationTests(unittest.TestCase):
                 target_identity=("SAFE",),
             ),
         )
-        staging = _staging(self.project.project_id, rows)
+        staging = _staging(self.workspace_state.workspace_id, rows)
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
         expected = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={"dataset:contacts": (2, 3, 4)},
             ruleset=ruleset,
         )
         bounded = build_bounded_quality_run(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=_stored_staging(staging),
             physical_rows={"dataset:contacts": (2, 3, 4)},
             ruleset=ruleset,
@@ -552,7 +552,7 @@ class QualityEvaluationTests(unittest.TestCase):
                 physical_dataset_id="dataset:products",
             ),
         )
-        staging = _staging(self.project.project_id, rows)
+        staging = _staging(self.workspace_state.workspace_id, rows)
         indexed_rows = _IndexedTestRows(staging.rows)
         stored = replace(_stored_staging(staging), rows=indexed_rows)
         physical_rows = {
@@ -560,20 +560,20 @@ class QualityEvaluationTests(unittest.TestCase):
             "dataset:products": (3,),
         }
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts", "products"),
         )
         expected = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows=physical_rows,
             ruleset=ruleset,
         )
 
         bounded = build_bounded_quality_run(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=stored,
             physical_rows=physical_rows,
             ruleset=ruleset,
@@ -636,21 +636,21 @@ class QualityEvaluationTests(unittest.TestCase):
             },
         )
         rows = (first, second)
-        staging = _staging(self.project.project_id, rows)
+        staging = _staging(self.workspace_state.workspace_id, rows)
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("categories",),
         )
         expected = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={"dataset:categories": (2, 3)},
             ruleset=ruleset,
         )
         bounded = build_bounded_quality_run(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=_stored_staging(staging),
             physical_rows={"dataset:categories": (2, 3)},
             ruleset=ruleset,
@@ -708,15 +708,15 @@ class QualityEvaluationTests(unittest.TestCase):
             replace(rows[2], references={"parent_id": root_reference}),
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("categories",),
         )
 
         run = evaluate_quality(
-            project=self.project,
-            staging=_staging(self.project.project_id, rows),
+            workspace_state=self.workspace_state,
+            staging=_staging(self.workspace_state.workspace_id, rows),
             physical_rows={"dataset:categories": (2, 3, 4)},
             ruleset=ruleset,
         )
@@ -781,7 +781,7 @@ class QualityEvaluationTests(unittest.TestCase):
             for index, row in enumerate(rows)
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("categories",),
@@ -797,8 +797,8 @@ class QualityEvaluationTests(unittest.TestCase):
         )
 
         run = evaluate_quality(
-            project=self.project,
-            staging=_staging(self.project.project_id, rows),
+            workspace_state=self.workspace_state,
+            staging=_staging(self.workspace_state.workspace_id, rows),
             physical_rows={"dataset:categories": (2, 3, 4)},
             ruleset=ruleset,
         )
@@ -817,9 +817,9 @@ class QualityEvaluationTests(unittest.TestCase):
             _canonical_row("5", 2),
             proposed_values={"start": 10, "end": 5},
         )
-        staging = _staging(self.project.project_id, (row,))
+        staging = _staging(self.workspace_state.workspace_id, (row,))
         business_rule = manager_quality_rule(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             dataset="contacts",
             family=QualityRuleFamily.ORDERED_COMPARISON,
             name="Start before end",
@@ -828,7 +828,7 @@ class QualityEvaluationTests(unittest.TestCase):
             owner_role=QualityOwnerRole.FUNCTIONAL_OWNER,
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
@@ -836,7 +836,7 @@ class QualityEvaluationTests(unittest.TestCase):
         )
 
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
@@ -848,7 +848,7 @@ class QualityEvaluationTests(unittest.TestCase):
             run.row_results[0].effective_disposition,
             QualityDisposition.CANDIDATE,
         )
-        self.assertEqual(run.issues[0].owner_label, "Functional Owner")
+        self.assertEqual(run.issues[0].owner_label, "Functional owner")
         self.assertEqual(
             len(
                 canonical_rows_to_prepared_bundle(
@@ -898,20 +898,20 @@ class QualityEvaluationTests(unittest.TestCase):
             )
             for index, record in enumerate(partner_records)
         )
-        staging = _staging(self.project.project_id, rows)
+        staging = _staging(self.workspace_state.workspace_id, rows)
         prepared = PreparedBundle(
             records=partner_records,
             issues=(),
             source_hashes={"products": SOURCE_HASH},
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("products",),
         )
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={
                 "dataset:products": tuple(
@@ -954,17 +954,17 @@ class QualityEvaluationTests(unittest.TestCase):
             source_identity=("ELIGIBLE",),
             target_identity=("ELIGIBLE",),
         )
-        staging = _staging(self.project.project_id, (set_aside, eligible_row))
+        staging = _staging(self.workspace_state.workspace_id, (set_aside, eligible_row))
         prepared = _prepared((set_aside, eligible_row))
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
 
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
@@ -990,9 +990,9 @@ class QualityRelationshipScaleTests(unittest.TestCase):
         row_count = int(os.environ.get("IMPODO_QUALITY_SCALE_ROWS", "100000"))
         self.assertGreaterEqual(row_count, 2)
         fixture_started = perf_counter()
-        project = replace(
-            _project(),
-            project_id="00000000-0000-0000-0000-000000000100",
+        workspace_state = replace(
+            _workspace_state(),
+            workspace_id="00000000-0000-0000-0000-000000000100",
         )
         base = _canonical_row(
             "5",
@@ -1054,9 +1054,9 @@ class QualityRelationshipScaleTests(unittest.TestCase):
             )
             for index, row in enumerate(rows)
         )
-        staging = _staging(project.project_id, rows)
+        staging = _staging(workspace_state.workspace_id, rows)
         ruleset = default_quality_ruleset(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("categories",),
@@ -1065,7 +1065,7 @@ class QualityRelationshipScaleTests(unittest.TestCase):
 
         evaluation_started = perf_counter()
         run = evaluate_quality(
-            project=project,
+            workspace_state=workspace_state,
             staging=staging,
             physical_rows={
                 "dataset:categories": tuple(range(2, row_count + 2)),
@@ -1106,16 +1106,16 @@ class QualityStoreTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(database)
+        self.workspace_states = WorkspaceStateRepository(database)
         self.staging = StagingRepository(database)
-        self.quality = QualityRepository(database, self.projects)
-        self.project = _project()
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.quality = QualityRepository(database, self.workspace_states)
+        self.workspace_state = _workspace_state()
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=self.project.project_id,
+            data_version_id=self.workspace_state.workspace_id,
             created_at=now,
             created_by=LOCAL_ACTOR.identity.display_name,
             datasets=(
@@ -1137,8 +1137,8 @@ class QualityStoreTests(unittest.TestCase):
             ),
             content_hash=PHYSICAL_HASH,
         )
-        database_path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
-        with self.projects._connect(database_path) as connection:
+        database_path = self.workspace_states.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
+        with self.workspace_states._connect(database_path) as connection:
             connection.execute("INSERT INTO source_selection VALUES (1, ?)", [selection.to_json()])
             connection.execute(
                 "INSERT INTO mapping_revision VALUES ('mapping:contacts', 1, NULL, ?, ?, ?, ?, '{}')",
@@ -1155,45 +1155,45 @@ class QualityStoreTests(unittest.TestCase):
 
     def test_quality_rules_and_run_round_trip_idempotently(self) -> None:
         row = _canonical_row("5", 2)
-        staging_run = _staging(self.project.project_id, (row,))
+        staging_run = _staging(self.workspace_state.workspace_id, (row,))
         staging = self.staging.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
         self.quality.publish_quality_ruleset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging_run,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
 
         first = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
         repeated = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
         restored = self.quality.get_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             first.run_id,
         )
 
@@ -1203,33 +1203,33 @@ class QualityStoreTests(unittest.TestCase):
 
     def test_sparse_accounting_reloads_from_stored_canonical_rows(self) -> None:
         row = _canonical_row("5", 2)
-        staging_run = _staging(self.project.project_id, (row,))
+        staging_run = _staging(self.workspace_state.workspace_id, (row,))
         staging = self.staging.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
         self.quality.publish_quality_ruleset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
         expected = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging_run,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
         assert expected.effective_dataset_hash is not None
         sparse = StoredQualityRun(
-            project_id=expected.project_id,
+            workspace_id=expected.workspace_id,
             staging_content_hash=expected.staging_content_hash,
             ruleset_hash=expected.ruleset_hash,
             mapping_hash=expected.mapping_hash,
@@ -1252,14 +1252,14 @@ class QualityStoreTests(unittest.TestCase):
             },
         )
         summary = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             sparse,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
 
         database_path = (
-            self.projects.workspace_directory(self.project.project_id)
+            self.workspace_states.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.quality._connect(database_path) as connection:
@@ -1273,7 +1273,7 @@ class QualityStoreTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(summary.content_hash, expected.content_hash)
         restored = self.quality.get_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             summary.run_id,
         )
 
@@ -1295,26 +1295,26 @@ class QualityStoreTests(unittest.TestCase):
             )
             for source_row in range(2, 53)
         )
-        staging_run = _staging(self.project.project_id, rows)
+        staging_run = _staging(self.workspace_state.workspace_id, rows)
         staging = self.staging.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
         self.quality.publish_quality_ruleset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging_run,
             physical_rows={
                 "dataset:contacts": tuple(range(2, 53)),
@@ -1322,20 +1322,20 @@ class QualityStoreTests(unittest.TestCase):
             ruleset=ruleset,
         )
         published = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
 
         first = self.quality.get_quality_review_page(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.run_id,
             page=1,
             page_size=50,
         )
         second = self.quality.get_quality_review_page(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             published.run_id,
             page=2,
             page_size=50,
@@ -1353,28 +1353,28 @@ class QualityStoreTests(unittest.TestCase):
 
     def test_failed_quality_batch_preserves_previous_current_run(self) -> None:
         row = _canonical_row("5", 2)
-        staging_run = _staging(self.project.project_id, (row,))
+        staging_run = _staging(self.workspace_state.workspace_id, (row,))
         staging = self.staging.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
-        self.quality.publish_quality_ruleset(self.project.project_id, ruleset, actor=LOCAL_ACTOR)
+        self.quality.publish_quality_ruleset(self.workspace_state.workspace_id, ruleset, actor=LOCAL_ACTOR)
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging_run,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
         first = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
@@ -1389,59 +1389,58 @@ class QualityStoreTests(unittest.TestCase):
                     return_value=changed.retention_context_hash,
                 ):
                     self.quality.publish_quality_run(
-                        self.project.project_id,
+                        self.workspace_state.workspace_id,
                         changed,
                         staging_run_id=staging.run_id,
                         actor=LOCAL_ACTOR,
                     )
 
         self.assertEqual(
-            self.quality.get_current_quality_summary(self.project.project_id).run_id,
+            self.quality.get_current_quality_summary(self.workspace_state.workspace_id).run_id,
             first.run_id,
         )
 
     def test_owner_or_retention_change_invalidates_quality_not_staging(self) -> None:
         row = _canonical_row("5", 2)
-        staging_run = _staging(self.project.project_id, (row,))
+        staging_run = _staging(self.workspace_state.workspace_id, (row,))
         staging = self.staging.publish_canonical_staging(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=MAPPING_HASH,
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
         self.quality.publish_quality_ruleset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
         run = evaluate_quality(
-            project=self.project,
+            workspace_state=self.workspace_state,
             staging=staging_run,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
         published = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
-        current = self.projects.get(self.project.project_id)
+        current = self.workspace_states.get(self.workspace_state.workspace_id)
         changed = replace(
             current,
-            data_manager="New Data Manager",
             retention_days=60,
             revision=current.revision + 1,
             updated_at=datetime.now(timezone.utc),
         )
 
-        self.projects.save(
+        self.workspace_states.save(
             changed,
             expected_revision=current.revision,
             event_type="WORKSPACE_GOVERNANCE_UPDATED",
@@ -1450,14 +1449,14 @@ class QualityStoreTests(unittest.TestCase):
         )
 
         self.assertIsNone(
-            self.quality.get_current_quality_summary(self.project.project_id)
+            self.quality.get_current_quality_summary(self.workspace_state.workspace_id)
         )
         self.assertEqual(
-            self.staging.get_current_staging_summary(self.project.project_id).run_id,
+            self.staging.get_current_staging_summary(self.workspace_state.workspace_id).run_id,
             staging.run_id,
         )
-        database_path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
-        with self.projects._connect(database_path) as connection:
+        database_path = self.workspace_states.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
+        with self.workspace_states._connect(database_path) as connection:
             lifecycle = connection.execute(
                 "SELECT status, retired_reason FROM quality_run WHERE run_id = ?",
                 [published.run_id],
@@ -1472,15 +1471,12 @@ class QualityStoreTests(unittest.TestCase):
 
 
 
-def _project() -> WorkspaceState:
+def _workspace_state() -> WorkspaceState:
     now = datetime.now(timezone.utc)
     return WorkspaceState(
-        project_id=str(uuid4()),
+        workspace_id=str(uuid4()),
         name="Quality contacts",
         source_system="CSV",
-        data_manager="Data Manager",
-        functional_owner="Functional Owner",
-        business_unit="Operations",
         odoo_connection_mode=OdooConnectionMode.LOCAL,
         odoo_base_url="http://127.0.0.1:8069",
         odoo_database="odoo19_local",
@@ -1546,7 +1542,7 @@ def _staging(project_id: str, rows: tuple[CanonicalRow, ...]) -> CanonicalStagin
         )
     ordered = tuple(sorted(rows, key=lambda item: (item.dataset, item.source_row, item.row_id)))
     return CanonicalStagingRun(
-        project_id=project_id,
+        workspace_id=project_id,
         mapping_id="mapping:contacts",
         physical_selection_hash=PHYSICAL_HASH,
         source_selection_hash=PHYSICAL_HASH,
@@ -1563,7 +1559,7 @@ def _staging(project_id: str, rows: tuple[CanonicalRow, ...]) -> CanonicalStagin
 
 def _stored_staging(staging: CanonicalStagingRun) -> StoredCanonicalStagingRun:
     return StoredCanonicalStagingRun(
-        project_id=staging.project_id,
+            workspace_id=staging.workspace_id,
         mapping_id=staging.mapping_id,
         physical_selection_hash=staging.physical_selection_hash,
         source_selection_hash=staging.source_selection_hash,
@@ -1643,7 +1639,7 @@ class _IndexedTestRows(tuple):
 
 def _materialized_bounded_quality(run) -> QualityRun:
     return QualityRun(
-        project_id=run.project_id,
+        workspace_id=run.workspace_id,
         staging_content_hash=run.staging_content_hash,
         ruleset_hash=run.ruleset_hash,
         mapping_hash=run.mapping_hash,

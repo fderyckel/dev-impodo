@@ -141,7 +141,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
     def test_invalid_selection_is_reported_without_persisting_secrets(self) -> None:
         service = LocalStackService()
 
-        status = service.select_config("project-1", self.config.with_suffix(".txt"))
+        status = service.select_config("workspace-1", self.config.with_suffix(".txt"))
 
         self.assertEqual(status.checks[0].level, ReadinessLevel.ERROR)
         self.assertNotIn("postgres-secret", repr(status))
@@ -158,7 +158,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
             )
 
         service = LocalStackService(probe=echo_status)
-        first = service.select_config("project-1", self.config)
+        first = service.select_config("workspace-1", self.config)
         self.assertEqual(first.base_url, "http://127.0.0.1:18069")
         revised = self.config.read_text(encoding="utf-8").replace(
             "http_port = 18069",
@@ -166,11 +166,11 @@ class LocalStackConfigurationTests(unittest.TestCase):
         )
         self.config.write_text(revised, encoding="utf-8")
 
-        refreshed = service.refresh("project-1")
+        refreshed = service.refresh("workspace-1")
 
         self.assertEqual(refreshed.base_url, "http://127.0.0.1:28069")
 
-    def test_forget_project_clears_only_inactive_session_state(self) -> None:
+    def test_forget_workspace_clears_only_inactive_session_state(self) -> None:
         service = LocalStackService(
             probe=lambda profile: LocalStackStatus(
                 config_path=str(profile.config_path),
@@ -180,11 +180,11 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 profile=profile,
             )
         )
-        service.select_config("project-1", self.config)
+        service.select_config("workspace-1", self.config)
 
-        service.forget_project("project-1")
+        service.forget_workspace("workspace-1")
 
-        self.assertIsNone(service.get("project-1").profile)
+        self.assertIsNone(service.get("workspace-1").profile)
 
     def test_starts_postgresql_then_odoo_with_fixed_commands(self) -> None:
         profile = read_odoo_config(self.config)
@@ -377,8 +377,8 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 postgresql_pid=4242,
             ),
         )
-        service.select_config("project-1", self.config)
-        started = service.start("project-1")
+        service.select_config("workspace-1", self.config)
+        started = service.start("workspace-1")
         self.assertEqual(started.managed_services, ("Odoo", "PostgreSQL"))
         events: list[str] = []
 
@@ -398,7 +398,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 return_value=True,
             ),
         ):
-            stopped = service.stop("project-1")
+            stopped = service.stop("workspace-1")
 
         self.assertEqual(events, ["odoo", "postgresql"])
         self.assertEqual(stopped.managed_services, ())
@@ -411,7 +411,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
             odoo=ReadinessLevel.READY,
         )
         service = LocalStackService(probe=lambda _profile: ready)
-        service.select_config("project-1", self.config)
+        service.select_config("workspace-1", self.config)
 
         with (
             patch("impodo.local_stack._stop_owned_odoo") as stop_odoo,
@@ -421,7 +421,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 LocalStackError,
                 "does not own any running service",
             ):
-                service.stop("project-1")
+                service.stop("workspace-1")
 
         stop_odoo.assert_not_called()
         stop_postgresql.assert_not_called()
@@ -451,20 +451,20 @@ class LocalStackConfigurationTests(unittest.TestCase):
             probe=lambda _profile: action,
             starter=starter,
         )
-        service.select_config("project-1", self.config)
-        service.start("project-1")
+        service.select_config("workspace-1", self.config)
+        service.start("workspace-1")
 
         with self.assertRaisesRegex(
             LocalStackError,
             "already manages local services",
         ):
-            service.start("project-1")
+            service.start("workspace-1")
 
         with self.assertRaisesRegex(LocalStackError, "before deleting"):
-            service.forget_project("project-1")
+            service.forget_workspace("workspace-1")
 
         self.assertEqual(starter.call_count, 1)
-        self.assertEqual(service.get("project-1").managed_services, ("Odoo",))
+        self.assertEqual(service.get("workspace-1").managed_services, ("Odoo",))
 
     def test_service_retains_a_process_that_startup_could_not_clean_up(
         self,
@@ -490,15 +490,15 @@ class LocalStackConfigurationTests(unittest.TestCase):
             probe=lambda _profile: action,
             starter=fail_start,
         )
-        service.select_config("project-1", self.config)
+        service.select_config("workspace-1", self.config)
 
         with self.assertRaisesRegex(
             LocalStackStartError,
             "cleanup did not finish",
         ):
-            service.start("project-1")
+            service.start("workspace-1")
 
-        self.assertEqual(service.get("project-1").managed_services, ("Odoo",))
+        self.assertEqual(service.get("workspace-1").managed_services, ("Odoo",))
 
     def test_owned_postgresql_uses_fast_stop_and_verifies_status(self) -> None:
         profile = read_odoo_config(self.config)
@@ -520,8 +520,8 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 postgresql_pid=4242,
             ),
         )
-        service.select_config("project-1", self.config)
-        service.start("project-1")
+        service.select_config("workspace-1", self.config)
+        service.start("workspace-1")
 
         with patch(
             "impodo.local_stack.subprocess.run",
@@ -531,7 +531,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 subprocess.CompletedProcess(args=[], returncode=3),
             ),
         ) as run:
-            stopped = service.stop("project-1")
+            stopped = service.stop("workspace-1")
 
         self.assertEqual(stopped.managed_services, ())
         self.assertEqual(run.call_count, 3)
@@ -567,8 +567,8 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 postgresql_pid=4242,
             ),
         )
-        service.select_config("project-1", self.config)
-        service.start("project-1")
+        service.select_config("workspace-1", self.config)
+        service.start("workspace-1")
         (self.workspace / "pgdata" / "postmaster.pid").write_text(
             "5252\n",
             encoding="ascii",
@@ -582,11 +582,11 @@ class LocalStackConfigurationTests(unittest.TestCase):
                 LocalStackError,
                 "server identity changed",
             ):
-                service.stop("project-1")
+                service.stop("workspace-1")
 
         self.assertEqual(run.call_count, 1)
         self.assertEqual(
-            service.get("project-1").managed_services,
+            service.get("workspace-1").managed_services,
             ("PostgreSQL",),
         )
 

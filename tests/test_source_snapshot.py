@@ -196,7 +196,7 @@ class SourceSnapshotManifestTests(unittest.TestCase):
         self.assertEqual(restored, snapshot)
         self.assertEqual(restored.content_hash, snapshot.content_hash)
         parts = PurePosixPath(snapshot.parquet_storage_key).parts
-        self.assertEqual(parts[:4], ("snapshots", "source", "v3", "1" * 24))
+        self.assertEqual(parts[:4], ("snapshots", "source", "v4", "1" * 24))
         self.assertEqual(len(parts), 5)
         self.assertRegex(parts[4], r"^[0-9a-f]{64}\.parquet$")
 
@@ -247,7 +247,7 @@ class SourceSnapshotManifestTests(unittest.TestCase):
     def test_storage_key_rejects_caller_controlled_path_segments(self) -> None:
         self.assertEqual(
             source_snapshot_storage_key(DATASET_ID, HASH_A, HASH_B),
-            "snapshots/source/v3/"
+            "snapshots/source/v4/"
             + "1" * 24
             + "/e9c0bd0498a3b16db3ea90d302340b4d"
             + "f50a5583de5270971a2b207d101ffd8a.parquet",
@@ -315,7 +315,7 @@ def _snapshot(
     created_at: datetime = datetime(2026, 8, 9, tzinfo=timezone.utc),
 ) -> SourceSnapshot:
     return SourceSnapshot.create(
-        project_id="project-1",
+        data_version_id="project-1",
         dataset_id=DATASET_ID,
         dataset_name="products",
         source=FileSourceBinding(

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from .workspace_access import WorkspaceAccessContext
+
 
 class OdooCaptureJobStatus(StrEnum):
     """Lifecycle states exposed by the browser progress endpoint."""
@@ -55,8 +57,9 @@ class OdooCaptureJob:
     """One browser capture attempt; values and credentials never enter it."""
 
     job_id: str
-    project_id: str
-    project_name: str
+    access_context: WorkspaceAccessContext
+    workspace_id: str
+    migration_project_name: str
     status: OdooCaptureJobStatus
     phase: OdooCapturePhase
     message: str

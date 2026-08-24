@@ -41,9 +41,8 @@ from .domain.staging.preparation_session import StoredCanonicalStagingRun
 from .staging_contracts import CanonicalStagingRun
 
 
-NORMALIZATION_CONTRACT_VERSION = 2
+NORMALIZATION_CONTRACT_VERSION = 3
 NORMALIZATION_EVALUATOR_VERSION = 3
-SUPPORTED_NORMALIZATION_EVALUATOR_VERSIONS = frozenset({2, 3})
 NORMALIZATION_POLICY_VERSION = 2
 NORMALIZATION_EXAMPLE_LIMIT = 5
 
@@ -538,7 +537,7 @@ class NormalizationEvaluation:
     by quality and is frozen only after required group decisions are resolved.
     """
 
-    project_id: str
+    workspace_id: str
     staging_content_hash: str
     quality_content_hash: str
     mapping_hash: str
@@ -555,18 +554,19 @@ class NormalizationEvaluation:
     def __post_init__(self) -> None:
         if (
             self.contract_version != NORMALIZATION_CONTRACT_VERSION
-            or self.evaluator_version
-            not in SUPPORTED_NORMALIZATION_EVALUATOR_VERSIONS
+            or self.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
         ):
-            raise ValueError("Normalization evidence version is unsupported")
+            raise ValueError(
+                "Normalization evidence does not match the current contract"
+            )
         if self.effective_dataset_hash is None:
             raise ValueError("Current normalization evidence requires resolved data")
         _require_hash(
             self.effective_dataset_hash,
             "normalization effective-dataset hash",
         )
-        if not self.project_id:
-            raise ValueError("Normalization evidence requires a project")
+        if not self.workspace_id:
+            raise ValueError("Normalization evidence requires a workspace")
         for value, label in (
             (self.staging_content_hash, "normalization staging hash"),
             (self.quality_content_hash, "normalization quality hash"),
@@ -623,7 +623,7 @@ class NormalizationEvaluation:
         payload = {
             "contract_version": self.contract_version,
             "evaluator_version": self.evaluator_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "staging_content_hash": self.staging_content_hash,
             "quality_content_hash": self.quality_content_hash,
             "mapping_hash": self.mapping_hash,
@@ -646,12 +646,30 @@ class NormalizationEvaluation:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "NormalizationEvaluation":
-        """Load an evaluation and verify its persisted content hash."""
+        """Load exact current evidence and verify its persisted content hash."""
+
+        if set(payload) != {
+            "contract_version",
+            "evaluator_version",
+            "workspace_id",
+            "staging_content_hash",
+            "quality_content_hash",
+            "mapping_hash",
+            "schema_hash",
+            "policy_hash",
+            "retention_context_hash",
+            "eligible_dataset_hash",
+            "effective_dataset_hash",
+            "effects",
+            "groups",
+            "content_hash",
+        }:
+            raise ValueError("Normalization fields do not match the current contract")
 
         evaluation = cls(
             contract_version=int(payload["contract_version"]),
             evaluator_version=int(payload.get("evaluator_version", 0)),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
             quality_content_hash=str(payload["quality_content_hash"]),
             mapping_hash=str(payload["mapping_hash"]),
@@ -688,7 +706,7 @@ class NormalizationEvaluation:
 class StoredNormalizationEvaluation:
     """Validated Stage-G header backed by a replayable bounded effect stream."""
 
-    project_id: str
+    workspace_id: str
     staging_content_hash: str
     quality_content_hash: str
     mapping_hash: str
@@ -707,11 +725,12 @@ class StoredNormalizationEvaluation:
     def __post_init__(self) -> None:
         if (
             self.contract_version != NORMALIZATION_CONTRACT_VERSION
-            or self.evaluator_version
-            not in SUPPORTED_NORMALIZATION_EVALUATOR_VERSIONS
+            or self.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
         ):
-            raise ValueError("Normalization evidence version is unsupported")
-        if not self.project_id or self.effect_count < 0 or self.changed_record_count < 0:
+            raise ValueError(
+                "Normalization evidence does not match the current contract"
+            )
+        if not self.workspace_id or self.effect_count < 0 or self.changed_record_count < 0:
             raise ValueError("Stored normalization evidence is incomplete")
         for value, label in (
             (self.staging_content_hash, "normalization staging hash"),
@@ -748,7 +767,7 @@ class NormalizationRunSummary:
     """Lifecycle and count projection for a durable Stage-G review run."""
 
     run_id: str
-    project_id: str
+    workspace_id: str
     content_hash: str
     staging_run_id: str
     staging_content_hash: str
@@ -793,7 +812,7 @@ class NormalizationReviewPage:
 
 def evaluate_normalization(
     *,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     staging: CanonicalStagingRun | StoredCanonicalStagingRun,
     quality: QualityRun | StoredQualityRun,
     mappings: Mapping[str, DatasetMapping],
@@ -804,8 +823,8 @@ def evaluate_normalization(
 ) -> NormalizationEvaluation:
     """Build complete review groups without repository or Odoo access."""
 
-    if staging.project_id != project.project_id or quality.project_id != project.project_id:
-        raise NormalizationError("Prepared review evidence belongs to another project")
+    if staging.workspace_id != workspace_state.workspace_id or quality.workspace_id != workspace_state.workspace_id:
+        raise NormalizationError("Prepared review evidence belongs to another workspace")
     staging_content_hash = (
         published_staging_content_hash or staging.content_hash
     )
@@ -819,7 +838,7 @@ def evaluate_normalization(
     if quality.effective_dataset_hash != effective_dataset_hash:
         raise NormalizationError("Prepared review no longer matches resolved data")
     if effective is not None and (
-        effective.project_id != project.project_id
+        effective.workspace_id != workspace_state.workspace_id
         or effective.staging_content_hash != staging_content_hash
     ):
         raise NormalizationError("Resolved data no longer matches prepared data")
@@ -868,7 +887,7 @@ def evaluate_normalization(
     effect_rows: list[NormalizationEffect] = []
     effect_ids: set[str] = set()
     group_metadata: dict[str, dict[str, Any]] = {}
-    restricted = project.data_classification is DataClassification.RESTRICTED
+    restricted = workspace_state.data_classification is DataClassification.RESTRICTED
     review_policy = compile_normalization_review_policy(mappings)
 
     for candidate in candidates:
@@ -938,7 +957,7 @@ def evaluate_normalization(
                 "target_field": candidate.target_field,
                 "name": name,
                 "explanation": explanation,
-                "owner_label": project.data_manager or "Data manager",
+                "owner_label": "Data manager",
             },
         )
 
@@ -972,7 +991,7 @@ def evaluate_normalization(
                 "target_field": target_field,
                 "name": "Review this data finding",
                 "explanation": issue.message,
-                "owner_label": issue.owner_label or project.data_manager or "Data manager",
+                "owner_label": issue.owner_label or "Data manager",
             },
         )
 
@@ -1026,13 +1045,13 @@ def evaluate_normalization(
         effective=effective,
     )
     return NormalizationEvaluation(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         staging_content_hash=staging_content_hash,
         quality_content_hash=quality_content_hash,
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
         policy_hash=policy_hash,
-        retention_context_hash=retention_context_hash(project),
+        retention_context_hash=retention_context_hash(workspace_state),
         eligible_dataset_hash=eligible_dataset_hash,
         effects=tuple(sorted(effect_rows, key=lambda item: item.effect_id)),
         groups=tuple(sorted(groups, key=lambda item: item.group_id)),
@@ -1246,4 +1265,3 @@ def _require_hash(value: str, label: str) -> None:
         int(value[7:], 16)
     except ValueError as error:
         raise ValueError(f"{label} is invalid") from error
-

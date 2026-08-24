@@ -3,12 +3,14 @@
 Layer: application service at the artifact boundary.
 
 ``SourceIntakeService.accept`` is called by the project setup router. It streams
-an upload through the ``ArtifactStore`` and isolated file validator, then asks
+an upload through the ``DataVersionSourceArtifactStore`` and isolated file validator, then asks
 ``WorkspaceStateService`` to attach the resulting size/hash evidence. The original
 display name is never used as the storage key. Early-stage removal first retires
 the governed database reference and then deletes its opaque stored bytes.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_projects.py``.
+See ``docs/architecture/python-code-map.md``,
+``tests/test_data_version_source_packages.py``, and
+``tests/test_project_authoring.py``.
 """
 
 from __future__ import annotations
@@ -18,8 +20,9 @@ from pathlib import Path, PurePath
 from typing import BinaryIO
 from uuid import uuid4
 
-from .access import Actor
-from .artifacts import ArtifactStore, ArtifactStoreError
+from .access import Actor, Capability
+from .artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from .workspace_access import WorkspaceAccessService
 from .workspace_state import WorkspaceStateError, WorkspaceStateService, SourceFile
 from .source import SourceLoadError
 from .source_worker import validate_source_file_isolated
@@ -44,15 +47,17 @@ class SourceIntakeService:
 
     def __init__(
         self,
-        projects: WorkspaceStateService,
-        artifacts: ArtifactStore,
+        workspaces: WorkspaceStateService,
+        artifacts: DataVersionSourceArtifactStore,
+        workspace_access: WorkspaceAccessService,
     ) -> None:
-        self.projects = projects
+        self.workspaces = workspaces
         self.artifacts = artifacts
+        self.workspace_access = workspace_access
 
     def accept(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
         expected_revision: int,
@@ -77,10 +82,16 @@ class SourceIntakeService:
         if extension not in ALLOWED_EXTENSIONS:
             raise SourceIntakeError("Only CSV and XLSX files are accepted")
 
+        context = self.workspace_access.require(
+            actor,
+            Capability.PROJECT_EDIT,
+            workspace_id=workspace_id,
+        )
+        data_version_id = context.data_version_id
         file_id = str(uuid4())
         try:
             stored = self.artifacts.store_source(
-                project_id,
+                data_version_id,
                 artifact_id=file_id,
                 suffix=extension,
                 stream=stream,
@@ -97,14 +108,14 @@ class SourceIntakeService:
                 received_at=datetime.now(timezone.utc),
             )
             try:
-                self.projects.add_source_file(
-                    project_id,
+                self.workspaces.add_source_file(
+                    workspace_id,
                     actor=actor,
                     expected_revision=expected_revision,
                     source_file=source_file,
                 )
             except Exception:
-                self.artifacts.delete_source(project_id, stored.storage_key)
+                self.artifacts.delete_source(data_version_id, stored.storage_key)
                 raise
             return source_file
         except (ArtifactStoreError, SourceLoadError) as error:
@@ -112,7 +123,7 @@ class SourceIntakeService:
 
     def remove(
         self,
-        project_id: str,
+        workspace_id: str,
         file_id: str,
         *,
         actor: Actor,
@@ -120,14 +131,22 @@ class SourceIntakeService:
     ) -> SourceFile:
         """Remove one unfrozen source record and its contained stored bytes."""
 
-        source_file = self.projects.remove_source_file(
-            project_id,
+        context = self.workspace_access.require(
+            actor,
+            Capability.PROJECT_EDIT,
+            workspace_id=workspace_id,
+        )
+        source_file = self.workspaces.remove_source_file(
+            workspace_id,
             file_id,
             actor=actor,
             expected_revision=expected_revision,
         )
         try:
-            self.artifacts.delete_source(project_id, source_file.stored_name)
+            self.artifacts.delete_source(
+                context.data_version_id,
+                source_file.stored_name,
+            )
         except ArtifactStoreError as error:
             raise SourceIntakeError(
                 "The file was removed from the project, but its stored copy "
@@ -145,4 +164,3 @@ def _safe_display_name(value: str) -> str:
     if any(ord(character) < 32 for character in name):
         raise SourceIntakeError("Source filename contains control characters")
     return name
-

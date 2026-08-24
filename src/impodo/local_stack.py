@@ -303,7 +303,7 @@ class _LocalStackOwnership:
 
 
 class LocalStackService:
-    """Hold machine-local readiness and exact process ownership by project.
+    """Hold machine-local readiness and exact process ownership by workspace.
 
     Status/profile state is intentionally session-only. Start/stop/restart are
     serialized and may affect only PostgreSQL/Odoo instances started by this
@@ -333,12 +333,12 @@ class LocalStackService:
 
     def select_config(
         self,
-        project_id: str,
+        workspace_id: str,
         config_path: str | Path,
     ) -> LocalStackStatus:
         """Parse/probe a new config unless this session owns running services."""
 
-        if self._managed_services(project_id):
+        if self._managed_services(workspace_id):
             raise LocalStackError(
                 "Stop the services managed by Impodo before choosing "
                 "another Odoo configuration."
@@ -349,13 +349,13 @@ class LocalStackService:
             status = self._probe(profile)
         except LocalStackError as error:
             status = LocalStackStatus.invalid(selected, str(error))
-        self._statuses[project_id] = status
+        self._statuses[workspace_id] = status
         return status
 
-    def refresh(self, project_id: str) -> LocalStackStatus:
+    def refresh(self, workspace_id: str) -> LocalStackStatus:
         """Reread the selected config and recompute non-mutating readiness."""
 
-        current = self.get(project_id)
+        current = self.get(workspace_id)
         if current.profile is None:
             return current
         try:
@@ -366,27 +366,27 @@ class LocalStackService:
                 current.profile.config_path,
                 str(error),
             )
-        return self._store_status(project_id, refreshed)
+        return self._store_status(workspace_id, refreshed)
 
-    def start(self, project_id: str) -> LocalStackStatus:
+    def start(self, workspace_id: str) -> LocalStackStatus:
         """Reread the live config and start only the missing local services."""
 
         with self._control_lock:
-            return self._start_locked(project_id)
+            return self._start_locked(workspace_id)
 
-    def _start_locked(self, project_id: str) -> LocalStackStatus:
-        if self._managed_services(project_id):
+    def _start_locked(self, workspace_id: str) -> LocalStackStatus:
+        if self._managed_services(workspace_id):
             raise LocalStackError(
-                "Impodo already manages local services for this project. "
+                "Impodo already manages local services for this workspace. "
                 "Use Restart to cycle them safely."
             )
-        current = self.get(project_id)
+        current = self.get(workspace_id)
         if current.profile is None:
             raise LocalStackError("Choose and validate odoo.conf before starting.")
         try:
             profile = read_odoo_config(current.profile.config_path)
         except LocalStackError as error:
-            self._statuses[project_id] = LocalStackStatus.invalid(
+            self._statuses[workspace_id] = LocalStackStatus.invalid(
                 current.profile.config_path,
                 str(error),
             )
@@ -400,11 +400,11 @@ class LocalStackService:
                 postgresql_pid=error.postgresql_pid,
             )
             if ownership.services:
-                self._ownership[project_id] = ownership
-            self._store_status(project_id, self._probe(profile))
+                self._ownership[workspace_id] = ownership
+            self._store_status(workspace_id, self._probe(profile))
             raise
         except LocalStackError:
-            self._store_status(project_id, self._probe(profile))
+            self._store_status(workspace_id, self._probe(profile))
             raise
         ownership = _LocalStackOwnership(
             profile=profile,
@@ -412,23 +412,23 @@ class LocalStackService:
             postgresql_pid=result.postgresql_pid,
         )
         if ownership.services:
-            self._ownership[project_id] = ownership
+            self._ownership[workspace_id] = ownership
         else:
-            self._ownership.pop(project_id, None)
-        return self._store_status(project_id, result.status)
+            self._ownership.pop(workspace_id, None)
+        return self._store_status(workspace_id, result.status)
 
-    def stop(self, project_id: str) -> LocalStackStatus:
+    def stop(self, workspace_id: str) -> LocalStackStatus:
         """Stop only services started by this Impodo process."""
 
         with self._control_lock:
-            return self._stop_locked(project_id)
+            return self._stop_locked(workspace_id)
 
-    def _stop_locked(self, project_id: str) -> LocalStackStatus:
-        ownership = self._ownership.get(project_id)
+    def _stop_locked(self, workspace_id: str) -> LocalStackStatus:
+        ownership = self._ownership.get(workspace_id)
         if ownership is None or not ownership.services:
-            self._ownership.pop(project_id, None)
+            self._ownership.pop(workspace_id, None)
             raise LocalStackError(
-                "Impodo does not own any running service for this project. "
+                "Impodo does not own any running service for this workspace. "
                 "Existing external processes were not changed."
             )
 
@@ -440,7 +440,7 @@ class LocalStackService:
                 ownership.profile.http_port,
             ):
                 status = self._probe(ownership.profile)
-                self._store_status(project_id, status)
+                self._store_status(workspace_id, status)
                 raise LocalStackError(
                     "The Impodo-managed Odoo process stopped, but another "
                     "listener remains on the configured Odoo port. "
@@ -454,49 +454,49 @@ class LocalStackService:
                     expected_pid=ownership.postgresql_pid,
                 )
             except LocalStackError:
-                self._store_status(project_id, self._probe(ownership.profile))
+                self._store_status(workspace_id, self._probe(ownership.profile))
                 raise
             ownership.postgresql_pid = None
 
-        self._ownership.pop(project_id, None)
+        self._ownership.pop(workspace_id, None)
         return self._store_status(
-            project_id,
+            workspace_id,
             self._probe(ownership.profile),
         )
 
-    def restart(self, project_id: str) -> LocalStackStatus:
+    def restart(self, workspace_id: str) -> LocalStackStatus:
         """Restart only a stack currently owned by this Impodo process."""
 
         with self._control_lock:
-            if not self._managed_services(project_id):
+            if not self._managed_services(workspace_id):
                 raise LocalStackError(
                     "Impodo can restart only services it started during "
                     "this session. Existing external processes were not changed."
                 )
-            self._stop_locked(project_id)
-            return self._start_locked(project_id)
+            self._stop_locked(workspace_id)
+            return self._start_locked(workspace_id)
 
-    def get(self, project_id: str) -> LocalStackStatus:
+    def get(self, workspace_id: str) -> LocalStackStatus:
         """Return current session status decorated with live ownership state."""
 
-        status = self._statuses.get(project_id, LocalStackStatus.unconfigured())
-        return self._decorate_status(project_id, status)
+        status = self._statuses.get(workspace_id, LocalStackStatus.unconfigured())
+        return self._decorate_status(workspace_id, status)
 
-    def forget_project(self, project_id: str) -> None:
+    def forget_workspace(self, workspace_id: str) -> None:
         """Drop session-only state after confirming no owned service is running."""
 
         with self._control_lock:
-            if self._managed_services(project_id):
+            if self._managed_services(workspace_id):
                 raise LocalStackError(
                     "Stop the local services managed by Impodo before deleting "
-                    "this project."
+                    "this workspace."
                 )
-            self._statuses.pop(project_id, None)
-            self._ownership.pop(project_id, None)
+            self._statuses.pop(workspace_id, None)
+            self._ownership.pop(workspace_id, None)
 
     def mark_metadata_ready(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         database: str,
         odoo_version: str,
@@ -504,7 +504,7 @@ class LocalStackService:
     ) -> LocalStackStatus:
         """Record successful Odoo metadata access for this local session."""
 
-        current = self.get(project_id)
+        current = self.get(workspace_id)
         if current.profile is None:
             raise LocalStackError(
                 "Choose and validate odoo.conf before verifying metadata access."
@@ -526,18 +526,18 @@ class LocalStackService:
                 for check in current.checks
             ),
         )
-        return self._store_status(project_id, updated)
+        return self._store_status(workspace_id, updated)
 
     def mark_connection_ready(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         database: str,
         odoo_version: str,
     ) -> LocalStackStatus:
         """Record successful read-only database access for this session."""
 
-        current = self.get(project_id)
+        current = self.get(workspace_id)
         verified = LocalStackCheck(
             key="api",
             label=DATABASE_ACCESS_LABEL,
@@ -552,17 +552,17 @@ class LocalStackService:
                 for check in current.checks
             ),
         )
-        return self._store_status(project_id, updated)
+        return self._store_status(workspace_id, updated)
 
     def mark_connection_error(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         detail: str,
     ) -> LocalStackStatus:
         """Record a definitive failed local connection test."""
 
-        current = self.get(project_id)
+        current = self.get(workspace_id)
         failed = LocalStackCheck(
             key="api",
             label=DATABASE_ACCESS_LABEL,
@@ -583,34 +583,34 @@ class LocalStackService:
                 for check in current.checks
             ),
         )
-        return self._store_status(project_id, updated)
+        return self._store_status(workspace_id, updated)
 
-    def _managed_services(self, project_id: str) -> tuple[str, ...]:
-        ownership = self._ownership.get(project_id)
+    def _managed_services(self, workspace_id: str) -> tuple[str, ...]:
+        ownership = self._ownership.get(workspace_id)
         if ownership is None:
             return ()
         services = ownership.services
         if not services:
-            self._ownership.pop(project_id, None)
+            self._ownership.pop(workspace_id, None)
         return services
 
     def _decorate_status(
         self,
-        project_id: str,
+        workspace_id: str,
         status: LocalStackStatus,
     ) -> LocalStackStatus:
         return replace(
             status,
-            managed_services=self._managed_services(project_id),
+            managed_services=self._managed_services(workspace_id),
         )
 
     def _store_status(
         self,
-        project_id: str,
+        workspace_id: str,
         status: LocalStackStatus,
     ) -> LocalStackStatus:
-        decorated = self._decorate_status(project_id, status)
-        self._statuses[project_id] = decorated
+        decorated = self._decorate_status(workspace_id, status)
+        self._statuses[workspace_id] = decorated
         return decorated
 
 

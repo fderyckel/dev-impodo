@@ -46,6 +46,18 @@ SEMANTIC_FIELDS = frozenset(
         "control_definitions",
     }
 )
+CURRENT_RECIPE_CONTRACT_VERSIONS = {
+    "control_definitions": 1,
+    "mapping_recipe": 2,
+    "odoo_target_contract": 2,
+    "quality_recipe": 1,
+    "recipe_definition": 2,
+    "recipe_parameter_definitions": 1,
+    "reference_dependencies": 1,
+    "source_preparation_recipe": 1,
+    "source_shape_recipe": 1,
+    "target_governance_recipe": 1,
+}
 UUID_TEXT = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -103,8 +115,10 @@ def validate_recipe_envelope(envelope_bytes: bytes) -> dict[str, object]:
     except ValueError as error:
         raise RecipeIntegrityError(str(error)) from error
     contract_versions = recipe.get("contract_versions")
-    if not isinstance(contract_versions, dict) or not contract_versions:
-        raise RecipeIntegrityError("Recipe contract versions are missing")
+    if contract_versions != CURRENT_RECIPE_CONTRACT_VERSIONS:
+        raise RecipeIntegrityError(
+            "Recipe contract versions do not match the current contract"
+        )
     return envelope
 
 

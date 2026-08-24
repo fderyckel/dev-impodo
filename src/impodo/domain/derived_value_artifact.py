@@ -20,8 +20,8 @@ from typing import Iterable
 from .serialization import canonical_json, content_hash
 
 
-DERIVED_VALUE_ARTIFACT_CONTRACT_VERSION = 1
-DERIVED_VALUE_ARTIFACT_STORAGE_LAYOUT_VERSION = 1
+DERIVED_VALUE_ARTIFACT_CONTRACT_VERSION = 2
+DERIVED_VALUE_ARTIFACT_STORAGE_LAYOUT_VERSION = 2
 DERIVED_VALUE_WRITER_CONTRACT_VERSION = 1
 DERIVED_VALUE_ORDINAL_COLUMN = "__impodo_derived_ordinal"
 
@@ -64,7 +64,7 @@ class DerivedValueInput:
 class DerivedValueArtifact:
     """Bind one typed derived Parquet artifact to all semantic inputs."""
 
-    project_id: str
+    workspace_id: str
     dataset_id: str
     dataset_name: str
     derivation_kind: DerivedValueKind
@@ -86,7 +86,7 @@ class DerivedValueArtifact:
     created_at: datetime
 
     def __post_init__(self) -> None:
-        _bounded_text(self.project_id, "project ID")
+        _bounded_text(self.workspace_id, "workspace ID")
         _bounded_text(self.dataset_id, "dataset ID")
         _bounded_text(self.dataset_name, "dataset name")
         try:
@@ -123,9 +123,9 @@ class DerivedValueArtifact:
             (self.parquet_sha256, "Parquet hash"),
         ):
             _hash_digest(value, label)
-        if self.writer_contract_version < 1:
+        if self.writer_contract_version != DERIVED_VALUE_WRITER_CONTRACT_VERSION:
             raise DerivedValueArtifactContractError(
-                "Derived value writer contract version must be positive"
+                "Derived value writer does not match the current contract"
             )
         if self.row_count < 0:
             raise DerivedValueArtifactContractError(
@@ -152,7 +152,7 @@ class DerivedValueArtifact:
     def create(
         cls,
         *,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         dataset_name: str,
         derivation_kind: DerivedValueKind,
@@ -173,7 +173,7 @@ class DerivedValueArtifact:
     ) -> "DerivedValueArtifact":
         ordered_inputs = tuple(sorted(input_evidence, key=lambda item: item.dataset_id))
         logical_hash = derived_value_artifact_logical_hash(
-            project_id=project_id,
+            workspace_id=workspace_id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
             derivation_kind=derivation_kind,
@@ -190,7 +190,7 @@ class DerivedValueArtifact:
             row_count=row_count,
         )
         return cls(
-            project_id=project_id,
+            workspace_id=workspace_id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
             derivation_kind=derivation_kind,
@@ -219,7 +219,7 @@ class DerivedValueArtifact:
     @property
     def expected_logical_hash(self) -> str:
         return derived_value_artifact_logical_hash(
-            project_id=self.project_id,
+            workspace_id=self.workspace_id,
             dataset_id=self.dataset_id,
             dataset_name=self.dataset_name,
             derivation_kind=self.derivation_kind,
@@ -269,7 +269,7 @@ class DerivedValueArtifact:
             "parquet_storage_key": self.parquet_storage_key,
             "physical_schema_hash": self.physical_schema_hash,
             "physical_selection_hash": self.physical_selection_hash,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "row_count": self.row_count,
             "schema_hash": self.schema_hash,
             "source_selection_hash": self.source_selection_hash,
@@ -292,7 +292,7 @@ class DerivedValueArtifact:
             ):
                 raise ValueError
             artifact = cls(
-                project_id=str(payload["project_id"]),
+                workspace_id=str(payload["workspace_id"]),
                 dataset_id=str(payload["dataset_id"]),
                 dataset_name=str(payload["dataset_name"]),
                 derivation_kind=DerivedValueKind(str(payload["derivation_kind"])),
@@ -341,7 +341,7 @@ class DerivedValueArtifact:
 
 def derived_value_artifact_logical_hash(
     *,
-    project_id: str,
+    workspace_id: str,
     dataset_id: str,
     dataset_name: str,
     derivation_kind: DerivedValueKind,
@@ -374,7 +374,7 @@ def derived_value_artifact_logical_hash(
             "lineage_hash": lineage_hash,
             "mapping_hash": mapping_hash,
             "physical_selection_hash": physical_selection_hash,
-            "project_id": project_id,
+            "workspace_id": workspace_id,
             "row_count": row_count,
             "schema_hash": schema_hash,
             "source_selection_hash": source_selection_hash,

@@ -14,7 +14,7 @@
       </h2>
       <p>
         {% if local_stack_resume_compare %}
-          Choose the local Odoo setup used by this project. Impodo will check it before continuing the comparison.
+          Choose the local Odoo setup used by this workspace_state. Impodo will check it before continuing the comparison.
         {% else %}
           Choose the local Odoo setup. Impodo will check what is available and can start missing local services after you confirm.
         {% endif %}
@@ -115,7 +115,7 @@
       {% endif %}
       <form
         method="post"
-        action="/workspaces/{{ project.project_id }}/local-stack/control"
+        action="/workspaces/{{ workspace_id }}/local-stack/control"
         data-control-stack-form
       >
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -165,7 +165,7 @@
       {% else %}
         <form
           method="post"
-          action="/workspaces/{{ project.project_id }}/local-stack/start"
+          action="/workspaces/{{ workspace_id }}/local-stack/start"
           data-start-stack-form
         >
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -190,14 +190,14 @@
   {% endif %}
 
   <div class="dialog-actions">
-    <form method="post" action="/workspaces/{{ project.project_id }}/local-stack/select-config">
+    <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/select-config">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
       <button class="button secondary" type="submit">
         {% if local_stack.config_path %}Choose another local setup{% else %}Choose local Odoo setup{% endif %}
       </button>
     </form>
-    <form method="post" action="/workspaces/{{ project.project_id }}/local-stack/refresh">
+    <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/refresh">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
       <button class="button {% if local_stack_resume_compare %}secondary{% else %}primary{% endif %}" type="submit" {% if not local_stack.profile %}disabled{% endif %}>
@@ -205,7 +205,7 @@
       </button>
     </form>
     {% if local_stack_resume_compare %}
-      <form method="post" action="/workspaces/{{ project.project_id }}/summary/compare" data-preflight-compare>
+      <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button primary" type="submit" {% if not local_stack_resume_ready %}disabled{% endif %}>
           Continue comparison

@@ -10,8 +10,8 @@ status: current
 
 One Project-owned Test `MigrationRun` coordinates several exact
 `RecipeRevision` applications over one accepted Test `DataVersion` and one
-reviewed Odoo 19 target. M4 plans and materializes those applications. M5
-binds the run to one exact CutoverPlan revision and may qualify only complete
+reviewed Odoo 19 target. Planning materializes those applications and binds
+the run to one exact CutoverPlan revision. Qualification accepts only complete,
 ordered execution and reconciliation evidence.
 
 ## Run-owned evidence
@@ -38,8 +38,8 @@ Before any run, application, or workspace is provisioned, the planner must:
    cycles; and
 4. reject two Recipes that claim the same writable Odoo model field.
 
-The first M4 release deliberately has no last-writer-wins or implicit merge
-rule. A collision requires a Recipe-boundary or ownership correction.
+The write contract has no last-writer-wins or implicit merge rule. A collision
+requires a Recipe-boundary or ownership correction.
 
 ## Isolated applications
 
@@ -72,8 +72,8 @@ once per Recipe.
 
 ## Qualification boundary
 
-`READY` means M4 produced compatible fresh application drafts. It is not
-execution success or qualification. M5 qualification requires exact current
+`READY` means planning produced compatible fresh application drafts. It is not
+execution success or qualification. Integrated qualification requires exact current
 evidence from every application, passing Project shared controls, and proof
 that each dependency reconciled before its downstream execution began.
 
@@ -83,10 +83,10 @@ operation. Neither Test qualification nor selection is Production authority.
 
 ## Verification
 
-- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
-- `tests/test_migration_project_phase_m5_cutover_qualification.py`
-- `tests/test_migration_project_phase_m3_project_authoring.py`
-- `tests/test_migration_project_phase_m2_source_packages.py`
+- `tests/test_integrated_recipe_runs.py`
+- `tests/test_cutover_qualification.py`
+- `tests/test_project_authoring.py`
+- `tests/test_data_version_source_packages.py`
 
 ## Related documentation
 

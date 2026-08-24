@@ -8,8 +8,8 @@ from threading import RLock
 from typing import Callable, Protocol
 from uuid import uuid4
 
-from ..access import Actor
-from ..artifacts import ArtifactStore
+from ..access import Actor, Capability
+from ..artifacts import DataVersionSourceArtifactStore
 from ..domain.odoo_provenance import (
     OdooCaptureManifest,
     OdooCaptureOriginHeader,
@@ -30,8 +30,14 @@ from ..domain.source_snapshot import (
 )
 from ..source import SourceLoadError
 from ..source_snapshot_io import SourceSnapshotCandidateWriter
-from ..workspace_contracts import SourceDataset, SourceDatasetColumn, SourceSelection
+from ..workspace_contracts import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+)
 from ..workspace_errors import WorkspaceError
+from ..workspace_access import WorkspaceAccessService
 from .odoo_provenance_service import OdooProvenanceService
 from .odoo_source_capture_service import (
     OdooSourceCapturePort,
@@ -40,13 +46,13 @@ from .odoo_source_capture_service import (
 
 
 class OdooPublicationSelectionReader(Protocol):
-    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None: ...
 
 
 class OdooCapturePublicationStore(Protocol):
     def publish_complete_capture(
         self,
-        project_id: str,
+        workspace_id: str,
         manifest: OdooCaptureManifest,
         encrypted_candidate: bytes,
         source_selection: SourceSelection,
@@ -55,7 +61,7 @@ class OdooCapturePublicationStore(Protocol):
         actor: Actor,
     ) -> None: ...
 
-    def recover_incomplete_publications(self, project_id: str) -> int: ...
+    def recover_incomplete_publications(self, workspace_id: str) -> int: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,18 +83,20 @@ class OdooCapturePublicationService:
         selections: OdooPublicationSelectionReader,
         provenance: OdooProvenanceService,
         publications: OdooCapturePublicationStore,
-        artifacts: ArtifactStore,
+        artifacts: DataVersionSourceArtifactStore,
+        workspace_access: WorkspaceAccessService,
     ) -> None:
         self._captures = captures
         self._selections = selections
         self._provenance = provenance
         self._publications = publications
         self._artifacts = artifacts
+        self._workspace_access = workspace_access
         self._lock = RLock()
 
     def publish(
         self,
-        project_id: str,
+        workspace_id: str,
         gateway: OdooSourceCapturePort,
         *,
         actor: Actor,
@@ -99,7 +107,7 @@ class OdooCapturePublicationService:
 
         with self._lock:
             return self._publish(
-                project_id,
+                workspace_id,
                 gateway,
                 actor=actor,
                 cancellation=cancellation,
@@ -108,7 +116,7 @@ class OdooCapturePublicationService:
 
     def _publish(
         self,
-        project_id: str,
+        workspace_id: str,
         gateway: OdooSourceCapturePort,
         *,
         actor: Actor,
@@ -118,14 +126,22 @@ class OdooCapturePublicationService:
         """Capture once, encode each value once, then promote all roots together."""
 
         policy = CURRENT_ODOO_SOURCE_POLICY
+        context = self._workspace_access.require(
+            actor,
+            Capability.SOURCE_CAPTURE,
+            workspace_id=workspace_id,
+        )
+        data_version_id = context.data_version_id
         _report_progress(progress, OdooCapturePhase.VERIFYING, total_rows=0)
-        self._publications.recover_incomplete_publications(project_id)
+        self._publications.recover_incomplete_publications(workspace_id)
         self._artifacts.ensure_source_snapshot_capacity(
-            project_id,
+            data_version_id,
             required_bytes=policy.max_snapshot_bytes + policy.max_temporary_bytes,
         )
         try:
-            with self._artifacts.prepare_source_snapshot(project_id) as workspace:
+            with self._artifacts.prepare_source_snapshot(
+                data_version_id
+            ) as workspace:
                 writer: SourceSnapshotCandidateWriter | None = None
                 columns: tuple[SourceDatasetColumn, ...] = ()
                 schema: SourceSnapshotSchema | None = None
@@ -200,7 +216,7 @@ class OdooCapturePublicationService:
                     )
 
                 result = self._captures.capture(
-                    project_id,
+                    workspace_id,
                     gateway,
                     consume_page_factory=prepare_consumer,
                     actor=actor,
@@ -208,6 +224,10 @@ class OdooCapturePublicationService:
                 )
                 require_not_cancelled(cancellation)
                 capture_selection = result.selection
+                if capture_selection.data_version_id != data_version_id:
+                    raise WorkspaceError(
+                        "The Odoo capture belongs to another DataVersion"
+                    )
                 if writer is None or schema is None:
                     raise WorkspaceError("Odoo capture writer is not initialized")
                 candidate = writer.finalize()
@@ -233,16 +253,16 @@ class OdooCapturePublicationService:
                     row_count=accounting.row_count,
                     columns=columns,
                 )
-                current_source = self._selections.get_source_selection(project_id)
+                current_source = self._selections.get_source_selection(workspace_id)
                 source_selection = _source_selection(
-                    project_id,
+                    data_version_id,
                     dataset,
                     version=(current_source.version + 1 if current_source else 1),
                     actor=actor,
                     created_at=accounting.capture_finished_at,
                 )
                 snapshot = SourceSnapshot.create(
-                    project_id=project_id,
+                    data_version_id=data_version_id,
                     dataset_id=dataset.dataset_id,
                     dataset_name=dataset.name,
                     source=dataset.source,
@@ -255,13 +275,13 @@ class OdooCapturePublicationService:
                 )
                 require_not_cancelled(cancellation)
                 self._artifacts.publish_source_snapshot(
-                    project_id,
+                    data_version_id,
                     candidate.path,
                     snapshot.parquet_storage_key,
                     expected_sha256=candidate.parquet_sha256,
                 )
                 protected = self._provenance.prepare_capture_origins(
-                    project_id,
+                    workspace_id,
                     actor=actor,
                     header=OdooCaptureOriginHeader(
                         high_water_id=accounting.high_water_id
@@ -286,7 +306,7 @@ class OdooCapturePublicationService:
                     normalized_bytes=accounting.normalized_bytes,
                 )
                 self._publications.publish_complete_capture(
-                    project_id,
+                    workspace_id,
                     protected.manifest,
                     protected.encrypted_bytes,
                     source_selection,
@@ -300,7 +320,7 @@ class OdooCapturePublicationService:
                     page_count=accounting.page_count,
                 )
         except Exception:
-            self._publications.recover_incomplete_publications(project_id)
+            self._publications.recover_incomplete_publications(workspace_id)
             raise
 
 
@@ -342,7 +362,7 @@ def _candidate_type(field_type: str) -> str:
 
 
 def _source_selection(
-    project_id: str,
+    data_version_id: str,
     dataset: SourceDataset,
     *,
     version: int,
@@ -352,7 +372,7 @@ def _source_selection(
     selection = SourceSelection(
         selection_id=str(uuid4()),
         version=version,
-        project_id=project_id,
+        data_version_id=data_version_id,
         created_at=created_at,
         created_by=actor.identity.display_name,
         datasets=(dataset,),
@@ -361,13 +381,14 @@ def _source_selection(
     return SourceSelection(
         selection_id=selection.selection_id,
         version=selection.version,
-        project_id=selection.project_id,
+        data_version_id=selection.data_version_id,
         created_at=selection.created_at,
         created_by=selection.created_by,
         datasets=selection.datasets,
         content_hash=content_hash(
             {
-                "project_id": project_id,
+                "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+                "data_version_id": data_version_id,
                 "version": version,
                 "datasets": [dataset.to_dict()],
             }

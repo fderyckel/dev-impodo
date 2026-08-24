@@ -81,7 +81,7 @@ class OdooCaptureFieldProjection:
 class OdooSourceCaptureRequest:
     """Service-generated, immutable request accepted by the capture port."""
 
-    project_id: str
+    data_version_id: str
     selection_id: str
     selection_version: int
     selection_hash: str
@@ -110,7 +110,7 @@ class OdooSourceCaptureRequest:
     def __post_init__(self) -> None:
         policy = CURRENT_ODOO_SOURCE_POLICY
         try:
-            UUID(self.project_id)
+            UUID(self.data_version_id)
             UUID(self.selection_id)
         except (AttributeError, ValueError) as error:
             raise OdooSourceCaptureConfigurationError(
@@ -356,8 +356,7 @@ def plan_odoo_source_capture(
     """Build the only request shape accepted by the live capture adapter."""
 
     if (
-        selection.project_id != schema.project_id
-        or selection.policy_hash != schema.policy_hash
+        selection.policy_hash != schema.policy_hash
         or selection.schema_scope_hash != schema.content_hash
         or selection.connection_target_hash != schema.connection_target_hash
         or selection.read_principal_hash != schema.read_principal_hash
@@ -405,7 +404,7 @@ def plan_odoo_source_capture(
         _validate_filter_values(clause, field)
     policy = CURRENT_ODOO_SOURCE_POLICY
     return OdooSourceCaptureRequest(
-        project_id=selection.project_id,
+        data_version_id=selection.data_version_id,
         selection_id=selection.selection_id,
         selection_version=selection.version,
         selection_hash=selection.content_hash,

@@ -23,7 +23,7 @@ _REVIEW_STATUSES = frozenset(
 )
 
 
-def _review_return_url(request: Request, project_id: str) -> str:
+def _review_return_url(request: Request, workspace_id: str) -> str:
     """Keep the current review slice and land beside the decision table."""
 
     status = request.query_params.get("status", "").strip()
@@ -39,7 +39,7 @@ def _review_return_url(request: Request, project_id: str) -> str:
     if page > 1:
         query["page"] = page
     suffix = f"?{urlencode(query)}" if query else ""
-    return f"/workspaces/{project_id}/normalization{suffix}#review-groups"
+    return f"/workspaces/{workspace_id}/normalization{suffix}#review-groups"
 
 
 def build_normalization_router(context: WebContext) -> APIRouter:
@@ -47,17 +47,17 @@ def build_normalization_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/workspaces/{project_id}/normalization", response_class=HTMLResponse)
-    async def review_prepared_data(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/normalization", response_class=HTMLResponse)
+    async def review_prepared_data(request: Request, workspace_id: str):
         require_session(request)
-        return _render_normalization(request, context, project_id)
+        return _render_normalization(request, context, workspace_id)
 
     @router.post(
-        "/workspaces/{project_id}/normalization/groups/{group_id}/accept"
+        "/workspaces/{workspace_id}/normalization/groups/{group_id}/accept"
     )
     async def accept_prepared_change(
         request: Request,
-        project_id: str,
+        workspace_id: str,
         group_id: str,
     ):
         form = await request.form()
@@ -69,7 +69,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         try:
             await run_in_threadpool(
                 context.normalization.decide_group,
-                project_id,
+                workspace_id,
                 str(form["run_id"]),
                 group_id,
                 approve=True,
@@ -80,18 +80,18 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             return _render_normalization(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
         _flash(request, "Prepared change accepted.")
         return RedirectResponse(
-            _review_return_url(request, project_id),
+            _review_return_url(request, workspace_id),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/normalization/reopen")
-    async def reopen_prepared_review(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/normalization/reopen")
+    async def reopen_prepared_review(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(
             request,
@@ -101,7 +101,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         try:
             await run_in_threadpool(
                 context.normalization.reopen_review,
-                project_id,
+                workspace_id,
                 str(form["run_id"]),
                 expected_version=int(str(form["lifecycle_version"])),
                 actor=context.actor,
@@ -111,22 +111,22 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             return _render_normalization(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
         _flash(request, "Prepared review reopened. Review or approve the changes.")
         return RedirectResponse(
-            f"/workspaces/{project_id}/normalization?status=pending#review-groups",
+            f"/workspaces/{workspace_id}/normalization?status=pending#review-groups",
             status_code=303,
         )
 
     @router.post(
-        "/workspaces/{project_id}/normalization/groups/{group_id}/reject"
+        "/workspaces/{workspace_id}/normalization/groups/{group_id}/reject"
     )
     async def reject_prepared_change(
         request: Request,
-        project_id: str,
+        workspace_id: str,
         group_id: str,
     ):
         form = await request.form()
@@ -143,7 +143,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 raise WorkspaceStateError("The explanation is too long")
             await run_in_threadpool(
                 context.normalization.decide_group,
-                project_id,
+                workspace_id,
                 str(form["run_id"]),
                 group_id,
                 approve=False,
@@ -155,18 +155,18 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             return _render_normalization(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
         _flash(request, "Prepared change sent back for correction.")
         return RedirectResponse(
-            _review_return_url(request, project_id),
+            _review_return_url(request, workspace_id),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/normalization/approve")
-    async def approve_prepared_data(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/normalization/approve")
+    async def approve_prepared_data(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(
             request,
@@ -176,7 +176,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         try:
             await run_in_threadpool(
                 context.normalization.approve,
-                project_id,
+                workspace_id,
                 str(form["run_id"]),
                 expected_version=int(str(form["lifecycle_version"])),
                 actor=context.actor,
@@ -185,23 +185,23 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             return _render_normalization(
                 request,
                 context,
-                project_id,
+                workspace_id,
                 error=str(error),
                 status_code=422,
             )
-        project = context.queries.get(project_id)
-        if project.source_mode is SourceMode.ODOO:
+        workspace_state = context.queries.get(workspace_id)
+        if workspace_state.source_mode is SourceMode.ODOO:
             _flash(
                 request,
                 "Prepared Odoo records approved. Compare them with Odoo next.",
             )
             return RedirectResponse(
-                f"/workspaces/{project_id}/summary",
+                f"/workspaces/{workspace_id}/summary",
                 status_code=303,
             )
         _flash(request, "Prepared data approved. You can now compare it with Odoo.")
         return RedirectResponse(
-            f"/workspaces/{project_id}/summary",
+            f"/workspaces/{workspace_id}/summary",
             status_code=303,
         )
 

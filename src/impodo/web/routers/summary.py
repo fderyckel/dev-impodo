@@ -14,16 +14,16 @@ def build_summary_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/workspaces/{project_id}/summary", response_class=HTMLResponse)
-    async def project_summary(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/summary", response_class=HTMLResponse)
+    async def workspace_summary(request: Request, workspace_id: str):
         require_session(request)
         if context.preparation_jobs is not None:
-            active = context.preparation_jobs.active(project_id)
+            active = context.preparation_jobs.active(workspace_id)
             if active is not None:
                 return RedirectResponse(
-                    f"/workspaces/{project_id}/preparation/{active.job_id}",
+                    f"/workspaces/{workspace_id}/preparation/{active.job_id}",
                     status_code=303,
                 )
-        return _render_summary(request, context, project_id)
+        return _render_summary(request, context, workspace_id)
 
     return router

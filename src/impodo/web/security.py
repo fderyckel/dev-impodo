@@ -2,12 +2,14 @@
 
 The middleware rejects proxy/forwarding ambiguity and cross-origin unsafe
 requests before a route runs. Route helpers then require the launch-token
-session and constant-time CSRF match. Capability authorization remains a
-separate application-service responsibility in ``access.py``.
+session and constant-time CSRF match. The workspace access middleware resolves
+the real parent Project before a workspace route can open child state, while
+application services still enforce the exact command capability.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from hmac import compare_digest
 from threading import RLock
 from time import monotonic
@@ -17,9 +19,16 @@ from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
 
+from ..access import Actor, AuthorizationError, Capability
 from ..build_contract import (
     ApplicationBuildContract,
     calculate_application_build_contract,
+)
+from ..migration_foundation import MigrationFoundationError
+from ..workspace_access import (
+    WorkspaceAccessContext,
+    WorkspaceAccessService,
+    bind_workspace_access_context,
 )
 
 
@@ -148,6 +157,70 @@ class LoopbackSecurityMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
+    """Authorize a workspace route before its child stores can open."""
+
+    def __init__(
+        self,
+        app,
+        *,
+        access: WorkspaceAccessService,
+        actor: Actor | Callable[[], Actor],
+        trusted_context_resolver: (
+            Callable[[str, str], WorkspaceAccessContext | None] | None
+        ) = None,
+    ) -> None:
+        super().__init__(app)
+        self.access = access
+        self.actor = actor if callable(actor) else lambda: actor
+        self.trusted_context_resolver = trusted_context_resolver
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        """Resolve one safe Project-owned context or return an opaque 404."""
+
+        workspace_id = _workspace_id_from_path(request.url.path)
+        if (
+            workspace_id is None
+            or request.session.get("authenticated") is not True
+        ):
+            return await call_next(request)
+        try:
+            trusted_context = (
+                self.trusted_context_resolver(request.url.path, workspace_id)
+                if self.trusted_context_resolver is not None
+                else None
+            )
+            if trusted_context is None:
+                context = self.access.resolve(
+                    workspace_id,
+                    actor=self.actor(),
+                    capability=Capability.PROJECT_VIEW,
+                )
+            else:
+                with bind_workspace_access_context(trusted_context):
+                    context = self.access.resolve(
+                        workspace_id,
+                        actor=self.actor(),
+                        capability=Capability.PROJECT_VIEW,
+                    )
+        except (AuthorizationError, MigrationFoundationError):
+            return PlainTextResponse("Workspace not found", status_code=404)
+        request.state.workspace_access_context = context
+        with bind_workspace_access_context(context):
+            response = await call_next(request)
+        body_iterator = getattr(response, "body_iterator", None)
+        if body_iterator is None:
+            return response
+
+        async def authorized_body():
+            with bind_workspace_access_context(context):
+                async for chunk in body_iterator:
+                    yield chunk
+
+        response.body_iterator = authorized_body()
+        return response
+
+
 def _referer_origin(value: str | None) -> str | None:
     if not value:
         return None
@@ -160,6 +233,13 @@ def _referer_origin(value: str | None) -> str | None:
     ):
         return None
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _workspace_id_from_path(path: str) -> str | None:
+    parts = path.split("/")
+    if len(parts) < 3 or parts[1] != "workspaces" or not parts[2]:
+        return None
+    return parts[2]
 
 
 def require_session(request: Request) -> None:

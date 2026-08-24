@@ -1,6 +1,6 @@
 """Boundary helpers between domain objects and DuckDB row/JSON shapes.
 
-Project reconstruction converts persisted enum/date/source-file fields back
+Workspace reconstruction converts persisted enum/date/source-file fields back
 into validated domain objects. Canonical JSON uses stable key ordering and
 compact separators. Columnar transposition supports bounded DuckDB batch
 ingestion without changing semantic row order.
@@ -10,17 +10,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import (
-    date,
-    datetime,
-)
+from datetime import datetime
 import json
 
 
 from ...workspace_state import (
     ApprovalStatus,
     DataClassification,
-    ExportStatus,
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStatus,
@@ -32,49 +28,43 @@ from ...workspace_state import (
 
 
 
-def _project_values(project: WorkspaceState) -> list[object]:
-    """Flatten a validated project into the fixed project-table column order."""
+def _workspace_values(workspace: WorkspaceState) -> list[object]:
+    """Flatten validated workbench state into the fixed workspace column order."""
 
     return [
-        project.project_id,
-        project.name,
-        project.source_system,
-        project.source_mode.value,
-        project.export_status.value,
-        project.export_date.isoformat() if project.export_date else None,
-        project.description,
-        project.data_manager,
-        project.functional_owner,
-        project.business_unit,
-        project.data_classification.value,
-        project.retention_days,
-        project.support_access,
+        1,
+        workspace.name,
+        workspace.source_system,
+        workspace.source_mode.value,
+        workspace.data_classification.value,
+        workspace.retention_days,
         (
-            project.odoo_connection_mode.value
-            if project.odoo_connection_mode
+            workspace.odoo_connection_mode.value
+            if workspace.odoo_connection_mode
             else None
         ),
-        project.odoo_base_url,
-        project.odoo_database,
-        json.dumps(project.intended_applications),
-        json.dumps(project.intended_models),
-        project.status.value,
-        project.revision,
-        project.created_at.isoformat(),
-        project.updated_at.isoformat(),
-        project.registered_at.isoformat() if project.registered_at else None,
-        project.mapping_version,
-        project.current_run_id,
-        project.approval_status.value,
+        workspace.odoo_base_url,
+        workspace.odoo_database,
+        json.dumps(workspace.intended_applications),
+        json.dumps(workspace.intended_models),
+        workspace.status.value,
+        workspace.revision,
+        workspace.created_at.isoformat(),
+        workspace.updated_at.isoformat(),
+        workspace.registered_at.isoformat() if workspace.registered_at else None,
+        workspace.mapping_version,
+        workspace.current_run_id,
+        workspace.approval_status.value,
     ]
 
-def _project_from_rows(
+def _workspace_from_rows(
     data: dict[str, object],
     source_rows: list[tuple[object, ...]],
+    *,
+    workspace_id: str,
 ) -> WorkspaceState:
-    """Rebuild one project aggregate and its immutable source-file children."""
+    """Rebuild one workbench projection and its immutable source-file children."""
 
-    export_date = str(data["export_date"]) if data["export_date"] else None
     registered_at = (
         str(data["registered_at"]) if data["registered_at"] else None
     )
@@ -84,21 +74,14 @@ def _project_from_rows(
         else None
     )
     return WorkspaceState(
-        project_id=str(data["project_id"]),
+        workspace_id=workspace_id,
         name=str(data["name"]),
         source_system=str(data["source_system"]),
         source_mode=SourceMode(str(data.get("source_mode") or "FILE")),
-        export_status=ExportStatus(str(data["export_status"])),
-        export_date=date.fromisoformat(export_date) if export_date else None,
-        description=str(data["description"]),
-        data_manager=str(data["data_manager"]),
-        functional_owner=str(data["functional_owner"]),
-        business_unit=str(data["business_unit"]),
         data_classification=DataClassification(
             str(data["data_classification"])
         ),
         retention_days=int(data["retention_days"]),
-        support_access=bool(data["support_access"]),
         odoo_connection_mode=connection_mode,
         odoo_base_url=str(data["odoo_base_url"]),
         odoo_database=str(data["odoo_database"]),
@@ -220,4 +203,3 @@ def _columnar_parameters(
     if not width or any(len(row) != width for row in rows):
         raise ValueError("DuckDB bulk rows must use one non-empty shape")
     return [[row[index] for row in rows] for index in range(width)]
-

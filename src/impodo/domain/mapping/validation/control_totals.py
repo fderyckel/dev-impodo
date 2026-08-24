@@ -68,25 +68,18 @@ def _validate_control_totals(
                     dataset=dataset,
                 )
             )
-    controls = (
-        dataset.control_totals
-        if dataset.control_totals
-        else tuple(
-            BusinessControlTotal(
-                name=item.name,
-                target_field=item.target_field,
-                expected_total="0",
-                unit=item.unit,
-                tolerance=item.tolerance,
-            )
-            for item in dataset.control_definitions
+    controls = tuple(
+        BusinessControlTotal(
+            name=item.name,
+            target_field=item.target_field,
+            expected_total="0",
+            unit=item.unit,
+            tolerance=item.tolerance,
         )
-    )
-    control_path = (
-        "control_definitions" if dataset.control_definitions else "control_totals"
+        for item in dataset.control_definitions
     )
     for control_index, control in enumerate(controls):
-        path = f"{base}/{control_path}/{control_index}"
+        path = f"{base}/control_definitions/{control_index}"
         scalar = scalar_by_target.get(control.target_field)
         metadata = fields.get(control.target_field)
         if scalar is None:

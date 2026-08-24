@@ -1,6 +1,6 @@
 """Cross-stage job lifecycle contracts with a synchronous local adapter.
 
-``JobRequest`` binds one operation to project, actor, input hash, and
+``JobRequest`` binds one workspace operation to its actor, input hash, and
 idempotency key. ``JobRecord`` is the transition state machine. The local
 ``InlineJobDispatcher`` executes immediately but preserves the same replay and
 state semantics expected from a future durable hosted queue.
@@ -39,10 +39,10 @@ class JobStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class JobRequest:
-    """Immutable identity, provenance, and semantic input for one job."""
+    """Immutable workspace identity, provenance, and semantic job input."""
 
     job_id: str
-    project_id: str
+    workspace_id: str
     kind: JobKind
     idempotency_key: str
     input_hash: str
@@ -52,7 +52,7 @@ class JobRequest:
     def __post_init__(self) -> None:
         for value, name in (
             (self.job_id, "job_id"),
-            (self.project_id, "project_id"),
+            (self.workspace_id, "workspace_id"),
             (self.idempotency_key, "idempotency_key"),
         ):
             if not value.strip():
@@ -158,7 +158,7 @@ class InlineJobDispatcher:
                 existing = self._by_job_id[existing_id]
                 original = existing.request
                 if (
-                    original.project_id != request.project_id
+                    original.workspace_id != request.workspace_id
                     or original.kind is not request.kind
                     or original.input_hash != request.input_hash
                     or original.requested_by != request.requested_by

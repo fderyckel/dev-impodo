@@ -1529,20 +1529,19 @@ def _validate_snapshot_binding(
     expected_profile_id: str | None,
     expected_source_hashes: Mapping[str, str] | None,
 ) -> None:
-    """Verify that a snapshot belongs to the selected profile/source package.
-
-    Older snapshots without optional binding fields remain readable.  When a
-    binding is present and an expectation is supplied, however, any mismatch
-    is a configuration error.
-    """
+    """Verify exact profile and source-package snapshot bindings."""
 
     profile = data.get("profile")
-    if expected_profile_id is not None and profile is not None:
-        if profile.get("id") != expected_profile_id:
+    if expected_profile_id is not None:
+        if not isinstance(profile, Mapping) or profile.get("id") != expected_profile_id:
             raise ConnectorConfigurationError(
                 "snapshot profile ID does not match selected profile"
             )
-    if expected_source_hashes is not None and "source_hashes" in data:
+    if expected_source_hashes is not None:
+        if "source_hashes" not in data:
+            raise ConnectorConfigurationError(
+                "record snapshot has no source-package binding"
+            )
         actual = {
             str(key): str(value)
             for key, value in data.get("source_hashes", {}).items()

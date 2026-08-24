@@ -9,7 +9,7 @@ import duckdb
 from ....migration_foundation import MigrationStorageCompatibilityError
 
 
-MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m6"
+MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_VERSION = 1
 
 
@@ -66,6 +66,16 @@ EXPECTED_REGISTRY_COLUMNS = {
         "updated_at",
         "closed_at",
     ),
+    "migration_run_target_setup": (
+        "migration_run_id",
+        "project_id",
+        "revision",
+        "connection_mode",
+        "base_url",
+        "database",
+        "intended_applications_json",
+        "updated_at",
+    ),
     "migration_workspace_identity": ("workspace_id",),
     "migration_workspace": (
         "workspace_id",
@@ -75,9 +85,11 @@ EXPECTED_REGISTRY_COLUMNS = {
         "recipe_application_id",
         "display_name",
         "state",
+        "setup_state",
         "optimistic_revision",
         "created_at",
         "updated_at",
+        "setup_completed_at",
         "closed_at",
     ),
     "target_binding": (
@@ -359,7 +371,7 @@ def ensure_migration_registry_schema(
     connection: duckdb.DuckDBPyConnection,
     database_path: Path,
 ) -> None:
-    """Create an empty M6 registry or reject every other schema exactly."""
+    """Create the current empty registry or reject every other schema."""
 
     tables = _tables(connection)
     if not tables:
@@ -493,6 +505,21 @@ def _initialize_migration_registry(
                 workspace_id VARCHAR PRIMARY KEY
             );
 
+            CREATE TABLE migration_run_target_setup (
+                migration_run_id VARCHAR PRIMARY KEY REFERENCES
+                    migration_run_identity(migration_run_id),
+                project_id VARCHAR NOT NULL REFERENCES
+                    migration_project_identity(project_id),
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                connection_mode VARCHAR NOT NULL CHECK (
+                    connection_mode IN ('LOCAL', 'REMOTE')
+                ),
+                base_url VARCHAR NOT NULL,
+                database VARCHAR NOT NULL,
+                intended_applications_json VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL
+            );
+
             CREATE TABLE migration_workspace (
                 workspace_id VARCHAR PRIMARY KEY REFERENCES
                     migration_workspace_identity(workspace_id),
@@ -505,11 +532,15 @@ def _initialize_migration_registry(
                 recipe_application_id VARCHAR UNIQUE,
                 display_name VARCHAR NOT NULL,
                 state VARCHAR NOT NULL CHECK (state IN ('OPEN', 'CLOSED')),
+                setup_state VARCHAR NOT NULL CHECK (
+                    setup_state IN ('DRAFT', 'READY')
+                ),
                 optimistic_revision INTEGER NOT NULL CHECK (
                     optimistic_revision >= 1
                 ),
                 created_at VARCHAR NOT NULL,
                 updated_at VARCHAR NOT NULL,
+                setup_completed_at VARCHAR,
                 closed_at VARCHAR
             );
 

@@ -37,7 +37,7 @@ from .common import _render
 
 
 def _manual_schema_models(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     form: FormData,
 ) -> tuple[SchemaModel, ...]:
     """Parse the explicitly entered local-development schema contract."""
@@ -54,7 +54,7 @@ def _manual_schema_models(
                 _text(form, f"manual_fields_{index}"),
             ),
         )
-        for index, model_name in enumerate(project.intended_models)
+        for index, model_name in enumerate(workspace_state.intended_models)
     )
 
 
@@ -143,11 +143,11 @@ def _decode_delimiter(value: str) -> str | None:
 
 def _dataset_choices(
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
 ) -> tuple[dict[str, str], ...]:
     return _dataset_choices_from(
-        context.queries.get_source_catalogs(project_id),
-        context.queries.get_source_configurations(project_id),
+        context.queries.get_source_catalogs(workspace_id),
+        context.queries.get_source_configurations(workspace_id),
     )
 
 
@@ -193,17 +193,17 @@ def _dataset_choices_from(
 def _render_derived_entities(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     *,
     error: str | None = None,
     status_code: int = 200,
     pending_related: dict[str, object] | None = None,
     pending_lookup: dict[str, object] | None = None,
 ):
-    project = context.queries.get(project_id)
-    selection = context.queries.get_source_selection(project_id)
-    plan = context.queries.get_derived_entity_plan(project_id)
-    model_catalog = context.queries.get_odoo_model_catalog(project_id)
+    workspace_state = context.queries.get(workspace_id)
+    selection = context.queries.get_source_selection(workspace_id)
+    plan = context.queries.get_derived_entity_plan(workspace_id)
+    model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     model_choices = tuple(
         sorted(
             (
@@ -231,9 +231,9 @@ def _render_derived_entities(
     for rule in (plan.rules if plan else ()):
         try:
             preview = (
-                context.derived_entities.preview(project_id, rule)
+                context.derived_entities.preview(workspace_id, rule)
                 if isinstance(rule, DerivedEntityRule)
-                else context.derived_entities.preview_related(project_id, rule)
+                else context.derived_entities.preview_related(workspace_id, rule)
             )
             preview_error = None
         except WorkspaceError as preview_failure:
@@ -273,14 +273,14 @@ def _render_derived_entities(
     namespace = re.sub(
         r"[^a-z0-9]+",
         "_",
-        project.source_system.casefold(),
+        workspace_state.source_system.casefold(),
     ).strip("_")[:40]
     if not namespace or not namespace[0].isalpha():
         namespace = "imported_data"
     return _render(
         request,
         "workspace_derived_entities.html",
-        project=project,
+        workspace_state=workspace_state,
         selection=selection,
         plan=plan,
         model_catalog=model_catalog,
@@ -305,10 +305,10 @@ def _related_dataset_name_default(source_name: str, suffix: str) -> str:
 
 
 def _schema_model_choices(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     catalog: OdooModelCatalog | None,
 ) -> tuple[dict[str, object], ...]:
-    selected = set(project.intended_models)
+    selected = set(workspace_state.intended_models)
     models = list(catalog.models) if catalog else []
     known = {model.name for model in models}
     models.extend(
@@ -329,7 +329,7 @@ def _schema_model_choices(
             "selected": model.name in selected,
             "in_focus": _model_matches_application_scope(
                 model,
-                project.intended_applications,
+                workspace_state.intended_applications,
             ),
         }
         for model in models
@@ -371,7 +371,7 @@ def _model_matches_application_scope(
 def _render_schema(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     *,
     error: str | None = None,
     support_error: str | None = None,
@@ -384,11 +384,11 @@ def _render_schema(
     | None = None,
     key_errors: Mapping[str, str] | None = None,
 ):
-    project = context.queries.get(project_id)
-    model_catalog = context.queries.get_odoo_model_catalog(project_id)
-    model_choices = _schema_model_choices(project, model_catalog)
-    schema = context.queries.get_odoo_schema_catalog(project_id)
-    governance = context.queries.get_schema_governance(project_id)
+    workspace_state = context.queries.get(workspace_id)
+    model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
+    model_choices = _schema_model_choices(workspace_state, model_catalog)
+    schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    governance = context.queries.get_schema_governance(workspace_id)
     governed_by_model = (
         {item.model: item for item in governance.business_keys}
         if governance
@@ -403,8 +403,8 @@ def _render_schema(
     return _render(
         request,
         "workspace_schema.html",
-        project=project,
-        selection=context.queries.get_source_selection(project_id),
+        workspace_state=workspace_state,
+        selection=context.queries.get_source_selection(workspace_id),
         model_catalog=model_catalog,
         model_choices=model_choices,
         focus_model_count=sum(
@@ -419,7 +419,7 @@ def _render_schema(
         governance=governance,
         governed_by_model=governed_by_model,
         key_views=key_views,
-        local_stack=context.local_stack.get(project_id),
+        local_stack=context.local_stack.get(workspace_id),
         manual_schema_by_model=(
             {model.name: model for model in schema.models}
             if schema and schema.origin is SchemaOrigin.LOCAL_MANUAL

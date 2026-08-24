@@ -29,16 +29,16 @@ from ..staging_contracts import CanonicalRow, CanonicalStagingRun
 class ResolutionRepository(Protocol):
     """Persistence boundary used by target-independent preparation."""
 
-    def get_resolution_policy(self, project_id: str) -> ResolutionPolicy | None: ...
+    def get_resolution_policy(self, workspace_id: str) -> ResolutionPolicy | None: ...
 
     def get_validated_reference_bundle(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> ReferenceBundle | None: ...
 
     def publish_resolution_evaluation(
         self,
-        project_id: str,
+        workspace_id: str,
         evaluation: ResolutionEvaluation,
         *,
         staging_run_id: str,
@@ -47,13 +47,13 @@ class ResolutionRepository(Protocol):
 
     def get_resolution_decisions(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
     ) -> tuple[ResolutionDecision, ...]: ...
 
     def freeze_effective_dataset(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         effective: EffectiveDataset,
         *,
@@ -63,23 +63,23 @@ class ResolutionRepository(Protocol):
 
     def get_current_effective_dataset(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> EffectiveDataset | None: ...
 
     def get_current_resolution_summary(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> "ResolutionSummary | None": ...
 
     def get_resolution_evaluation(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
     ) -> ResolutionEvaluation | None: ...
 
     def append_resolution_decision(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         decision: ResolutionDecision,
         *,
@@ -91,7 +91,7 @@ class ResolutionRepository(Protocol):
 class ResolutionStagingRepository(Protocol):
     def get_canonical_staging_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_content_hash: str | None = None,
@@ -146,17 +146,17 @@ class ResolutionService:
         self.repository = repository
         self.staging = staging
 
-    def current_reference_bundle(self, project_id: str) -> ReferenceBundle | None:
-        return self.repository.get_validated_reference_bundle(project_id)
+    def current_reference_bundle(self, workspace_id: str) -> ReferenceBundle | None:
+        return self.repository.get_validated_reference_bundle(workspace_id)
 
-    def current_summary(self, project_id: str) -> ResolutionSummary | None:
+    def current_summary(self, workspace_id: str) -> ResolutionSummary | None:
         """Return the lightweight current lifecycle state for navigation."""
 
-        return self.repository.get_current_resolution_summary(project_id)
+        return self.repository.get_current_resolution_summary(workspace_id)
 
     def evaluate_for_preparation(
         self,
-        project_id: str,
+        workspace_id: str,
         staging: CanonicalStagingRun,
         *,
         staging_run_id: str,
@@ -170,7 +170,7 @@ class ResolutionService:
         is frozen as an immutable effective dataset before quality runs.
         """
 
-        policy = self.repository.get_resolution_policy(project_id)
+        policy = self.repository.get_resolution_policy(workspace_id)
         if policy is None:
             return None, None
         if (
@@ -186,7 +186,7 @@ class ResolutionService:
             rows=staging.rows,
         )
         summary = self.repository.publish_resolution_evaluation(
-            project_id,
+            workspace_id,
             evaluation,
             staging_run_id=staging_run_id,
             actor=actor,
@@ -196,7 +196,7 @@ class ResolutionService:
                 "Duplicate checking is blocked by incomplete or overly broad matching fields"
             )
         if summary.status == "FROZEN":
-            effective = self.repository.get_current_effective_dataset(project_id)
+            effective = self.repository.get_current_effective_dataset(workspace_id)
             if effective is None or effective.content_hash != summary.effective_content_hash:
                 raise ReadinessError("Resolved data could not be verified")
             return effective, summary
@@ -204,7 +204,7 @@ class ResolutionService:
             raise ReadinessError(
                 "Review the possible duplicate records before continuing data checks"
             )
-        decisions = self.repository.get_resolution_decisions(project_id, summary.run_id)
+        decisions = self.repository.get_resolution_decisions(workspace_id, summary.run_id)
         effective = build_effective_dataset(
             policy=policy,
             evaluation=evaluation,
@@ -212,7 +212,7 @@ class ResolutionService:
             decisions=decisions,
         )
         frozen = self.repository.freeze_effective_dataset(
-            project_id,
+            workspace_id,
             summary.run_id,
             effective,
             expected_lifecycle_version=summary.lifecycle_version,
@@ -222,25 +222,25 @@ class ResolutionService:
             raise ReadinessError("Resolved data could not be verified")
         return effective, frozen
 
-    def current_review(self, project_id: str) -> ResolutionReview | None:
+    def current_review(self, workspace_id: str) -> ResolutionReview | None:
         if self.staging is None:
             raise ReadinessError("Duplicate review is not available")
-        summary = self.repository.get_current_resolution_summary(project_id)
+        summary = self.repository.get_current_resolution_summary(workspace_id)
         if summary is None:
             return None
         evaluation = self.repository.get_resolution_evaluation(
-            project_id,
+            workspace_id,
             summary.run_id,
         )
-        policy = self.repository.get_resolution_policy(project_id)
+        policy = self.repository.get_resolution_policy(workspace_id)
         staging = self.staging.get_canonical_staging_run(
-            project_id,
+            workspace_id,
             summary.staging_run_id,
             expected_content_hash=summary.staging_content_hash,
         )
         if evaluation is None or policy is None or staging is None:
             raise ReadinessError("Duplicate-review evidence is incomplete")
-        decisions = self.repository.get_resolution_decisions(project_id, summary.run_id)
+        decisions = self.repository.get_resolution_decisions(workspace_id, summary.run_id)
         rows = {item.row_id: item for item in staging.rows}
         pair_decisions = {
             tuple(item.row_ids): item
@@ -276,7 +276,7 @@ class ResolutionService:
 
     def decide_pair(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         candidate_id: str,
         *,
@@ -285,7 +285,7 @@ class ResolutionService:
         actor: Actor,
         reason: str,
     ) -> ResolutionSummary:
-        evaluation = self.repository.get_resolution_evaluation(project_id, run_id)
+        evaluation = self.repository.get_resolution_evaluation(workspace_id, run_id)
         if evaluation is None:
             raise ReadinessError("Duplicate review is no longer available")
         candidate = next(
@@ -310,7 +310,7 @@ class ResolutionService:
             lifecycle_version=expected_lifecycle_version + 1,
         )
         return self.repository.append_resolution_decision(
-            project_id,
+            workspace_id,
             run_id,
             decision,
             expected_lifecycle_version=expected_lifecycle_version,
@@ -319,7 +319,7 @@ class ResolutionService:
 
     def select_survivor_field(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         group_id: str,
         field: str,
@@ -330,7 +330,7 @@ class ResolutionService:
         actor: Actor,
         reason: str,
     ) -> ResolutionSummary:
-        evaluation = self.repository.get_resolution_evaluation(project_id, run_id)
+        evaluation = self.repository.get_resolution_evaluation(workspace_id, run_id)
         if evaluation is None:
             raise ReadinessError("Duplicate review is no longer available")
         decision = ResolutionDecision(
@@ -347,7 +347,7 @@ class ResolutionService:
             lifecycle_version=expected_lifecycle_version + 1,
         )
         return self.repository.append_resolution_decision(
-            project_id,
+            workspace_id,
             run_id,
             decision,
             expected_lifecycle_version=expected_lifecycle_version,
@@ -356,7 +356,7 @@ class ResolutionService:
 
     def correct_survivor_field(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         group_id: str,
         field: str,
@@ -369,7 +369,7 @@ class ResolutionService:
     ) -> ResolutionSummary:
         """Record one typed correction allowed by the approved policy."""
 
-        review = self.current_review(project_id)
+        review = self.current_review(workspace_id)
         if review is None or review.summary.run_id != run_id:
             raise ReadinessError("Duplicate review is no longer current")
         field_review = next(
@@ -403,7 +403,7 @@ class ResolutionService:
             lifecycle_version=expected_lifecycle_version + 1,
         )
         return self.repository.append_resolution_decision(
-            project_id,
+            workspace_id,
             run_id,
             decision,
             expected_lifecycle_version=expected_lifecycle_version,
@@ -412,20 +412,20 @@ class ResolutionService:
 
     def approve(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_lifecycle_version: int,
         actor: Actor,
     ) -> ResolutionSummary:
-        review = self.current_review(project_id)
-        policy = self.repository.get_resolution_policy(project_id)
+        review = self.current_review(workspace_id)
+        policy = self.repository.get_resolution_policy(workspace_id)
         if review is None or policy is None or review.summary.run_id != run_id:
             raise ReadinessError("Duplicate review is no longer current")
         if self.staging is None:
             raise ReadinessError("Duplicate review is not available")
         staging = self.staging.get_canonical_staging_run(
-            project_id,
+            workspace_id,
             review.summary.staging_run_id,
             expected_content_hash=review.summary.staging_content_hash,
         )
@@ -441,7 +441,7 @@ class ResolutionService:
         except ValueError as error:
             raise ReadinessError(str(error)) from error
         return self.repository.freeze_effective_dataset(
-            project_id,
+            workspace_id,
             run_id,
             effective,
             expected_lifecycle_version=expected_lifecycle_version,

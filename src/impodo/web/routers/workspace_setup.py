@@ -17,7 +17,7 @@ from ...workspace_state import (
 )
 from ..context import WebContext
 from ..forms import _revision, _secure_form
-from ..presenters.common import _project_error, _render
+from ..presenters.common import _render, _workspace_error
 from ..presenters.mapping_forms import _draft_or_redirect
 from ..security import require_session
 
@@ -37,7 +37,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             else ("files" if workspace.source_mode is SourceMode.FILE else "target")
         )
         return RedirectResponse(
-            f"/workspaces/{workspace.project_id}/{destination}",
+            f"/workspaces/{workspace.workspace_id}/{destination}",
             status_code=303,
         )
 
@@ -50,13 +50,13 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 "files" if workspace.source_mode is SourceMode.FILE else "target"
             )
             return RedirectResponse(
-                f"/workspaces/{workspace.project_id}/{setup_page}",
+                f"/workspaces/{workspace.workspace_id}/{setup_page}",
                 status_code=303,
             )
         return _render(
             request,
             "workspace_overview.html",
-            project=workspace,
+            workspace_state=workspace,
         )
 
     @router.get("/workspaces/{workspace_id}/files", response_class=HTMLResponse)
@@ -67,10 +67,10 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             return workspace
         if workspace.source_mode is SourceMode.ODOO:
             return RedirectResponse(
-                f"/workspaces/{workspace.project_id}/target",
+                f"/workspaces/{workspace.workspace_id}/target",
                 status_code=303,
             )
-        return _render(request, "workspace_files.html", project=workspace)
+        return _render(request, "workspace_files.html", workspace_state=workspace)
 
     @router.post("/workspaces/{workspace_id}/files")
     async def workspace_files(request: Request, workspace_id: str):
@@ -81,7 +81,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             return workspace
         if workspace.source_mode is SourceMode.ODOO:
             return RedirectResponse(
-                f"/workspaces/{workspace.project_id}/target",
+                f"/workspaces/{workspace.workspace_id}/target",
                 status_code=303,
             )
         uploads = tuple(
@@ -90,7 +90,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             if isinstance(item, UploadFile) and item.filename
         )
         if not uploads:
-            return _project_error(
+            return _workspace_error(
                 request,
                 context,
                 workspace_id,
@@ -117,7 +117,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                     f"Added {added} file{'s' if added != 1 else ''}. "
                     f"The next file could not be added: {error}"
                 )
-            return _project_error(
+            return _workspace_error(
                 request,
                 context,
                 workspace_id,
@@ -149,7 +149,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 if workspace.source_mode is SourceMode.FILE
                 else "workspace_review.html"
             )
-            return _project_error(
+            return _workspace_error(
                 request,
                 context,
                 workspace_id,
@@ -159,7 +159,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             )
         except WorkspaceStateError as error:
             workspace = context.queries.get(workspace_id)
-            return _project_error(
+            return _workspace_error(
                 request,
                 context,
                 workspace_id,
@@ -173,9 +173,8 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             )
         destination = "sources" if workspace.source_mode is SourceMode.FILE else "schema"
         return RedirectResponse(
-            f"/workspaces/{workspace.project_id}/{destination}",
+            f"/workspaces/{workspace.workspace_id}/{destination}",
             status_code=303,
         )
 
     return router
-

@@ -47,7 +47,8 @@ retires the prior decisions.
 Optional Recipe publication compiles only an eligible submitted mapping and
 its required portable contracts. It does not change this working draft or move
 its source, schema, impact, preparation, comparison, or execution evidence.
-Project-owned application workspaces and drift assessment belong to Phase M4.
+Project-owned application workspaces and drift assessment belong to the
+integrated Test workflow.
 
 ## Contract invariants
 
@@ -83,14 +84,13 @@ rule creates a new mapping hash, so existing validation, impact, submission,
 preparation, comparison, and execution evidence no longer satisfies the
 current mapping.
 
-Mapping contract version 9 also records a required-field disposition when no
+The current mapping contract records a required-field disposition when no
 value is sent: `odoo_default` means the target configuration must supply the
 value, while `odoo_managed` is limited to captured computed, related, one2many,
 or many2many fields. Both remain warning-bearing decisions that require review;
 Impodo does not call arbitrary Odoo `default_get` logic while editing a mapping.
-Version 8 mappings remain readable and retain their original content hashes.
 
-Mapping contract version 10 adds `odoo_pinned_update` and a sorted
+The same contract provides `odoo_pinned_update` and a sorted
 `approved_write_fields` set. A pinned mapping requires an `OdooSourceBinding`
 and retains the originating model. It has no source or target business
 identity, create policy, field disposition, or relationship write. Every
@@ -117,11 +117,10 @@ metadata-mismatched reference use instead of guessing a contract.
 
 Mapping validation contract version 3 binds the current reference-policy hash.
 Supporting lookup contract version 2 binds the same hash to its lookup key and
-snapshot. Older evidence remains readable for audit, but it cannot authorize a
-new submission or be reused as a current lookup after the policy changes.
+snapshot. Retired evidence payloads are rejected rather than reused.
 
-Since mapping contract version 8, cleanup is stored exclusively as ordered
-`text_steps`. Legacy scalar search/replacement fields are rejected rather than
+Cleanup is stored exclusively as ordered `text_steps`. Retired scalar
+search/replacement fields are rejected rather than
 silently converted or dropped. Quick matching remains bounded to 500 source
 choices and 2,000 target records; composite or scoped identities use the normal
 governed relationship workflow.

@@ -1,4 +1,4 @@
-"""Verify M5 exact integrated qualification and rollout selection."""
+"""Verify exact integrated qualification and rollout selection."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from impodo.migration_cutover import (
 from impodo.migration_foundation import MigrationConflictError
 from impodo.migration_run_planning import RecipeApplicationStatus
 from impodo.web.app import create_local_app
-from tests import test_migration_project_phase_m4_multi_recipe_runs as m4
+from tests import test_integrated_recipe_runs as integrated_runs
 
 
 class CompleteEvidenceReader:
@@ -116,9 +116,9 @@ class CompleteEvidenceReader:
         )
 
 
-class MigrationProjectPhaseM5Tests(unittest.TestCase):
+class CutoverQualificationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.fixture = m4.MigrationProjectPhaseM4Tests(
+        self.fixture = integrated_runs.IntegratedRecipeRunTests(
             methodName="test_two_recipes_share_one_run_target_and_keep_isolated_workspaces"
         )
         self.fixture.setUp()
@@ -272,9 +272,9 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
 
         def fault(stage):
             if stage == "EVIDENCE_STORED":
-                raise m4.SimulatedCrash(stage)
+                raise integrated_runs.SimulatedCrash(stage)
 
-        with self.assertRaises(m4.SimulatedCrash):
+        with self.assertRaises(integrated_runs.SimulatedCrash):
             self.service.qualify(
                 run.run.project_id,
                 run.run.migration_run_id,
@@ -325,8 +325,8 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         run = self.fixture._start()
         app = create_local_app(
             self.fixture.root,
-            launch_token="m5-launch",
-            session_secret="m5-session",
+            launch_token="qualification-launch",
+            session_secret="qualification-session",
             secret_store=self.fixture.secret_store,
             preparation_jobs_enabled=False,
             odoo_capture_jobs_enabled=False,
@@ -334,7 +334,7 @@ class MigrationProjectPhaseM5Tests(unittest.TestCase):
         with TestClient(app) as client:
             self.assertEqual(
                 client.get(
-                    "/launch?token=m5-launch",
+                    "/launch?token=qualification-launch",
                     follow_redirects=False,
                 ).status_code,
                 303,

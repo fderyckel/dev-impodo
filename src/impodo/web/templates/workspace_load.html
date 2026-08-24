@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Load into Odoo &middot; {{ project.name }} &middot; Impodo{% endblock %}
+{% block title %}Load into Odoo &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
 {% block content %}
   {% set target_environment = 'Production' if migration_context.data_version_purpose == 'PRODUCTION' else 'Test' if migration_context.data_version_purpose == 'TEST' else 'Target' %}
   <nav class="load-stepper" aria-label="Load into Odoo progress">
     <ol>
       <li class="load-step {% if load_step == 'review' %}current{% else %}complete{% endif %}">
-        {% if load_step == 'review' %}<span aria-current="step">{% else %}<a href="/workspaces/{{ project.project_id }}/load/review">{% endif %}
+        {% if load_step == 'review' %}<span aria-current="step">{% else %}<a href="/workspaces/{{ workspace_id }}/load/review">{% endif %}
           <span class="load-step-number" aria-hidden="true">1</span>
           <span><strong>Check changes</strong><small>{% if load_step == 'review' %}Current{% else %}Complete{% endif %}</small></span>
         {% if load_step == 'review' %}</span>{% else %}</a>{% endif %}
@@ -14,7 +14,7 @@
         {% if load_step == 'confirm' %}
           <span aria-current="step">
         {% elif not preview.current_run and preview.can_load %}
-          <a href="/workspaces/{{ project.project_id }}/load/confirm">
+          <a href="/workspaces/{{ workspace_id }}/load/confirm">
         {% else %}
           <span{% if not preview.current_run %} aria-disabled="true"{% endif %}>
         {% endif %}
@@ -29,7 +29,7 @@
         {% if load_step == 'outcome' %}
           <span aria-current="step">
         {% elif preview.current_run %}
-          <a href="/workspaces/{{ project.project_id }}/load/outcome">
+          <a href="/workspaces/{{ workspace_id }}/load/outcome">
         {% else %}
           <span aria-disabled="true">
         {% endif %}
@@ -87,7 +87,7 @@
         <div>
           <p class="eyebrow">Odoo database</p>
           <h2 id="load-scope-title">{{ preview.snapshot.target_database }}</h2>
-          <p>{{ project.odoo_connection_mode.value|title }} {{ target_environment }} &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
+          <p>{{ workspace_state.odoo_connection_mode.value|title }} {{ target_environment }} &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
         </div>
         <span class="status review">Explicit action only</span>
       </div>
@@ -130,7 +130,7 @@
           <h2 id="review-outcome-title">Continue with the saved result</h2>
           <p>This reviewed preview cannot be loaded again. Verify the durable Odoo outcome instead.</p>
         </div>
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/load/outcome">View verification result</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/load/outcome">View verification result</a>
       </section>
     {% elif preview.can_load %}
       <section class="next-action-card ready" aria-labelledby="review-complete-title">
@@ -139,7 +139,7 @@
           <h2 id="review-complete-title">Continue to confirmation</h2>
           <p>The next page repeats the target and totals before asking for the separate Odoo write key. Nothing has been written yet.</p>
         </div>
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/load/confirm">Continue to confirmation</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/load/confirm">Continue to confirmation</a>
       </section>
     {% else %}
       <section class="next-action-card blocked" aria-labelledby="load-blocked-title">
@@ -149,9 +149,9 @@
           <p>{{ preview.scope_error or 'Resolve every row needing attention, or compare again if this review is no longer current.' }}</p>
         </div>
         {% if preview.credential_refresh_required %}
-          <a class="button primary" href="/workspaces/{{ project.project_id }}/schema">Refresh Odoo data</a>
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo data</a>
         {% else %}
-          <a class="button primary" href="/workspaces/{{ project.project_id }}/summary">Back to final review</a>
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary">Back to final review</a>
         {% endif %}
       </section>
     {% endif %}
@@ -170,7 +170,7 @@
       <div>
         <p class="eyebrow">Odoo database</p>
         <h2 id="confirm-target-title">{{ preview.snapshot.target_database }}</h2>
-        <p>{{ project.odoo_connection_mode.value|title }} {{ target_environment }} &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
+        <p>{{ workspace_state.odoo_connection_mode.value|title }} {{ target_environment }} &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
       </div>
       <p class="load-target-total">
         <strong>{{ preview.snapshot.write_count }}</strong>
@@ -189,7 +189,7 @@
         {% endif %}
         <p>If a write response is lost, Impodo stops and requires verification. It will not retry blindly.</p>
       </div>
-      <form method="post" action="/workspaces/{{ project.project_id }}/load" data-load-confirmation-form>
+      <form method="post" action="/workspaces/{{ workspace_id }}/load" data-load-confirmation-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="snapshot_hash" value="{{ preview.snapshot.semantic_hash }}">
         <label>
@@ -211,7 +211,7 @@
         </details>
         <div class="button-row">
           <button class="button primary" type="submit">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into Odoo</button>
-          <a class="button secondary" href="/workspaces/{{ project.project_id }}/load/review">Back to check changes</a>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/load/review">Back to check changes</a>
         </div>
         <small class="muted" role="status" data-load-confirmation-status hidden>Starting the Odoo load and opening its progress page.</small>
       </form>
@@ -251,9 +251,9 @@
         </div>
         <div class="button-row">
           {% if reconciliation.fallout_count %}
-            <a class="button secondary" href="/workspaces/{{ project.project_id }}/load/fallout.csv">Download fallout</a>
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/load/fallout.csv">Download fallout</a>
           {% endif %}
-          <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary">Back to final review</a>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to final review</a>
         </div>
       </section>
 
@@ -296,7 +296,7 @@
           </h2>
           <p><strong>Do not load this review again.</strong> Verify the actual Odoo records before planning any recovery.</p>
         </div>
-        <form method="post" action="/workspaces/{{ project.project_id }}/load/reconcile">
+        <form method="post" action="/workspaces/{{ workspace_id }}/load/reconcile">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="execution_run_id" value="{{ preview.current_run.run_id }}">
           <label>

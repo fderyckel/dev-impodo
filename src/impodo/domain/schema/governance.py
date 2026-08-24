@@ -73,7 +73,7 @@ class SchemaGovernance:
 
     governance_id: str
     version: int
-    project_id: str
+    workspace_id: str
     catalog_hash: str
     permitted_models: tuple[str, ...]
     business_keys: tuple[BusinessKeyDefinition, ...]
@@ -92,7 +92,7 @@ class SchemaGovernance:
         payload: dict[str, Any] = {
             "governance_id": self.governance_id,
             "version": self.version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "catalog_hash": self.catalog_hash,
             "permitted_models": list(self.permitted_models),
             "business_keys": [
@@ -122,7 +122,7 @@ class SchemaGovernance:
         result = cls(
             governance_id=str(payload["governance_id"]),
             version=int(payload["version"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             catalog_hash=str(payload["catalog_hash"]),
             permitted_models=tuple(payload["permitted_models"]),
             business_keys=tuple(

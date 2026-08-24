@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
 import json
+from typing import Protocol
 
 from .domain.mapping.contracts import MappingDefinition
 from .domain.source_binding import (
@@ -26,6 +27,15 @@ from .domain.source_binding import (
 )
 from .models import UniqueConstraintMetadata
 from .domain.serialization import canonical_json
+
+
+WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION = 2
+
+
+class SourceDatasetSet(Protocol):
+    """Expose dataset shape without inventing an owning workspace identity."""
+
+    datasets: tuple["SourceDataset", ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +129,7 @@ class SourceSelection:
 
     selection_id: str
     version: int
-    project_id: str
+    data_version_id: str
     created_at: datetime
     created_by: str
     datasets: tuple[SourceDataset, ...]
@@ -134,9 +144,10 @@ class SourceSelection:
 
         return canonical_json(
             {
+                "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
                 "selection_id": self.selection_id,
                 "version": self.version,
-                "project_id": self.project_id,
+                "data_version_id": self.data_version_id,
                 "created_at": self.created_at.isoformat(),
                 "created_by": self.created_by,
                 "datasets": [dataset.to_dict() for dataset in self.datasets],
@@ -152,9 +163,10 @@ class SourceSelection:
         _require_exact_fields(
             payload,
             {
+                "contract_version",
                 "selection_id",
                 "version",
-                "project_id",
+                "data_version_id",
                 "created_at",
                 "created_by",
                 "datasets",
@@ -162,13 +174,18 @@ class SourceSelection:
             },
             "source selection",
         )
+        if (
+            payload["contract_version"]
+            != WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION
+        ):
+            raise ValueError("Stored source selection uses an unsupported contract")
         datasets = tuple(
             _source_dataset_from_dict(item) for item in payload["datasets"]
         )
         return cls(
             selection_id=payload["selection_id"],
             version=int(payload["version"]),
-            project_id=payload["project_id"],
+            data_version_id=payload["data_version_id"],
             created_at=datetime.fromisoformat(payload["created_at"]),
             created_by=payload["created_by"],
             datasets=datasets,
@@ -265,7 +282,7 @@ class OdooModelSummary:
 class OdooModelCatalog:
     """Lightweight model choices discovered from one exact Odoo target."""
 
-    project_id: str
+    workspace_id: str
     connection_target_hash: str
     policy_hash: str
     captured_at: datetime
@@ -283,15 +300,25 @@ class OdooModelCatalog:
     def to_json(self) -> str:
         """Serialize the target-bound persistent-model choices."""
 
-        return canonical_json(asdict(self))
+        return canonical_json(
+            {
+                "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+                **asdict(self),
+            }
+        )
 
     @classmethod
     def from_json(cls, value: str) -> "OdooModelCatalog":
         """Restore model choices without contacting the target again."""
 
         payload = json.loads(value)
+        if (
+            payload.pop("contract_version", None)
+            != WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION
+        ):
+            raise ValueError("Stored Odoo model catalogue uses an unsupported contract")
         return cls(
-            project_id=payload["project_id"],
+            workspace_id=payload["workspace_id"],
             connection_target_hash=payload["connection_target_hash"],
             policy_hash=payload["policy_hash"],
             captured_at=datetime.fromisoformat(payload["captured_at"]),
@@ -333,7 +360,7 @@ class OdooSchemaCatalog:
     cannot support submission.
     """
 
-    project_id: str
+    workspace_id: str
     policy_hash: str
     captured_at: datetime
     captured_by: str
@@ -352,15 +379,25 @@ class OdooSchemaCatalog:
     def to_json(self) -> str:
         """Serialize the complete captured schema and provenance deterministically."""
 
-        return canonical_json(asdict(self))
+        return canonical_json(
+            {
+                "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+                **asdict(self),
+            }
+        )
 
     @classmethod
     def from_json(cls, value: str) -> "OdooSchemaCatalog":
         """Restore captured metadata without making another Odoo request."""
 
         payload = json.loads(value)
+        if (
+            payload.pop("contract_version", None)
+            != WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION
+        ):
+            raise ValueError("Stored Odoo schema uses an unsupported contract")
         return cls(
-            project_id=payload["project_id"],
+            workspace_id=payload["workspace_id"],
             policy_hash=payload["policy_hash"],
             captured_at=datetime.fromisoformat(payload["captured_at"]),
             captured_by=payload["captured_by"],
@@ -434,7 +471,6 @@ def _optional_bool(value: object) -> bool | None:
     if not isinstance(value, bool):
         raise ValueError("Stored schema boolean metadata is invalid")
     return value
-    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,7 +479,7 @@ class MappingWorkingDraft:
 
     mapping_id: str
     version: int
-    project_id: str
+    workspace_id: str
     base_mapping_version: int | None
     definition: MappingDefinition
     updated_at: datetime
@@ -466,9 +502,10 @@ class MappingWorkingDraft:
 
         return canonical_json(
             {
+                "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
                 "mapping_id": self.mapping_id,
                 "version": self.version,
-                "project_id": self.project_id,
+                "workspace_id": self.workspace_id,
                 "base_mapping_version": self.base_mapping_version,
                 "definition": self.definition.to_dict(),
                 "content_hash": self.content_hash,
@@ -482,13 +519,18 @@ class MappingWorkingDraft:
         """Restore editor state and reject a tampered definition hash."""
 
         payload = json.loads(value)
+        if (
+            payload.get("contract_version")
+            != WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION
+        ):
+            raise ValueError("Stored mapping draft uses an unsupported contract")
         definition = MappingDefinition.from_dict(payload["definition"])
         if payload.get("content_hash") != definition.content_hash:
             raise ValueError("Working-draft content hash is invalid")
         return cls(
             mapping_id=str(payload["mapping_id"]),
             version=int(payload["version"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             base_mapping_version=(
                 int(payload["base_mapping_version"])
                 if payload.get("base_mapping_version") is not None

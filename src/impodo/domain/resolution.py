@@ -26,10 +26,10 @@ from ..staging_contracts import CanonicalLineage, CanonicalRow, StagingDispositi
 from .serialization import content_hash
 
 
-RESOLUTION_POLICY_CONTRACT_VERSION = 1
-RESOLUTION_EVALUATION_CONTRACT_VERSION = 1
-RESOLUTION_DECISION_CONTRACT_VERSION = 1
-EFFECTIVE_DATASET_CONTRACT_VERSION = 1
+RESOLUTION_POLICY_CONTRACT_VERSION = 2
+RESOLUTION_EVALUATION_CONTRACT_VERSION = 2
+RESOLUTION_DECISION_CONTRACT_VERSION = 2
+EFFECTIVE_DATASET_CONTRACT_VERSION = 2
 RESOLUTION_SCORER_VERSION = 1
 MAX_FUZZY_BLOCK_SIZE = 50
 MAX_FUZZY_CANDIDATES_PER_ROW = 5
@@ -193,7 +193,7 @@ class ResolutionRule:
 @dataclass(frozen=True, slots=True)
 class ResolutionPolicy:
     policy_id: str
-    project_id: str
+    workspace_id: str
     version: int
     parent_version: int | None
     coverage_scope_hash: str
@@ -205,7 +205,7 @@ class ResolutionPolicy:
 
     def __post_init__(self) -> None:
         _uuid(self.policy_id, "resolution policy ID")
-        _required_text(self.project_id, "project ID", 200)
+        _required_text(self.workspace_id, "workspace ID", 200)
         if self.contract_version != RESOLUTION_POLICY_CONTRACT_VERSION:
             raise ValueError("Resolution-policy contract version is unsupported")
         if self.version < 1:
@@ -235,7 +235,7 @@ class ResolutionPolicy:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "policy_id": self.policy_id,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "version": self.version,
             "parent_version": self.parent_version,
             "coverage_scope_hash": self.coverage_scope_hash,
@@ -254,7 +254,7 @@ class ResolutionPolicy:
         result = cls(
             contract_version=int(payload["contract_version"]),
             policy_id=str(payload["policy_id"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             version=int(payload["version"]),
             parent_version=(
                 int(payload["parent_version"])
@@ -386,7 +386,7 @@ class ResolutionFinding:
 
 @dataclass(frozen=True, slots=True)
 class ResolutionEvaluation:
-    project_id: str
+    workspace_id: str
     staging_content_hash: str
     policy_hash: str
     candidates: tuple[ResolutionCandidate, ...]
@@ -396,7 +396,7 @@ class ResolutionEvaluation:
     contract_version: int = RESOLUTION_EVALUATION_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        _required_text(self.project_id, "project ID", 200)
+        _required_text(self.workspace_id, "workspace ID", 200)
         _hash(self.staging_content_hash, "staging content hash")
         _hash(self.policy_hash, "resolution policy hash")
         if self.contract_version != RESOLUTION_EVALUATION_CONTRACT_VERSION:
@@ -432,7 +432,7 @@ class ResolutionEvaluation:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "scorer_version": self.scorer_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "staging_content_hash": self.staging_content_hash,
             "policy_hash": self.policy_hash,
             "compared_pair_count": self.compared_pair_count,
@@ -449,7 +449,7 @@ class ResolutionEvaluation:
         result = cls(
             contract_version=int(payload["contract_version"]),
             scorer_version=int(payload.get("scorer_version", 0)),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
             policy_hash=str(payload["policy_hash"]),
             compared_pair_count=int(payload.get("compared_pair_count", 0)),
@@ -792,7 +792,7 @@ class ResolutionReconciliation:
 class EffectiveDataset:
     """Immutable exact post-resolution input for quality evaluation."""
 
-    project_id: str
+    workspace_id: str
     staging_content_hash: str
     policy_hash: str
     evaluation_hash: str
@@ -803,7 +803,7 @@ class EffectiveDataset:
     contract_version: int = EFFECTIVE_DATASET_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        _required_text(self.project_id, "project ID", 200)
+        _required_text(self.workspace_id, "workspace ID", 200)
         for value, label in (
             (self.staging_content_hash, "staging content hash"),
             (self.policy_hash, "resolution policy hash"),
@@ -838,7 +838,7 @@ class EffectiveDataset:
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "staging_content_hash": self.staging_content_hash,
             "policy_hash": self.policy_hash,
             "evaluation_hash": self.evaluation_hash,
@@ -856,7 +856,7 @@ class EffectiveDataset:
     def from_dict(cls, payload: Mapping[str, Any]) -> "EffectiveDataset":
         result = cls(
             contract_version=int(payload["contract_version"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
             policy_hash=str(payload["policy_hash"]),
             evaluation_hash=str(payload["evaluation_hash"]),
@@ -889,7 +889,7 @@ def build_effective_dataset(
     components. Every candidate requires a reviewed pair decision.
     """
 
-    if evaluation.project_id != policy.project_id or evaluation.policy_hash != policy.content_hash:
+    if evaluation.workspace_id != policy.workspace_id or evaluation.policy_hash != policy.content_hash:
         raise ValueError("Resolution evaluation does not match its policy")
     if evaluation.blocked:
         raise ValueError("Blocking resolution findings must be corrected before review")
@@ -1047,7 +1047,7 @@ def build_effective_dataset(
         effective_rows=len(effective_rows),
     )
     return EffectiveDataset(
-        project_id=policy.project_id,
+        workspace_id=policy.workspace_id,
         staging_content_hash=evaluation.staging_content_hash,
         policy_hash=policy.content_hash,
         evaluation_hash=evaluation.content_hash,
@@ -1122,7 +1122,7 @@ def evaluate_resolution_candidates(
 
     retained = _bounded_candidates(raw_candidates, rules)
     return ResolutionEvaluation(
-        project_id=policy.project_id,
+        workspace_id=policy.workspace_id,
         staging_content_hash=staging_content_hash,
         policy_hash=policy.content_hash,
         candidates=tuple(sorted(retained, key=lambda item: item.candidate_id)),

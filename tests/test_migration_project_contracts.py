@@ -1,4 +1,4 @@
-"""Freeze Phase M0 of the Migration Project and multi-Recipe architecture."""
+"""Freeze the current Migration Project and multi-Recipe architecture."""
 
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ FIXTURE = (
     ROOT
     / "fixtures"
     / "migration-projects"
-    / "phase-m0"
+    / "current-contract"
     / "acceptance-contract.json"
 )
 RETAINED_RECIPE_FIXTURE = (
     ROOT
     / "fixtures"
     / "migration-projects"
-    / "phase-m0"
+    / "current-contract"
     / "customer-recipe-v1.json"
 )
 HASH = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -366,21 +366,17 @@ def _mutate(contract: dict[str, object], mutation: str) -> None:
     raise AssertionError(f"Unknown fixture mutation: {mutation}")
 
 
-class MigrationProjectPhaseM0ContractTests(unittest.TestCase):
-    """Protect the target ownership model before runtime implementation."""
+class MigrationProjectContractTests(unittest.TestCase):
+    """Protect the implemented Project ownership model."""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.contract = _load(FIXTURE)
         cls.retained_recipe = _load(RETAINED_RECIPE_FIXTURE)
 
-    def test_fixture_is_architecture_only_and_internally_valid(self) -> None:
+    def test_fixture_is_current_and_internally_valid(self) -> None:
         self.assertEqual(self.contract["contract_version"], 1)
-        self.assertEqual(self.contract["phase"], "M0")
-        self.assertEqual(
-            self.contract["implementation_status"],
-            "ARCHITECTURE_CONTRACT_ONLY",
-        )
+        self.assertEqual(self.contract["contract_status"], "CURRENT")
         self.assertEqual(_validate_contract(self.contract), set())
 
     def test_project_supports_zero_one_or_several_recipes(self) -> None:
@@ -576,39 +572,6 @@ class MigrationProjectPhaseM0ContractTests(unittest.TestCase):
             all(
                 item["status"] == "DRAFT_READINESS"
                 for item in production_applications
-            )
-        )
-
-    def test_every_ownership_change_is_explicit(self) -> None:
-        changes = {
-            item["legacy_field"]: item
-            for item in self.contract["ownership_changes"]
-        }
-        self.assertEqual(
-            set(changes),
-            {
-                "CutoverCandidate",
-                "DataVersion.parameter_values_hash",
-                "DataVersion.pinned_recipe_revision",
-                "DataVersion.recipe_id",
-                "DataVersion.workspace_project_id",
-                "Recipe.current_data_version_id",
-                "Recipe.cutover_candidate_id",
-                "Recipe.data_classification",
-                "Recipe.retention_days",
-                "RecipeApplication.credential_generation",
-                "RecipeApplication.source_selection_hash",
-                "RecipeApplication.target_binding_hash",
-                "RecipeApplication.workspace_project_id",
-                "RecipeIntent.recipe_id",
-                "RecipeQualification",
-                "WorkspaceResolution.recipe_id",
-            },
-        )
-        self.assertTrue(
-            all(
-                item["target_owner"] and item["disposition"]
-                for item in changes.values()
             )
         )
 

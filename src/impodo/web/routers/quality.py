@@ -19,8 +19,8 @@ def build_quality_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
-    @router.post("/workspaces/{project_id}/mapping/quality")
-    async def save_project_quality_checks(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/mapping/quality")
+    async def save_workspace_quality_checks(request: Request, workspace_id: str):
         """Save guided business checks without exposing the rule contract."""
 
         require_session(request)
@@ -41,11 +41,11 @@ def build_quality_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, allowed)
         try:
             dataset_id = _text(form, "quality_dataset_id")
-            configuration = context.quality.configuration(project_id, dataset_id)
+            configuration = context.quality.configuration(workspace_id, dataset_id)
             manager_rules = tuple(
                 _manager_quality_rules_from_form(
                     form,
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     dataset=configuration.dataset_name,
                     allowed_fields=set(configuration.allowed_fields),
                 )
@@ -58,7 +58,7 @@ def build_quality_router(context: WebContext) -> APIRouter:
         except (ValueError, WorkspaceError) as error:
             request.session["mapping_error"] = str(error)
             return RedirectResponse(
-                _mapping_return_url(request, project_id),
+                _mapping_return_url(request, workspace_id),
                 status_code=303,
             )
         _flash(
@@ -69,7 +69,7 @@ def build_quality_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            _mapping_return_url(request, project_id),
+            _mapping_return_url(request, workspace_id),
             status_code=303,
         )
 

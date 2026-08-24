@@ -37,8 +37,8 @@ HASH = "sha256:" + "1" * 64
 class RemoteReadinessCredentialTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = MemorySecretStore()
-        self.project = WorkspaceState(
-            project_id="project-1",
+        self.workspace_state = WorkspaceState(
+            workspace_id="project-1",
             name="Production customers",
             source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.REMOTE,
@@ -48,15 +48,15 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         )
         self.first = store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "first-secret",
             persistent=False,
         )
         self.target_hash = target_identity_hash(
-            connection_mode=self.project.odoo_connection_mode.value,
-            base_url=self.project.odoo_base_url,
-            database=self.project.odoo_database,
+            connection_mode=self.workspace_state.odoo_connection_mode.value,
+            base_url=self.workspace_state.odoo_base_url,
+            database=self.workspace_state.odoo_database,
         )
         self.schema = SimpleNamespace(
             models=(
@@ -125,7 +125,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
     def test_rotated_generation_is_probed_but_cannot_reuse_schema(self) -> None:
         store_target_credential(
             self.store,
-            self.project,
+            self.workspace_state,
             TargetCredentialRole.READ,
             "rotated-secret",
             persistent=False,
@@ -135,7 +135,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceError, "read key.*changed"):
             _read_readiness_snapshots(
                 context,
-                self.project,
+                self.workspace_state,
                 self._requirements(),
             )
 
@@ -151,7 +151,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceError, "permissions.*changed"):
             _read_readiness_snapshots(
                 context,
-                self.project,
+                self.workspace_state,
                 self._requirements(),
             )
 
@@ -174,7 +174,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
 
         result = _read_readiness_snapshots(
             context,
-            self.project,
+            self.workspace_state,
             self._requirements(
                 metadata_requests,
                 record_requests,
@@ -210,7 +210,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceError, "governed read policy"):
             _read_readiness_snapshots(
                 context,
-                self.project,
+                self.workspace_state,
                 self._requirements(
                     (MetadataRequest(model="res.users", fields=("login",)),),
                 ),
@@ -225,7 +225,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceError, "governed read policy"):
             _read_readiness_snapshots(
                 context,
-                self.project,
+                self.workspace_state,
                 self._requirements(
                     (
                         MetadataRequest(
@@ -273,7 +273,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceError, "governed read policy"):
             _read_readiness_snapshots(
                 context,
-                self.project,
+                self.workspace_state,
                 self._requirements(
                     (MetadataRequest(model="res.country", fields=("code",)),),
                     (
@@ -349,7 +349,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         ):
             _metadata, _records, access = _read_supporting_lookup_snapshots(
                 context,
-                self.project,
+                self.workspace_state,
                 self.schema,
                 relation_model="res.country",
                 requested_fields=("code", "name"),

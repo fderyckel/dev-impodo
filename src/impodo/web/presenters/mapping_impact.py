@@ -103,7 +103,7 @@ def _spacing_change_phrase(leading: int, trailing: int) -> str:
 
 def _mapping_save_error_response(
     request: Request,
-    project_id: str,
+    workspace_id: str,
     error: HTTPException,
     *,
     json_request: bool,
@@ -112,7 +112,7 @@ def _mapping_save_error_response(
     if json_request:
         return JSONResponse({"detail": detail}, status_code=error.status_code)
     if error.status_code in {400, 413, 415}:
-        return_url = _mapping_return_url(request, project_id)
+        return_url = _mapping_return_url(request, workspace_id)
         separator = "&" if "?" in return_url else "?"
         return RedirectResponse(
             f"{return_url}{separator}save_error=request_rejected",
@@ -121,10 +121,10 @@ def _mapping_save_error_response(
     return JSONResponse({"detail": detail}, status_code=error.status_code)
 
 
-def _transformation_impact_evidence(context: WebContext, project_id: str):
-    evidence = context.transformation_impacts.context(project_id)
+def _transformation_impact_evidence(context: WebContext, workspace_id: str):
+    evidence = context.transformation_impacts.context(workspace_id)
     return (
-        evidence.project,
+        evidence.workspace_state,
         evidence.revision,
         evidence.physical_selection,
         evidence.effective_selection,
@@ -149,11 +149,11 @@ def _transformation_impact_identity(
 
 def _transformation_impact_labels(
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     revision,
     effective_selection,
 ):
-    schema = context.queries.get_odoo_schema_catalog(project_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_id)
     model_by_name = {
         model.name: model for model in (schema.models if schema else ())
     }
@@ -226,7 +226,7 @@ def _transformation_impact_filters(
 
 
 def _transformation_impact_url(
-    project_id: str,
+    workspace_id: str,
     filters: TransformationImpactFilter,
     *,
     after: int | None = None,
@@ -243,13 +243,13 @@ def _transformation_impact_url(
     query = urlencode(
         {name: value for name, value in parameters.items() if value}
     )
-    base = f"/workspaces/{project_id}/mapping/transformation-impact"
+    base = f"/workspaces/{workspace_id}/mapping/transformation-impact"
     return f"{base}?{query}" if query else base
 
 
 def _mapping_return_url(
     request: Request,
-    project_id: str,
+    workspace_id: str,
     **updates: object,
 ) -> str:
     allowed_names = {
@@ -277,13 +277,13 @@ def _mapping_return_url(
         else:
             params[name] = str(value)
     query = urlencode(params)
-    base = f"/workspaces/{project_id}/mapping"
+    base = f"/workspaces/{workspace_id}/mapping"
     return f"{base}?{query}" if query else base
 
 
 def _transformation_rule_impact_views(
     request: Request,
-    project_id: str,
+    workspace_id: str,
     snapshot,
     revision,
     selection,
@@ -359,7 +359,7 @@ def _transformation_rule_impact_views(
         )
         fix_url = _mapping_return_url(
             request,
-            project_id,
+            workspace_id,
             mapping_dataset=dataset_index,
             scalar_page=1,
             field_query=field_label,

@@ -24,9 +24,9 @@ from ..models import (
 from .serialization import canonical_json, content_hash
 
 
-COVERAGE_SCOPE_CONTRACT_VERSION = 1
-REFERENCE_DATA_CONTRACT_VERSION = 1
-REFERENCE_BUNDLE_CONTRACT_VERSION = 1
+COVERAGE_SCOPE_CONTRACT_VERSION = 2
+REFERENCE_DATA_CONTRACT_VERSION = 2
+REFERENCE_BUNDLE_CONTRACT_VERSION = 2
 MAX_REFERENCE_DATASETS = 50
 MAX_REFERENCE_ROWS_PER_DATASET = 10_000
 MAX_REFERENCE_KEY_PARTS = 5
@@ -123,10 +123,10 @@ class CoverageDeclaration:
 
 @dataclass(frozen=True, slots=True)
 class CoverageScopeRevision:
-    """Complete approved coverage applicability for one project revision."""
+    """Complete approved coverage applicability for one workspace revision."""
 
     scope_id: str
-    project_id: str
+    workspace_id: str
     version: int
     parent_version: int | None
     source_selection_hash: str
@@ -137,7 +137,7 @@ class CoverageScopeRevision:
 
     def __post_init__(self) -> None:
         _uuid(self.scope_id, "coverage scope ID")
-        _required_text(self.project_id, "project ID", 200)
+        _required_text(self.workspace_id, "workspace ID", 200)
         _hash(self.source_selection_hash, "source selection hash")
         if self.contract_version != COVERAGE_SCOPE_CONTRACT_VERSION:
             raise ValueError("Coverage-scope contract version is unsupported")
@@ -175,7 +175,7 @@ class CoverageScopeRevision:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "scope_id": self.scope_id,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "version": self.version,
             "parent_version": self.parent_version,
             "source_selection_hash": self.source_selection_hash,
@@ -202,7 +202,7 @@ class CoverageScopeRevision:
         result = cls(
             contract_version=int(payload["contract_version"]),
             scope_id=str(payload["scope_id"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             version=int(payload["version"]),
             parent_version=(
                 int(payload["parent_version"])
@@ -374,12 +374,12 @@ class ReferenceDataSet:
 class ReferenceBundle:
     """Deterministically bind all exact reference inputs for one preparation."""
 
-    project_id: str
+    workspace_id: str
     datasets: tuple[ReferenceDataSet, ...]
     contract_version: int = REFERENCE_BUNDLE_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        _required_text(self.project_id, "project ID", 200)
+        _required_text(self.workspace_id, "workspace ID", 200)
         if self.contract_version != REFERENCE_BUNDLE_CONTRACT_VERSION:
             raise ValueError("Reference-bundle contract version is unsupported")
         if len(self.datasets) > MAX_REFERENCE_DATASETS:
@@ -400,7 +400,7 @@ class ReferenceBundle:
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "datasets": [item.to_portable_dict() for item in self.datasets],
         }
         if include_hash:
@@ -411,7 +411,7 @@ class ReferenceBundle:
     def from_dict(cls, payload: Mapping[str, Any]) -> "ReferenceBundle":
         result = cls(
             contract_version=int(payload["contract_version"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             datasets=tuple(
                 ReferenceDataSet.from_dict(item)
                 for item in payload.get("datasets", ())
@@ -434,7 +434,7 @@ def validate_odoo_selection_reference_outputs(
     """
 
     if (
-        bundle.project_id != schema_catalog.project_id
+        bundle.workspace_id != schema_catalog.workspace_id
         or mapping_definition.schema_hash != schema_catalog.content_hash
     ):
         raise ValueError("Reference selection validation bindings are stale")

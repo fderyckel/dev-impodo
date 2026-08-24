@@ -28,7 +28,7 @@ class ExecutionRepository(DuckDbRepository):
 
     def start_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run: ExecutionRun,
         *,
         actor: Actor,
@@ -39,7 +39,7 @@ class ExecutionRepository(DuckDbRepository):
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Execution run identifier is invalid") from error
         if (
-            run.project_id != project_id
+            run.workspace_id != workspace_id
             or run.status is not ExecutionRunStatus.RUNNING
             or run.completed_at is not None
             or run.batch_rows is None
@@ -49,7 +49,7 @@ class ExecutionRepository(DuckDbRepository):
             or any(item.status is not ExecutionRowStatus.PLANNED for item in run.rows)
         ):
             raise WorkspaceError("Execution run is invalid")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -156,7 +156,7 @@ class ExecutionRepository(DuckDbRepository):
 
     def record_outcomes(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         rows: Sequence[ExecutionRowAttempt],
     ) -> None:
@@ -185,7 +185,7 @@ class ExecutionRepository(DuckDbRepository):
             for item in rows
         ):
             raise WorkspaceError("Execution outcome is invalid")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -234,7 +234,7 @@ class ExecutionRepository(DuckDbRepository):
 
     def finish_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         status: ExecutionRunStatus,
         *,
@@ -243,7 +243,7 @@ class ExecutionRepository(DuckDbRepository):
         if status is ExecutionRunStatus.RUNNING:
             raise WorkspaceError("Execution completion status is invalid")
         canonical_run_id = str(UUID(run_id))
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -283,14 +283,14 @@ class ExecutionRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        result = self.get_run(project_id, canonical_run_id)
+        result = self.get_run(workspace_id, canonical_run_id)
         if result is None:
             raise WorkspaceError("Execution run could not be reloaded")
         return result
 
     def get_current_run(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot_hash: str | None = None,
     ) -> ExecutionRun | None:
         query = """
@@ -303,12 +303,12 @@ class ExecutionRepository(DuckDbRepository):
         if snapshot_hash is not None:
             query += " AND run.snapshot_hash = ?"
             parameters.append(snapshot_hash)
-        values = self._read_json_rows(project_id, query, parameters)
-        return self.get_run(project_id, values[0]) if values else None
+        values = self._read_json_rows(workspace_id, query, parameters)
+        return self.get_run(workspace_id, values[0]) if values else None
 
-    def get_run(self, project_id: str, run_id: str) -> ExecutionRun | None:
+    def get_run(self, workspace_id: str, run_id: str) -> ExecutionRun | None:
         canonical_run_id = str(UUID(run_id))
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -335,7 +335,7 @@ class ExecutionRepository(DuckDbRepository):
             return None
         return ExecutionRun(
             run_id=canonical_run_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             snapshot_hash=str(header[0]),
             snapshot_root_hash=str(header[1]),
             preflight_run_id=str(header[2]),

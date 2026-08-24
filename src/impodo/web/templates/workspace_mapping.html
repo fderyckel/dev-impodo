@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Match data · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Match data · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
@@ -42,23 +42,10 @@
     </div>
   {% endif %}
 
-  {% if contract_upgrade_review %}
-    <div class="notice warning">
-      <strong>Review legacy choice behavior before recipe reuse</strong>
-      <p>
-        This stored version {{ contract_upgrade_review.source_contract_version }} mapping still loads unchanged.
-        Confirm an explicit coverage rule for each of its {{ contract_upgrade_review.categorical_items|length }} affected choice field(s); Impodo will save the result as a new version 11 mapping rather than reinterpret the old evidence.
-      </p>
-      {% if contract_upgrade_review.unsupported_reasons %}
-        <p>{{ contract_upgrade_review.unsupported_reasons|length }} older rule(s) need a supported converter before you can save or reuse this Recipe.</p>
-      {% endif %}
-    </div>
-  {% endif %}
-
   {% if selection and schema and (governance or odoo_pinned) %}
     <form
       method="post"
-      action="/workspaces/{{ project.project_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+      action="/workspaces/{{ workspace_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
       data-mapping-form
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -247,7 +234,7 @@
               {% else %}
                 <div class="empty-state compact">
                   <p>No matching rule has been confirmed for {{ view.selected_model }}.</p>
-                  <a class="button secondary" href="/workspaces/{{ project.project_id }}/schema">Set an Odoo matching rule</a>
+                  <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Set an Odoo matching rule</a>
                 </div>
               {% endif %}
             </section>
@@ -260,7 +247,7 @@
           {% block scalar_field_catalog scoped %}
           <div
             data-scalar-field-catalog
-            data-scalar-search-url="/workspaces/{{ project_id }}/mapping/field-catalog"
+            data-scalar-search-url="/workspaces/{{ workspace_id }}/mapping/field-catalog"
             data-scalar-catalog-total="{{ view.scalar_catalog_total }}"
             data-scalar-matching-total="{{ view.scalar_matching_total }}"
             data-scalar-mapped-total="{{ view.scalar_mapped_total }}"
@@ -491,7 +478,7 @@
                             name="scalar_categorical_policy_{{ dataset_index }}_{{ field_index }}"
                             data-categorical-policy
                           >
-                            {% if not scalar_policy %}<option value="" selected>Choose after reviewing this legacy field</option>{% endif %}
+                            {% if not scalar_policy %}<option value="" selected>Choose how source values are handled</option>{% endif %}
                             <option value="EXACT_TARGET_VALUE" {% if scalar_policy == 'EXACT_TARGET_VALUE' %}selected{% endif %}>Every final value is already an exact Odoo code</option>
                             <option value="EXPLICIT_VALUE_MATCH" {% if scalar_policy == 'EXPLICIT_VALUE_MATCH' %}selected{% endif %}>Every populated source choice must be explicitly matched</option>
                           </select>
@@ -748,7 +735,7 @@
                           >
                           Allow Impodo to update this field
                         </label>
-                        {% if row.write_block_reason %}<small>{{ row.write_block_reason }}</small>{% else %}<small>Off by default and saved as auditable project evidence.</small>{% endif %}
+                        {% if row.write_block_reason %}<small>{{ row.write_block_reason }}</small>{% else %}<small>Off by default and saved as auditable workspace evidence.</small>{% endif %}
                       {% endif %}
                     </th>
                     <td class="support-cell">
@@ -822,7 +809,7 @@
           {% block relation_field_catalog scoped %}
           <div
             data-relation-field-catalog
-            data-relation-search-url="/workspaces/{{ project_id }}/mapping/field-catalog"
+            data-relation-search-url="/workspaces/{{ workspace_id }}/mapping/field-catalog"
             data-relation-catalog-total="{{ view.relation_catalog_total }}"
             data-relation-matching-total="{{ view.relation_matching_total }}"
             data-relation-mapped-total="{{ view.relation_mapped_total }}"
@@ -877,7 +864,7 @@
                   {% if row.recommended_dataset_id and not mapping %}
                     <div class="notice success">
                       {% if row.recommendation_kind == 'extracted_lookup' %}
-                        Suggested from the separate list created from this source field. Review the choices below; Impodo will match each value against that project table.
+                        Suggested from the separate list created from this source field. Review the choices below; Impodo will match each value against that related source table.
                       {% else %}
                         Suggested from the combined-information step. Review the choices below; Impodo will stop if a main record is missing or unclear.
                       {% endif %}
@@ -899,11 +886,11 @@
                       {% set selected_origin = mapping.resolver.origin.value if mapping else ('dataset' if row.recommended_dataset_id else 'target_catalog') %}
                       <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
                         <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo choices</option>
-                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Another table in this project</option>
+                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Another selected source table</option>
                       </select>
                     </label>
                     <label>
-                      Which project table?
+                      Which related source table?
                       <select name="relation_dataset_{{ dataset_index }}_{{ relation_index }}">
                         <option value="">Not from another table</option>
                         {% for candidate in view.other_datasets %}
@@ -948,7 +935,7 @@
                         name="relation_categorical_policy_{{ dataset_index }}_{{ relation_index }}"
                         data-categorical-policy
                       >
-                        {% if not relation_policy %}<option value="" selected>Choose after reviewing this legacy field</option>{% endif %}
+                        {% if not relation_policy %}<option value="" selected>Choose how source values are handled</option>{% endif %}
                         <option value="EXACT_BUSINESS_KEY" {% if relation_policy == 'EXACT_BUSINESS_KEY' %}selected{% endif %}>Every value is already an exact business key</option>
                         <option value="EXPLICIT_KEY_MATCH" {% if relation_policy == 'EXPLICIT_KEY_MATCH' %}selected{% endif %}>Every populated source choice must be explicitly matched</option>
                       </select>
@@ -1144,7 +1131,7 @@
           {% endif %}
           {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
             <div class="actions">
-              <a class="button secondary" href="/workspaces/{{ project.project_id }}/mapping/transformation-impact">Review rule effects</a>
+              <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Review rule effects</a>
             </div>
             <p class="muted">Shows how the confirmed rules prepare every source row. This does not contact or change Odoo.</p>
           {% endif %}
@@ -1158,7 +1145,7 @@
                 Impodo must evaluate the current saved mapping against every source row first.
               {% endif %}
               <div class="actions">
-                <a class="button primary" href="/workspaces/{{ project.project_id }}/mapping/transformation-impact">Review rule effects</a>
+                <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Review rule effects</a>
               </div>
             </div>
           {% endif %}
@@ -1312,7 +1299,7 @@
             Changes are not saved yet.
           {% endif %}
         </p>
-        <a class="button secondary" href="/workspaces/{{ project.project_id }}/{{ 'sources' if odoo_pinned else 'schema' }}">Back to Odoo data</a>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/{{ 'sources' if odoo_pinned else 'schema' }}">Back to Odoo data</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
         <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
         {% if next_step.available and next_step.kind == 'link' %}
@@ -1340,7 +1327,7 @@
             </ul>
             <small>These recommended checks protect every row and cannot be switched off.</small>
           </div>
-          <form method="post" action="/workspaces/{{ project.project_id }}/mapping/quality">
+          <form method="post" action="/workspaces/{{ workspace_id }}/mapping/quality">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="quality_dataset_id" value="{{ quality_view.dataset_id }}">
             <div class="page-heading compact">
@@ -1406,15 +1393,15 @@
                           {% set selected_outcome = rule.outcome.value if rule else 'QUARANTINE' %}
                           <option value="WARNING" {% if selected_outcome == 'WARNING' %}selected{% endif %}>Ask me to review</option>
                           <option value="QUARANTINE" {% if selected_outcome == 'QUARANTINE' %}selected{% endif %}>Set affected records aside</option>
-                          <option value="BLOCK" {% if selected_outcome == 'BLOCK' %}selected{% endif %}>Stop this project</option>
+                          <option value="BLOCK" {% if selected_outcome == 'BLOCK' %}selected{% endif %}>Block this data</option>
                         </select>
                       </label>
                       <label>
                         Review owner
                         {% set selected_owner = rule.owner_role.value if rule else 'DATA_MANAGER' %}
                         <select name="quality_owner_{{ slot.index }}">
-                          <option value="DATA_MANAGER" {% if selected_owner == 'DATA_MANAGER' %}selected{% endif %}>Data manager{% if project.data_manager %} · {{ project.data_manager }}{% endif %}</option>
-                          <option value="FUNCTIONAL_OWNER" {% if selected_owner == 'FUNCTIONAL_OWNER' %}selected{% endif %}>Functional owner{% if project.functional_owner %} · {{ project.functional_owner }}{% endif %}</option>
+                          <option value="DATA_MANAGER" {% if selected_owner == 'DATA_MANAGER' %}selected{% endif %}>Data manager</option>
+                          <option value="FUNCTIONAL_OWNER" {% if selected_owner == 'FUNCTIONAL_OWNER' %}selected{% endif %}>Functional owner</option>
                         </select>
                       </label>
                     </div>
@@ -1433,7 +1420,7 @@
     <dialog
       class="value-match-dialog"
       data-value-match-dialog
-      data-value-match-endpoint="/workspaces/{{ project.project_id }}/mapping/value-choices"
+      data-value-match-endpoint="/workspaces/{{ workspace_id }}/mapping/value-choices"
       aria-labelledby="value-match-title"
     >
       <div class="dialog-heading">
@@ -1473,7 +1460,7 @@
       <div class="empty-state">
         <h2>Finish choosing your source and Odoo data first</h2>
         <p>Choose the source tables, select the Odoo data, and confirm how existing records should be found.</p>
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/schema">Choose Odoo data</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
       </div>
     </section>
   {% endif %}

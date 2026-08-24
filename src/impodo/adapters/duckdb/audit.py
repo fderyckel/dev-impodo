@@ -1,4 +1,4 @@
-"""Append verified actor and project-transition evidence inside active writes.
+"""Append verified actor and workspace-transition evidence inside active writes.
 
 Repositories call ``AuditMixin`` only within the same transaction as the
 state/pointer change being described. Events retain stable actor issuer and
@@ -40,7 +40,7 @@ class AuditMixin:
         connection.execute(
             """
             INSERT INTO audit_event (
-                event_id, event_type, project_revision, occurred_at, detail,
+                event_id, event_type, workspace_revision, occurred_at, detail,
                 actor_issuer, actor_subject, actor_display_name
             )
             VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?, ?, ?, ?)
@@ -59,7 +59,7 @@ class AuditMixin:
     def _insert_audit(
         self,
         connection: duckdb.DuckDBPyConnection,
-        project: WorkspaceState,
+        workspace: WorkspaceState,
         *,
         event_type: str,
         detail: str,
@@ -68,15 +68,15 @@ class AuditMixin:
         connection.execute(
             """
             INSERT INTO audit_event (
-                event_id, event_type, project_revision, occurred_at, detail,
+                event_id, event_type, workspace_revision, occurred_at, detail,
                 actor_issuer, actor_subject, actor_display_name
             )
             VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 event_type,
-                project.revision,
-                project.updated_at.isoformat(),
+                workspace.revision,
+                workspace.updated_at.isoformat(),
                 detail,
                 actor.identity.issuer,
                 actor.identity.subject_id,

@@ -9,7 +9,7 @@ import os
 from typing import Callable
 
 from ...access import Actor
-from ...artifacts import ArtifactStore
+from ...artifacts import DataVersionSourceArtifactStore
 from ...domain.odoo_capture import OdooCaptureSelection
 from ...domain.odoo_provenance import OdooCaptureManifest
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
@@ -21,7 +21,10 @@ from ...domain.source_snapshot import (
     SourceSnapshotSchema,
 )
 from ...workspace_state import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
-from ...workspace_contracts import SourceSelection
+from ...workspace_contracts import (
+    SourceSelection,
+    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+)
 from ...workspace_errors import WorkspaceError
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
@@ -33,10 +36,10 @@ class OdooProvenanceRepository(DuckDbRepository):
     def __init__(
         self,
         database: DuckDbWorkspaceDatabase,
-        artifacts: ArtifactStore,
+        artifacts: DataVersionSourceArtifactStore,
         *,
         history_quota_bytes: int | None = None,
-        protected_root: Callable[[str], Path] | None = None,
+        protected_root: Callable[[str], Path],
     ) -> None:
         super().__init__(database)
         self._artifacts = artifacts
@@ -51,7 +54,7 @@ class OdooProvenanceRepository(DuckDbRepository):
 
     def publish_complete_capture(
         self,
-        project_id: str,
+        workspace_id: str,
         manifest: OdooCaptureManifest,
         encrypted_candidate: bytes,
         source_selection: SourceSelection,
@@ -62,7 +65,7 @@ class OdooProvenanceRepository(DuckDbRepository):
         """Promote values, origins, and all current pointers as one publication."""
 
         _validate_complete_capture(
-            project_id,
+            workspace_id,
             manifest,
             source_selection,
             source_snapshot,
@@ -78,18 +81,18 @@ class OdooProvenanceRepository(DuckDbRepository):
             raise WorkspaceError("Odoo provenance candidate is already expired")
         if (
             self._artifacts.source_snapshot_size(
-                project_id,
+                source_snapshot.data_version_id,
                 source_snapshot.parquet_storage_key,
             )
             != manifest.data_size_bytes
         ):
             raise WorkspaceError("Odoo values artifact size is inconsistent")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
 
-        candidate_path = self._candidate_path(project_id, manifest.manifest_id)
-        final_path = self._artifact_path(project_id, manifest.provenance_storage_key)
+        candidate_path = self._candidate_path(workspace_id, manifest.manifest_id)
+        final_path = self._artifact_path(workspace_id, manifest.provenance_storage_key)
         if candidate_path.exists() or final_path.exists():
             raise WorkspaceError("Odoo provenance artifact already exists")
         self._write_candidate(candidate_path, encrypted_candidate)
@@ -97,17 +100,18 @@ class OdooProvenanceRepository(DuckDbRepository):
         try:
             with self._connect(database_path) as connection:
                 self._ensure_workspace_database_schema(connection)
-                project = connection.execute(
-                    "SELECT source_mode, status, revision FROM workspace_state"
+                workspace_projection = connection.execute(
+                    "SELECT source_mode, status, revision "
+                    "FROM workspace_projection_cache"
                 ).fetchone()
-                if project is None:
+                if workspace_projection is None:
                     raise WorkspaceStateNotFoundError("Workspace engine state not found")
                 if (
-                    str(project[0]) != SourceMode.ODOO.value
-                    or str(project[1]) != WorkspaceStatus.REGISTERED.value
+                    str(workspace_projection[0]) != SourceMode.ODOO.value
+                    or str(workspace_projection[1]) != WorkspaceStatus.REGISTERED.value
                 ):
                     raise WorkspaceError(
-                        "Only registered Odoo-source projects can publish a capture"
+                        "Only registered Odoo-source workspaces can publish a capture"
                     )
                 selection_row = connection.execute(
                     """
@@ -281,7 +285,7 @@ class OdooProvenanceRepository(DuckDbRepository):
                     )
                     self._insert_workspace_audit(
                         connection,
-                        revision=int(project[2]),
+                        revision=int(workspace_projection[2]),
                         event_type="ODOO_SOURCE_CAPTURE_PUBLISHED",
                         detail=(
                             f"manifest {manifest.content_hash}; "
@@ -301,11 +305,11 @@ class OdooProvenanceRepository(DuckDbRepository):
             candidate_path.unlink(missing_ok=True)
             raise
 
-    def get_current(self, project_id: str) -> OdooCaptureManifest | None:
+    def get_current(self, workspace_id: str) -> OdooCaptureManifest | None:
         """Restore and verify the one current protected manifest contract."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT revision.manifest_json
               FROM odoo_capture_manifest_current AS current
@@ -316,13 +320,13 @@ class OdooProvenanceRepository(DuckDbRepository):
         )
         return OdooCaptureManifest.from_json(value) if value else None
 
-    def history(self, project_id: str) -> tuple[OdooCaptureManifest, ...]:
+    def history(self, workspace_id: str) -> tuple[OdooCaptureManifest, ...]:
         """Restore immutable capture manifests without opening protected files."""
 
         return tuple(
             OdooCaptureManifest.from_json(value)
             for value in self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT manifest_json
                   FROM odoo_capture_manifest_revision
@@ -331,12 +335,12 @@ class OdooProvenanceRepository(DuckDbRepository):
             )
         )
 
-    def source_snapshot_storage_keys(self, project_id: str) -> frozenset[str]:
+    def source_snapshot_storage_keys(self, workspace_id: str) -> frozenset[str]:
         """Return the immutable value artifacts registered by current code."""
 
         return frozenset(
             self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT parquet_storage_key
                   FROM source_snapshot_manifest
@@ -345,14 +349,15 @@ class OdooProvenanceRepository(DuckDbRepository):
             )
         )
 
-    def recover_incomplete_publications(self, project_id: str) -> int:
+    def recover_incomplete_publications(self, workspace_id: str) -> int:
         """Remove pending and unreferenced artifacts without moving pointers."""
 
+        manifests = self.history(workspace_id)
         referenced_provenance = {
-            manifest.provenance_storage_key for manifest in self.history(project_id)
+            manifest.provenance_storage_key for manifest in manifests
         }
         removed = 0
-        root = self._protected_root(project_id)
+        root = self._protected_root(workspace_id)
         candidates = root / "candidates"
         if candidates.is_symlink():
             raise WorkspaceError("Protected Odoo candidate directory is unsafe")
@@ -371,18 +376,31 @@ class OdooProvenanceRepository(DuckDbRepository):
                 if candidate.is_symlink() or relative not in referenced_provenance:
                     candidate.unlink(missing_ok=True)
                     removed += 1
-        removed += self._artifacts.cleanup_source_snapshots(
-            project_id,
-            self.source_snapshot_storage_keys(project_id),
-        )
+        if manifests:
+            data_version_ids = {item.data_version_id for item in manifests}
+            if len(data_version_ids) != 1:
+                raise WorkspaceError(
+                    "Odoo capture history spans more than one DataVersion"
+                )
+            removed += self._artifacts.cleanup_source_snapshots(
+                data_version_ids.pop(),
+                self.source_snapshot_storage_keys(workspace_id),
+            )
         return removed
 
-    def read_encrypted(self, project_id: str, manifest: OdooCaptureManifest) -> bytes:
+    def read_encrypted(self, workspace_id: str, manifest: OdooCaptureManifest) -> bytes:
         """Read one contained, bounded protected sidecar for service verification."""
 
-        if manifest.project_id != project_id:
-            raise WorkspaceError("Odoo capture manifest belongs to another project")
-        path = self._artifact_path(project_id, manifest.provenance_storage_key)
+        context_reader = getattr(self._database, "workspace_access_context", None)
+        if (
+            context_reader is not None
+            and manifest.data_version_id
+            != context_reader(workspace_id).data_version_id
+        ):
+            raise WorkspaceError(
+                "Odoo capture manifest belongs to another DataVersion"
+            )
+        path = self._artifact_path(workspace_id, manifest.provenance_storage_key)
         if path.is_symlink() or not path.is_file():
             raise WorkspaceError("Stored Odoo provenance artifact is missing")
         if path.stat().st_size != manifest.provenance_size_bytes:
@@ -395,7 +413,7 @@ class OdooProvenanceRepository(DuckDbRepository):
 
     def invalidate_current(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         reason: str,
         actor: Actor,
@@ -404,7 +422,7 @@ class OdooProvenanceRepository(DuckDbRepository):
 
         if not reason.strip() or len(reason) > 200:
             raise WorkspaceError("Odoo provenance invalidation reason is invalid")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -445,7 +463,7 @@ class OdooProvenanceRepository(DuckDbRepository):
 
     def purge_expired_history(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         now: datetime,
         actor: Actor,
@@ -454,14 +472,15 @@ class OdooProvenanceRepository(DuckDbRepository):
 
         if now.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             rows = connection.execute(
                 """
-                SELECT manifest_id, provenance_storage_key, data_storage_key
+                SELECT manifest_id, provenance_storage_key, data_storage_key,
+                       manifest_json
                   FROM odoo_capture_manifest_revision
                  WHERE retention_until <= ?
                    AND manifest_id NOT IN (
@@ -513,11 +532,19 @@ class OdooProvenanceRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        for _, storage_key, _ in rows:
-            self._artifact_path(project_id, str(storage_key)).unlink(missing_ok=True)
+        for _, storage_key, _, _ in rows:
+            self._artifact_path(workspace_id, str(storage_key)).unlink(missing_ok=True)
+        expired_data_version_ids = {
+            OdooCaptureManifest.from_json(str(row[3])).data_version_id
+            for row in rows
+        }
+        if len(expired_data_version_ids) != 1:
+            raise WorkspaceError(
+                "Expired Odoo capture history spans more than one DataVersion"
+            )
         self._artifacts.cleanup_source_snapshots(
-            project_id,
-            self.source_snapshot_storage_keys(project_id),
+            expired_data_version_ids.pop(),
+            self.source_snapshot_storage_keys(workspace_id),
         )
         return len(rows)
 
@@ -535,20 +562,20 @@ class OdooProvenanceRepository(DuckDbRepository):
             path.unlink(missing_ok=True)
             raise
 
-    def _candidate_path(self, project_id: str, manifest_id: str) -> Path:
-        root = self._protected_root(project_id)
+    def _candidate_path(self, workspace_id: str, manifest_id: str) -> Path:
+        root = self._protected_root(workspace_id)
         candidates = root / "candidates"
         if candidates.is_symlink():
             raise WorkspaceError("Protected Odoo candidate directory is unsafe")
         _mkdir_private(candidates)
         if candidates.resolve().parent != root.resolve():
             raise WorkspaceError(
-                "Protected Odoo candidate directory escapes the project"
+                "Protected Odoo candidate directory escapes its DataVersion root"
             )
         return candidates / f"{manifest_id}.pending"
 
-    def _artifact_path(self, project_id: str, storage_key: str) -> Path:
-        root = self._protected_root(project_id)
+    def _artifact_path(self, workspace_id: str, storage_key: str) -> Path:
+        root = self._protected_root(workspace_id)
         captures = root / "captures"
         if captures.is_symlink():
             raise WorkspaceError("Protected Odoo capture directory is unsafe")
@@ -559,15 +586,13 @@ class OdooProvenanceRepository(DuckDbRepository):
             captures.resolve().parent != root.resolve()
             or resolved.parent != captures.resolve()
         ):
-            raise WorkspaceError("Odoo provenance storage key escapes the project")
+            raise WorkspaceError(
+                "Odoo provenance storage key escapes its DataVersion root"
+            )
         return candidate
 
-    def _protected_root(self, project_id: str) -> Path:
-        root = (
-            self._protected_root_resolver(project_id)
-            if self._protected_root_resolver is not None
-            else self.workspace_directory(project_id) / "protected"
-        )
+    def _protected_root(self, workspace_id: str) -> Path:
+        root = self._protected_root_resolver(workspace_id)
         if root.is_symlink():
             raise WorkspaceError("Protected Odoo evidence directory is unsafe")
         _mkdir_private(root, parents=True)
@@ -583,20 +608,22 @@ def _mkdir_private(path: Path, *, parents: bool = False) -> None:
 
 
 def _validate_complete_capture(
-    project_id: str,
+    workspace_id: str,
     manifest: OdooCaptureManifest,
     selection: SourceSelection,
     snapshot: SourceSnapshot,
 ) -> None:
     if (
-        manifest.project_id != project_id
-        or selection.project_id != project_id
+        manifest.data_version_id != selection.data_version_id
         or len(selection.datasets) != 1
     ):
-        raise WorkspaceError("Odoo capture publication belongs to another project")
+        raise WorkspaceError(
+            "Odoo capture publication belongs to another DataVersion"
+        )
     expected_selection_hash = content_hash(
         {
-            "project_id": project_id,
+            "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+            "data_version_id": selection.data_version_id,
             "version": selection.version,
             "datasets": [item.to_dict() for item in selection.datasets],
         }
@@ -630,7 +657,7 @@ def _validate_complete_capture(
         or tuple(item.source_name for item in dataset.columns) != manifest.field_names
         or tuple(item.stable_key for item in dataset.columns)
         != manifest.column_stable_keys
-        or snapshot.project_id != project_id
+        or snapshot.data_version_id != selection.data_version_id
         or snapshot.dataset_id != dataset.dataset_id
         or snapshot.dataset_name != dataset.name
         or snapshot.source != dataset.source
@@ -644,4 +671,3 @@ def _validate_complete_capture(
         raise WorkspaceError(
             "Odoo values, provenance, and source snapshot bindings are inconsistent"
         )
-

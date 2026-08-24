@@ -41,7 +41,7 @@ from ..errors import ReadinessError
 from ..mapping.artifacts import MappingRevision
 
 
-FROZEN_PREFLIGHT_INPUT_VERSION = 4
+FROZEN_PREFLIGHT_INPUT_VERSION = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +54,7 @@ class FrozenPreflightInput:
     normalization evidence authorized them.
     """
 
-    project_id: str
+    workspace_id: str
     revision: MappingRevision
     staging: StagingRunSummary
     quality: QualityRunSummary
@@ -73,7 +73,7 @@ class FrozenPreflightInput:
 
         payload = {
             "contract_version": self.contract_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "mapping_id": self.revision.mapping_id,
             "mapping_version": self.revision.version,
             "mapping_content_hash": self.revision.definition.content_hash,
@@ -108,7 +108,7 @@ class FrozenPreflightInput:
 
 def build_frozen_preflight_input(
     *,
-    project_id: str,
+    workspace_id: str,
     revision: MappingRevision,
     selection: SourceSelection,
     staging_summary: StagingRunSummary,
@@ -187,7 +187,7 @@ def build_frozen_preflight_input(
         item.canonical_row for item in effective.rows
     ) if effective is not None else staging.rows
     if effective is not None and (
-        effective.project_id != project_id
+        effective.workspace_id != workspace_id
         or effective.staging_content_hash != staging_summary.content_hash
         or effective.content_hash != quality.effective_dataset_hash
         or quality_summary.effective_dataset_run_id is None
@@ -214,7 +214,7 @@ def build_frozen_preflight_input(
         row.row_id for row in rows if row.row_id in eligible_ids
     )
     result = FrozenPreflightInput(
-        project_id=project_id,
+        workspace_id=workspace_id,
         revision=revision,
         staging=staging_summary,
         quality=quality_summary,

@@ -12,6 +12,7 @@ from ..derived_entities import DerivedEntityPlan
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
     DatasetMapping,
     MappingTargetMode,
 )
@@ -21,7 +22,10 @@ from ..domain.recipe_parameters import (
     RecipeParameterDefinitions,
 )
 from ..domain.serialization import canonical_json, content_hash, portable
-from ..domain.recipe_envelope import validate_recipe_envelope
+from ..domain.recipe_envelope import (
+    CURRENT_RECIPE_CONTRACT_VERSIONS,
+    validate_recipe_envelope,
+)
 from ..quality import QualityRuleSet, QualityRuleSource
 from ..reference_keys import (
     REFERENCE_POLICY_HASH,
@@ -42,31 +46,28 @@ from ..recipes import (
 from ..workspace_contracts import OdooSchemaCatalog, SourceDataset, SourceSelection
 
 
-_RECIPE_MAPPING_CONTRACT_VERSIONS = frozenset({11, 12})
-
-
 class RecipeAuthoringSourceRepository(Protocol):
     def get_source_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SourceSelection | None: ...
 
     def get_mapping_source_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SourceSelection | None: ...
 
 
 class RecipeAuthoringMappingRepository(Protocol):
     def get_mapping_revision(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int | None = None,
     ) -> MappingRevision | None: ...
 
     def get_mapping_submission(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int | None = None,
     ) -> MappingSubmission | None: ...
 
@@ -74,42 +75,42 @@ class RecipeAuthoringMappingRepository(Protocol):
 class RecipeAuthoringSchemaRepository(Protocol):
     def get_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooSchemaCatalog | None: ...
 
     def get_schema_governance(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SchemaGovernance | None: ...
 
 
 class RecipeAuthoringQualityRepository(Protocol):
     def get_current_quality_ruleset(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> QualityRuleSet | None: ...
 
 
 class RecipeAuthoringPreparationRepository(Protocol):
     def get_derived_entity_plan(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> DerivedEntityPlan | None: ...
 
 
 class RecipeAuthoringReferenceRepository(Protocol):
-    def get_reference_bundle(self, project_id: str) -> ReferenceBundle | None: ...
+    def get_reference_bundle(self, workspace_id: str) -> ReferenceBundle | None: ...
 
 
 class RecipeAuthoringParameterRepository(Protocol):
     def get_parameter_definitions(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> RecipeParameterDefinitions: ...
 
     def save_parameter_definitions(
         self,
-        project_id: str,
+        workspace_id: str,
         definitions: RecipeParameterDefinitions,
         *,
         actor: Actor,
@@ -173,9 +174,9 @@ class RecipeCompiler:
 
     def _compile(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[CompiledRecipeDefinition | None, tuple[RecipeDraftIssue, ...]]:
-        selection = self.sources.get_mapping_source_selection(project_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             return None, (
                 self._issue(
@@ -185,7 +186,7 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.SOURCE_DATA,
                 ),
             )
-        base_selection = self.sources.get_source_selection(project_id) or selection
+        base_selection = self.sources.get_source_selection(workspace_id) or selection
         if any(item.origin.value == "ODOO" for item in base_selection.datasets):
             return None, (
                 self._issue(
@@ -195,9 +196,9 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.NEW_PROJECT,
                 ),
             )
-        revision = self.mappings.get_mapping_revision(project_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
         submission = (
-            self.mappings.get_mapping_submission(project_id, revision.version)
+            self.mappings.get_mapping_submission(workspace_id, revision.version)
             if revision is not None
             else None
         )
@@ -215,10 +216,7 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
             )
-        if (
-            revision.definition.contract_version
-            not in _RECIPE_MAPPING_CONTRACT_VERSIONS
-        ):
+        if revision.definition.contract_version != MAPPING_CONTRACT_VERSION:
             return None, (
                 self._issue(
                     "MAPPING_CONTRACT_NOT_PORTABLE",
@@ -239,8 +237,8 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
             )
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        governance = self.schemas.get_schema_governance(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        governance = self.schemas.get_schema_governance(workspace_id)
         if (
             schema is None
             or governance is None
@@ -264,7 +262,7 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
             )
-        ruleset = self.quality.get_current_quality_ruleset(project_id)
+        ruleset = self.quality.get_current_quality_ruleset(workspace_id)
         if (
             ruleset is None
             or ruleset.mapping_hash != revision.definition.content_hash
@@ -280,7 +278,7 @@ class RecipeCompiler:
             )
         try:
             parameter_definitions = (
-                self.parameters.get_parameter_definitions(project_id)
+                self.parameters.get_parameter_definitions(workspace_id)
                 if self.parameters is not None
                 else RecipeParameterDefinitions()
             )
@@ -291,8 +289,8 @@ class RecipeCompiler:
                 schema=schema,
                 governance=governance,
                 ruleset=ruleset,
-                preparation=self.preparation.get_derived_entity_plan(project_id),
-                references=self.references.get_reference_bundle(project_id),
+                preparation=self.preparation.get_derived_entity_plan(workspace_id),
+                references=self.references.get_reference_bundle(workspace_id),
                 parameter_definitions=parameter_definitions,
             )
             self._validate_portability(compiled)
@@ -412,18 +410,7 @@ class RecipeCompiler:
             dataset_ids,
         )
         recipe: dict[str, object] = {
-            "contract_versions": {
-                "control_definitions": 1,
-                "mapping_recipe": 2,
-                "odoo_target_contract": 2,
-                "quality_recipe": 1,
-                "recipe_definition": 2,
-                "recipe_parameter_definitions": 1,
-                "reference_dependencies": 1,
-                "source_preparation_recipe": 1,
-                "source_shape_recipe": 1,
-                "target_governance_recipe": 1,
-            },
+            "contract_versions": dict(CURRENT_RECIPE_CONTRACT_VERSIONS),
             "source_shape": source_shape,
             "parameter_definitions": {
                 "parameters": self._parameter_definitions(

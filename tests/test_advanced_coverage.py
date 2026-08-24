@@ -116,7 +116,7 @@ def _hash(number: int) -> str:
     return "sha256:" + format(number, "064x")
 
 
-def _scope(*, project_id: str = "project-1", source_hash: str = HASH_A) -> CoverageScopeRevision:
+def _scope(*, workspace_id: str = "workspace-1", source_hash: str = HASH_A) -> CoverageScopeRevision:
     declarations = tuple(
         CoverageDeclaration(
             family=family,
@@ -138,7 +138,7 @@ def _scope(*, project_id: str = "project-1", source_hash: str = HASH_A) -> Cover
     )
     return CoverageScopeRevision(
         scope_id=str(uuid4()),
-        project_id=project_id,
+        workspace_id=workspace_id,
         version=1,
         parent_version=None,
         source_selection_hash=source_hash,
@@ -169,7 +169,7 @@ def _reference_dataset() -> ReferenceDataSet:
 
 def _policy(
     *,
-    project_id: str = "project-1",
+    workspace_id: str = "workspace-1",
     coverage_scope_hash: str = HASH_A,
     mapping_hash: str = HASH_B,
     schema_hash: str = HASH_C,
@@ -201,7 +201,7 @@ def _policy(
     )
     return ResolutionPolicy(
         policy_id=str(uuid4()),
-        project_id=project_id,
+        workspace_id=workspace_id,
         version=1,
         parent_version=None,
         coverage_scope_hash=coverage_scope_hash,
@@ -257,7 +257,7 @@ def _staging_run(project_id: str, rows: tuple[CanonicalRow, ...]) -> CanonicalSt
         rows=rows,
     )
     return CanonicalStagingRun(
-        project_id=project_id,
+        workspace_id=project_id,
         mapping_id="mapping:partners",
         physical_selection_hash=HASH_A,
         source_selection_hash=HASH_A,
@@ -316,7 +316,7 @@ def _structural_selection() -> tuple[SourceSelection, dict[str, SourceTable]]:
     selection = SourceSelection(
         selection_id=str(uuid4()),
         version=1,
-        project_id="project-1",
+        data_version_id="project-1",
         created_at=NOW,
         created_by=LOCAL_ACTOR.identity.display_name,
         datasets=specs,
@@ -392,7 +392,7 @@ class CoverageScopeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incomplete"):
             CoverageScopeRevision(
                 scope_id=str(uuid4()),
-                project_id="project-1",
+                workspace_id="project-1",
                 version=1,
                 parent_version=None,
                 source_selection_hash=HASH_A,
@@ -405,7 +405,7 @@ class CoverageScopeTests(unittest.TestCase):
 class ReferenceDataTests(unittest.TestCase):
     def test_exact_reference_data_and_bundle_round_trip(self) -> None:
         dataset = _reference_dataset()
-        bundle = ReferenceBundle(project_id="project-1", datasets=(dataset,))
+        bundle = ReferenceBundle(workspace_id="project-1", datasets=(dataset,))
         restored = ReferenceBundle.from_dict(bundle.to_portable_dict())
 
         self.assertEqual(restored.content_hash, bundle.content_hash)
@@ -428,11 +428,11 @@ class ReferenceDataTests(unittest.TestCase):
 
     def test_exact_reference_lookup_runs_inside_canonical_staging(self) -> None:
         reference = _reference_dataset()
-        bundle = ReferenceBundle(project_id="project-1", datasets=(reference,))
+        bundle = ReferenceBundle(workspace_id="project-1", datasets=(reference,))
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id="project-1",
+            data_version_id="project-1",
             created_at=NOW,
             created_by="Data Manager",
             datasets=(
@@ -488,7 +488,7 @@ class ReferenceDataTests(unittest.TestCase):
             ),
         )
         staged = evaluate_browser_mapping(
-            project_id="project-1",
+            workspace_id="project-1",
             definition=definition,
             physical_selection=selection,
             effective_selection=selection,
@@ -523,7 +523,7 @@ class ReferenceDataTests(unittest.TestCase):
 
     def test_odoo_selection_reference_requires_captured_technical_key(self) -> None:
         reference = _reference_dataset()
-        bundle = ReferenceBundle(project_id="project-1", datasets=(reference,))
+        bundle = ReferenceBundle(workspace_id="project-1", datasets=(reference,))
         definition = MappingDefinition(
             mapping_id="mapping:selection-reference",
             source_selection_hash=HASH_A,
@@ -555,7 +555,7 @@ class ReferenceDataTests(unittest.TestCase):
             ),
         )
         catalog = OdooSchemaCatalog(
-            project_id="project-1",
+            workspace_id="project-1",
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=NOW,
             captured_by="Data Manager",
@@ -704,7 +704,7 @@ class StructuralPreparationTests(unittest.TestCase):
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id="project-1",
+            data_version_id="project-1",
             created_at=NOW,
             created_by=LOCAL_ACTOR.identity.display_name,
             datasets=(
@@ -777,7 +777,7 @@ class StructuralPreparationTests(unittest.TestCase):
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=physical.project_id,
+            workspace_id="workspace-1",
             source_selection_hash=physical.content_hash,
             rules=(rule,),
             updated_at=NOW,
@@ -827,7 +827,7 @@ class StructuralPreparationTests(unittest.TestCase):
         )
 
         staged = evaluate_browser_mapping(
-            project_id=physical.project_id,
+            workspace_id="workspace-1",
             definition=definition,
             physical_selection=physical,
             effective_selection=effective,
@@ -861,13 +861,10 @@ class StructuralPreparationTests(unittest.TestCase):
 
 class AdvancedQualityTests(unittest.TestCase):
     def test_approved_code_and_metric_rules_are_deterministic_and_non_mutating(self) -> None:
-        project = WorkspaceState(
-            project_id="project-1",
+        workspace_state = WorkspaceState(
+            workspace_id="project-1",
             name="Advanced checks",
             source_system="CSV",
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Operations",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
@@ -880,13 +877,13 @@ class AdvancedQualityTests(unittest.TestCase):
             _row(2, name="Unknown", country="XX"),
         )
         base = default_quality_ruleset(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             mapping_hash=HASH_C,
             schema_hash=HASH_D,
             datasets=("partners",),
         )
         reference = _reference_dataset()
-        bundle = ReferenceBundle(project_id=project.project_id, datasets=(reference,))
+        bundle = ReferenceBundle(workspace_id=workspace_state.workspace_id, datasets=(reference,))
         approved_code = QualityRule(
             rule_id=_hash(501),
             dataset="partners",
@@ -916,7 +913,7 @@ class AdvancedQualityTests(unittest.TestCase):
         )
         ruleset = QualityRuleSet(
             ruleset_id=base.ruleset_id,
-            project_id=base.project_id,
+            workspace_id=base.workspace_id,
             version=1,
             parent_version=None,
             mapping_hash=base.mapping_hash,
@@ -927,15 +924,15 @@ class AdvancedQualityTests(unittest.TestCase):
         )
 
         first = evaluate_quality(
-            project=project,
-            staging=_staging_run(project.project_id, rows),
+            workspace_state=workspace_state,
+            staging=_staging_run(workspace_state.workspace_id, rows),
             physical_rows={"dataset:partners": (1, 2)},
             ruleset=ruleset,
             reference_bundle=bundle,
         )
         second = evaluate_quality(
-            project=project,
-            staging=_staging_run(project.project_id, rows),
+            workspace_state=workspace_state,
+            staging=_staging_run(workspace_state.workspace_id, rows),
             physical_rows={"dataset:partners": (1, 2)},
             ruleset=ruleset,
             reference_bundle=bundle,
@@ -1299,17 +1296,14 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(self.database)
+        self.workspace_states = WorkspaceStateRepository(self.database)
         self.staging = StagingRepository(self.database)
         self.repository = AdvancedCoverageRepository(self.database)
-        self.quality = QualityRepository(self.database, self.projects)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.quality = QualityRepository(self.database, self.workspace_states)
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Advanced partner preparation",
             source_system="CSV",
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Operations",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
@@ -1317,11 +1311,11 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             status=WorkspaceStatus.REGISTERED,
             registered_at=NOW,
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=self.project.project_id,
+            data_version_id=self.workspace_state.workspace_id,
             created_at=NOW,
             created_by=LOCAL_ACTOR.identity.display_name,
             datasets=(
@@ -1348,7 +1342,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             content_hash=HASH_A,
         )
         database_path = (
-            self.repository.workspace_directory(self.project.project_id)
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
             / "workspace-engine.duckdb"
         )
         with self.repository._connect(database_path) as connection:
@@ -1378,45 +1372,45 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_scope_reference_policy_decisions_and_effective_rows_survive_restart(self) -> None:
-        scope = _scope(project_id=self.project.project_id)
+        scope = _scope(workspace_id=self.workspace_state.workspace_id)
         bundle = ReferenceBundle(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             datasets=(_reference_dataset(),),
         )
         policy = _policy(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             coverage_scope_hash=scope.content_hash,
             mapping_hash=HASH_C,
             schema_hash=HASH_D,
             reference_bundle_hash=bundle.content_hash,
         )
         self.repository.save_coverage_scope(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             scope,
             expected_parent_version=None,
             actor=LOCAL_ACTOR,
         )
         self.repository.save_reference_bundle(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             bundle,
             actor=LOCAL_ACTOR,
         )
         self.repository.save_resolution_policy(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             policy,
             expected_parent_version=None,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(
-            self.repository.get_coverage_scope(self.project.project_id).content_hash,
+            self.repository.get_coverage_scope(self.workspace_state.workspace_id).content_hash,
             scope.content_hash,
         )
         self.assertEqual(
-            self.repository.get_reference_bundle(self.project.project_id).content_hash,
+            self.repository.get_reference_bundle(self.workspace_state.workspace_id).content_hash,
             bundle.content_hash,
         )
         self.assertEqual(
-            self.repository.get_resolution_policy(self.project.project_id).content_hash,
+            self.repository.get_resolution_policy(self.workspace_state.workspace_id).content_hash,
             policy.content_hash,
         )
 
@@ -1425,8 +1419,8 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             _row(2, name="ACME S.A.", street="Main Street 1"),
         )
         staging_summary = self.staging.publish_canonical_staging(
-            self.project.project_id,
-            _staging_run(self.project.project_id, rows),
+            self.workspace_state.workspace_id,
+            _staging_run(self.workspace_state.workspace_id, rows),
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
@@ -1436,7 +1430,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             rows=rows,
         )
         resolution = self.repository.publish_resolution_evaluation(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             evaluation,
             staging_run_id=staging_summary.run_id,
             actor=LOCAL_ACTOR,
@@ -1454,7 +1448,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             lifecycle_version=1,
         )
         resolution = self.repository.append_resolution_decision(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             resolution.run_id,
             decision,
             expected_lifecycle_version=0,
@@ -1467,7 +1461,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             decisions=(decision,),
         )
         frozen = self.repository.freeze_effective_dataset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             resolution.run_id,
             effective,
             expected_lifecycle_version=1,
@@ -1477,14 +1471,14 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         restarted = AdvancedCoverageRepository(
             DuckDbWorkspaceDatabase(self.temporary.name)
         )
-        restored = restarted.get_current_effective_dataset(self.project.project_id)
+        restored = restarted.get_current_effective_dataset(self.workspace_state.workspace_id)
         self.assertIsNotNone(restored)
         self.assertEqual(restored.content_hash, effective.content_hash)
         self.assertEqual(frozen.status, "FROZEN")
         self.assertEqual(frozen.lifecycle_version, 2)
         self.assertEqual(frozen.decision_count, 1)
         database_path = (
-            restarted.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
+            restarted.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
         )
         with restarted._connect(database_path) as connection:
             compact_rows = connection.execute(
@@ -1496,26 +1490,26 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         self.assertEqual(int(compact_rows[0]), 2)
 
         ruleset = default_quality_ruleset(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             mapping_hash=HASH_C,
             schema_hash=HASH_D,
             datasets=("partners",),
         )
         self.quality.publish_quality_ruleset(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
         quality_run = evaluate_quality(
-            project=self.project,
-            staging=_staging_run(self.project.project_id, rows),
+            workspace_state=self.workspace_state,
+            staging=_staging_run(self.workspace_state.workspace_id, rows),
             physical_rows={"dataset:partners": (1, 2)},
             ruleset=ruleset,
             published_staging_content_hash=staging_summary.content_hash,
             effective=effective,
         )
         quality_summary = self.quality.publish_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             quality_run,
             staging_run_id=staging_summary.run_id,
             effective_dataset_run_id=frozen.run_id,
@@ -1526,34 +1520,34 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             effective.content_hash,
         )
         restored_quality = self.quality.get_quality_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             quality_summary.run_id,
         )
         self.assertEqual(restored_quality.effective_dataset_hash, effective.content_hash)
 
     def test_pair_decision_cannot_be_replaced_by_the_opposite_choice(self) -> None:
-        scope = _scope(project_id=self.project.project_id)
-        bundle = ReferenceBundle(project_id=self.project.project_id, datasets=())
+        scope = _scope(workspace_id=self.workspace_state.workspace_id)
+        bundle = ReferenceBundle(workspace_id=self.workspace_state.workspace_id, datasets=())
         policy = _policy(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             coverage_scope_hash=scope.content_hash,
             mapping_hash=HASH_C,
             schema_hash=HASH_D,
             reference_bundle_hash=bundle.content_hash,
         )
         self.repository.save_coverage_scope(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             scope,
             expected_parent_version=None,
             actor=LOCAL_ACTOR,
         )
         self.repository.save_reference_bundle(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             bundle,
             actor=LOCAL_ACTOR,
         )
         self.repository.save_resolution_policy(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             policy,
             expected_parent_version=None,
             actor=LOCAL_ACTOR,
@@ -1563,8 +1557,8 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             _row(2, name="ACME S.A.", street="Main Street 1"),
         )
         staging_summary = self.staging.publish_canonical_staging(
-            self.project.project_id,
-            _staging_run(self.project.project_id, rows),
+            self.workspace_state.workspace_id,
+            _staging_run(self.workspace_state.workspace_id, rows),
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
@@ -1574,7 +1568,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             rows=rows,
         )
         summary = self.repository.publish_resolution_evaluation(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             evaluation,
             staging_run_id=staging_summary.run_id,
             actor=LOCAL_ACTOR,
@@ -1592,7 +1586,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             lifecycle_version=1,
         )
         self.repository.append_resolution_decision(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             summary.run_id,
             first,
             expected_lifecycle_version=0,
@@ -1612,7 +1606,7 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(Exception, "already recorded"):
             self.repository.append_resolution_decision(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 summary.run_id,
                 opposite,
                 expected_lifecycle_version=1,

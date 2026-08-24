@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{% if project.source_mode.value == 'ODOO' %}Odoo source{% else %}Odoo destination{% endif %} · Impodo{% endblock %}
+{% block title %}{% if workspace_state.source_mode.value == 'ODOO' %}Odoo source{% else %}Odoo destination{% endif %} · Impodo{% endblock %}
 {% block content %}
   {% set step = "target" %}
-  {% set is_odoo_source = project.source_mode.value == 'ODOO' %}
-  {% if project.status.value == 'DRAFT' %}{% include "_steps.html" %}{% endif %}
+  {% set is_odoo_source = workspace_state.source_mode.value == 'ODOO' %}
+  {% if workspace_state.status.value == 'DRAFT' %}{% include "_steps.html" %}{% endif %}
   <section class="form-card">
     {% set is_recipe_test = migration_context and migration_context.data_version_purpose == 'TEST' %}
     {% set is_recipe_production = migration_context and migration_context.data_version_purpose == 'PRODUCTION' %}
@@ -19,8 +19,8 @@
       id="read-credential-status"
       class="credential-status-card status-{{ 'ready' if read_credential_status.available else 'review' }}"
       data-api-key-entry
-      data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
-      {% if not project.odoo_connection_mode or project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}
+      data-show-local="{{ 'true' if workspace_state.source_mode.value == 'ODOO' else 'false' }}"
+      {% if not workspace_state.odoo_connection_mode or workspace_state.odoo_connection_mode.value == "LOCAL" and workspace_state.source_mode.value != "ODOO" %}hidden{% endif %}
       aria-labelledby="read-credential-status-title"
     >
       <div>
@@ -29,7 +29,7 @@
         <p>{{ read_credential_status.guidance }}</p>
       </div>
       {% if read_credential_status.available %}
-        <form method="post" action="/workspaces/{{ project.project_id }}/target/read-credential/delete">
+        <form method="post" action="/workspaces/{{ workspace_id }}/target/read-credential/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit">Forget this key</button>
         </form>
@@ -37,18 +37,18 @@
     </section>
     <form
       method="post"
-      action="/workspaces/{{ project.project_id }}/target"
+      action="/workspaces/{{ workspace_id }}/target"
       data-target-form
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="revision" value="{{ project.revision }}">
+      <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
 
       <fieldset>
         <legend>Choose where Odoo is running</legend>
         <div class="mode-grid">
           <label class="mode-card">
             <input type="radio" name="odoo_connection_mode" value="LOCAL"
-              {% if not project.odoo_connection_mode or project.odoo_connection_mode.value == "LOCAL" %}checked{% endif %}>
+              {% if not workspace_state.odoo_connection_mode or workspace_state.odoo_connection_mode.value == "LOCAL" %}checked{% endif %}>
             <span>
               <strong>Odoo on this computer</strong>
               <small>Choose this when Odoo is installed on the computer running Impodo.</small>
@@ -56,7 +56,7 @@
           </label>
           <label class="mode-card">
             <input type="radio" name="odoo_connection_mode" value="REMOTE"
-              {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}checked{% endif %}>
+              {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "REMOTE" %}checked{% endif %}>
             <span>
               <strong>Odoo managed elsewhere</strong>
               <small>Choose this for your organisation's hosted or server-based Odoo.</small>
@@ -70,11 +70,11 @@
           Odoo web address
           <input type="url" name="odoo_base_url" required
             placeholder="For example: https://odoo.example.com"
-            value="{{ project.odoo_base_url or local_stack.base_url }}">
+            value="{{ workspace_state.odoo_base_url or local_stack.base_url }}">
           <small>Ask your Odoo administrator if you are unsure.</small>
         </label>
         <div class="local-stack-entry" data-local-stack-entry
-          {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}hidden{% endif %}>
+          {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "REMOTE" %}hidden{% endif %}>
           <strong>Using Odoo on this computer?</strong>
           <span>Impodo can find the local installation and check that it is ready.</span>
           <button class="link-button" type="button" data-open-local-stack>
@@ -85,17 +85,17 @@
           Odoo database name
           <input name="odoo_database" maxlength="200" required
             placeholder="For example: odoo19_migration"
-            value="{{ project.odoo_database or local_stack.database_hint }}">
+            value="{{ workspace_state.odoo_database or local_stack.database_hint }}">
         </label>
-        <label data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
-          {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}>
+        <label data-api-key-entry data-show-local="{{ 'true' if workspace_state.source_mode.value == 'ODOO' else 'false' }}"
+          {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "LOCAL" and workspace_state.source_mode.value != "ODOO" %}hidden{% endif %}>
           {% if read_credential_status.available %}Replace the read-only Odoo API key{% else %}Read-only Odoo API key from your administrator{% endif %}
           <input type="password" name="read_api_key" autocomplete="off">
           <small>{% if is_odoo_source %}Required to read and freeze the selected Odoo source records.{% else %}Used only for destination checks, metadata, and preflight reads.{% endif %} It is never used to load data and is not placed in the project data.</small>
         </label>
       </div>
-      <fieldset class="credential-storage-choice" data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
-        {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}>
+      <fieldset class="credential-storage-choice" data-api-key-entry data-show-local="{{ 'true' if workspace_state.source_mode.value == 'ODOO' else 'false' }}"
+        {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "LOCAL" and workspace_state.source_mode.value != "ODOO" %}hidden{% endif %}>
         <legend>How long should Impodo keep a newly entered key?</legend>
         <div class="mode-grid compact">
           <label class="mode-card">
@@ -127,7 +127,7 @@
         role="{{ 'alert' if remote_connection.has_error else 'status' }}"
         aria-live="polite"
         aria-atomic="true"
-        {% if not project.odoo_connection_mode or project.odoo_connection_mode.value != "REMOTE" %}hidden{% endif %}
+        {% if not workspace_state.odoo_connection_mode or workspace_state.odoo_connection_mode.value != "REMOTE" %}hidden{% endif %}
       >
         <div class="remote-connection-heading">
           <div>
@@ -172,14 +172,14 @@
         {% endif %}
       </section>
       <div class="actions">
-        <a class="button secondary" href="{% if is_odoo_source %}/projects/{{ migration_context.project_id }}{% else %}/workspaces/{{ project.project_id }}/sources{% endif %}">Back</a>
+        <a class="button secondary" href="{% if is_odoo_source %}/projects/{{ migration_context.project_id }}{% else %}/workspaces/{{ workspace_id }}/sources{% endif %}">Back</a>
         <button
           class="button secondary"
           type="submit"
           name="action"
           value="test"
           data-test-connection-button
-        >{% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}{{ remote_connection.button_label }}{% else %}Check connection{% endif %}</button>
+        >{% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "REMOTE" %}{{ remote_connection.button_label }}{% else %}Check connection{% endif %}</button>
         <button class="button primary" type="submit" name="action" value="save">{% if is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
       </div>
     </form>

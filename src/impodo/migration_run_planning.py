@@ -1,6 +1,6 @@
 """Define run-level planning for several Project-owned Recipe revisions.
 
-M4 binds one exact Test DataVersion and one exact Odoo target to a
+Integrated Test planning binds one exact Test DataVersion and Odoo target to a
 MigrationRun.  The run owns the unioned target requirements and dependency
 order.  Each selected Recipe revision receives a separate application and
 MigrationWorkspace; no mutable workspace state is shared.
@@ -8,12 +8,14 @@ MigrationWorkspace; no mutable workspace state is shared.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
+import json
 from typing import Mapping
 
-from .domain.serialization import content_hash
+from .domain.coverage import ReferenceBundle, ReferenceDataSet
+from .domain.serialization import canonical_json, content_hash
 from .migration_foundation import (
     MigrationFoundationError,
     require_aware,
@@ -24,13 +26,264 @@ from .migration_foundation import (
 )
 from .migration_runs import MigrationRun
 from .migration_workspaces import MigrationWorkspace
+from .workspace_contracts import OdooSchemaCatalog, SchemaModel
 
 
 MIGRATION_RUN_REQUIREMENT_PLAN_VERSION = 1
+MIGRATION_RUN_EVIDENCE_CONTRACT_VERSION = 1
 
 
 class MigrationRunPlanningError(MigrationFoundationError):
     """Reject an unsafe integrated run before application provisioning."""
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationRunReferenceBundle:
+    """Freeze run-owned reference inputs without borrowing a workspace identity."""
+
+    migration_run_id: str
+    source_workspace_id: str
+    source_bundle_hash: str
+    datasets: tuple[ReferenceDataSet, ...]
+    contract_version: int = MIGRATION_RUN_EVIDENCE_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        require_uuid(self.migration_run_id, "migration_run_id")
+        require_uuid(self.source_workspace_id, "source_workspace_id")
+        require_hash(self.source_bundle_hash, "source_bundle_hash")
+        if self.contract_version != MIGRATION_RUN_EVIDENCE_CONTRACT_VERSION:
+            raise MigrationRunPlanningError(
+                "MigrationRun reference evidence contract is unsupported"
+            )
+        expected = tuple(
+            sorted(self.datasets, key=lambda item: (item.reference_id, item.version))
+        )
+        if self.datasets != expected:
+            raise MigrationRunPlanningError(
+                "MigrationRun reference datasets are not in canonical order"
+            )
+        reference_ids = [item.reference_id for item in self.datasets]
+        if len(set(reference_ids)) != len(reference_ids):
+            raise MigrationRunPlanningError(
+                "MigrationRun reference evidence contains duplicate datasets"
+            )
+
+    @property
+    def content_hash(self) -> str:
+        return content_hash(self.to_portable_dict(include_hash=False))
+
+    def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "contract_version": self.contract_version,
+            "datasets": [item.to_portable_dict() for item in self.datasets],
+            "migration_run_id": self.migration_run_id,
+            "source_bundle_hash": self.source_bundle_hash,
+            "source_workspace_id": self.source_workspace_id,
+        }
+        if include_hash:
+            payload["content_hash"] = self.content_hash
+        return payload
+
+    @classmethod
+    def capture(
+        cls,
+        migration_run_id: str,
+        source: ReferenceBundle,
+        datasets: tuple[ReferenceDataSet, ...],
+    ) -> "MigrationRunReferenceBundle":
+        available = {
+            (item.reference_id, item.version, item.content_hash)
+            for item in source.datasets
+        }
+        if any(
+            (item.reference_id, item.version, item.content_hash) not in available
+            for item in datasets
+        ):
+            raise MigrationRunPlanningError(
+                "MigrationRun reference evidence is not part of its source bundle"
+            )
+        return cls(
+            migration_run_id=migration_run_id,
+            source_workspace_id=source.workspace_id,
+            source_bundle_hash=source.content_hash,
+            datasets=tuple(
+                sorted(datasets, key=lambda item: (item.reference_id, item.version))
+            ),
+        )
+
+    def for_workspace(self, workspace_id: str) -> ReferenceBundle:
+        require_uuid(workspace_id, "workspace_id")
+        return ReferenceBundle(workspace_id=workspace_id, datasets=self.datasets)
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "MigrationRunReferenceBundle":
+        expected_keys = {
+            "content_hash",
+            "contract_version",
+            "datasets",
+            "migration_run_id",
+            "source_bundle_hash",
+            "source_workspace_id",
+        }
+        if set(payload) != expected_keys:
+            raise MigrationRunPlanningError(
+                "Stored MigrationRun reference evidence has an invalid shape"
+            )
+        result = cls(
+            contract_version=int(payload["contract_version"]),
+            migration_run_id=str(payload["migration_run_id"]),
+            source_workspace_id=str(payload["source_workspace_id"]),
+            source_bundle_hash=str(payload["source_bundle_hash"]),
+            datasets=tuple(
+                ReferenceDataSet.from_dict(item)
+                for item in payload["datasets"]  # type: ignore[union-attr]
+            ),
+        )
+        if payload["content_hash"] != result.content_hash:
+            raise MigrationRunPlanningError(
+                "Stored MigrationRun reference evidence hash is invalid"
+            )
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationRunTargetSchema:
+    """Freeze a run-owned target schema while retaining its capture provenance."""
+
+    migration_run_id: str
+    source_schema: OdooSchemaCatalog
+    model_names: tuple[str, ...]
+    contract_version: int = MIGRATION_RUN_EVIDENCE_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        require_uuid(self.migration_run_id, "migration_run_id")
+        if self.contract_version != MIGRATION_RUN_EVIDENCE_CONTRACT_VERSION:
+            raise MigrationRunPlanningError(
+                "MigrationRun target schema contract is unsupported"
+            )
+        expected = tuple(sorted(set(self.model_names)))
+        if self.model_names != expected:
+            raise MigrationRunPlanningError(
+                "MigrationRun target models are not in canonical order"
+            )
+        available = {item.name for item in self.source_schema.models}
+        if len(available) != len(self.source_schema.models):
+            raise MigrationRunPlanningError(
+                "MigrationRun source schema contains duplicate models"
+            )
+        if not set(self.model_names).issubset(available):
+            raise MigrationRunPlanningError(
+                "MigrationRun target schema names an unavailable model"
+            )
+
+    @property
+    def models(self) -> tuple[SchemaModel, ...]:
+        available = {item.name: item for item in self.source_schema.models}
+        return tuple(available[name] for name in self.model_names)
+
+    @property
+    def connection_target_hash(self) -> str:
+        return self.source_schema.connection_target_hash
+
+    @property
+    def captured_at(self) -> datetime:
+        return self.source_schema.captured_at
+
+    @property
+    def content_hash(self) -> str:
+        return content_hash(
+            {
+                "contract_version": self.contract_version,
+                "migration_run_id": self.migration_run_id,
+                "model_names": list(self.model_names),
+                "source_schema_hash": self.source_schema.content_hash,
+                "source_workspace_id": self.source_schema.workspace_id,
+            }
+        )
+
+    @classmethod
+    def capture(
+        cls,
+        migration_run_id: str,
+        source_schema: OdooSchemaCatalog,
+        model_names: set[str],
+    ) -> "MigrationRunTargetSchema":
+        return cls(
+            migration_run_id=migration_run_id,
+            source_schema=source_schema,
+            model_names=tuple(sorted(model_names)),
+        )
+
+    def for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        models: tuple[SchemaModel, ...] | None = None,
+        projection_hash: str | None = None,
+    ) -> OdooSchemaCatalog:
+        require_uuid(workspace_id, "workspace_id")
+        selected = models if models is not None else self.models
+        run_models = {item.name for item in self.models}
+        if len({item.name for item in selected}) != len(selected) or any(
+            item.name not in run_models for item in selected
+        ):
+            raise MigrationRunPlanningError(
+                "Workspace schema projection exceeds its MigrationRun evidence"
+            )
+        return replace(
+            self.source_schema,
+            workspace_id=workspace_id,
+            models=selected,
+            content_hash=(
+                projection_hash
+                or content_hash(
+                    {
+                        "migration_run_schema_hash": self.content_hash,
+                        "models": [item.name for item in selected],
+                        "workspace_id": workspace_id,
+                    }
+                )
+            ),
+        )
+
+    def to_json(self) -> str:
+        return canonical_json(
+            {
+                "content_hash": self.content_hash,
+                "contract_version": self.contract_version,
+                "migration_run_id": self.migration_run_id,
+                "model_names": list(self.model_names),
+                "source_schema": json.loads(self.source_schema.to_json()),
+            }
+        )
+
+    @classmethod
+    def from_json(cls, value: str) -> "MigrationRunTargetSchema":
+        payload = json.loads(value)
+        expected_keys = {
+            "content_hash",
+            "contract_version",
+            "migration_run_id",
+            "model_names",
+            "source_schema",
+        }
+        if set(payload) != expected_keys:
+            raise MigrationRunPlanningError(
+                "Stored MigrationRun target schema has an invalid shape"
+            )
+        result = cls(
+            contract_version=int(payload["contract_version"]),
+            migration_run_id=str(payload["migration_run_id"]),
+            source_schema=OdooSchemaCatalog.from_json(
+                canonical_json(payload["source_schema"])
+            ),
+            model_names=tuple(str(item) for item in payload["model_names"]),
+        )
+        if payload["content_hash"] != result.content_hash:
+            raise MigrationRunPlanningError(
+                "Stored MigrationRun target schema hash is invalid"
+            )
+        return result
 
 
 class RecipeApplicationStatus(StrEnum):
@@ -502,7 +755,7 @@ class IntegratedRunProgress:
 
 @dataclass(frozen=True, slots=True)
 class IntegratedRunBundle:
-    """Return one run and its bounded M4 application identities."""
+    """Return one run and its bounded application identities."""
 
     run: MigrationRun
     target_binding: RunTargetBinding

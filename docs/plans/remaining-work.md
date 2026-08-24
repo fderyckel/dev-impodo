@@ -31,39 +31,6 @@ The current preparation limits are:
 
 This roadmap does not raise, remove, or reinterpret those limits.
 
-## Active work
-
-### 1. Complete workspace identity and Project authorization
-
-**Status:** Active. This is the final M7 conformance gate.
-
-The Project-first structure, browser workflow, clean persistence generations,
-and Recipe-first removal are implemented. One internal boundary still gives
-`project_id` a second meaning: the retained workspace engine uses it for the
-contained workspace identity. That ambiguity must be removed without restoring
-an old storage upgrader or compatibility alias.
-
-The remaining work is to:
-
-1. name the contained identity `workspace_id` throughout its domain,
-   application, persistence, route, template, and test boundaries;
-2. make every Project-scoped authorization decision resolve the workspace's
-   actual parent Project before granting access;
-3. keep Project, workspace, Recipe, DataVersion, MigrationRun, and CutoverPlan
-   identities distinct in stored evidence and operation identities;
-4. reject obsolete storage generations instead of upgrading or interpreting
-   them; and
-5. update current contracts and operator language in the same change so the
-   dual meaning cannot survive in documentation.
-
-**Exit gate:** no active contract, field, parameter, audit fact, or browser
-route calls a workspace a Project. Authorization tests prove that access to one
-Project cannot grant access to another Project's workspace. Focused lifecycle,
-storage, browser, security, and documentation checks pass from a clean root.
-
-Completing this gate does not automatically activate a deferred track. Product
-ownership must explicitly select the next priority below.
-
 ## Deferred tracks
 
 Deferred work is recorded here so it remains visible, but it is not authorized
@@ -71,7 +38,7 @@ for implementation merely because the active gate completes. Maintenance,
 security, data-loss prevention, dependency compatibility, and regressions that
 threaten the current workflow remain in scope.
 
-### 2. Qualify related and mixed preparation at 100,000 rows
+### 1. Qualify related and mixed preparation at 100,000 rows
 
 **Status:** Deferred. The direct-route foundation is implemented; the mixed and
 derived high-volume route is not qualified.
@@ -101,7 +68,7 @@ completed measurements and failed qualification evidence. Transport or
 hash-root changes remain conditional on measured benefit and must not weaken
 artifact verification.
 
-### 3. Add optional clean-package certification
+### 2. Add optional clean-package certification
 
 **Status:** Deferred.
 
@@ -110,7 +77,7 @@ Current Test qualification and fresh Production evidence do not constitute a
 general clean-package certificate and do not reuse Test approval as Production
 approval.
 
-### 4. Complete general remote acceptance and production readiness
+### 3. Complete general remote acceptance and production readiness
 
 **Status:** Deferred except for the implemented remote Test-to-Production
 workflow.
@@ -121,7 +88,7 @@ organization assurance levels, and business actions remain unfinished. The
 runbook](../developer/runbooks/remote-odoo-acceptance.md) continues to govern
 existing opt-in acceptance behavior.
 
-### 5. Complete guarded Odoo-source updates
+### 4. Complete guarded Odoo-source updates
 
 **Status:** Deferred. Bounded Odoo-source capture, immutable local publication,
 offline preparation, and read-only three-way comparison are implemented.
@@ -147,7 +114,7 @@ requires restore and race tests, ACL and record-rule coverage, privacy and
 threat review, fault injection, backup and rollback evidence, and measured
 batch/call counts.
 
-### 6. Conditional target-side gateway
+### 5. Conditional target-side gateway
 
 **Status:** Deferred.
 
@@ -157,7 +124,7 @@ requirement cannot be met safely through the existing bounded connector and
 executor contracts. No generic RPC, SQL, `sudo`, or caller-selected method
 surface is permitted.
 
-### 7. Conditional hosted composition
+### 6. Conditional hosted composition
 
 **Status:** Deferred.
 

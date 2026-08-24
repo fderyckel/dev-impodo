@@ -92,10 +92,10 @@ secret reduce but do not remove that limitation.
   rename; display names are metadata only.
 - Registered source bytes are SHA-256 hashed and remain immutable.
 - Freezing parses each selected table once through that same strict reader and
-  publishes a lossless, content-addressed Parquet snapshot below the protected
-  project directory. Temporary fragments are contained and removed on every
-  exit path; the completed file is schema/count/semantic/hash checked before
-  atomic rename and DuckDB pointer publication.
+  publishes a lossless, content-addressed Parquet snapshot below the owning
+  DataVersion artifact root. Temporary fragments are contained and removed on
+  every exit path; the completed file is schema/count/semantic/hash checked
+  before atomic rename and DuckDB pointer publication.
 
 Endpoint antivirus or content-disarm requirements remain an organizational
 policy decision.
@@ -111,8 +111,10 @@ policy decision.
 - The protected root contains the bounded Recipe/DataVersion registry and
   encrypted protected Recipe store. Recipe, DataVersion, and workspace IDs are
   distinct and are resolved explicitly.
-- Each DataVersion workspace uses a separate DuckDB database behind
-  application-owned repositories; users and mappings receive no SQL console.
+- Each DataVersion source package and each MigrationWorkspace use separate
+  DuckDB stores behind application-owned repositories; users and mappings
+  receive no SQL console. The workspace store keeps source references, not a
+  copy of the accepted source package.
 - Native-columnar preparation publishes a mapping-bound immutable prepared
   Parquet snapshot. Its manifest binds the exact source snapshot, mapping,
   schema, transformation program, row count, physical schema, and Parquet
@@ -170,11 +172,12 @@ controls.
   Each entry that existed produces an actor-bound, non-secret registry receipt
   containing its binding hash when recoverable, storage class, target hash, and
   removal reason. The receipt survives project-directory deletion.
-- Credentials are excluded from project databases, mappings, reports, browser
-  storage, and logs.
-- Credentials and credential generations are DataVersion-local operational
-  evidence. Secrets never enter a Recipe revision, qualification, or cutover
-  candidate, and Test credentials are never copied to Production.
+- Credentials are excluded from the registry, DataVersion and workspace
+  databases, mappings, reports, browser storage, and logs.
+- Credential generations are operational bindings to the exact target and
+  run/workspace context. They are not DataVersion source evidence. Secrets
+  never enter a Recipe revision, qualification, or cutover candidate, and Test
+  credentials are never copied to Production.
 - Authenticated redirects are refused; API keys and Odoo error bodies are
   redacted from public errors.
 
@@ -201,8 +204,7 @@ and governed key rotation and revocation.
 The writer is a separate adapter from every read connector. A load is allowed
 only when all of these are true:
 
-- the DataVersion workspace target mode is Local or Remote and the captured target is Odoo
-  19;
+- the MigrationRun target binding is Local or Remote and identifies Odoo 19;
 - the current immutable execution snapshot matches the page the operator
   reviewed and contains no blocked or ambiguous rows;
 - the writer target hash matches the exact URL and database in that snapshot;
@@ -241,7 +243,7 @@ create proven absent is marked safe to plan again; updates are never declared
 retry-safe merely because read-back could not find them.
 
 For ordinary workspaces this remains a disposable-target migration
-capability. M6 adds Production authority only for an active Project Production
+capability. Production authority exists only for an active Project Production
 run that pins the current selected and authenticated CutoverPlan, a fresh
 frozen Production DataVersion, a different Odoo 19 target, and exact current
 read and write credential generations. The guard is repeated before writer
@@ -252,7 +254,7 @@ database writes. The reviewed API scope, execution snapshot, journal, and
 read-back rules remain unchanged in Production.
 
 The current Odoo-source round-trip policy still records native source-system
-Production writes as `PRODUCTION_WRITE_UNSUPPORTED`. M6 writes only through
+Production writes as `PRODUCTION_WRITE_UNSUPPORTED`. Impodo writes only through
 fresh file-source Production applications after exact activation. JSON-2
 proves the configured endpoint/database, not a restored or cloned database
 instance, and separate read/write requests cannot provide an atomic
@@ -294,12 +296,12 @@ this security summary.
   `INTERNAL`; do not treat that technical default as customer approval for
   confidential or restricted data.
 - Keep sources, DuckDB data, snapshots, reports, and audit evidence only in
-  the protected project directory.
+  their protected DataVersion or workspace roots below the Project boundary.
 - Never place project data in Git, email, unauthorized shared storage, or
   unapproved sync/cloud locations.
 - Keep raw sources immutable and retain evidence for derived corrections.
-- Keep credentials outside project artifacts and remove related vault entries
-  when the project closes.
+- Keep credentials outside DataVersion and workspace artifacts and remove
+  related vault entries when the Project closes.
 - Keep execution journals and reconciliation results inside the protected
   project boundary. They may contain target-specific Odoo record IDs; portable
   mappings, staging evidence, manifests, workbooks, and CSV reports must not.

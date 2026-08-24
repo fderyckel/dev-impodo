@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Odoo data · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Odoo data · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
-  {% set local_mode = project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
+  {% set local_mode = workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == 'LOCAL' %}
   {% set local_reader_ready = not local_mode or local_stack.profile %}
   {% set local_access_verified = not local_mode or local_stack.metadata_ready %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage {% if project.source_mode.value == 'ODOO' %}1{% else %}2{% endif %} of 6 · Odoo data</p>
-      <h1>{% if project.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
-      <p>Choose the kinds of Odoo information needed for this project.</p>
+      <p class="eyebrow">Stage {% if workspace_state.source_mode.value == 'ODOO' %}1{% else %}2{% endif %} of 6 · Odoo data</p>
+      <h1>{% if workspace_state.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
+      <p>Choose the kinds of Odoo information needed for this workspace_state.</p>
     </div>
     {% if schema %}
       <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' %}warning{% else %}registered{% endif %}">
@@ -25,7 +25,7 @@
         <p>Start with the business records included in this migration.</p>
       </div>
       {% if not model_catalog %}
-        <form method="post" action="/workspaces/{{ project.project_id }}/schema/models/refresh">
+        <form method="post" action="/workspaces/{{ workspace_id }}/schema/models/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Show available Odoo data
@@ -46,7 +46,7 @@
         <div class="notice warning">
           <strong>Find local Odoo first.</strong>
           Impodo needs to know which Odoo installation on this computer to use.
-          <form method="post" action="/workspaces/{{ project.project_id }}/schema/local-config">
+          <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button secondary" type="submit">Find local Odoo</button>
           </form>
@@ -54,9 +54,9 @@
       {% endif %}
     {% endif %}
 
-    {% if project.intended_applications %}
+    {% if workspace_state.intended_applications %}
       <p>
-        Odoo areas included: <strong>{{ project.intended_applications|join(", ") }}</strong>.
+        Odoo areas included: <strong>{{ workspace_state.intended_applications|join(", ") }}</strong>.
         Related business records are shown first.
       </p>
     {% else %}
@@ -66,12 +66,12 @@
     {% if model_catalog %}
       <div class="notice stack-ready" role="status">
         <strong>The Odoo list is ready.</strong>
-        Choose what this project needs below.
+        Choose what this migration run needs below.
       </div>
       <details>
         <summary>Has Odoo changed?</summary>
         <p>Update this list only when Odoo apps or record types have changed.</p>
-        <form method="post" action="/workspaces/{{ project.project_id }}/schema/models/refresh">
+        <form method="post" action="/workspaces/{{ workspace_id }}/schema/models/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Update available choices
@@ -92,16 +92,16 @@
           <div class="notice">
             <strong>The saved Odoo list is still available.</strong>
             Find local Odoo only if you need to refresh the list.
-            <form method="post" action="/workspaces/{{ project.project_id }}/schema/local-config">
+            <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button secondary" type="submit">Find local Odoo to refresh</button>
             </form>
           </div>
         {% endif %}
       {% endif %}
-      <form method="post" action="/workspaces/{{ project.project_id }}/schema" data-model-picker>
+      <form method="post" action="/workspaces/{{ workspace_id }}/schema" data-model-picker>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="revision" value="{{ project.revision }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
         <div class="model-picker-tools">
           <label>
             Search available Odoo data
@@ -129,7 +129,7 @@
           ></p>
         </div>
         <fieldset class="model-picker-list" id="model-picker-list">
-          <legend>Odoo data available to this project</legend>
+          <legend>Odoo data available to this migration run</legend>
           {% for choice in model_choices %}
             <label
               class="model-choice"
@@ -161,14 +161,14 @@
       <div class="notice">
         Show the available business records from this Odoo connection. Detailed fields are loaded only after you save your choices.
       </div>
-      {% if project.intended_models %}
+      {% if workspace_state.intended_models %}
         <p>
           Saved Odoo choices are available. Show the available Odoo data to review or change them.
         </p>
       {% endif %}
     {% endif %}
 
-    <p id="odoo-details">Odoo choices selected: <strong>{{ project.intended_models|length if project.intended_models else 0 }}</strong></p>
+    <p id="odoo-details">Odoo choices selected: <strong>{{ workspace_state.intended_models|length if workspace_state.intended_models else 0 }}</strong></p>
     {% if schema_load_failed %}
       <div
         class="notice error"
@@ -212,14 +212,14 @@
         {% endif %}
       </details>
     {% endif %}
-    {% if schema_load_failed or schema or (not model_catalog and project.intended_models) %}
-      <form method="post" action="/workspaces/{{ project.project_id }}/schema/capture">
+    {% if schema_load_failed or schema or (not model_catalog and workspace_state.intended_models) %}
+      <form method="post" action="/workspaces/{{ workspace_id }}/schema/capture">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="actions">
           <button
             class="button {% if schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}secondary{% else %}primary{% endif %}"
             type="submit"
-            {% if (project.source_mode.value == 'FILE' and not selection) or not project.intended_models or not local_reader_ready %}disabled{% endif %}
+            {% if (workspace_state.source_mode.value == 'FILE' and not selection) or not workspace_state.intended_models or not local_reader_ready %}disabled{% endif %}
           >
             {% if schema_load_failed %}
               Try loading details again
@@ -234,17 +234,17 @@
         </div>
         {% if schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
           <small>Use this only when fields or choices have changed in Odoo.</small>
-        {% elif local_mode and project.intended_models and not local_stack.profile %}
+        {% elif local_mode and workspace_state.intended_models and not local_stack.profile %}
           <small>The saved choices remain available. Find local Odoo before loading their details.</small>
         {% endif %}
       </form>
     {% endif %}
     <div class="actions">
-      <a class="button secondary" href="/workspaces/{{ project.project_id }}/{% if project.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}">{% if project.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/{% if workspace_state.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}">{% if workspace_state.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
     </div>
   </section>
 
-  {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
+  {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == 'LOCAL' %}
     <details class="form-card advanced-schema-draft">
       <summary>Support options</summary>
       <p class="eyebrow">Local fallback</p>
@@ -254,9 +254,9 @@
         Use it only when the local target cannot be reached. A live
         capture must replace it before mapping submission.
       </div>
-      <form method="post" action="/workspaces/{{ project.project_id }}/schema/local-draft">
+      <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-draft">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        {% for model_name in project.intended_models %}
+        {% for model_name in workspace_state.intended_models %}
           {% set existing = manual_schema_by_model.get(model_name) %}
           <fieldset>
             <legend><code>{{ model_name }}</code></legend>
@@ -277,7 +277,7 @@
           I understand this is an unverified local draft and cannot be submitted until a live Odoo capture replaces it.
         </label>
         <div class="actions">
-          <button class="button secondary" type="submit" {% if (project.source_mode.value == 'FILE' and not selection) or not project.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
+          <button class="button secondary" type="submit" {% if (workspace_state.source_mode.value == 'FILE' and not selection) or not workspace_state.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
         </div>
       </form>
     </details>
@@ -289,7 +289,7 @@
         This Odoo field list was entered manually for local development. Check it against Odoo with an authenticated live capture before confirming the field matches.
       </div>
     {% endif %}
-    {% if project.source_mode.value == 'ODOO' and not selection %}
+    {% if workspace_state.source_mode.value == 'ODOO' and not selection %}
       <section class="form-card" id="schema-governance">
         <p class="eyebrow">Next step</p>
         <h2>Define the bounded Odoo capture</h2>
@@ -297,10 +297,10 @@
           The record type and field metadata are ready. Choose the exact scalar
           fields and maximum record count that a later read-only capture may use.
         </p>
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/sources">Define capture plan</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Define capture plan</a>
       </section>
     {% else %}
-    <form method="post" action="/workspaces/{{ project.project_id }}/schema/govern">
+    <form method="post" action="/workspaces/{{ workspace_id }}/schema/govern">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <section class="form-card" id="schema-governance">
         <div class="page-heading compact">
@@ -523,7 +523,7 @@
       <div class="actions">
         <button class="button primary" type="submit">Confirm matching rules</button>
         {% if governance %}
-          <a class="button secondary" href="/workspaces/{{ project.project_id }}/mapping">Continue to match data</a>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Continue to match data</a>
         {% endif %}
       </div>
     </form>

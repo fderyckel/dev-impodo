@@ -51,10 +51,13 @@ from impodo.workspace_contracts import (
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from impodo.workspace_errors import WorkspaceError
+from tests.workspace_access_helpers import data_version_id
 from impodo.web.presenters.mapping_view import _mapping_dataset_views
 
 
 ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE_ID = str(uuid4())
+DATA_VERSION_ID = str(uuid4())
 
 
 class DerivedEntityPreviewTests(unittest.TestCase):
@@ -189,7 +192,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             DerivedEntityPlan(
                 plan_id=str(uuid4()),
                 version=1,
-                project_id=selection.project_id,
+                workspace_id=WORKSPACE_ID,
                 source_selection_hash=selection.content_hash,
                 rules=(_rule(selection),),
                 updated_at=datetime.now(timezone.utc),
@@ -210,7 +213,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=str(uuid4()),
+            workspace_id=str(uuid4()),
             source_selection_hash="sha256:" + "a" * 64,
             rules=(rule,),
             updated_at=datetime.now(timezone.utc),
@@ -244,7 +247,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=selection.project_id,
+            workspace_id=WORKSPACE_ID,
             source_selection_hash=selection.content_hash,
             rules=(rule,),
             updated_at=datetime.now(timezone.utc),
@@ -252,7 +255,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         )
         effective = mapping_source_selection(selection, plan, (catalog,))
         schema = OdooSchemaCatalog(
-            project_id=selection.project_id,
+            workspace_id=WORKSPACE_ID,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=datetime.now(timezone.utc),
             captured_by="Test operator",
@@ -293,7 +296,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         governance = SchemaGovernance(
             governance_id=str(uuid4()),
             version=1,
-            project_id=selection.project_id,
+            workspace_id=WORKSPACE_ID,
             catalog_hash=schema.content_hash,
             permitted_models=("mrp.bom", "mrp.bom.line"),
             business_keys=(
@@ -352,7 +355,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=selection.project_id,
+            workspace_id=WORKSPACE_ID,
             source_selection_hash=selection.content_hash,
             rules=(rule,),
             updated_at=datetime.now(timezone.utc),
@@ -378,7 +381,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         self.assertEqual(link.consumer_dataset_id, selection.datasets[0].dataset_id)
 
         schema = OdooSchemaCatalog(
-            project_id=selection.project_id,
+            workspace_id=WORKSPACE_ID,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=datetime.now(timezone.utc),
             captured_by="Test operator",
@@ -416,7 +419,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         governance = SchemaGovernance(
             governance_id=str(uuid4()),
             version=1,
-            project_id=selection.project_id,
+            workspace_id=WORKSPACE_ID,
             catalog_hash=schema.content_hash,
             permitted_models=("product.category", "product.template"),
             business_keys=(
@@ -479,26 +482,23 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(database)
+        self.workspace_states = WorkspaceStateRepository(database)
         self.derived_entities = DerivedEntityRepository(database)
         self.sources = SourceRepository(database, self.derived_entities)
         now = datetime.now(timezone.utc)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Product migration",
             source_system="Legacy ERP",
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Example Business Unit",
             status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         self.selection, self.catalog = _source_evidence(
-            project_id=self.project.project_id
+            workspace_id=self.workspace_state.workspace_id
         )
         self.sources.save_source_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.selection,
             actor=LOCAL_ACTOR,
         )
@@ -517,7 +517,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
         dataset = self.selection.datasets[0]
         category = dataset.columns[1]
         plan, rule = self.service.save_rule(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             output_dataset_name="product_categories",
             source_dataset_id=dataset.dataset_id,
             source_column_key=category.stable_key,
@@ -532,7 +532,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(plan.version, 1)
         self.assertEqual(
-            self.derived_entities.get_derived_entity_plan(self.project.project_id),
+            self.derived_entities.get_derived_entity_plan(self.workspace_state.workspace_id),
             plan,
         )
         self.assertEqual(rule.source_column_key, category.stable_key)
@@ -541,7 +541,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             "Derived dataset names must be unique",
         ):
             self.service.save_rule(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 output_dataset_name="product_categories",
                 source_dataset_id=dataset.dataset_id,
                 source_column_key=category.stable_key,
@@ -561,18 +561,18 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             content_hash="sha256:" + "f" * 64,
         )
         self.sources.save_source_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             replacement,
             actor=LOCAL_ACTOR,
         )
         self.assertIsNone(
-            self.derived_entities.get_derived_entity_plan(self.project.project_id)
+            self.derived_entities.get_derived_entity_plan(self.workspace_state.workspace_id)
         )
 
     def test_related_split_replaces_physical_source_for_mapping(self) -> None:
         dataset = self.selection.datasets[0]
         plan, rule = self.service.save_related_split(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             source_dataset_id=dataset.dataset_id,
             parent_dataset_name="product_categories",
             child_dataset_name="product_rows",
@@ -620,7 +620,7 @@ def _rule(selection: SourceSelection) -> DerivedEntityRule:
 
 def _source_evidence(
     *,
-    project_id: str | None = None,
+    workspace_id: str | None = None,
     rows: tuple[tuple[str | None, ...], ...] = (
         ("P001", "Furniture / Accessories"),
         ("P002", "Computers / Accessories"),
@@ -711,7 +711,9 @@ def _source_evidence(
     selection = SourceSelection(
         selection_id=str(uuid4()),
         version=1,
-        project_id=project_id or str(uuid4()),
+        data_version_id=(
+            data_version_id(workspace_id) if workspace_id else DATA_VERSION_ID
+        ),
         created_at=now,
         created_by="Test operator",
         datasets=(dataset,),

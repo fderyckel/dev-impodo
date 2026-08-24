@@ -9,15 +9,17 @@ status: current
 ## Responsibility
 
 Source data converts either registered files or a bounded Odoo selection into
-immutable DataVersion workspace evidence. It owns inspection, configuration,
-selection, freezing, Odoo-source capture, and optional related-dataset plans.
+immutable DataVersion evidence. The DataVersion package owns inspection
+catalogues, confirmed configuration, selection, freezing, Odoo-source capture,
+and snapshot references. A workspace owns only its selected dataset references
+and current transformation evidence.
 
 It does not apply the final mapping, publish canonical staging, or perform an
 Odoo write.
 
 ## Entry conditions
 
-The project is `REGISTERED`. File mode requires contained registered files.
+The workspace is `REGISTERED`. File mode requires contained registered files.
 Odoo mode requires a captured eligible schema before the bounded record
 selection can be saved and frozen.
 
@@ -28,6 +30,12 @@ For file mode, `sources.py` invokes source inspection and
 tables. The frozen source snapshot is built from hash-checked CSV or XLSX
 content and materialized as tagged Parquet evidence.
 
+`MigrationWorkspaceStateRepository` records each uploaded file in the draft
+DataVersion package immediately. `DataVersionOwnedSourceRepository` reads and
+writes catalogues and confirmations through that package. The workspace-engine
+tables retained for snapshot creation and invalidation are derived caches; a
+page never treats them as source-package authority.
+
 File validation and inspection run in spawned, resource-bounded processes.
 Each process receives the application build contract that accepted the parent
 request and verifies it before opening the source file. A changed editable
@@ -36,9 +44,9 @@ builds in one intake operation.
 
 After every file is confirmed, the Source data page uses the already loaded
 catalogues and configurations to render the dataset-name fields and the final
-save action. `POST /workspaces/{project_id}/datasets/freeze` retains the hard
+save action. `POST /workspaces/{workspace_id}/datasets/freeze` retains the hard
 evidence boundary. Before a selection exists,
-`GET /workspaces/{project_id}/datasets` returns the data manager to the inline
+`GET /workspaces/{workspace_id}/datasets` returns the data manager to the inline
 form; after the save, that route presents the saved-table result and the next
 action.
 
@@ -78,19 +86,21 @@ field path.
 | File and selection orchestration | [`SourceWorkspaceService`](../../../src/impodo/application/source_workspace_service.py) |
 | Isolated source workers | [`source_worker.py`](../../../src/impodo/source_worker.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
+| Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/derived_entities.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
 | Related-dataset routes | [`derived_entities.py`](../../../src/impodo/web/routers/derived_entities.py) |
 
 ## Evidence and state
 
-File intake stores content hashes and bounded catalogues. File configuration
-records the chosen physical tables. The frozen `SourceSelection` binds stable
+The draft DataVersion package stores file references, content hashes, bounded
+catalogues, and chosen physical-table configuration. The frozen
+`SourceSelection` binds stable
 dataset IDs, physical schema, row counts, source evidence hashes, and Parquet
 storage. Odoo capture adds selection, provenance, and target bindings without
 using numeric Odoo IDs as portable business values.
 
-Related-dataset rules are versioned project-local evidence and must retain
+Related-dataset rules are versioned workspace-owned evidence and must retain
 complete source lineage when materialized later.
 
 ## Completion and navigation
@@ -108,8 +118,9 @@ publish a loadable execution snapshot for those updates.
 
 ## Invalidation and recovery
 
-Before file-table freeze, add/remove commands use project revision checks and
-delete only the selected contained file and its local catalogue. After freeze,
+Before file-table freeze, add/remove commands use workbench revision checks and
+delete only the selected DataVersion file and its dependent draft metadata.
+After freeze,
 source mutation fails closed. A changed hash, selection, capture, or
 related-dataset plan invalidates downstream evidence; regenerate rather than
 editing stored artifacts.
@@ -134,6 +145,7 @@ falling back to unbounded Python work.
 - [`tests/test_source_worker_build_contract.py`](../../../tests/test_source_worker_build_contract.py)
 - [`tests/test_source_snapshot.py`](../../../tests/test_source_snapshot.py)
 - [`tests/test_odoo_source_capture.py`](../../../tests/test_odoo_source_capture.py)
+- [`tests/test_odoo_capture_jobs.py`](../../../tests/test_odoo_capture_jobs.py)
 - [`tests/test_derived_entities.py`](../../../tests/test_derived_entities.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 

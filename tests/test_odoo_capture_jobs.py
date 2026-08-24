@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from threading import Event
 import time
 from types import SimpleNamespace
@@ -13,30 +14,63 @@ from impodo.odoo_capture_jobs import (
     OdooCapturePhase,
     OdooCaptureProgress,
 )
+from impodo.migration_foundation import MigrationIdentifierConfusionError
+from impodo.workspace_access import WorkspaceAccessContext
+
+
+PROJECT_ID = "10000000-0000-4000-8000-000000000001"
+WORKSPACE_ID = "20000000-0000-4000-8000-000000000001"
+DATA_VERSION_ID = "30000000-0000-4000-8000-000000000001"
+MIGRATION_RUN_ID = "40000000-0000-4000-8000-000000000001"
+
+
+def _access_context() -> WorkspaceAccessContext:
+    return WorkspaceAccessContext(
+        project_id=PROJECT_ID,
+        workspace_id=WORKSPACE_ID,
+        data_version_id=DATA_VERSION_ID,
+        migration_run_id=MIGRATION_RUN_ID,
+    )
 
 
 class OdooCaptureJobManagerTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.manager.shutdown()
 
+    def test_rejects_mismatched_access_context_before_queueing(self) -> None:
+        self.manager = OdooCaptureJobManager(_Publication())
+
+        with self.assertRaises(MigrationIdentifierConfusionError):
+            self.manager.enqueue(
+                "50000000-0000-4000-8000-000000000001",
+                "Wrong workspace",
+                1,
+                object(),
+                access_context=_access_context(),
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNone(self.manager.active(WORKSPACE_ID))
+
     def test_reports_stream_counters_and_published_manifest(self) -> None:
         publication = _Publication()
         accepted = []
         self.manager = OdooCaptureJobManager(
             publication,
-            accept_publication=lambda project_id, result, actor: accepted.append(
-                (project_id, result.manifest.manifest_id, actor)
+            accept_publication=lambda workspace_id, result, actor: accepted.append(
+                (workspace_id, result.manifest.manifest_id, actor)
             ),
         )
 
         job = self.manager.enqueue(
-            "project-1",
+            WORKSPACE_ID,
             "Contacts",
             1_000,
             object(),
+            access_context=_access_context(),
             actor=LOCAL_ACTOR,
         )
-        terminal = _wait_for_terminal(self.manager, job.project_id, job.job_id)
+        terminal = _wait_for_terminal(self.manager, job.workspace_id, job.job_id)
 
         self.assertEqual(terminal.status, OdooCaptureJobStatus.SUCCEEDED)
         self.assertEqual(terminal.completed_rows, 2)
@@ -47,38 +81,52 @@ class OdooCaptureJobManagerTests(unittest.TestCase):
         self.assertEqual(terminal.progress_percent, 100)
         self.assertEqual(
             accepted,
-            [("project-1", "manifest-1", LOCAL_ACTOR)],
+            [(WORKSPACE_ID, "manifest-1", LOCAL_ACTOR)],
         )
 
     def test_returns_one_active_attempt_and_cancels_at_checkpoint(self) -> None:
         publication = _BlockingPublication()
         self.manager = OdooCaptureJobManager(publication)
         first = self.manager.enqueue(
-            "project-1",
+            WORKSPACE_ID,
             "Contacts",
             1_000,
             object(),
+            access_context=_access_context(),
             actor=LOCAL_ACTOR,
         )
         duplicate = self.manager.enqueue(
-            "project-1",
+            WORKSPACE_ID,
             "Contacts",
             1_000,
             object(),
+            access_context=_access_context(),
             actor=LOCAL_ACTOR,
         )
+        with self.assertRaises(MigrationIdentifierConfusionError):
+            self.manager.enqueue(
+                WORKSPACE_ID,
+                "Contacts",
+                1_000,
+                object(),
+                access_context=replace(
+                    _access_context(),
+                    migration_run_id="40000000-0000-4000-8000-000000000002",
+                ),
+                actor=LOCAL_ACTOR,
+            )
         self.assertEqual(duplicate.job_id, first.job_id)
         self.assertTrue(publication.started.wait(timeout=1))
 
-        self.manager.cancel(first.project_id, first.job_id)
-        terminal = _wait_for_terminal(self.manager, first.project_id, first.job_id)
+        self.manager.cancel(first.workspace_id, first.job_id)
+        terminal = _wait_for_terminal(self.manager, first.workspace_id, first.job_id)
 
         self.assertEqual(terminal.status, OdooCaptureJobStatus.CANCELLED)
         self.assertTrue(terminal.cancel_requested)
 
 
 class _Publication:
-    def publish(self, project_id, gateway, *, actor, cancellation, progress):
+    def publish(self, workspace_id, gateway, *, actor, cancellation, progress):
         progress(
             OdooCaptureProgress(
                 phase=OdooCapturePhase.READING,
@@ -106,7 +154,7 @@ class _BlockingPublication:
     def __init__(self) -> None:
         self.started = Event()
 
-    def publish(self, project_id, gateway, *, actor, cancellation, progress):
+    def publish(self, workspace_id, gateway, *, actor, cancellation, progress):
         self.started.set()
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
@@ -116,10 +164,10 @@ class _BlockingPublication:
         raise AssertionError("Expected cancellation")
 
 
-def _wait_for_terminal(manager, project_id: str, job_id: str):
+def _wait_for_terminal(manager, workspace_id: str, job_id: str):
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        job = manager.get(project_id, job_id)
+        job = manager.get(workspace_id, job_id)
         if job.terminal:
             return job
         time.sleep(0.01)

@@ -255,7 +255,7 @@ class SelectionRuleTests(unittest.TestCase):
 
         self.assertEqual(restored, definition)
         self.assertEqual(restored.contract_version, 12)
-        with self.assertRaisesRegex(ValueError, "require version 12"):
+        with self.assertRaisesRegex(ValueError, "current contract"):
             MappingDefinition(
                 mapping_id=definition.mapping_id,
                 source_selection_hash=HASH_A,

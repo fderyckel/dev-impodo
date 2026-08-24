@@ -31,7 +31,6 @@ The user pages explain what to do, what to check, and what completion means.
 Implementation details are kept in the paired developer pages.
 
 Stage screenshots use isolated fictional workspaces and contain no operational
-or customer data. Recipe-first setup screenshots were removed when the
-data-project-first browser replaced that lifecycle.
+or customer data.
 
 ![The current empty data projects list makes one-off work the starting point and keeps Recipe reuse optional.](../images/user/01-project-list.png)

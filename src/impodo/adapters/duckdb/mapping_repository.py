@@ -69,12 +69,12 @@ class MappingRepository(DuckDbRepository):
 
     def get_mapping_working_draft(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> MappingWorkingDraft | None:
         """Load current recoverable editor state without claiming validation."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT draft_json
               FROM mapping_working_draft
@@ -84,7 +84,7 @@ class MappingRepository(DuckDbRepository):
         return MappingWorkingDraft.from_json(value) if value else None
     def save_mapping_working_draft(
         self,
-        project_id: str,
+        workspace_id: str,
         draft: MappingWorkingDraft,
         *,
         expected_version: int | None,
@@ -92,9 +92,9 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Replace unchecked editor progress using its optimistic draft version."""
 
-        if draft.project_id != project_id:
-            raise WorkspaceError("Working draft belongs to another project")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        if draft.workspace_id != workspace_id:
+            raise WorkspaceError("Working draft belongs to another workspace")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -113,7 +113,7 @@ class MappingRepository(DuckDbRepository):
             if self._source_projection is not None:
                 mapping_selection = (
                     self._source_projection.get_mapping_source_selection(
-                        project_id
+                        workspace_id
                     )
                 )
                 if mapping_selection is None:
@@ -265,7 +265,7 @@ class MappingRepository(DuckDbRepository):
                 raise
     def get_mapping_revision(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int | None = None,
     ) -> MappingRevision | None:
         """Load the current pointer or one historical immutable version."""
@@ -279,10 +279,10 @@ class MappingRepository(DuckDbRepository):
                    AND revision.version = current.version
                  WHERE current.singleton_id = 1
             """
-            value = self._read_singleton_json(project_id, query)
+            value = self._read_singleton_json(workspace_id, query)
         else:
             values = self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT revision_json
                   FROM mapping_revision
@@ -295,14 +295,14 @@ class MappingRepository(DuckDbRepository):
         return MappingRevision.from_json(value) if value else None
     def list_mapping_revisions(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[MappingRevision, ...]:
         """Return all immutable mapping revisions in deterministic order."""
 
         return tuple(
             MappingRevision.from_json(value)
             for value in self._read_json_rows(
-                project_id,
+                workspace_id,
                 """
                 SELECT revision_json
                   FROM mapping_revision
@@ -312,7 +312,7 @@ class MappingRepository(DuckDbRepository):
         )
     def save_mapping_revision(
         self,
-        project_id: str,
+        workspace_id: str,
         revision: MappingRevision,
         *,
         validation: MappingValidationResult,
@@ -332,7 +332,7 @@ class MappingRepository(DuckDbRepository):
                 "Mapping validation does not match its revision"
             )
         if (
-            checked_draft.project_id != project_id
+            checked_draft.workspace_id != workspace_id
             or checked_draft.mapping_id != revision.mapping_id
             or checked_draft.base_mapping_version != revision.version
             or checked_draft.content_hash != revision.definition.content_hash
@@ -340,7 +340,7 @@ class MappingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Checked working draft does not match its revision"
             )
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -455,13 +455,13 @@ class MappingRepository(DuckDbRepository):
                 raise
     def get_mapping_validation(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int,
     ) -> MappingValidationResult | None:
         """Return the newest stored validation for one mapping version."""
 
         values = self._read_json_rows(
-            project_id,
+            workspace_id,
             """
             SELECT validation_json
               FROM mapping_validation
@@ -475,7 +475,7 @@ class MappingRepository(DuckDbRepository):
         )
     def save_mapping_validation(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int,
         validation: MappingValidationResult,
         *,
@@ -483,7 +483,7 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Append revalidation only when its mapping content hash matches."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -518,7 +518,7 @@ class MappingRepository(DuckDbRepository):
             )
     def get_mapping_submission(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int | None = None,
     ) -> MappingSubmission | None:
         """Return the newest submission globally or for one requested version."""
@@ -526,7 +526,7 @@ class MappingRepository(DuckDbRepository):
         condition = "WHERE version = ?" if version is not None else ""
         parameters: list[object] = [version] if version is not None else []
         values = self._read_json_rows(
-            project_id,
+            workspace_id,
             f"""
             SELECT submission_json
               FROM mapping_submission
@@ -538,14 +538,14 @@ class MappingRepository(DuckDbRepository):
         return MappingSubmission.from_json(values[0]) if values else None
     def save_mapping_submission(
         self,
-        project_id: str,
+        workspace_id: str,
         submission: MappingSubmission,
         *,
         actor: Actor,
     ) -> None:
         """Append a submission only when validation and warnings match exactly."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -611,7 +611,7 @@ class MappingRepository(DuckDbRepository):
                     ],
                 )
                 connection.execute(
-                    "UPDATE workspace_state SET mapping_version = ?",
+                    "UPDATE workspace_projection_cache SET mapping_version = ?",
                     [str(submission.version)],
                 )
                 self._insert_workspace_audit(
@@ -628,4 +628,3 @@ class MappingRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-

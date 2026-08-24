@@ -1,6 +1,6 @@
 """Define fresh Production use of one selected qualified CutoverPlan.
 
-M6 reuses a plan's qualified meaning while keeping rollout data, target,
+Production reuses a plan's qualified meaning while keeping rollout data, target,
 credentials, parameters, controls, comparison, approval, execution, and
 reconciliation independent from Integrated Test evidence.
 """

@@ -15,7 +15,7 @@ from ..security import require_session
 
 
 def build_cutover_plans_router(context: WebContext) -> APIRouter:
-    """Build the explicit M5 review, qualification, and selection routes."""
+    """Build the explicit review, qualification, and selection routes."""
 
     router = APIRouter()
 

@@ -14,7 +14,7 @@ from ..adapters.polars_transformation import (
     summarize_polars_rule_impacts,
     write_polars_prepared_snapshot,
 )
-from ..artifacts import ArtifactStore, ArtifactStoreError
+from ..artifacts import GovernedArtifactStores, ArtifactStoreError
 from ..derived_entities import DerivedEntityPlan
 from ..domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from ..domain.compiler.columnar_transformation import (
@@ -95,9 +95,9 @@ class BoundedDirectPreparation:
 class _ImpactBatchSink:
     """Bound the collector callback while preserving exact emission order."""
 
-    def __init__(self, repository, project_id: str, session_id: str) -> None:
+    def __init__(self, repository, workspace_id: str, session_id: str) -> None:
         self.repository = repository
-        self.project_id = project_id
+        self.workspace_id = workspace_id
         self.session_id = session_id
         self.rows: list[TransformationImpactRow] = []
 
@@ -110,7 +110,7 @@ class _ImpactBatchSink:
         if not self.rows:
             return
         self.repository.append_impacts(
-            self.project_id,
+            self.workspace_id,
             self.session_id,
             tuple(self.rows),
         )
@@ -167,13 +167,13 @@ def direct_preparation_row_limit(
 
 
 def prepare_bounded_direct_session(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     definition: MappingDefinition,
     mapping_version: int,
     physical_selection: SourceSelection,
     effective_selection: SourceSelection,
     catalogs: Iterable[SourceFileCatalog],
-    artifacts: ArtifactStore,
+    artifacts: GovernedArtifactStores,
     reference_bundle: ReferenceBundle | None,
     sessions: PreparationSessionRepository,
     *,
@@ -193,10 +193,11 @@ def prepare_bounded_direct_session(
             "Bounded direct preparation requires unchanged physical datasets"
         )
     if (
-        physical_selection.project_id != project.project_id
-        or effective_selection.project_id != project.project_id
+        physical_selection.data_version_id != effective_selection.data_version_id
     ):
-        raise ReadinessError("Canonical evaluation evidence belongs to another project")
+        raise ReadinessError(
+            "Canonical evaluation evidence belongs to another DataVersion"
+        )
     physical_selection_hash = physical_selection.content_hash
     source_selection_hash = effective_selection.content_hash
     mapping_hash = definition.content_hash
@@ -205,9 +206,9 @@ def prepare_bounded_direct_session(
         raise ReadinessError("The submitted mapping no longer matches its source data")
     if (
         reference_bundle is not None
-        and reference_bundle.project_id != project.project_id
+        and reference_bundle.workspace_id != workspace_state.workspace_id
     ):
-        raise ReadinessError("Reference data belongs to another project")
+        raise ReadinessError("Reference data belongs to another workspace")
     if columnar_batch_size < 1:
         raise ValueError("Columnar transformation batch size must be positive")
 
@@ -246,7 +247,7 @@ def prepare_bounded_direct_session(
     ):
         raise ReadinessError("Frozen source snapshots are incomplete")
     session = sessions.begin_direct_session(
-        project.project_id,
+        workspace_state.workspace_id,
         PreparationSessionBindings(
             mapping_id=definition.mapping_id,
             mapping_version=mapping_version,
@@ -264,7 +265,7 @@ def prepare_bounded_direct_session(
     )
     impact_sink = _ImpactBatchSink(
         sessions,
-        project.project_id,
+        workspace_state.workspace_id,
         session.session_id,
     )
     impact_collector = _TransformationImpactCollector(
@@ -284,7 +285,7 @@ def prepare_bounded_direct_session(
         effective_selection,
     )
     catalog_by_file = {item.file_id: item for item in catalogs}
-    source_file_by_id = {item.file_id: item for item in project.source_files}
+    source_file_by_id = {item.file_id: item for item in workspace_state.source_files}
     run_issues: list[Issue] = []
     dataset_evidence: dict[
         str,
@@ -352,7 +353,7 @@ def prepare_bounded_direct_session(
                         snapshot,
                     )
                     prepared_snapshot = _prepared_snapshot_for_program(
-                        project,
+                        workspace_state,
                         snapshot,
                         columnar.program,
                         artifacts,
@@ -374,12 +375,12 @@ def prepare_bounded_direct_session(
                         program=columnar.program,
                     )
                     with artifacts.materialize_prepared_snapshot(
-                        project.project_id,
+                        workspace_state.workspace_id,
                         prepared_snapshot.parquet_storage_key,
                         expected_sha256=prepared_snapshot.parquet_sha256,
                     ) as path:
                         native_projection = sessions.append_native_prepared_projection(
-                            project.project_id,
+                            workspace_state.workspace_id,
                             session.session_id,
                             prepared_snapshot,
                             replace(
@@ -420,7 +421,7 @@ def prepare_bounded_direct_session(
 
                         _require_python_row_adaptation_capacity(total_rows)
                         sessions.bind_prepared_canonical_projection(
-                            project.project_id,
+                            workspace_state.workspace_id,
                             session.session_id,
                             prepared_snapshot,
                             projection,
@@ -493,7 +494,7 @@ def prepare_bounded_direct_session(
                                 )
                                 if len(pending_rows) == BOUNDED_SOURCE_BATCH_SIZE:
                                     sessions.append_direct_rows(
-                                        project.project_id,
+                                        workspace_state.workspace_id,
                                         session.session_id,
                                         pending_rows,
                                     )
@@ -505,14 +506,14 @@ def prepare_bounded_direct_session(
                                 batch_progress(completed_rows, total_rows)
                         if pending_rows:
                             sessions.append_direct_rows(
-                                project.project_id,
+                                workspace_state.workspace_id,
                                 session.session_id,
                                 pending_rows,
                             )
                             pending_rows.clear()
                 except (ArtifactStoreError, SourceLoadError) as error:
                     _cleanup_prepared_snapshot_orphans(
-                        project.project_id,
+                        workspace_state.workspace_id,
                         artifacts,
                         sessions,
                     )
@@ -543,7 +544,7 @@ def prepare_bounded_direct_session(
                 run_issues.append(preparer.dataset_issue)
             row_count = 0
             with _open_preparation_source(
-                project,
+                workspace_state,
                 physical_selection,
                 physical,
                 source_file,
@@ -593,7 +594,7 @@ def prepare_bounded_direct_session(
                             )
                         )
                     sessions.append_direct_rows(
-                        project.project_id,
+                        workspace_state.workspace_id,
                         session.session_id,
                         prepared_batch,
                     )
@@ -610,7 +611,7 @@ def prepare_bounded_direct_session(
 
         impact_sink.flush()
         run = sessions.finalize_direct_session(
-            project.project_id,
+            workspace_state.workspace_id,
             session.session_id,
             dataset_evidence=dataset_evidence,
             run_issues=run_issues,
@@ -620,7 +621,7 @@ def prepare_bounded_direct_session(
         return BoundedDirectPreparation(session_id=session.session_id, run=run)
     except Exception:
         sessions.fail_session(
-            project.project_id,
+            workspace_state.workspace_id,
             session.session_id,
             "BOUNDED_PREPARATION_FAILED",
         )
@@ -634,7 +635,7 @@ def _require_python_row_adaptation_capacity(total_rows: int) -> None:
         return
     raise ReadinessError(
         "This prepared data requires the bounded compatibility checker, but "
-        f"this project contains {total_rows:,} rows. That route safely "
+        f"this workspace selection contains {total_rows:,} rows. That route safely "
         f"supports up to {BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,} "
         "rows. Split the source into smaller projects; no data was changed."
     )
@@ -696,17 +697,17 @@ def _canonical_session_row(
 
 
 def _prepared_snapshot_for_program(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     source_snapshot: SourceSnapshot,
     program: ColumnarTransformationProgram,
-    artifacts: ArtifactStore,
+    artifacts: GovernedArtifactStores,
     sessions: PreparationSessionRepository,
     session_id: str,
 ) -> PreparedSnapshot:
     """Reuse or publish one exact typed projection before canonical adaptation."""
 
     logical_hash = prepared_snapshot_logical_hash(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         dataset_id=program.dataset_id,
         dataset_name=program.dataset_name,
         source_snapshot_hash=source_snapshot.content_hash,
@@ -717,14 +718,14 @@ def _prepared_snapshot_for_program(
         row_count=source_snapshot.row_count,
     )
     existing = sessions.find_prepared_snapshot(
-        project.project_id,
+        workspace_state.workspace_id,
         program.dataset_id,
         logical_hash,
     )
     if existing is not None:
         try:
             with artifacts.materialize_prepared_snapshot(
-                project.project_id,
+                workspace_state.workspace_id,
                 existing.parquet_storage_key,
                 expected_sha256=existing.parquet_sha256,
             ):
@@ -733,7 +734,7 @@ def _prepared_snapshot_for_program(
             existing = None
         else:
             sessions.bind_prepared_snapshot(
-                project.project_id,
+                workspace_state.workspace_id,
                 session_id,
                 existing,
             )
@@ -741,11 +742,11 @@ def _prepared_snapshot_for_program(
 
     try:
         with artifacts.materialize_source_snapshot(
-            project.project_id,
+            source_snapshot.data_version_id,
             source_snapshot.parquet_storage_key,
             expected_sha256=source_snapshot.parquet_sha256,
         ) as source_path:
-            with artifacts.prepare_prepared_snapshot(project.project_id) as workspace:
+            with artifacts.prepare_prepared_snapshot(workspace_state.workspace_id) as workspace:
                 candidate_path = workspace / "prepared.parquet"
                 candidate = write_polars_prepared_snapshot(
                     source_path,
@@ -754,7 +755,7 @@ def _prepared_snapshot_for_program(
                     candidate_path,
                 )
                 prepared = PreparedSnapshot.create(
-                    project_id=project.project_id,
+                    workspace_id=workspace_state.workspace_id,
                     dataset_id=program.dataset_id,
                     dataset_name=program.dataset_name,
                     source_snapshot_hash=source_snapshot.content_hash,
@@ -767,20 +768,20 @@ def _prepared_snapshot_for_program(
                     created_at=datetime.now(timezone.utc),
                 )
                 artifacts.publish_prepared_snapshot(
-                    project.project_id,
+                    workspace_state.workspace_id,
                     candidate_path,
                     prepared.parquet_storage_key,
                     expected_sha256=prepared.parquet_sha256,
                 )
         sessions.bind_prepared_snapshot(
-            project.project_id,
+            workspace_state.workspace_id,
             session_id,
             prepared,
         )
         return prepared
     except Exception:
         _cleanup_prepared_snapshot_orphans(
-            project.project_id,
+            workspace_state.workspace_id,
             artifacts,
             sessions,
         )
@@ -788,26 +789,26 @@ def _prepared_snapshot_for_program(
 
 
 def _cleanup_prepared_snapshot_orphans(
-    project_id: str,
-    artifacts: ArtifactStore,
+    workspace_id: str,
+    artifacts: GovernedArtifactStores,
     sessions: PreparationSessionRepository,
 ) -> None:
     """Best-effort cleanup without masking the preparation failure."""
 
     try:
-        referenced = sessions.prepared_snapshot_storage_keys(project_id)
-        artifacts.cleanup_prepared_snapshots(project_id, referenced)
+        referenced = sessions.prepared_snapshot_storage_keys(workspace_id)
+        artifacts.cleanup_prepared_snapshots(workspace_id, referenced)
     except Exception:
         pass
 
 
 @contextmanager
 def _open_preparation_source(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     selection: SourceSelection,
     dataset: SourceDataset,
     source_file: SourceFile | None,
-    artifacts: ArtifactStore,
+    artifacts: GovernedArtifactStores,
     snapshot: SourceSnapshot | None,
     *,
     named_range: str | None,
@@ -818,7 +819,7 @@ def _open_preparation_source(
         try:
             validate_snapshot_for_dataset(selection, dataset, snapshot)
             with artifacts.materialize_source_snapshot(
-                project.project_id,
+                selection.data_version_id,
                 snapshot.parquet_storage_key,
                 expected_sha256=snapshot.parquet_sha256,
             ) as path:
@@ -838,7 +839,7 @@ def _open_preparation_source(
         raise ReadinessError("The frozen source snapshot is required")
 
     with artifacts.materialize_source(
-        project.project_id,
+        selection.data_version_id,
         source_file.stored_name,
     ) as path:
         binding = require_file_source(dataset.source)
@@ -854,4 +855,3 @@ def _open_preparation_source(
             batch_size=BOUNDED_SOURCE_BATCH_SIZE,
         ) as source:
             yield source
-

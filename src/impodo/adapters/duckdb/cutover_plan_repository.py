@@ -44,7 +44,7 @@ from ..protected_project_evidence_store import ProtectedProjectEvidenceStore
 
 
 class CutoverPlanRepository:
-    """Own the bounded M5 registry projections and protected evidence."""
+    """Own bounded CutoverPlan projections and protected evidence."""
 
     def __init__(
         self,

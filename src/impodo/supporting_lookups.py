@@ -18,7 +18,7 @@ from .reference_keys import REFERENCE_POLICY_HASH
 
 
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
-SUPPORTING_LOOKUP_CONTRACT_VERSION = 2
+SUPPORTING_LOOKUP_CONTRACT_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +48,9 @@ def supporting_lookup_key(
 ) -> str:
     """Identify one lookup by its governed, target-independent semantics."""
 
+    if contract_version != SUPPORTING_LOOKUP_CONTRACT_VERSION:
+        raise ValueError("Supporting lookup contract version is unsupported")
+
     _validate_technical_name(relation_model, "related model")
     for field_name in (*key_fields, *scope_fields, display_field):
         _validate_technical_name(field_name, "related field")
@@ -60,8 +63,7 @@ def supporting_lookup_key(
         "scope_fields": scope_fields,
         "display_field": display_field,
     }
-    if contract_version >= 2:
-        payload["reference_policy_hash"] = reference_policy_hash
+    payload["reference_policy_hash"] = reference_policy_hash
     return content_hash(payload)
 
 
@@ -70,7 +72,7 @@ class SupportingLookupSnapshot:
     """Immutable portable choices plus exact target/read provenance."""
 
     snapshot_id: str
-    project_id: str
+    workspace_id: str
     lookup_key: str
     relation_model: str
     key_fields: tuple[str, ...]
@@ -93,7 +95,7 @@ class SupportingLookupSnapshot:
     def capture(
         cls,
         *,
-        project_id: str,
+        workspace_id: str,
         relation_model: str,
         key_fields: tuple[str, ...],
         scope_fields: tuple[str, ...],
@@ -110,9 +112,9 @@ class SupportingLookupSnapshot:
     ) -> "SupportingLookupSnapshot":
         """Build and hash one normalized snapshot."""
 
-        normalized_project_id = project_id.strip()
+        normalized_workspace_id = workspace_id.strip()
         normalized_actor = captured_by.strip()
-        if not normalized_project_id or not normalized_actor:
+        if not normalized_workspace_id or not normalized_actor:
             raise ValueError("Supporting lookup project and actor are required")
         lookup_key = supporting_lookup_key(
             relation_model=relation_model,
@@ -135,8 +137,8 @@ class SupportingLookupSnapshot:
             )
         )
         semantic = {
-            "contract": "supporting-lookup-snapshot-v2",
-            "project_id": normalized_project_id,
+            "contract": "supporting-lookup-snapshot-v3",
+            "workspace_id": normalized_workspace_id,
             "lookup_key": lookup_key,
             "relation_model": relation_model,
             "key_fields": key_fields,
@@ -156,7 +158,7 @@ class SupportingLookupSnapshot:
         }
         return cls(
             snapshot_id=str(uuid4()),
-            project_id=normalized_project_id,
+            workspace_id=normalized_workspace_id,
             lookup_key=lookup_key,
             relation_model=relation_model,
             key_fields=key_fields,
@@ -183,7 +185,7 @@ class SupportingLookupSnapshot:
             {
                 "snapshot_id": self.snapshot_id,
                 "contract_version": self.contract_version,
-                "project_id": self.project_id,
+                "workspace_id": self.workspace_id,
                 "lookup_key": self.lookup_key,
                 "relation_model": self.relation_model,
                 "key_fields": self.key_fields,
@@ -211,11 +213,23 @@ class SupportingLookupSnapshot:
         """Restore stored evidence and reject semantic tampering."""
 
         payload = json.loads(value)
-        contract_version = int(payload.get("contract_version", 1))
-        reference_policy_hash = str(payload.get("reference_policy_hash", ""))
+        expected_fields = {
+            "snapshot_id", "contract_version", "workspace_id", "lookup_key",
+            "relation_model", "key_fields", "scope_fields", "display_field",
+            "target_hash", "read_credential_binding_hash", "read_principal_hash",
+            "read_permission_hash", "read_context_hash", "reference_policy_hash",
+            "captured_at", "captured_by", "choices", "ambiguous_values",
+            "content_hash",
+        }
+        if not isinstance(payload, dict) or set(payload) != expected_fields:
+            raise ValueError("Supporting lookup evidence shape is unsupported")
+        contract_version = int(payload["contract_version"])
+        if contract_version != SUPPORTING_LOOKUP_CONTRACT_VERSION:
+            raise ValueError("Supporting lookup contract version is unsupported")
+        reference_policy_hash = str(payload["reference_policy_hash"])
         restored = cls(
             snapshot_id=str(payload["snapshot_id"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             lookup_key=str(payload["lookup_key"]),
             relation_model=str(payload["relation_model"]),
             key_fields=tuple(str(item) for item in payload["key_fields"]),
@@ -254,7 +268,7 @@ class SupportingLookupSnapshot:
         )
         semantic = {
             "contract": f"supporting-lookup-snapshot-v{restored.contract_version}",
-            "project_id": restored.project_id,
+            "workspace_id": restored.workspace_id,
             "lookup_key": restored.lookup_key,
             "relation_model": restored.relation_model,
             "key_fields": restored.key_fields,
@@ -271,8 +285,7 @@ class SupportingLookupSnapshot:
             ],
             "ambiguous_values": restored.ambiguous_values,
         }
-        if restored.contract_version >= 2:
-            semantic["reference_policy_hash"] = restored.reference_policy_hash
+        semantic["reference_policy_hash"] = restored.reference_policy_hash
         if restored.lookup_key != expected_lookup_key:
             raise ValueError("Supporting lookup key is invalid")
         if restored.content_hash != content_hash(semantic):

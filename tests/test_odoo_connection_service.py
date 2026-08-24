@@ -17,8 +17,8 @@ from impodo.workspace_state import (
 
 class OdooConnectionTestServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.project = WorkspaceState(
-            project_id="3a9127fa-8db4-47f9-9883-55f9fd4432e7",
+        self.workspace_state = WorkspaceState(
+            workspace_id="3a9127fa-8db4-47f9-9883-55f9fd4432e7",
             name="Odoo source",
             source_system="Odoo",
             source_mode=SourceMode.ODOO,
@@ -28,14 +28,14 @@ class OdooConnectionTestServiceTests(unittest.TestCase):
         )
         self.target_hash = target_identity_hash(
             connection_mode="REMOTE",
-            base_url=self.project.odoo_base_url,
-            database=self.project.odoo_database,
+            base_url=self.workspace_state.odoo_base_url,
+            database=self.workspace_state.odoo_database,
         )
         self.fingerprint_calls: list[tuple[str, str]] = []
         self.identity_calls: list[tuple[str, str, tuple[str, ...]]] = []
 
-        def fingerprint_probe(project, api_key):
-            self.fingerprint_calls.append((project.project_id, api_key))
+        def fingerprint_probe(workspace_state, api_key):
+            self.fingerprint_calls.append((workspace_state.workspace_id, api_key))
             return TargetFingerprint(
                 target_hash=self.target_hash,
                 connection_mode="REMOTE",
@@ -44,10 +44,10 @@ class OdooConnectionTestServiceTests(unittest.TestCase):
                 snapshot_timestamp="2026-08-21T00:00:00Z",
             )
 
-        def identity_probe(project, api_key, models):
+        def identity_probe(workspace_state, api_key, models):
             normalized = tuple(models)
             self.identity_calls.append(
-                (project.project_id, api_key, normalized)
+                (workspace_state.workspace_id, api_key, normalized)
             )
             return OdooReadIdentity(
                 target_hash=self.target_hash,
@@ -65,7 +65,7 @@ class OdooConnectionTestServiceTests(unittest.TestCase):
 
     def test_read_check_is_bounded_to_connection_and_self_identity(self) -> None:
         result = self.service.test_read(
-            self.project,
+            self.workspace_state,
             "read-key",
             purpose=OdooConnectionPurpose.SOURCE_READ,
         )
@@ -74,17 +74,17 @@ class OdooConnectionTestServiceTests(unittest.TestCase):
         self.assertEqual(result.connection.identity_hash, self.target_hash)
         self.assertEqual(
             self.fingerprint_calls,
-            [(self.project.project_id, "read-key")],
+            [(self.workspace_state.workspace_id, "read-key")],
         )
         self.assertEqual(
             self.identity_calls,
-            [(self.project.project_id, "read-key", ("res.users",))],
+            [(self.workspace_state.workspace_id, "read-key", ("res.users",))],
         )
 
     def test_write_access_is_not_conflated_with_read_connection_testing(self) -> None:
         with self.assertRaisesRegex(WorkspaceStateError, "load confirmation"):
             self.service.test_read(
-                self.project,
+                self.workspace_state,
                 "write-key",
                 purpose=OdooConnectionPurpose.TARGET_WRITE,
             )

@@ -82,100 +82,100 @@ class _SupportingLookupAccess:
 
 
 def _target_json2_config(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
 ) -> Json2Config:
     """Build the one archived-inclusive context for target-side reads."""
 
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Configure the Odoo target before reading it")
     return target_record_read_config(
         Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
             api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
+            connection_mode=workspace_state.odoo_connection_mode.value,
         )
     )
 
 
 def _source_capture_reader(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
 ) -> Json2OdooSourceCapture:
     """Build the one governed JSON-2 business-record capture adapter."""
 
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Configure the Odoo target before source capture")
     return Json2OdooSourceCapture(
         Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
             api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
+            connection_mode=workspace_state.odoo_connection_mode.value,
         )
     )
 
 
 def _test_connection(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
 ) -> TargetFingerprint:
     """Identify the exact database without discovering models or fields."""
 
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Choose Local Odoo or Remote Odoo")
-    connector = Json2ReadConnector(_target_json2_config(project, api_key))
+    connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
     return connector.get_target_fingerprint()
 
 
 def _probe_read_identity(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
     models: tuple[str, ...],
 ) -> OdooReadIdentity:
     """Run the fixed remote principal/context/model-read probe."""
 
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Configure the Odoo target before identity probing")
-    connector = Json2ReadConnector(_target_json2_config(project, api_key))
+    connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
     return connector.probe_read_identity(models)
 
 
 def _selected_local_profile(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
 ) -> LocalStackProfile | None:
     """Return the session-bound profile only when it matches this target."""
 
-    if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
+    if workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL:
         return None
-    status = context.local_stack.get(project.project_id)
+    status = context.local_stack.get(workspace_state.workspace_id)
     profile = status.profile
     if profile is None:
         return None
-    if profile.base_url.rstrip("/") != project.odoo_base_url.rstrip("/"):
+    if profile.base_url.rstrip("/") != workspace_state.odoo_base_url.rstrip("/"):
         raise LocalOdooRecoveryRequired(
             "The selected odoo.conf points to "
-            f"{profile.base_url}, but this project targets "
-            f"{project.odoo_base_url}. Choose the matching configuration or "
+            f"{profile.base_url}, but this migration run targets "
+            f"{workspace_state.odoo_base_url}. Choose the matching configuration or "
             "correct the project target."
         )
     if (
         profile.database_hint
-        and project.odoo_database
-        and profile.database_hint != project.odoo_database
+        and workspace_state.odoo_database
+        and profile.database_hint != workspace_state.odoo_database
     ):
         raise LocalOdooRecoveryRequired(
             "The selected odoo.conf points to database "
-            f"{profile.database_hint}, but this project targets "
-            f"{project.odoo_database}. Choose the matching configuration."
+            f"{profile.database_hint}, but this migration run targets "
+            f"{workspace_state.odoo_database}. Choose the matching configuration."
         )
     return profile
 
 
-def _missing_schema_reader_message(project: WorkspaceState) -> str:
-    if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
+def _missing_schema_reader_message(workspace_state: WorkspaceState) -> str:
+    if workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL:
         return (
             "Local mode does not require an API key. Choose and validate "
             "odoo.conf on this page before loading models or fields."
@@ -183,14 +183,14 @@ def _missing_schema_reader_message(project: WorkspaceState) -> str:
     return "No API key is stored for this exact remote Odoo target."
 
 
-def _read_schema(project: WorkspaceState, api_key: str) -> MetadataSnapshot:
+def _read_schema(workspace_state: WorkspaceState, api_key: str) -> MetadataSnapshot:
     """Read all fields once per explicitly permitted Odoo model."""
 
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Configure the Odoo target before schema capture")
-    if not project.intended_models:
+    if not workspace_state.intended_models:
         raise WorkspaceStateError("Add at least one permitted technical Odoo model")
-    connector = Json2ReadConnector(_target_json2_config(project, api_key))
+    connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
     return connector.get_model_metadata(
         tuple(
             MetadataRequest(
@@ -199,20 +199,20 @@ def _read_schema(project: WorkspaceState, api_key: str) -> MetadataSnapshot:
                 all_fields=True,
                 include_unique_constraints=True,
             )
-            for model in project.intended_models
+            for model in workspace_state.intended_models
         )
     )
 
 
 def _read_model_catalog(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     api_key: str,
 ) -> RecordSnapshot:
     """Read lightweight persistent-model choices from the exact Odoo target."""
 
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Configure the Odoo target before model discovery")
-    connector = Json2ReadConnector(_target_json2_config(project, api_key))
+    connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
     return connector.get_records(
         (
             RecordRequest(
@@ -236,41 +236,41 @@ def _read_model_catalog(
 
 async def _refresh_model_catalog(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
 ) -> OdooModelCatalog:
     """Refresh persistent model choices through the configured read-only target."""
 
-    local_profile = _selected_local_profile(context, project)
+    local_profile = _selected_local_profile(context, workspace_state)
     credential = get_target_credential(
         context.secret_store,
-        project,
+        workspace_state,
         TargetCredentialRole.READ,
     )
     if local_profile is not None and credential is None:
         snapshot = await run_in_threadpool(
             context.local_odoo_reader.get_model_catalog,
-            project,
+            workspace_state,
             local_profile,
         )
-        read_credential_binding_hash = local_read_credential_binding_hash(project)
+        read_credential_binding_hash = local_read_credential_binding_hash(workspace_state)
         read_identity = None
     else:
         if credential is None:
-            raise WorkspaceError(_missing_schema_reader_message(project))
+            raise WorkspaceError(_missing_schema_reader_message(workspace_state))
         read_identity = await run_in_threadpool(
             context.read_identity_probe,
-            project,
+            workspace_state,
             credential.secret,
             ("ir.model",),
         )
         snapshot = await run_in_threadpool(
             context.model_catalog_reader,
-            project,
+            workspace_state,
             credential.secret,
         )
         read_credential_binding_hash = credential.binding_hash
     catalog = context.schema_workspace.discover_models(
-        project.project_id,
+        workspace_state.workspace_id,
         snapshot,
         read_credential_binding_hash=read_credential_binding_hash,
         read_identity=read_identity,
@@ -278,7 +278,7 @@ async def _refresh_model_catalog(
     )
     if local_profile is not None and credential is None:
         context.local_stack.mark_metadata_ready(
-            project.project_id,
+            workspace_state.workspace_id,
             database=catalog.database,
             odoo_version=catalog.odoo_version,
             model_count=len(catalog.models),
@@ -288,24 +288,24 @@ async def _refresh_model_catalog(
 
 def _existing_catalog_model(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     model_name: str,
 ) -> str:
     """Require one model advertised by the current exact Odoo target."""
 
-    catalog = context.queries.get_odoo_model_catalog(project.project_id)
+    catalog = context.queries.get_odoo_model_catalog(workspace_state.workspace_id)
     if catalog is None:
         raise WorkspaceError(
             "Show the available Odoo record types before choosing one"
         )
     expected_target_hash = target_identity_hash(
         connection_mode=(
-            project.odoo_connection_mode.value
-            if project.odoo_connection_mode is not None
+            workspace_state.odoo_connection_mode.value
+            if workspace_state.odoo_connection_mode is not None
             else ""
         ),
-        base_url=project.odoo_base_url,
-        database=project.odoo_database,
+        base_url=workspace_state.odoo_base_url,
+        database=workspace_state.odoo_database,
     )
     if (
         catalog.connection_target_hash != expected_target_hash
@@ -426,7 +426,7 @@ def _authorized_supplemental_models(
 
 def _read_readiness_snapshots(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     requirements: PreflightRequirementPlan,
     *,
     verified_read_identity: OdooReadIdentity | None = None,
@@ -442,16 +442,16 @@ def _read_readiness_snapshots(
     metadata_requests = requirements.metadata_requests
     record_requests = requirements.record_requests
 
-    if project.source_mode is SourceMode.ODOO:
+    if workspace_state.source_mode is SourceMode.ODOO:
         return _read_pinned_odoo_snapshots(
             context,
-            project,
+            workspace_state,
             requirements,
             verified_read_identity=verified_read_identity,
         )
 
-    local_profile = _selected_local_profile(context, project)
-    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    local_profile = _selected_local_profile(context, workspace_state)
+    schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
     if schema is None:
         raise OdooReadWorkflowError(
             OdooReadFailureCode.SCHEMA_EVIDENCE_MISSING,
@@ -463,21 +463,21 @@ def _read_readiness_snapshots(
     )
     if (
         context.readiness_reader is not None
-        and project.odoo_connection_mode is OdooConnectionMode.LOCAL
+        and workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
     ):
         return context.readiness_reader(
-            project,
+            workspace_state,
             metadata_requests,
             record_requests,
         )
-    if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
+    if workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL:
         if local_profile is None:
             raise LocalOdooRecoveryRequired(
                 "Choose and validate the matching local odoo.conf before "
                 "checking data."
             )
         return context.local_odoo_reader.get_preflight_snapshots(
-            project,
+            workspace_state,
             local_profile,
             metadata_requests,
             record_requests,
@@ -485,14 +485,14 @@ def _read_readiness_snapshots(
         )
     credential = get_target_credential(
         context.secret_store,
-        project,
+        workspace_state,
         TargetCredentialRole.READ,
     )
     if credential is None:
         raise OdooReadCredentialMissingError(
             "Enter the Odoo read API key for this remote target before checking data."
         )
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise OdooReadWorkflowError(
             OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
             "Configure the Odoo target before checking data",
@@ -505,7 +505,7 @@ def _read_readiness_snapshots(
         )
     probe_models = tuple(sorted(model.name for model in schema.models))
     identity = verified_read_identity or context.read_identity_probe(
-        project,
+        workspace_state,
         credential.secret,
         probe_models,
     )
@@ -524,7 +524,7 @@ def _read_readiness_snapshots(
         )
     if supplemental_models:
         inferred_identity = context.read_identity_probe(
-            project,
+            workspace_state,
             credential.secret,
             supplemental_models,
         )
@@ -541,12 +541,12 @@ def _read_readiness_snapshots(
             )
     if context.readiness_reader is not None:
         return context.readiness_reader(
-            project,
+            workspace_state,
             metadata_requests,
             record_requests,
         )
     connector = Json2ReadConnector(
-        _target_json2_config(project, credential.secret)
+        _target_json2_config(workspace_state, credential.secret)
     )
     metadata = connector.get_model_metadata(metadata_requests)
     records = connector.get_records(record_requests)
@@ -555,7 +555,7 @@ def _read_readiness_snapshots(
 
 def _read_pinned_odoo_snapshots(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     requirements: PreflightRequirementPlan,
     *,
     verified_read_identity: OdooReadIdentity | None = None,
@@ -567,19 +567,19 @@ def _read_pinned_odoo_snapshots(
 
     credential = get_target_credential(
         context.secret_store,
-        project,
+        workspace_state,
         TargetCredentialRole.READ,
     )
     if credential is None:
         raise OdooReadCredentialMissingError(
             "Save the Odoo read API key before comparing captured records."
         )
-    if project.odoo_connection_mode is None:
+    if workspace_state.odoo_connection_mode is None:
         raise OdooReadWorkflowError(
             OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
             "Configure the Odoo target before comparing records",
         )
-    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
     if schema is None:
         raise OdooReadWorkflowError(
             OdooReadFailureCode.SCHEMA_EVIDENCE_MISSING,
@@ -587,7 +587,7 @@ def _read_pinned_odoo_snapshots(
         )
     probe_models = tuple(sorted(item.name for item in schema.models))
     identity = verified_read_identity or context.read_identity_probe(
-        project,
+        workspace_state,
         credential.secret,
         probe_models,
     )
@@ -606,12 +606,12 @@ def _read_pinned_odoo_snapshots(
         )
     if context.readiness_reader is not None:
         return context.readiness_reader(
-            project,
+            workspace_state,
             metadata_requests,
             record_requests,
         )
     connector = Json2ReadConnector(
-        _target_json2_config(project, credential.secret)
+        _target_json2_config(workspace_state, credential.secret)
     )
     return (
         connector.get_model_metadata(metadata_requests),
@@ -621,14 +621,14 @@ def _read_pinned_odoo_snapshots(
 
 def _source_value_choices(
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     dataset_id: str,
     source_column_key: str,
 ) -> tuple[dict[str, object], ...]:
     """Delegate bounded source-choice enumeration to the application layer."""
 
     return context.categorical_coverage.source_value_choices(
-        project_id,
+        workspace_id,
         dataset_id,
         source_column_key,
     )
@@ -636,7 +636,7 @@ def _source_value_choices(
 
 def _relationship_value_choices(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     parent_model: str,
     field: SchemaField,
@@ -649,7 +649,7 @@ def _relationship_value_choices(
     datetime,
     bool,
 ]:
-    """Fetch or reuse bounded Many2one choices as portable project evidence."""
+    """Fetch or reuse bounded Many2one choices as portable workspace evidence."""
 
     if schema.origin is not SchemaOrigin.LIVE_API:
         raise WorkspaceError(
@@ -716,16 +716,16 @@ def _relationship_value_choices(
         )
     expected_target_hash = target_identity_hash(
         connection_mode=(
-            project.odoo_connection_mode.value
-            if project.odoo_connection_mode is not None
+            workspace_state.odoo_connection_mode.value
+            if workspace_state.odoo_connection_mode is not None
             else ""
         ),
-        base_url=project.odoo_base_url,
-        database=project.odoo_database,
+        base_url=workspace_state.odoo_base_url,
+        database=workspace_state.odoo_database,
     )
     if not refresh:
         current = context.supporting_lookups.current(
-            project.project_id,
+            workspace_state.workspace_id,
             relation_model=field.relation,
             key_fields=key.key_fields,
             scope_fields=key.scope_fields,
@@ -749,7 +749,7 @@ def _relationship_value_choices(
 
     metadata, record_snapshot, access = _read_supporting_lookup_snapshots(
         context,
-        project,
+        workspace_state,
         schema,
         relation_model=field.relation,
         requested_fields=requested_fields,
@@ -801,7 +801,7 @@ def _relationship_value_choices(
         choices.append({"value": value, "label": label})
     captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
     stored = context.supporting_lookups.capture(
-        project.project_id,
+        workspace_state.workspace_id,
         relation_model=field.relation,
         key_fields=key.key_fields,
         scope_fields=key.scope_fields,
@@ -832,7 +832,7 @@ def _relationship_value_choices(
 
 def _read_supporting_lookup_snapshots(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     *,
     relation_model: str,
@@ -856,7 +856,7 @@ def _read_supporting_lookup_snapshots(
     )
     if context.readiness_reader is not None:
         metadata, records = context.readiness_reader(
-            project,
+            workspace_state,
             metadata_requests,
             record_requests,
         )
@@ -871,15 +871,15 @@ def _read_supporting_lookup_snapshots(
             ),
         )
 
-    if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
-        local_profile = _selected_local_profile(context, project)
+    if workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL:
+        local_profile = _selected_local_profile(context, workspace_state)
         if local_profile is None:
             raise LocalOdooRecoveryRequired(
                 "Choose and validate the matching local odoo.conf before "
                 "loading Odoo choices."
             )
         metadata, records = context.local_odoo_reader.get_preflight_snapshots(
-            project,
+            workspace_state,
             local_profile,
             metadata_requests,
             record_requests,
@@ -898,7 +898,7 @@ def _read_supporting_lookup_snapshots(
 
     credential = get_target_credential(
         context.secret_store,
-        project,
+        workspace_state,
         TargetCredentialRole.READ,
     )
     if credential is None:
@@ -912,7 +912,7 @@ def _read_supporting_lookup_snapshots(
             "loading choices"
         )
     identity = context.read_identity_probe(
-        project,
+        workspace_state,
         credential.secret,
         (relation_model,),
     )
@@ -927,7 +927,7 @@ def _read_supporting_lookup_snapshots(
             "changed; refresh the Odoo fields before loading choices"
         )
     connector = Json2ReadConnector(
-        _target_json2_config(project, credential.secret)
+        _target_json2_config(workspace_state, credential.secret)
     )
     return (
         connector.get_model_metadata(metadata_requests),
@@ -951,4 +951,3 @@ def _snapshot_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-

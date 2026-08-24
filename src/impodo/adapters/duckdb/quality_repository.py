@@ -99,12 +99,12 @@ class QualityRepository(DuckDbRepository):
 
     def get_current_quality_ruleset(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> QualityRuleSet | None:
         """Load and hash-validate the ruleset selected as current."""
 
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT revision.ruleset_json
               FROM quality_ruleset_current AS current
@@ -122,31 +122,31 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError("Stored data-check rules are invalid") from error
     def publish_quality_ruleset(
         self,
-        project_id: str,
+        workspace_id: str,
         ruleset: QualityRuleSet,
         *,
         actor: Actor,
     ) -> QualityRuleSet:
         """Publish one complete guided ruleset and retire its quality result."""
 
-        if ruleset.project_id != project_id:
-            raise WorkspaceError("Data-check rules belong to another project")
+        if ruleset.workspace_id != workspace_id:
+            raise WorkspaceError("Data-check rules belong to another workspace")
         if ruleset.contract_version != QUALITY_RULESET_CONTRACT_VERSION:
             raise WorkspaceError("Data-check rules use an unsupported version")
         try:
             QualityRuleSet.from_json(ruleset.to_json())
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Data-check rules are invalid") from error
-        project = self._workspace_states.get(project_id)
+        workspace_state = self._workspace_states.get(workspace_id)
         if any(
             item.review_by_days is not None
-            and item.review_by_days > project.retention_days
+            and item.review_by_days > workspace_state.retention_days
             for item in ruleset.rules
         ):
             raise WorkspaceError(
                 "A data-check review date exceeds the project retention period"
             )
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         created_at = datetime.now(timezone.utc)
@@ -247,7 +247,7 @@ class QualityRepository(DuckDbRepository):
         return ruleset
     def publish_quality_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run: QualityRun | StoredQualityRun,
         *,
         staging_run_id: str,
@@ -256,8 +256,8 @@ class QualityRepository(DuckDbRepository):
     ) -> QualityRunSummary:
         """Atomically publish a complete quality overlay and quarantine set."""
 
-        if run.project_id != project_id:
-            raise WorkspaceError("Quality evidence belongs to another project")
+        if run.workspace_id != workspace_id:
+            raise WorkspaceError("Quality evidence belongs to another workspace")
         if (
             run.contract_version != QUALITY_CONTRACT_VERSION
             or run.evaluator_version != QUALITY_EVALUATOR_VERSION
@@ -265,12 +265,12 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Quality evidence must be regenerated with the current evaluator"
             )
-        project = self._workspace_states.get(project_id)
-        if run.retention_context_hash != retention_context_hash(project):
+        workspace_state = self._workspace_states.get(workspace_id)
+        if run.retention_context_hash != retention_context_hash(workspace_state):
             raise WorkspaceError(
                 "Quality evidence no longer matches project ownership and retention"
             )
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         published_at = datetime.now(timezone.utc)
         run_id = str(uuid4())
         summary_counts = _quality_summary_counts(run)
@@ -358,7 +358,7 @@ class QualityRepository(DuckDbRepository):
                 )
                 if current is not None and str(current[1]) == run_content_hash:
                     connection.rollback()
-                    return self._quality_summary(project_id, current)
+                    return self._quality_summary(workspace_id, current)
                 self._invalidate_normalization(
                     connection,
                     reason="QUALITY_RUN_CHANGED",
@@ -513,7 +513,7 @@ class QualityRepository(DuckDbRepository):
                 )
                 connection.execute(
                     """
-                    UPDATE workspace_state
+                    UPDATE workspace_projection_cache
                        SET current_run_id = NULL,
                            approval_status = 'INVALIDATED'
                     """
@@ -536,7 +536,7 @@ class QualityRepository(DuckDbRepository):
                 raise
         return QualityRunSummary(
             run_id=run_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             content_hash=run_content_hash,
             staging_run_id=staging_run_id,
             staging_content_hash=run.staging_content_hash,
@@ -554,11 +554,11 @@ class QualityRepository(DuckDbRepository):
         )
     def get_current_quality_summary(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> QualityRunSummary | None:
         """Return the current non-retired quality run's lifecycle projection."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -576,10 +576,10 @@ class QualityRepository(DuckDbRepository):
                    AND run.status = 'PUBLISHED'
                 """
             ).fetchone()
-        return self._quality_summary(project_id, row) if row else None
+        return self._quality_summary(workspace_id, row) if row else None
     def get_quality_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
     ) -> QualityRun | None:
         """Reassemble and validate a complete quality run from row tables."""
@@ -588,7 +588,7 @@ class QualityRepository(DuckDbRepository):
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Quality run identifier is invalid") from error
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -808,7 +808,7 @@ class QualityRepository(DuckDbRepository):
         )
         payload = {
             "content_hash": str(header[0]),
-            "project_id": project_id,
+            "workspace_id": workspace_id,
             "staging_run_id": str(header[1]),
             "staging_content_hash": str(header[2]),
             "ruleset_hash": str(header[3]),
@@ -831,7 +831,7 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError("Stored quality evidence is invalid") from error
     def get_quality_review_page(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         status: str = "",
@@ -870,7 +870,7 @@ class QualityRepository(DuckDbRepository):
         filter_predicate = (
             " AND ".join(conditions) if conditions else "TRUE"
         )
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -1012,11 +1012,10 @@ class QualityRepository(DuckDbRepository):
     ) -> str:
         hasher = CanonicalJsonObjectHasher()
         hasher.add_value("contract_version", run.contract_version)
-        if run.contract_version >= 2:
-            hasher.add_value(
-                "effective_dataset_hash",
-                run.effective_dataset_hash,
-            )
+        hasher.add_value(
+            "effective_dataset_hash",
+            run.effective_dataset_hash,
+        )
         hasher.add_value("evaluator_version", run.evaluator_version)
         hasher.start_array("issues")
         for start in range(0, len(run.issues), QUALITY_ROW_BATCH_SIZE):
@@ -1045,7 +1044,6 @@ class QualityRepository(DuckDbRepository):
             )
         hasher.end_array()
         hasher.add_value("mapping_hash", run.mapping_hash)
-        hasher.add_value("project_id", run.project_id)
         hasher.start_array("quarantine")
         for start in range(0, len(run.quarantine), QUALITY_ROW_BATCH_SIZE):
             batch = run.quarantine[start : start + QUALITY_ROW_BATCH_SIZE]
@@ -1389,16 +1387,17 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError("Quality source accounting is incomplete")
         hasher.end_array()
         hasher.add_value("staging_content_hash", run.staging_content_hash)
+        hasher.add_value("workspace_id", run.workspace_id)
         return hasher.finish()
     @staticmethod
     def _quality_summary(
-        project_id: str,
+        workspace_id: str,
         row: Sequence[object],
     ) -> QualityRunSummary:
         counts = json.loads(str(row[8]))
         return QualityRunSummary(
             run_id=str(row[0]),
-            project_id=project_id,
+            workspace_id=workspace_id,
             content_hash=str(row[1]),
             staging_run_id=str(row[2]),
             staging_content_hash=str(row[3]),
@@ -1463,4 +1462,3 @@ def _quality_summary_counts(
         for item in run.source_accounting
     )
     return counts
-

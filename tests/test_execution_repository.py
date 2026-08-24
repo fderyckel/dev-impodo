@@ -37,18 +37,18 @@ class ExecutionRepositoryTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(self.database)
+        self.workspace_states = WorkspaceStateRepository(self.database)
         self.repository = ExecutionRepository(self.database)
         self.reconciliation = ReconciliationRepository(self.database)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Execution journal",
             source_system="CSV",
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         self.preflight_id = str(uuid4())
-        path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
-        with self.projects._connect(path) as connection:
+        path = self.workspace_states.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
+        with self.workspace_states._connect(path) as connection:
             connection.execute(
                 """
                 INSERT INTO readiness_run (
@@ -96,7 +96,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
         )
         return ExecutionRun(
             run_id=str(uuid4()),
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             snapshot_hash=HASH,
             snapshot_root_hash=HASH,
             preflight_run_id=self.preflight_id,
@@ -113,12 +113,12 @@ class ExecutionRepositoryTests(unittest.TestCase):
     def test_journals_every_row_and_reloads_terminal_result(self) -> None:
         run = self._run()
         self.repository.start_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             actor=LOCAL_ACTOR,
         )
         self.repository.record_outcomes(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
             (
                 replace(
@@ -136,7 +136,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
         )
 
         finished = self.repository.finish_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
             ExecutionRunStatus.COMPLETED_WITH_ERRORS,
             actor=LOCAL_ACTOR,
@@ -147,14 +147,14 @@ class ExecutionRepositoryTests(unittest.TestCase):
         self.assertEqual(finished.blocked_count, 1)
         self.assertEqual(
             self.repository.get_current_run(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 HASH,
             ),
             finished,
         )
         self.assertEqual(finished.batch_rows, 10)
-        path = self.projects.workspace_directory(self.project.project_id) / "workspace-engine.duckdb"
-        with self.projects._connect(path) as connection:
+        path = self.workspace_states.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
+        with self.workspace_states._connect(path) as connection:
             events = connection.execute(
                 """
                 SELECT event_type FROM audit_event
@@ -166,7 +166,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
     def test_created_row_can_progress_from_partial_to_committed(self) -> None:
         run = self._run()
         self.repository.start_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run,
             actor=LOCAL_ACTOR,
         )
@@ -178,12 +178,12 @@ class ExecutionRepositoryTests(unittest.TestCase):
             safe_error="Created; deferred relationship update pending",
         )
         self.repository.record_outcomes(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
             (partial,),
         )
         self.repository.record_outcomes(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
             (
                 replace(
@@ -200,7 +200,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
         )
 
         finished = self.repository.finish_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
             ExecutionRunStatus.COMPLETED_WITH_ERRORS,
             actor=LOCAL_ACTOR,
@@ -213,7 +213,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
 
     def test_publishes_one_hash_bound_readback_result(self) -> None:
         run = self._run()
-        self.repository.start_run(self.project.project_id, run, actor=LOCAL_ACTOR)
+        self.repository.start_run(self.workspace_state.workspace_id, run, actor=LOCAL_ACTOR)
         committed = tuple(
             replace(
                 row,
@@ -224,19 +224,19 @@ class ExecutionRepositoryTests(unittest.TestCase):
             for index, row in enumerate(run.rows)
         )
         self.repository.record_outcomes(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
             committed,
         )
         self.repository.finish_run(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
             ExecutionRunStatus.COMPLETED,
             actor=LOCAL_ACTOR,
         )
         report = ReconciliationRun(
             reconciliation_id=str(uuid4()),
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             execution_run_id=run.run_id,
             snapshot_hash=run.snapshot_hash,
             target_hash=run.target_hash,
@@ -262,13 +262,13 @@ class ExecutionRepositoryTests(unittest.TestCase):
         )
 
         self.reconciliation.publish(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             report,
             actor=LOCAL_ACTOR,
         )
 
         restored = self.reconciliation.get_current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             run.run_id,
         )
         self.assertEqual(restored.semantic_hash, report.semantic_hash)

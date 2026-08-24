@@ -13,10 +13,10 @@ class RecipeCompilationRepository(DuckDbRepository):
 
     def get_parameter_definitions(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> RecipeParameterDefinitions:
         value = self._read_singleton_json(
-            project_id,
+            workspace_id,
             """
             SELECT definitions_json
               FROM recipe_parameter_definitions
@@ -31,12 +31,12 @@ class RecipeCompilationRepository(DuckDbRepository):
 
     def save_parameter_definitions(
         self,
-        project_id: str,
+        workspace_id: str,
         definitions: RecipeParameterDefinitions,
         *,
         actor: Actor,
     ) -> None:
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:

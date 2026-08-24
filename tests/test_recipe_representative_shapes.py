@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import unittest
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from impodo.access import LOCAL_ACTOR
 from impodo.application.recipe_compilation_service import RecipeCompiler
@@ -109,10 +109,12 @@ def _publish(
     mapping_contract_version: int | None = None,
 ) -> dict[str, object]:
     now = datetime.now(timezone.utc)
-    project_id = base_selection.project_id
+    workspace_id = str(
+        uuid5(NAMESPACE_URL, f"workspace:{base_selection.data_version_id}")
+    )
     schema_hash = "sha256:" + "b" * 64
     schema = OdooSchemaCatalog(
-        project_id=project_id,
+        workspace_id=workspace_id,
         policy_hash="sha256:" + "1" * 64,
         captured_at=now,
         captured_by="Data manager",
@@ -131,7 +133,7 @@ def _publish(
     governance = SchemaGovernance(
         governance_id=str(uuid4()),
         version=1,
-        project_id=project_id,
+        workspace_id=workspace_id,
         catalog_hash=schema.content_hash,
         permitted_models=tuple(item.name for item in models),
         business_keys=business_keys,
@@ -168,7 +170,7 @@ def _publish(
         "Data manager",
     )
     ruleset = default_quality_ruleset(
-        project_id=project_id,
+        workspace_id=workspace_id,
         mapping_hash=definition.content_hash,
         schema_hash=governance.content_hash,
         datasets=tuple(item.name for item in mapping_selection.datasets),
@@ -194,7 +196,7 @@ def _publish(
         evidence,
     )
 
-    compiled, issues = service.compile_workspace(project_id)
+    compiled, issues = service.compile_workspace(workspace_id)
     if compiled is None:
         raise AssertionError(issues)
     return compiled.recipe
@@ -263,7 +265,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             mappings=(mapping,),
             models=(partner_model,),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=11,
+            mapping_contract_version=12,
         )
         with_related_capture = _publish(
             base_selection=selection,
@@ -281,7 +283,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                 ),
             ),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=11,
+            mapping_contract_version=12,
         )
 
         self.assertEqual(without_related_capture, with_related_capture)
@@ -318,7 +320,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                     ),
                 ),
                 business_keys=(_key("res.partner", "ref"),),
-                mapping_contract_version=11,
+                mapping_contract_version=12,
             )
 
     def test_product_recipe_compiles_scalar_and_target_reference_meaning(self):
@@ -448,7 +450,9 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
         preparation = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=project_id,
+            workspace_id=str(
+                uuid5(NAMESPACE_URL, f"workspace:{base.data_version_id}")
+            ),
             source_selection_hash=base.content_hash,
             rules=(split,),
             updated_at=datetime.now(timezone.utc),

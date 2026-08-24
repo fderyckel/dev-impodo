@@ -33,6 +33,7 @@ from ...migration_production import ProductionRunError
 from ...workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStateError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
+from ...workspace_access import WorkspaceAccessContext
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
 from ..forms import _secure_form, _text
@@ -49,16 +50,16 @@ from ..target_credentials import (
 
 def _probe_remote_write_identity_sync(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     preview: ExecutionPreview,
     api_key: str,
 ) -> OdooWriteIdentity | None:
     """Probe and context-bind remote execution without exposing identifiers."""
 
-    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+    if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
-    identity = context.write_identity_probe(project, api_key, preview.api_scope)
-    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    identity = context.write_identity_probe(workspace_state, api_key, preview.api_scope)
+    schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
     if schema is None or not schema.read_context_hash:
         raise WorkspaceError(
             "Refresh the remote Odoo schema identity before configuring a load"
@@ -72,14 +73,14 @@ def _probe_remote_write_identity_sync(
 
 async def _probe_remote_write_identity(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     preview: ExecutionPreview,
     api_key: str,
 ) -> OdooWriteIdentity | None:
     return await run_in_threadpool(
         _probe_remote_write_identity_sync,
         context,
-        project,
+        workspace_state,
         preview,
         api_key,
     )
@@ -87,16 +88,16 @@ async def _probe_remote_write_identity(
 
 def _probe_read_identity_sync(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     preview: ExecutionPreview,
     api_key: str,
 ) -> OdooReadIdentity | None:
-    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+    if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
     if not preview.snapshot.readable_models:
         raise WorkspaceError("Refresh the remote Odoo schema and compare again")
     return context.read_identity_probe(
-        project,
+        workspace_state,
         api_key,
         preview.snapshot.readable_models,
     )
@@ -104,15 +105,15 @@ def _probe_read_identity_sync(
 
 async def _probe_current_read_identity(
     context: WebContext,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     preview: ExecutionPreview,
 ) -> tuple[OdooReadIdentity | None, str, str | None]:
     """Re-probe the exact comparison credential before any remote write."""
 
-    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+    if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None, "", None
     credential_owner = context.production_runs.credential_workspace(
-        project.project_id,
+        workspace_state.workspace_id,
         actor=context.actor,
     )
     credential = get_target_credential(
@@ -127,7 +128,7 @@ async def _probe_current_read_identity(
     identity = await run_in_threadpool(
         _probe_read_identity_sync,
         context,
-        project,
+        workspace_state,
         preview,
         credential.secret,
     )
@@ -186,8 +187,8 @@ def _load_row_page_url(page: int, page_size: int) -> str:
     return f"?{query}#row-outcomes"
 
 
-def _load_progress_url(project_id: str, job_id: str) -> str:
-    return f"/workspaces/{project_id}/load/progress/{job_id}"
+def _load_progress_url(workspace_id: str, job_id: str) -> str:
+    return f"/workspaces/{workspace_id}/load/progress/{job_id}"
 
 
 def _target_server(base_url: str) -> str:
@@ -204,12 +205,15 @@ def _load_job_display_context(
         workspace.data_version_id,
         actor=context.actor,
     )
-    project = context.migration_projects.get(workspace.project_id, actor=context.actor)
+    migration_project = context.migration_projects.get(
+        workspace.project_id,
+        actor=context.actor,
+    )
     environment = {
         "PRODUCTION": "Production",
         "TEST": "Test",
     }.get(data_version.purpose.value, "Target")
-    return project.display_name, environment
+    return migration_project.display_name, environment
 
 
 def build_execution_router(context: WebContext) -> APIRouter:
@@ -219,21 +223,21 @@ def build_execution_router(context: WebContext) -> APIRouter:
 
     def render(
         request: Request,
-        project_id: str,
+        workspace_id: str,
         *,
         step: str,
         error: str | None = None,
         status_code: int = 200,
     ):
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         credential_owner = context.production_runs.credential_workspace(
-            project_id,
+            workspace_id,
             actor=context.actor,
         )
-        preview = context.execution.current_preview(project_id)
+        preview = context.execution.current_preview(workspace_id)
         if preview is None:
             return RedirectResponse(
-                f"/workspaces/{project_id}/summary",
+                f"/workspaces/{workspace_id}/summary",
                 status_code=303,
             )
         if step == "confirm" and preview.current_run is not None:
@@ -248,7 +252,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             )
         except SecretStoreError:
             has_stored_write_key = False
-        reconciliation = context.reconciliation.current(project_id)
+        reconciliation = context.reconciliation.current(workspace_id)
         if reconciliation is not None:
             load_rows = reconciliation.rows
         elif preview.current_run is not None:
@@ -263,7 +267,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         return _render(
             request,
             "workspace_load.html",
-            project=project,
+            workspace_state=workspace_state,
             preview=preview,
             reconciliation=reconciliation,
             load_step=step,
@@ -296,61 +300,61 @@ def build_execution_router(context: WebContext) -> APIRouter:
             status_code=status_code,
         )
 
-    @router.get("/workspaces/{project_id}/load")
-    async def load_landing(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/load")
+    async def load_landing(request: Request, workspace_id: str):
         require_session(request)
-        active_job = _manager(context).active(project_id)
+        active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
-                _load_progress_url(project_id, active_job.job_id),
+                _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = context.execution.current_preview(project_id)
+        preview = context.execution.current_preview(workspace_id)
         if preview is None:
-            destination = f"/workspaces/{project_id}/summary"
+            destination = f"/workspaces/{workspace_id}/summary"
         elif preview.current_run is not None:
-            destination = f"/workspaces/{project_id}/load/outcome"
+            destination = f"/workspaces/{workspace_id}/load/outcome"
             if request.url.query:
                 destination = f"{destination}?{request.url.query}"
         else:
-            destination = f"/workspaces/{project_id}/load/review"
+            destination = f"/workspaces/{workspace_id}/load/review"
         return RedirectResponse(destination, status_code=303)
 
     @router.get(
-        "/workspaces/{project_id}/load/review",
+        "/workspaces/{workspace_id}/load/review",
         response_class=HTMLResponse,
     )
-    async def review_load(request: Request, project_id: str):
+    async def review_load(request: Request, workspace_id: str):
         require_session(request)
-        active_job = _manager(context).active(project_id)
+        active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
-                _load_progress_url(project_id, active_job.job_id),
+                _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        return render(request, project_id, step="review")
+        return render(request, workspace_id, step="review")
 
     @router.get(
-        "/workspaces/{project_id}/load/confirm",
+        "/workspaces/{workspace_id}/load/confirm",
         response_class=HTMLResponse,
     )
-    async def confirm_load(request: Request, project_id: str):
+    async def confirm_load(request: Request, workspace_id: str):
         require_session(request)
-        active_job = _manager(context).active(project_id)
+        active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
-                _load_progress_url(project_id, active_job.job_id),
+                _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = context.execution.current_preview(project_id)
+        preview = context.execution.current_preview(workspace_id)
         if preview is None:
             return RedirectResponse(
-                f"/workspaces/{project_id}/summary",
+                f"/workspaces/{workspace_id}/summary",
                 status_code=303,
             )
         if preview.current_run is not None:
             return RedirectResponse(
-                f"/workspaces/{project_id}/load/outcome",
+                f"/workspaces/{workspace_id}/load/outcome",
                 status_code=303,
             )
         if not preview.can_load:
@@ -363,68 +367,68 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 ),
             )
             return RedirectResponse(
-                f"/workspaces/{project_id}/load/review",
+                f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
         try:
             context.cutover_plans.assert_application_can_execute(
-                project_id,
+                workspace_id,
                 actor=context.actor,
             )
         except MigrationConflictError as error:
             _flash(request, str(error))
             return RedirectResponse(
-                f"/workspaces/{project_id}/load/review",
+                f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
-        return render(request, project_id, step="confirm")
+        return render(request, workspace_id, step="confirm")
 
     @router.get(
-        "/workspaces/{project_id}/load/outcome",
+        "/workspaces/{workspace_id}/load/outcome",
         response_class=HTMLResponse,
     )
-    async def review_outcome(request: Request, project_id: str):
+    async def review_outcome(request: Request, workspace_id: str):
         require_session(request)
-        active_job = _manager(context).active(project_id)
+        active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
-                _load_progress_url(project_id, active_job.job_id),
+                _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = context.execution.current_preview(project_id)
+        preview = context.execution.current_preview(workspace_id)
         if preview is None:
             return RedirectResponse(
-                f"/workspaces/{project_id}/summary",
+                f"/workspaces/{workspace_id}/summary",
                 status_code=303,
             )
         if preview.current_run is None:
             return RedirectResponse(
-                f"/workspaces/{project_id}/load/review",
+                f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
-        return render(request, project_id, step="outcome")
+        return render(request, workspace_id, step="outcome")
 
     @router.get(
-        "/workspaces/{project_id}/load/progress/{job_id}",
+        "/workspaces/{workspace_id}/load/progress/{job_id}",
         response_class=HTMLResponse,
     )
-    async def load_progress(request: Request, project_id: str, job_id: str):
+    async def load_progress(request: Request, workspace_id: str, job_id: str):
         require_session(request)
-        job = _get_job(context, project_id, job_id)
-        workspace = context.migration_workspaces.get(project_id, actor=context.actor)
+        job = _get_job(context, workspace_id, job_id)
+        workspace = context.migration_workspaces.get(workspace_id, actor=context.actor)
         data_version = context.data_versions.get(
             workspace.data_version_id,
             actor=context.actor,
         )
-        project = SimpleNamespace(
-            project_id=job.project_id,
-            name=job.project_name,
+        workspace_state = SimpleNamespace(
+            workspace_id=job.workspace_id,
+            name=job.migration_project_name,
             registered_at=True,
         )
         return _render(
             request,
             "workspace_load_progress.html",
-            project=project,
+            workspace_state=workspace_state,
             workspace_navigation=build_load_workspace_navigation(job),
             migration_context={
                 "project_id": workspace.project_id,
@@ -439,17 +443,17 @@ def build_execution_router(context: WebContext) -> APIRouter:
             status_code=200,
         )
 
-    @router.get("/workspaces/{project_id}/load/progress/{job_id}/status")
+    @router.get("/workspaces/{workspace_id}/load/progress/{job_id}/status")
     async def load_progress_status(
         request: Request,
-        project_id: str,
+        workspace_id: str,
         job_id: str,
     ):
         require_session(request)
-        return JSONResponse(_job_payload(_get_job(context, project_id, job_id)))
+        return JSONResponse(_job_payload(_get_job(context, workspace_id, job_id)))
 
-    @router.post("/workspaces/{project_id}/load")
-    async def load_into_odoo(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/load")
+    async def load_into_odoo(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(
             request,
@@ -464,29 +468,29 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "remember_api_key",
             },
         )
-        project = context.queries.get(project_id)
-        active_job = _manager(context).active(project_id)
+        workspace_state = context.queries.get(workspace_id)
+        active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
-                _load_progress_url(project_id, active_job.job_id),
+                _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
         credential_owner = context.production_runs.credential_workspace(
-            project_id,
+            workspace_id,
             actor=context.actor,
         )
         try:
-            context.authorization.require(
-                context.actor,
-                Capability.EXPORT_PLAN_EXECUTE,
-                project_id=project_id,
+            access_context = context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.EXPORT_PLAN_EXECUTE,
             )
             context.cutover_plans.assert_application_can_execute(
-                project_id,
+                workspace_id,
                 actor=context.actor,
             )
             batch_rows = validated_create_batch_rows(_text(form, "batch_rows"))
-            preview = context.execution.current_preview(project_id)
+            preview = context.execution.current_preview(workspace_id)
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
             if preview.scope_error:
@@ -495,7 +499,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             if snapshot_hash != preview.snapshot.semantic_hash:
                 raise WorkspaceError("The load preview changed. Review it again.")
             read_credential = None
-            if project.odoo_connection_mode is OdooConnectionMode.REMOTE:
+            if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
                 read_credential = get_target_credential(
                     context.secret_store,
                     credential_owner,
@@ -529,7 +533,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 else saved_write_credential.secret
             )
             if (
-                credential_owner.project_id != project.project_id
+                credential_owner.workspace_id != workspace_state.workspace_id
                 and read_credential is not None
                 and compare_digest(read_credential.secret, api_key)
             ):
@@ -540,16 +544,24 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "remember_write_api_key" in form or "remember_api_key" in form
             )
 
-            def run_load(report_writing, report_verifying) -> LoadJobResult:
+            def run_load(
+                authorized_workspace: WorkspaceAccessContext,
+                report_writing,
+                report_verifying,
+            ) -> LoadJobResult:
+                if authorized_workspace != access_context:
+                    raise MigrationConflictError(
+                        "The authorized workspace changed before the load began"
+                    )
                 read_identity = _probe_read_identity_sync(
                     context,
-                    project,
+                    workspace_state,
                     preview,
                     read_credential.secret if read_credential is not None else "",
                 )
                 write_identity = _probe_remote_write_identity_sync(
                     context,
-                    project,
+                    workspace_state,
                     preview,
                     api_key,
                 )
@@ -579,7 +591,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     else ""
                 )
                 context.production_runs.assert_execution_authority(
-                    project_id,
+                    workspace_id,
                     read_identity=read_identity,
                     read_credential_generation=read_credential_binding_hash,
                     expected_read_credential_generation=(
@@ -590,12 +602,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     actor=context.actor,
                 )
                 executor = context.write_executor_factory(
-                    project,
+                    workspace_state,
                     api_key,
                     preview.api_scope,
                 )
                 run = context.execution.execute(
-                    project_id,
+                    workspace_id,
                     expected_snapshot_hash=snapshot_hash,
                     executor=executor,
                     actor=context.actor,
@@ -614,17 +626,17 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 try:
                     readback_identity = _probe_remote_write_identity_sync(
                         context,
-                        project,
+                        workspace_state,
                         preview,
                         api_key,
                     )
                     reader = context.readback_reader_factory(
-                        project,
+                        workspace_state,
                         api_key,
                         preview.api_scope,
                     )
                     context.reconciliation.reconcile(
-                        project_id,
+                        workspace_id,
                         expected_execution_run_id=run.run_id,
                         reader=reader,
                         actor=context.actor,
@@ -649,17 +661,18 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     verification_complete=verification_complete,
                 )
 
-            project_name, target_environment = _load_job_display_context(
+            migration_project_name, target_environment = _load_job_display_context(
                 context,
-                project_id,
+                workspace_id,
             )
             job = _manager(context).enqueue(
-                project_id,
-                project_name,
+                workspace_id,
+                migration_project_name,
                 target_database=preview.snapshot.target_database,
-                target_server=_target_server(project.odoo_base_url),
+                target_server=_target_server(workspace_state.odoo_base_url),
                 target_environment=target_environment,
                 total_rows=preview.snapshot.write_count,
+                access_context=access_context,
                 work=run_load,
             )
         except (
@@ -673,18 +686,18 @@ def build_execution_router(context: WebContext) -> APIRouter:
         ) as error:
             return render(
                 request,
-                project_id,
+                workspace_id,
                 step="confirm",
                 error=str(error),
                 status_code=422,
             )
         return RedirectResponse(
-            _load_progress_url(project_id, job.job_id),
+            _load_progress_url(workspace_id, job.job_id),
             status_code=303,
         )
 
-    @router.post("/workspaces/{project_id}/load/reconcile")
-    async def reconcile_load(request: Request, project_id: str):
+    @router.post("/workspaces/{workspace_id}/load/reconcile")
+    async def reconcile_load(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(
             request,
@@ -698,24 +711,24 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "remember_api_key",
             },
         )
-        active_job = _manager(context).active(project_id)
+        active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
-                _load_progress_url(project_id, active_job.job_id),
+                _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        project = context.queries.get(project_id)
+        workspace_state = context.queries.get(workspace_id)
         credential_owner = context.production_runs.credential_workspace(
-            project_id,
+            workspace_id,
             actor=context.actor,
         )
         try:
-            context.authorization.require(
-                context.actor,
-                Capability.EXPORT_PLAN_EXECUTE,
-                project_id=project_id,
+            context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.EXPORT_PLAN_EXECUTE,
             )
-            preview = context.execution.current_preview(project_id)
+            preview = context.execution.current_preview(workspace_id)
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
             submitted_key = _text(form, "write_api_key") or _text(
@@ -742,7 +755,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 requested_persistence = False
             write_identity = await _probe_remote_write_identity(
                 context,
-                project,
+                workspace_state,
                 preview,
                 api_key,
             )
@@ -762,13 +775,13 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     actor=context.actor,
                 )
             reader = context.readback_reader_factory(
-                project,
+                workspace_state,
                 api_key,
                 preview.api_scope,
             )
             report = await run_in_threadpool(
                 context.reconciliation.reconcile,
-                project_id,
+                workspace_id,
                 expected_execution_run_id=_text(form, "execution_run_id"),
                 reader=reader,
                 actor=context.actor,
@@ -789,21 +802,21 @@ def build_execution_router(context: WebContext) -> APIRouter:
         ) as error:
             return render(
                 request,
-                project_id,
+                workspace_id,
                 step="outcome",
                 error=str(error),
                 status_code=422,
             )
         _flash_reconciliation(request, report)
         return RedirectResponse(
-            f"/workspaces/{project_id}/load/outcome",
+            f"/workspaces/{workspace_id}/load/outcome",
             status_code=303,
         )
 
-    @router.get("/workspaces/{project_id}/load/fallout.csv")
-    async def download_fallout(request: Request, project_id: str):
+    @router.get("/workspaces/{workspace_id}/load/fallout.csv")
+    async def download_fallout(request: Request, workspace_id: str):
         require_session(request)
-        report = context.reconciliation.current(project_id)
+        report = context.reconciliation.current(workspace_id)
         if report is None:
             return Response("Verification result not found", status_code=404)
         stream = StringIO(newline="")
@@ -884,16 +897,16 @@ def _job_payload(job: LoadJob) -> dict[str, object]:
         "verification_complete": job.verification_complete,
         "failure_message": job.failure_message,
         "redirect_url": (
-            f"/workspaces/{job.project_id}/load/outcome"
+            f"/workspaces/{job.workspace_id}/load/outcome"
             if job.status is LoadJobStatus.SUCCEEDED
             else ""
         ),
     }
 
 
-def _get_job(context: WebContext, project_id: str, job_id: str) -> LoadJob:
+def _get_job(context: WebContext, workspace_id: str, job_id: str) -> LoadJob:
     try:
-        return _manager(context).get(project_id, job_id)
+        return _manager(context).get(workspace_id, job_id)
     except LoadJobNotFoundError as error:
         raise HTTPException(status_code=404, detail="Odoo load job not found") from error
 
@@ -902,4 +915,3 @@ def _manager(context: WebContext):
     if context.load_jobs is None:
         raise RuntimeError("Background Odoo load jobs are unavailable")
     return context.load_jobs
-

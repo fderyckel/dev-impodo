@@ -10,7 +10,7 @@ from impodo.workspace_state import WorkspaceStateCompatibilityError
 
 
 class WorkspaceSchemaContractTests(unittest.TestCase):
-    def test_m7_version_two_uses_only_the_current_operational_tables(self) -> None:
+    def test_current_generation_uses_only_workspace_identity_shapes(self) -> None:
         schema = WorkspaceEngineSchemaMixin()
         connection = duckdb.connect(":memory:")
         try:
@@ -22,31 +22,48 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 2)
+            self.assertEqual(SCHEMA_VERSION, 1)
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }
             self.assertIn("supporting_lookup_revision", tables)
             self.assertIn("supporting_lookup_current", tables)
+            self.assertIn("workspace_projection_cache", tables)
+            self.assertNotIn("workspace_state", tables)
             self.assertNotIn("project_schema_migration", tables)
+            audit_columns = tuple(
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info('audit_event')"
+                ).fetchall()
+            )
+            self.assertIn("workspace_revision", audit_columns)
+            self.assertNotIn("project_revision", audit_columns)
         finally:
             connection.close()
 
-    def test_version_one_with_the_removed_ledger_is_rejected(self) -> None:
+    def test_retired_generation_is_rejected_without_upgrade(self) -> None:
         schema = WorkspaceEngineSchemaMixin()
         connection = duckdb.connect(":memory:")
         try:
             schema._initialize_workspace_database(connection)
             connection.execute(
-                """
-                CREATE TABLE project_schema_migration (
-                    migration_id VARCHAR PRIMARY KEY,
-                    checksum VARCHAR NOT NULL,
-                    applied_at VARCHAR NOT NULL
-                )
-                """
+                "UPDATE schema_version SET generation = ?",
+                ["impodo-workspace-engine-retired-generation"],
             )
-            connection.execute("UPDATE schema_version SET version = 1")
+            with self.assertRaises(WorkspaceStateCompatibilityError):
+                schema._ensure_workspace_database_schema(connection)
+        finally:
+            connection.close()
+
+    def test_mixed_retired_table_shape_is_rejected(self) -> None:
+        schema = WorkspaceEngineSchemaMixin()
+        connection = duckdb.connect(":memory:")
+        try:
+            schema._initialize_workspace_database(connection)
+            connection.execute(
+                "CREATE TABLE workspace_state (project_id VARCHAR)"
+            )
             with self.assertRaises(WorkspaceStateCompatibilityError):
                 schema._ensure_workspace_database_schema(connection)
         finally:

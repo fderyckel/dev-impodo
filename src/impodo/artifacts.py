@@ -4,10 +4,10 @@ Migration stages: source evidence in A/B, prepared and derived evidence in E,
 and report projections in H. The port uses opaque generated keys, bounded
 streaming, context-managed materialization, partial files, and atomic
 replacement. Callers never receive a generic path write capability outside one
-validated project/run boundary.
+validated DataVersion, workspace, or run boundary.
 
 See ``docs/architecture/security-and-infrastructure.md`` and
-``tests/test_projects.py``.
+``tests/test_artifacts.py``.
 """
 
 from __future__ import annotations
@@ -61,12 +61,12 @@ class StoredArtifact:
 ArtifactValidator = Callable[[Path], None]
 
 
-class ArtifactStore(Protocol):
-    """Port for immutable source files and replaceable report projections."""
+class DataVersionSourceArtifactStore(Protocol):
+    """Store immutable source evidence owned by one DataVersion."""
 
     def store_source(
         self,
-        project_id: str,
+        data_version_id: str,
         *,
         artifact_id: str,
         suffix: str,
@@ -80,26 +80,26 @@ class ArtifactStore(Protocol):
 
     def materialize_source(
         self,
-        project_id: str,
+        data_version_id: str,
         storage_key: str,
     ) -> ContextManager[Path]:
         """Temporarily expose one validated immutable source path for reading."""
         ...
 
-    def delete_source(self, project_id: str, storage_key: str) -> None:
+    def delete_source(self, data_version_id: str, storage_key: str) -> None:
         """Delete contained source bytes after intake rollback or governed removal."""
         ...
 
     def prepare_source_snapshot(
         self,
-        project_id: str,
+        data_version_id: str,
     ) -> ContextManager[Path]:
         """Yield one contained temporary workspace for a Parquet snapshot."""
         ...
 
     def ensure_source_snapshot_capacity(
         self,
-        project_id: str,
+        data_version_id: str,
         *,
         required_bytes: int,
     ) -> None:
@@ -108,7 +108,7 @@ class ArtifactStore(Protocol):
 
     def publish_source_snapshot(
         self,
-        project_id: str,
+        data_version_id: str,
         temporary_file: Path,
         storage_key: str,
         *,
@@ -119,7 +119,7 @@ class ArtifactStore(Protocol):
 
     def materialize_source_snapshot(
         self,
-        project_id: str,
+        data_version_id: str,
         storage_key: str,
         *,
         expected_sha256: str,
@@ -127,28 +127,33 @@ class ArtifactStore(Protocol):
         """Expose one hash-verified immutable source snapshot for reading."""
         ...
 
-    def source_snapshot_size(self, project_id: str, storage_key: str) -> int:
+    def source_snapshot_size(self, data_version_id: str, storage_key: str) -> int:
         """Return contained immutable snapshot bytes without rehashing them."""
         ...
 
     def cleanup_source_snapshots(
         self,
-        project_id: str,
+        data_version_id: str,
         referenced_storage_keys: frozenset[str],
     ) -> int:
         """Remove only temporary and unregistered source-snapshot files."""
         ...
 
+
+
+class WorkspaceArtifactStore(Protocol):
+    """Store derived evidence and reports owned by one MigrationWorkspace."""
+
     def prepare_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> ContextManager[Path]:
         """Yield one contained workspace for a prepared Parquet snapshot."""
         ...
 
     def publish_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         temporary_file: Path,
         storage_key: str,
         *,
@@ -159,7 +164,7 @@ class ArtifactStore(Protocol):
 
     def materialize_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
         *,
         expected_sha256: str,
@@ -169,7 +174,7 @@ class ArtifactStore(Protocol):
 
     def cleanup_prepared_snapshots(
         self,
-        project_id: str,
+        workspace_id: str,
         referenced_storage_keys: frozenset[str],
     ) -> int:
         """Remove only temporary and unregistered prepared snapshots."""
@@ -177,14 +182,14 @@ class ArtifactStore(Protocol):
 
     def prepare_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> ContextManager[Path]:
         """Yield one contained workspace for a derived-value artifact."""
         ...
 
     def publish_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         temporary_file: Path,
         storage_key: str,
         *,
@@ -195,7 +200,7 @@ class ArtifactStore(Protocol):
 
     def materialize_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
         *,
         expected_sha256: str,
@@ -205,7 +210,7 @@ class ArtifactStore(Protocol):
 
     def delete_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
     ) -> None:
         """Delete one unbound derived-value artifact after publication failure."""
@@ -213,7 +218,7 @@ class ArtifactStore(Protocol):
 
     def cleanup_derived_value_artifacts(
         self,
-        project_id: str,
+        workspace_id: str,
         referenced_storage_keys: frozenset[str],
     ) -> int:
         """Remove only temporary and unregistered derived-value artifacts."""
@@ -221,7 +226,7 @@ class ArtifactStore(Protocol):
 
     def write_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
         content: bytes,
@@ -231,7 +236,7 @@ class ArtifactStore(Protocol):
 
     def prepare_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> ContextManager[Path]:
@@ -240,7 +245,7 @@ class ArtifactStore(Protocol):
 
     def report_exists(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> bool:
@@ -249,7 +254,7 @@ class ArtifactStore(Protocol):
 
     def delete_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> None:
@@ -258,7 +263,7 @@ class ArtifactStore(Protocol):
 
     def materialize_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> ContextManager[Path]:
@@ -266,11 +271,20 @@ class ArtifactStore(Protocol):
         ...
 
 
-class LocalArtifactStore:
-    """Store project artifacts below one validated local root.
+class GovernedArtifactStores(
+    DataVersionSourceArtifactStore,
+    WorkspaceArtifactStore,
+    Protocol,
+):
+    """Provide both explicit owner-specific ports at composition boundaries."""
 
-    Every project/run/key is canonicalized before path construction. Symlinks
-    and path traversal are rejected, and partial files are removed on failure.
+
+class LocalArtifactStore:
+    """Store artifacts below explicit DataVersion and workspace roots.
+
+    Every owner/run/key is canonicalized before path construction. Source and
+    workspace evidence cannot collide because their roots are distinct.
+    Symlinks, path traversal, and partial publication are rejected.
     """
 
     def __init__(self, root: str | Path) -> None:
@@ -279,7 +293,7 @@ class LocalArtifactStore:
 
     def store_source(
         self,
-        project_id: str,
+        data_version_id: str,
         *,
         artifact_id: str,
         suffix: str,
@@ -293,7 +307,7 @@ class LocalArtifactStore:
         canonical_artifact_id = str(UUID(artifact_id))
         if suffix not in {".csv", ".xlsx"}:
             raise ArtifactStoreError("Unsupported source artifact suffix")
-        inbox = self._inbox_directory(project_id, create=True)
+        inbox = self._inbox_directory(data_version_id, create=True)
         storage_key = f"{canonical_artifact_id}{suffix}"
         partial = inbox / f".{canonical_artifact_id}.partial{suffix}"
         final = inbox / storage_key
@@ -329,12 +343,12 @@ class LocalArtifactStore:
     @contextmanager
     def materialize_source(
         self,
-        project_id: str,
+        data_version_id: str,
         storage_key: str,
     ) -> Iterator[Path]:
         """Yield one contained regular source file for read-only use."""
 
-        path = self._source_path(project_id, storage_key)
+        path = self._source_path(data_version_id, storage_key)
         if path.is_symlink():
             raise ArtifactStoreError(
                 "Stored source artifacts must not be symbolic links"
@@ -343,21 +357,21 @@ class LocalArtifactStore:
             raise ArtifactStoreError("Stored source artifact is missing")
         yield path
 
-    def delete_source(self, project_id: str, storage_key: str) -> None:
+    def delete_source(self, data_version_id: str, storage_key: str) -> None:
         """Remove one contained source artifact if present."""
 
         try:
-            self._source_path(project_id, storage_key).unlink(missing_ok=True)
+            self._source_path(data_version_id, storage_key).unlink(missing_ok=True)
         except OSError as error:
             raise ArtifactStoreError(
                 "Stored source artifact could not be deleted"
             ) from error
 
     @contextmanager
-    def prepare_source_snapshot(self, project_id: str) -> Iterator[Path]:
-        """Create and always remove one project-contained snapshot workspace."""
+    def prepare_source_snapshot(self, data_version_id: str) -> Iterator[Path]:
+        """Create and always remove one DataVersion-contained work directory."""
 
-        work_root = self._source_snapshot_root(project_id, create=True) / ".work"
+        work_root = self._source_snapshot_root(data_version_id, create=True) / ".work"
         if work_root.is_symlink():
             raise ArtifactStoreError("Snapshot work directory must not be a symlink")
         work_root.mkdir(exist_ok=True)
@@ -370,7 +384,7 @@ class LocalArtifactStore:
 
     def ensure_source_snapshot_capacity(
         self,
-        project_id: str,
+        data_version_id: str,
         *,
         required_bytes: int,
     ) -> None:
@@ -378,17 +392,20 @@ class LocalArtifactStore:
 
         if required_bytes < 1:
             raise ArtifactStoreError("Snapshot capacity requirement must be positive")
-        project = self._project_directory(project_id)
-        if project.is_symlink() or not project.is_dir():
-            raise ArtifactStoreError("Project artifact directory is missing")
-        if shutil.disk_usage(project).free < required_bytes:
+        data_version = self._data_version_directory(data_version_id)
+        if data_version.is_symlink():
+            raise ArtifactStoreError("DataVersion artifact directory is unsafe")
+        # Odoo-sourced DataVersions have no uploaded inbox file to provision
+        # their owner root before the first immutable capture.
+        data_version.mkdir(exist_ok=True)
+        if shutil.disk_usage(data_version).free < required_bytes:
             raise ArtifactSizeError(
                 "Insufficient free space for bounded source snapshot publication"
             )
 
     def publish_source_snapshot(
         self,
-        project_id: str,
+        data_version_id: str,
         temporary_file: Path,
         storage_key: str,
         *,
@@ -397,7 +414,7 @@ class LocalArtifactStore:
         """Hash-check and atomically rename a completed Parquet snapshot."""
 
         source = temporary_file.resolve()
-        work_root = self._source_snapshot_root(project_id, create=True) / ".work"
+        work_root = self._source_snapshot_root(data_version_id, create=True) / ".work"
         try:
             source.relative_to(work_root.resolve())
         except ValueError as error:
@@ -410,7 +427,7 @@ class LocalArtifactStore:
         if actual_hash != _canonical_sha256(expected_sha256):
             raise ArtifactStoreError("Snapshot file hash changed before publication")
 
-        final = self._source_snapshot_path(project_id, storage_key, create=True)
+        final = self._source_snapshot_path(data_version_id, storage_key, create=True)
         if final.is_symlink():
             raise ArtifactStoreError("Source snapshots must not be symbolic links")
         if final.exists():
@@ -425,38 +442,38 @@ class LocalArtifactStore:
     @contextmanager
     def materialize_source_snapshot(
         self,
-        project_id: str,
+        data_version_id: str,
         storage_key: str,
         *,
         expected_sha256: str,
     ) -> Iterator[Path]:
         """Yield one contained snapshot only after verifying its exact bytes."""
 
-        path = self._source_snapshot_path(project_id, storage_key, create=False)
+        path = self._source_snapshot_path(data_version_id, storage_key, create=False)
         if path.is_symlink() or not path.is_file():
             raise ArtifactStoreError("Stored source snapshot is missing")
         if _file_sha256(path) != _canonical_sha256(expected_sha256):
             raise ArtifactStoreError("Stored source snapshot failed hash verification")
         yield path
 
-    def source_snapshot_size(self, project_id: str, storage_key: str) -> int:
+    def source_snapshot_size(self, data_version_id: str, storage_key: str) -> int:
         """Read exact artifact size after its publication hash check."""
 
-        path = self._source_snapshot_path(project_id, storage_key, create=False)
+        path = self._source_snapshot_path(data_version_id, storage_key, create=False)
         if path.is_symlink() or not path.is_file():
             raise ArtifactStoreError("Stored source snapshot is missing")
         return path.stat().st_size
 
     def cleanup_source_snapshots(
         self,
-        project_id: str,
+        data_version_id: str,
         referenced_storage_keys: frozenset[str],
     ) -> int:
         """Delete work remnants and immutable files absent from DuckDB manifests."""
 
-        root = self._source_snapshot_root(project_id, create=True)
+        root = self._source_snapshot_root(data_version_id, create=True)
         referenced = {
-            self._source_snapshot_path(project_id, key, create=False)
+            self._source_snapshot_path(data_version_id, key, create=False)
             for key in referenced_storage_keys
         }
         removed = 0
@@ -479,10 +496,10 @@ class LocalArtifactStore:
         return removed
 
     @contextmanager
-    def prepare_prepared_snapshot(self, project_id: str) -> Iterator[Path]:
+    def prepare_prepared_snapshot(self, workspace_id: str) -> Iterator[Path]:
         """Create and always remove one contained prepared-snapshot workspace."""
 
-        work_root = self._prepared_snapshot_root(project_id, create=True) / ".work"
+        work_root = self._prepared_snapshot_root(workspace_id, create=True) / ".work"
         if work_root.is_symlink():
             raise ArtifactStoreError(
                 "Prepared snapshot work directory must not be a symlink"
@@ -497,7 +514,7 @@ class LocalArtifactStore:
 
     def publish_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         temporary_file: Path,
         storage_key: str,
         *,
@@ -506,7 +523,7 @@ class LocalArtifactStore:
         """Hash-check and atomically publish one prepared Parquet snapshot."""
 
         source = temporary_file.resolve()
-        work_root = self._prepared_snapshot_root(project_id, create=True) / ".work"
+        work_root = self._prepared_snapshot_root(workspace_id, create=True) / ".work"
         try:
             source.relative_to(work_root.resolve())
         except ValueError as error:
@@ -521,7 +538,7 @@ class LocalArtifactStore:
         if actual_hash != _canonical_sha256(expected_sha256):
             raise ArtifactStoreError("Prepared snapshot changed before publication")
         final = self._prepared_snapshot_path(
-            project_id,
+            workspace_id,
             storage_key,
             create=True,
         )
@@ -539,7 +556,7 @@ class LocalArtifactStore:
     @contextmanager
     def materialize_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
         *,
         expected_sha256: str,
@@ -547,7 +564,7 @@ class LocalArtifactStore:
         """Yield one contained prepared snapshot after exact hash verification."""
 
         path = self._prepared_snapshot_path(
-            project_id,
+            workspace_id,
             storage_key,
             create=False,
         )
@@ -561,14 +578,14 @@ class LocalArtifactStore:
 
     def cleanup_prepared_snapshots(
         self,
-        project_id: str,
+        workspace_id: str,
         referenced_storage_keys: frozenset[str],
     ) -> int:
         """Delete work remnants and prepared files absent from every manifest."""
 
-        root = self._prepared_snapshot_root(project_id, create=True)
+        root = self._prepared_snapshot_root(workspace_id, create=True)
         referenced = {
-            self._prepared_snapshot_path(project_id, key, create=False)
+            self._prepared_snapshot_path(workspace_id, key, create=False)
             for key in referenced_storage_keys
         }
         removed = 0
@@ -591,10 +608,10 @@ class LocalArtifactStore:
         return removed
 
     @contextmanager
-    def prepare_derived_value_artifact(self, project_id: str) -> Iterator[Path]:
+    def prepare_derived_value_artifact(self, workspace_id: str) -> Iterator[Path]:
         """Create and always remove one contained derived-value workspace."""
 
-        work_root = self._derived_value_root(project_id, create=True) / ".work"
+        work_root = self._derived_value_root(workspace_id, create=True) / ".work"
         if work_root.is_symlink():
             raise ArtifactStoreError(
                 "Derived-value work directory must not be a symlink"
@@ -609,7 +626,7 @@ class LocalArtifactStore:
 
     def publish_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         temporary_file: Path,
         storage_key: str,
         *,
@@ -618,7 +635,7 @@ class LocalArtifactStore:
         """Hash-check and atomically publish one derived-value artifact."""
 
         source = temporary_file.resolve()
-        work_root = self._derived_value_root(project_id, create=True) / ".work"
+        work_root = self._derived_value_root(workspace_id, create=True) / ".work"
         try:
             source.relative_to(work_root.resolve())
         except ValueError as error:
@@ -634,7 +651,7 @@ class LocalArtifactStore:
             raise ArtifactStoreError(
                 "Derived-value artifact changed before publication"
             )
-        final = self._derived_value_path(project_id, storage_key, create=True)
+        final = self._derived_value_path(workspace_id, storage_key, create=True)
         if final.is_symlink():
             raise ArtifactStoreError(
                 "Derived-value artifacts must not be symbolic links"
@@ -652,14 +669,14 @@ class LocalArtifactStore:
     @contextmanager
     def materialize_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
         *,
         expected_sha256: str,
     ) -> Iterator[Path]:
         """Yield one derived-value artifact after exact hash verification."""
 
-        path = self._derived_value_path(project_id, storage_key, create=False)
+        path = self._derived_value_path(workspace_id, storage_key, create=False)
         if path.is_symlink() or not path.is_file():
             raise ArtifactStoreError("Stored derived-value artifact is missing")
         if _file_sha256(path) != _canonical_sha256(expected_sha256):
@@ -670,14 +687,14 @@ class LocalArtifactStore:
 
     def delete_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
     ) -> None:
         """Remove one contained, not-yet-bound derived-value artifact."""
 
         try:
             self._derived_value_path(
-                project_id,
+                workspace_id,
                 storage_key,
                 create=False,
             ).unlink(missing_ok=True)
@@ -688,14 +705,14 @@ class LocalArtifactStore:
 
     def cleanup_derived_value_artifacts(
         self,
-        project_id: str,
+        workspace_id: str,
         referenced_storage_keys: frozenset[str],
     ) -> int:
         """Delete work remnants and derived files absent from every manifest."""
 
-        root = self._derived_value_root(project_id, create=True)
+        root = self._derived_value_root(workspace_id, create=True)
         referenced = {
-            self._derived_value_path(project_id, key, create=False)
+            self._derived_value_path(workspace_id, key, create=False)
             for key in referenced_storage_keys
         }
         removed = 0
@@ -719,26 +736,26 @@ class LocalArtifactStore:
 
     def write_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
         content: bytes,
     ) -> None:
         """Publish one report from in-memory bytes via the partial-file boundary."""
 
-        with self.prepare_report(project_id, run_id, filename) as partial:
+        with self.prepare_report(workspace_id, run_id, filename) as partial:
             partial.write_bytes(content)
 
     @contextmanager
     def prepare_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> Iterator[Path]:
         """Yield a partial report path and replace the final path atomically."""
 
-        path = self._report_path(project_id, run_id, filename, create=True)
+        path = self._report_path(workspace_id, run_id, filename, create=True)
         partial = path.with_name(f".{path.name}.partial")
         try:
             yield partial
@@ -750,24 +767,24 @@ class LocalArtifactStore:
 
     def report_exists(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> bool:
         """Check for one contained regular report without following a symlink."""
 
-        path = self._report_path(project_id, run_id, filename, create=False)
+        path = self._report_path(workspace_id, run_id, filename, create=False)
         return not path.is_symlink() and path.is_file()
 
     def delete_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> None:
         """Remove a failed unpublished projection without touching run history."""
 
-        path = self._report_path(project_id, run_id, filename, create=False)
+        path = self._report_path(workspace_id, run_id, filename, create=False)
         path.unlink(missing_ok=True)
         try:
             path.parent.rmdir()
@@ -777,34 +794,34 @@ class LocalArtifactStore:
     @contextmanager
     def materialize_report(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
     ) -> Iterator[Path]:
         """Yield one contained regular report artifact for reading."""
 
-        path = self._report_path(project_id, run_id, filename, create=False)
+        path = self._report_path(workspace_id, run_id, filename, create=False)
         if path.is_symlink() or not path.is_file():
             raise ArtifactStoreError("Stored report artifact is missing")
         yield path
 
-    def _source_path(self, project_id: str, storage_key: str) -> Path:
+    def _source_path(self, data_version_id: str, storage_key: str) -> Path:
         name = Path(storage_key)
         if name.name != storage_key or name.suffix.casefold() not in {".csv", ".xlsx"}:
             raise ArtifactStoreError("Invalid source artifact key")
-        inbox = self._inbox_directory(project_id, create=False)
+        inbox = self._inbox_directory(data_version_id, create=False)
         target = (inbox / storage_key).resolve()
         if target.parent != inbox:
             raise ArtifactStoreError("Invalid source artifact key")
         return target
 
-    def _source_snapshot_root(self, project_id: str, *, create: bool) -> Path:
-        project = self._project_directory(project_id)
+    def _source_snapshot_root(self, data_version_id: str, *, create: bool) -> Path:
+        data_version = self._data_version_directory(data_version_id)
         if create:
-            project.mkdir(exist_ok=True)
-        snapshots = project / "snapshots"
+            data_version.mkdir(exist_ok=True)
+        snapshots = data_version / "snapshots"
         if snapshots.is_symlink():
-            raise ArtifactStoreError("Project snapshots must not be a symbolic link")
+            raise ArtifactStoreError("DataVersion snapshots must not be a symbolic link")
         if create:
             snapshots.mkdir(exist_ok=True)
         source = snapshots / "source"
@@ -814,12 +831,12 @@ class LocalArtifactStore:
             source.mkdir(exist_ok=True)
         resolved = source.resolve()
         if resolved.parent != snapshots.resolve():
-            raise ArtifactStoreError("Source snapshot directory escapes the project")
+            raise ArtifactStoreError("Source snapshot directory escapes the DataVersion")
         return resolved
 
     def _source_snapshot_path(
         self,
-        project_id: str,
+        data_version_id: str,
         storage_key: str,
         *,
         create: bool,
@@ -840,7 +857,7 @@ class LocalArtifactStore:
             or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[4]) is None
         ):
             raise ArtifactStoreError("Invalid source snapshot key")
-        root = self._source_snapshot_root(project_id, create=create)
+        root = self._source_snapshot_root(data_version_id, create=create)
         parent = root / parts[2] / parts[3]
         current = root
         for segment in parts[2:4]:
@@ -855,16 +872,16 @@ class LocalArtifactStore:
         _require_portable_windows_path(unresolved_target)
         target = unresolved_target.resolve()
         if target.parent != parent.resolve():
-            raise ArtifactStoreError("Source snapshot escapes the project")
+            raise ArtifactStoreError("Source snapshot escapes the DataVersion")
         return target
 
-    def _prepared_snapshot_root(self, project_id: str, *, create: bool) -> Path:
-        project = self._project_directory(project_id)
+    def _prepared_snapshot_root(self, workspace_id: str, *, create: bool) -> Path:
+        workspace = self._workspace_directory(workspace_id)
         if create:
-            project.mkdir(exist_ok=True)
-        snapshots = project / "snapshots"
+            workspace.mkdir(exist_ok=True)
+        snapshots = workspace / "snapshots"
         if snapshots.is_symlink():
-            raise ArtifactStoreError("Project snapshots must not be a symbolic link")
+            raise ArtifactStoreError("Workspace snapshots must not be a symbolic link")
         if create:
             snapshots.mkdir(exist_ok=True)
         prepared = snapshots / "prepared"
@@ -874,12 +891,12 @@ class LocalArtifactStore:
             prepared.mkdir(exist_ok=True)
         resolved = prepared.resolve()
         if resolved.parent != snapshots.resolve():
-            raise ArtifactStoreError("Prepared snapshot directory escapes the project")
+            raise ArtifactStoreError("Prepared snapshot directory escapes the workspace")
         return resolved
 
     def _prepared_snapshot_path(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
         *,
         create: bool,
@@ -900,7 +917,7 @@ class LocalArtifactStore:
             or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[4]) is None
         ):
             raise ArtifactStoreError("Invalid prepared snapshot key")
-        root = self._prepared_snapshot_root(project_id, create=create)
+        root = self._prepared_snapshot_root(workspace_id, create=create)
         parent = root / parts[2] / parts[3]
         current = root
         for segment in parts[2:4]:
@@ -915,16 +932,16 @@ class LocalArtifactStore:
         _require_portable_windows_path(unresolved_target)
         target = unresolved_target.resolve()
         if target.parent != parent.resolve():
-            raise ArtifactStoreError("Prepared snapshot escapes the project")
+            raise ArtifactStoreError("Prepared snapshot escapes the workspace")
         return target
 
-    def _derived_value_root(self, project_id: str, *, create: bool) -> Path:
-        project = self._project_directory(project_id)
+    def _derived_value_root(self, workspace_id: str, *, create: bool) -> Path:
+        workspace = self._workspace_directory(workspace_id)
         if create:
-            project.mkdir(exist_ok=True)
-        snapshots = project / "snapshots"
+            workspace.mkdir(exist_ok=True)
+        snapshots = workspace / "snapshots"
         if snapshots.is_symlink():
-            raise ArtifactStoreError("Project snapshots must not be a symbolic link")
+            raise ArtifactStoreError("Workspace snapshots must not be a symbolic link")
         if create:
             snapshots.mkdir(exist_ok=True)
         derived = snapshots / "derived"
@@ -936,12 +953,12 @@ class LocalArtifactStore:
             derived.mkdir(exist_ok=True)
         resolved = derived.resolve()
         if resolved.parent != snapshots.resolve():
-            raise ArtifactStoreError("Derived-value directory escapes the project")
+            raise ArtifactStoreError("Derived-value directory escapes the workspace")
         return resolved
 
     def _derived_value_path(
         self,
-        project_id: str,
+        workspace_id: str,
         storage_key: str,
         *,
         create: bool,
@@ -962,7 +979,7 @@ class LocalArtifactStore:
             or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[4]) is None
         ):
             raise ArtifactStoreError("Invalid derived-value artifact key")
-        root = self._derived_value_root(project_id, create=create)
+        root = self._derived_value_root(workspace_id, create=create)
         parent = root / parts[2] / parts[3]
         current = root
         for segment in parts[2:4]:
@@ -977,36 +994,46 @@ class LocalArtifactStore:
         _require_portable_windows_path(unresolved_target)
         target = unresolved_target.resolve()
         if target.parent != parent.resolve():
-            raise ArtifactStoreError("Derived-value artifact escapes the project")
+            raise ArtifactStoreError("Derived-value artifact escapes the workspace")
         return target
 
-    def _project_directory(self, project_id: str) -> Path:
+    def _data_version_directory(self, data_version_id: str) -> Path:
+        return self._owner_directory("dv", data_version_id)
+
+    def _workspace_directory(self, workspace_id: str) -> Path:
+        return self._owner_directory("ws", workspace_id)
+
+    def _owner_directory(self, owner_kind: str, owner_id: str) -> Path:
         try:
-            canonical = str(UUID(project_id))
+            canonical = str(UUID(owner_id))
         except (ValueError, AttributeError) as error:
-            raise ArtifactStoreError("Invalid project identifier") from error
-        target = (self.root / canonical).resolve()
-        if target.parent != self.root:
-            raise ArtifactStoreError("Invalid project identifier")
+            raise ArtifactStoreError("Invalid artifact owner identifier") from error
+        owner_root = (self.root / owner_kind).resolve()
+        if owner_root.parent != self.root:
+            raise ArtifactStoreError("Invalid artifact owner kind")
+        owner_root.mkdir(exist_ok=True)
+        target = (owner_root / canonical).resolve()
+        if target.parent != owner_root:
+            raise ArtifactStoreError("Invalid artifact owner identifier")
         return target
 
-    def _inbox_directory(self, project_id: str, *, create: bool) -> Path:
-        project = self._project_directory(project_id)
+    def _inbox_directory(self, data_version_id: str, *, create: bool) -> Path:
+        data_version = self._data_version_directory(data_version_id)
         if create:
-            project.mkdir(parents=False, exist_ok=True)
-        inbox_candidate = project / "inbox"
+            data_version.mkdir(parents=False, exist_ok=True)
+        inbox_candidate = data_version / "inbox"
         if inbox_candidate.is_symlink():
-            raise ArtifactStoreError("Project inbox must not be a symbolic link")
+            raise ArtifactStoreError("DataVersion inbox must not be a symbolic link")
         if create:
             inbox_candidate.mkdir(exist_ok=True)
         inbox = inbox_candidate.resolve()
-        if inbox.parent != project:
-            raise ArtifactStoreError("Project inbox escapes the artifact root")
+        if inbox.parent != data_version:
+            raise ArtifactStoreError("DataVersion inbox escapes the artifact root")
         return inbox
 
     def _report_path(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         filename: str,
         *,
@@ -1020,12 +1047,12 @@ class LocalArtifactStore:
             or name.suffix not in {".json", ".xlsx"}
         ):
             raise ArtifactStoreError("Invalid report artifact name")
-        project = self._project_directory(project_id)
+        workspace = self._workspace_directory(workspace_id)
         if create:
-            project.mkdir(exist_ok=True)
-        reports = project / "reports"
+            workspace.mkdir(exist_ok=True)
+        reports = workspace / "reports"
         if reports.is_symlink():
-            raise ArtifactStoreError("Project reports must not be a symbolic link")
+            raise ArtifactStoreError("Workspace reports must not be a symbolic link")
         if create:
             reports.mkdir(exist_ok=True)
         run_directory = reports / canonical_run_id
@@ -1035,7 +1062,7 @@ class LocalArtifactStore:
             run_directory.mkdir(exist_ok=True)
         target = (run_directory / filename).resolve()
         if target.parent != run_directory.resolve():
-            raise ArtifactStoreError("Report artifact escapes the project root")
+            raise ArtifactStoreError("Report artifact escapes the workspace root")
         return target
 
 

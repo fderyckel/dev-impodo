@@ -8,7 +8,7 @@ status: current
 
 ## Responsibility
 
-M5 versions one Project-scoped `CutoverPlan`, qualifies exact Test evidence,
+This workflow versions one Project-scoped `CutoverPlan`, qualifies exact Test evidence,
 and records a separate Project rollout selection. It reuses the existing
 mapping, preparation, comparison, execution, read-back, and reconciliation
 pipeline in each isolated application workspace. It adds no second execution
@@ -16,7 +16,7 @@ engine and grants no Production authority.
 
 ## Entry conditions
 
-The Project must own a frozen complete Test DataVersion, one M4 integrated
+The Project must own a frozen complete Test DataVersion, one integrated
 Test run, its exact plan binding, and one isolated application workspace per
 selected Recipe revision. Every application must use the run target evidence.
 
@@ -24,7 +24,7 @@ selected Recipe revision. Every application must use the run target evidence.
 
 ### Plan revision boundary
 
-`MigrationRunPlanningService` provisions the M4 run and then asks
+`MigrationRunPlanningService` provisions the run and then asks
 `CutoverPlanRepository.ensure_for_run` to bind it. The stable Project plan ID
 has immutable revisions. A revision pins selected Recipe revisions,
 dependencies, conservative field-level write ownership, unioned requirement
@@ -101,8 +101,9 @@ artifacts; changed meaning under the same operation ID fails closed.
 
 ## Odoo 19 and performance
 
-The exact registry generation is `impodo-migration-registry-2026-08-m6`.
-M5 and older development storage are rejected rather than upgraded. The
+The exact registry generation is
+`impodo-migration-registry-2026-08-project-root`. Other development storage is
+rejected rather than upgraded. The
 protected directory is an explicit clean-root member, and its shortened
 content-bound filenames stay within normal Windows path limits.
 
@@ -123,8 +124,8 @@ repository query per source row, or repeat application reads inside row loops.
 
 ## Verification
 
-- [`tests/test_migration_project_phase_m5_cutover_qualification.py`](../../../tests/test_migration_project_phase_m5_cutover_qualification.py)
-- [`tests/test_migration_project_phase_m4_multi_recipe_runs.py`](../../../tests/test_migration_project_phase_m4_multi_recipe_runs.py)
+- [`tests/test_cutover_qualification.py`](../../../tests/test_cutover_qualification.py)
+- [`tests/test_integrated_recipe_runs.py`](../../../tests/test_integrated_recipe_runs.py)
 - [`tests/test_execution_web.py`](../../../tests/test_execution_web.py)
 
 ## Related documentation

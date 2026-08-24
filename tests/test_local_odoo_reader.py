@@ -33,8 +33,8 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         for path in (self.config, self.python, self.odoo_bin):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch()
-        self.project = WorkspaceState(
-            project_id="project-1",
+        self.workspace_state = WorkspaceState(
+            workspace_id="project-1",
             name="Local metadata",
             source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
@@ -95,7 +95,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             return _result(payload)
 
         snapshot = LocalOdooMetadataReader(runner=runner).get_model_catalog(
-            self.project,
+            self.workspace_state,
             self.profile,
         )
 
@@ -163,7 +163,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             return _result(payload)
 
         snapshot = LocalOdooMetadataReader(runner=runner).get_model_metadata(
-            self.project,
+            self.workspace_state,
             self.profile,
             ("res.partner", "res.company"),
         )
@@ -192,7 +192,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
 
     def test_profile_must_match_the_exact_local_target(self) -> None:
         mismatched = WorkspaceState(
-            project_id="project-1",
+            workspace_id="project-1",
             name="Wrong target",
             source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
@@ -241,7 +241,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         metadata, records = LocalOdooMetadataReader(
             runner=runner
         ).get_preflight_snapshots(
-            self.project,
+            self.workspace_state,
             self.profile,
             (MetadataRequest(model="res.partner", fields=("ref",)),),
             (
@@ -282,7 +282,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         )
 
         _metadata, records = reader.get_preflight_snapshots(
-            self.project,
+            self.workspace_state,
             self.profile,
             (),
             (
@@ -303,7 +303,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             "linked-model scope",
         ):
             reader.get_preflight_snapshots(
-                self.project,
+                self.workspace_state,
                 self.profile,
                 (),
                 (

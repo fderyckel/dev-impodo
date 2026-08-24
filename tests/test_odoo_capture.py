@@ -38,7 +38,7 @@ class OdooCaptureContractTests(unittest.TestCase):
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=str(uuid4()),
+            data_version_id=str(uuid4()),
             created_at=datetime.now(timezone.utc),
             created_by="Data Manager",
             datasets=(
@@ -97,14 +97,14 @@ class OdooCaptureContractTests(unittest.TestCase):
         self.assertEqual(binding.source_evidence_hash, selection.content_hash)
         self.assertEqual(
             selection.dataset_id,
-            odoo_dataset_id(selection.project_id, selection.model),
+            odoo_dataset_id(selection.data_version_id, selection.model),
         )
         self.assertEqual(len(selection.column_stable_keys), 2)
         self.assertNotIn("credential", selection.to_json().casefold())
         self.assertNotIn('"id"', selection.to_json())
         self.assertEqual(
-            odoo_dataset_id(selection.project_id, selection.model),
-            odoo_dataset_id(selection.project_id, selection.model),
+            odoo_dataset_id(selection.data_version_id, selection.model),
+            odoo_dataset_id(selection.data_version_id, selection.model),
         )
         self.assertNotEqual(
             odoo_column_stable_key(selection.model, "name"),
@@ -161,7 +161,7 @@ class OdooCaptureContractTests(unittest.TestCase):
         return OdooCaptureSelection.create(
             selection_id=str(uuid4()),
             version=1,
-            project_id=str(uuid4()),
+            data_version_id=str(uuid4()),
             dataset_name="odoo_contacts",
             model="res.partner",
             field_names=("active", "name"),

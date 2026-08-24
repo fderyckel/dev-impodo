@@ -167,7 +167,9 @@ class DuckDbWorkspaceDatabase(
 
     @staticmethod
     def _workspace_revision(connection: duckdb.DuckDBPyConnection) -> int:
-        row = connection.execute("SELECT revision FROM workspace_state").fetchone()
+        row = connection.execute(
+            "SELECT revision FROM workspace_projection_cache"
+        ).fetchone()
         if row is None:
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         return int(row[0])

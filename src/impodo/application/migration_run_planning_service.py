@@ -9,6 +9,7 @@ from uuid import UUID, uuid4, uuid5
 
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..data_version_sources import (
+    DataVersionDatasetView,
     DataVersionSourcePackage,
     SourcePackageOrigin,
     WorkspaceSourceProjectionService,
@@ -41,6 +42,8 @@ from ..migration_run_planning import (
     MigrationRunPlanIssueLevel,
     MigrationRunPlanningError,
     MigrationRunRequirementPlan,
+    MigrationRunReferenceBundle,
+    MigrationRunTargetSchema,
     OdooModelRequirement,
     PlannedRecipeApplication,
     RecipeApplicationStatus,
@@ -313,7 +316,7 @@ class MigrationRunPlanningService:
         )
         project = self.projects.get(project_id, actor=actor)
         target_workspace = self.repository.foundation.get_migration_workspace(
-            require_uuid(target_schema.project_id, "target evidence workspace_id")
+            require_uuid(target_schema.workspace_id, "target evidence workspace_id")
         )
         target_data_version = self.data_versions.repository.get_data_version(
             target_workspace.data_version_id
@@ -335,7 +338,7 @@ class MigrationRunPlanningService:
             )
         if (
             target_reference_bundle is not None
-            and target_reference_bundle.project_id != target_workspace.workspace_id
+            and target_reference_bundle.workspace_id != target_workspace.workspace_id
         ):
             raise MigrationRunPlanningError(
                 "The supporting lists do not match the reviewed Odoo workspace"
@@ -532,29 +535,19 @@ class MigrationRunPlanningService:
             if item.name in required_reference_names
         )
         run_reference_bundle = (
-            ReferenceBundle(
-                project_id=run_id,
-                datasets=captured_reference_datasets,
+            MigrationRunReferenceBundle.capture(
+                run_id,
+                target_reference_bundle,
+                captured_reference_datasets,
             )
             if captured_reference_datasets
             else None
         )
         required_models = {item.model for item in review.model_requirements}
-        run_target_schema = replace(
+        run_target_schema = MigrationRunTargetSchema.capture(
+            run_id,
             target_schema,
-            project_id=run_id,
-            models=tuple(
-                item for item in target_schema.models if item.name in required_models
-            ),
-            content_hash=content_hash(
-                {
-                    "migration_run_id": run_id,
-                    "requirements": [
-                        item.to_dict() for item in review.model_requirements
-                    ],
-                    "source_schema_hash": target_schema.content_hash,
-                }
-            ),
+            required_models,
         )
         run = MigrationRun(
             migration_run_id=run_id,
@@ -648,7 +641,7 @@ class MigrationRunPlanningService:
             operation_id=operation_id,
             ready_event_type="INTEGRATED_TEST_RUN_READY",
             target_workspace_state=self.workspace_states.repository.get(
-                target_schema.project_id
+                target_schema.workspace_id
             ),
             actor=actor,
         )
@@ -815,30 +808,19 @@ class MigrationRunPlanningService:
             if item.name in required_reference_names
         )
         run_reference_bundle = (
-            ReferenceBundle(
-                project_id=run.migration_run_id,
-                datasets=captured_reference_datasets,
+            MigrationRunReferenceBundle.capture(
+                run.migration_run_id,
+                target_reference_bundle,
+                captured_reference_datasets,
             )
             if captured_reference_datasets
             else None
         )
         required_models = {item.model for item in review.model_requirements}
-        run_target_schema = replace(
+        run_target_schema = MigrationRunTargetSchema.capture(
+            run.migration_run_id,
             target_schema,
-            project_id=run.migration_run_id,
-            models=tuple(
-                item for item in target_schema.models if item.name in required_models
-            ),
-            content_hash=content_hash(
-                {
-                    "migration_run_id": run.migration_run_id,
-                    "purpose": "PRODUCTION",
-                    "requirements": [
-                        item.to_dict() for item in review.model_requirements
-                    ],
-                    "source_schema_hash": target_schema.content_hash,
-                }
-            ),
+            required_models,
         )
         target = RunTargetBinding(
             target_binding_id=target_binding_id,
@@ -1257,7 +1239,7 @@ class MigrationRunPlanningService:
             )
         ):
             self.workspace_states.update_target(
-                current.project_id,
+                current.workspace_id,
                 actor=actor,
                 expected_revision=current.revision,
                 odoo_connection_mode=(
@@ -1270,22 +1252,14 @@ class MigrationRunPlanningService:
             )
 
     @staticmethod
-    def _package_selection(package: DataVersionSourcePackage) -> SourceSelection:
+    def _package_selection(
+        package: DataVersionSourcePackage,
+    ) -> DataVersionDatasetView:
         datasets = tuple(item.to_mapping_dataset() for item in package.datasets)
-        return SourceSelection(
-            selection_id=str(uuid5(UUID(package.data_version_id), "m4-package-view")),
-            version=1,
-            project_id=package.data_version_id,
-            created_at=package.updated_at,
-            created_by="Accepted Test DataVersion",
+        return DataVersionDatasetView(
+            data_version_id=package.data_version_id,
+            package_hash=package.content_hash,
             datasets=datasets,
-            content_hash=content_hash(
-                {
-                    "data_version_id": package.data_version_id,
-                    "datasets": [item.to_dict() for item in datasets],
-                    "package_hash": package.content_hash,
-                }
-            ),
         )
 
     @staticmethod
@@ -1339,7 +1313,7 @@ class MigrationRunPlanningService:
 
     @staticmethod
     def _semantic_requirement_hash(review: IntegratedRunReview) -> str:
-        """Match the reusable requirement meaning stored by CutoverPlan M5."""
+        """Match the reusable requirement meaning stored by the CutoverPlan."""
 
         return content_hash(
             {

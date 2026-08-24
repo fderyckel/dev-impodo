@@ -1,4 +1,4 @@
-"""Verify the clean Migration Project persistence foundation from Phase M1."""
+"""Verify the current Migration Project persistence foundation."""
 
 from __future__ import annotations
 
@@ -68,10 +68,10 @@ def _crash_at(expected_stage: str):
     return crash
 
 
-class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
+class MigrationFoundationTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"m1-foundation-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"migration-foundation-{uuid4()}"
         self.root.mkdir()
         self.database = MigrationFoundationDatabase(self.root)
         self.repository = MigrationFoundationRepository(self.database)
@@ -602,22 +602,22 @@ class MigrationProjectPhaseM1FoundationTests(unittest.TestCase):
             )
 
 
-class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
+class MigrationFoundationResetTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"m1-reset-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"migration-foundation-reset-{uuid4()}"
         self.root.mkdir()
 
     def tearDown(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)
 
-    def test_recipe_first_registry_is_rejected_and_never_mutated(self) -> None:
+    def test_retired_recipe_owned_registry_is_rejected_without_mutation(self) -> None:
         registry = self.root / "registry.duckdb"
         with duckdb.connect(str(registry)) as connection:
             connection.execute(
                 "CREATE TABLE recipe (recipe_id VARCHAR PRIMARY KEY)"
             )
-            connection.execute("INSERT INTO recipe VALUES ('legacy-recipe')")
+            connection.execute("INSERT INTO recipe VALUES ('obsolete-recipe')")
         with self.assertRaises(MigrationStorageCompatibilityError) as rejected:
             MigrationFoundationDatabase(self.root)
         self.assertEqual(rejected.exception.database_path, str(registry.resolve()))
@@ -625,7 +625,7 @@ class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
         with duckdb.connect(str(registry), read_only=True) as connection:
             self.assertEqual(
                 connection.execute("SELECT * FROM recipe").fetchall(),
-                [("legacy-recipe",)],
+                [("obsolete-recipe",)],
             )
             self.assertEqual(
                 connection.execute("SHOW TABLES").fetchall(),
@@ -634,27 +634,29 @@ class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
         self.assertFalse((self.root / "projects").exists())
 
         standalone_root = self.root / "standalone"
-        legacy_workspace = standalone_root / str(uuid4())
-        legacy_workspace.mkdir(parents=True)
-        (legacy_workspace / "workspace-engine.duckdb").write_bytes(b"legacy")
+        obsolete_workspace = standalone_root / str(uuid4())
+        obsolete_workspace.mkdir(parents=True)
+        (obsolete_workspace / "workspace-engine.duckdb").write_bytes(
+            b"retired-storage"
+        )
         with self.assertRaises(MigrationStorageCompatibilityError):
             MigrationFoundationDatabase(standalone_root)
         self.assertFalse((standalone_root / "registry.duckdb").exists())
-        self.assertTrue((legacy_workspace / "workspace-engine.duckdb").is_file())
+        self.assertTrue((obsolete_workspace / "workspace-engine.duckdb").is_file())
 
     def test_reset_requires_review_confirmation_and_development_mode(self) -> None:
         registry = self.root / "registry.duckdb"
         with duckdb.connect(str(registry)) as connection:
             connection.execute("CREATE TABLE recipe (recipe_id VARCHAR)")
-        legacy_workspace = self.root / str(uuid4())
-        legacy_workspace.mkdir()
-        (legacy_workspace / "workspace-engine.duckdb").write_bytes(b"fixture")
+        obsolete_workspace = self.root / str(uuid4())
+        obsolete_workspace.mkdir()
+        (obsolete_workspace / "workspace-engine.duckdb").write_bytes(b"fixture")
 
         plan = plan_development_reset(self.root)
         self.assertTrue(plan.can_execute)
         self.assertEqual(
             {item.name for item in plan.targets},
-            {"registry.duckdb", legacy_workspace.name},
+            {"registry.duckdb", obsolete_workspace.name},
         )
         with self.assertRaises(MigrationFoundationError):
             execute_development_reset(
@@ -677,7 +679,7 @@ class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
         )
         self.assertFalse(registry.exists())
         self.assertTrue((quarantine / "registry.duckdb").is_file())
-        self.assertTrue((quarantine / legacy_workspace.name).is_dir())
+        self.assertTrue((quarantine / obsolete_workspace.name).is_dir())
         clean = MigrationFoundationDatabase(self.root)
         with clean.connect(clean.registry_path) as connection:
             self.assertEqual(
@@ -689,7 +691,7 @@ class MigrationProjectPhaseM1ResetTests(unittest.TestCase):
 
     def test_unknown_reset_entry_blocks_every_move(self) -> None:
         registry = self.root / "registry.duckdb"
-        registry.write_bytes(b"legacy")
+        registry.write_bytes(b"retired-storage")
         unknown = self.root / "operator-notes.txt"
         unknown.write_text("Keep me", encoding="utf-8")
         plan = plan_development_reset(self.root)

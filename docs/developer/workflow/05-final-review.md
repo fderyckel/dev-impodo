@@ -97,7 +97,7 @@ current same-database pinned-update policy even when every checked row is safe.
 The ready report remains owned by this DataVersion and cannot qualify or amend
 a Recipe revision. Applying published rules in another run will require a
 fresh comparison against that run's target; that application workflow belongs
-to Phase M4.
+to the integrated Test workflow.
 
 ## Invalidation and recovery
 

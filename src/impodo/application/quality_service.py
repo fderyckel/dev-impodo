@@ -43,7 +43,7 @@ class RecipeQualitySeedRepository(Protocol):
 
     def get_quality_seed(
         self,
-        project_id: str,
+        workspace_id: str,
         mapping_content_hash: str,
     ) -> tuple[QualityRule, ...]: ...
 
@@ -52,7 +52,7 @@ class RecipeQualitySeedRepository(Protocol):
 class QualityConfigurationContext:
     """Validated mapping/source scope for editing one dataset's manager rules."""
 
-    project_id: str
+    workspace_id: str
     revision: MappingRevision
     selection: SourceSelection
     dataset_id: str
@@ -76,27 +76,27 @@ class QualityService:
         self.quality = quality
         self.recipe_quality = recipe_quality
 
-    def current_ruleset(self, project_id: str) -> QualityRuleSet | None:
+    def current_ruleset(self, workspace_id: str) -> QualityRuleSet | None:
         """Return the currently published Stage-F rule contract."""
 
-        return self.quality.get_current_quality_ruleset(project_id)
+        return self.quality.get_current_quality_ruleset(workspace_id)
 
-    def current_summary(self, project_id: str) -> QualityRunSummary | None:
+    def current_summary(self, workspace_id: str) -> QualityRunSummary | None:
         """Return the lightweight projection of the current quality run."""
 
-        return self.quality.get_current_quality_summary(project_id)
+        return self.quality.get_current_quality_summary(workspace_id)
 
-    def current_run(self, project_id: str) -> QualityRun | None:
+    def current_run(self, workspace_id: str) -> QualityRun | None:
         """Load the complete current run referenced by its summary."""
 
-        summary = self.current_summary(project_id)
+        summary = self.current_summary(workspace_id)
         if summary is None:
             return None
-        return self.quality.get_quality_run(project_id, summary.run_id)
+        return self.quality.get_quality_run(workspace_id, summary.run_id)
 
     def publish_ruleset(
         self,
-        project_id: str,
+        workspace_id: str,
         ruleset: QualityRuleSet,
         *,
         actor: Actor,
@@ -104,14 +104,14 @@ class QualityService:
         """Persist a complete immutable ruleset version."""
 
         return self.quality.publish_quality_ruleset(
-            project_id,
+            workspace_id,
             ruleset,
             actor=actor,
         )
 
     def configuration(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
     ) -> QualityConfigurationContext:
         """Resolve a safe dataset editing scope from current saved evidence.
@@ -120,13 +120,13 @@ class QualityService:
         to field names that differ from the published mapping revision.
         """
 
-        revision = self.mappings.get_mapping_revision(project_id)
-        selection = self.sources.get_mapping_source_selection(project_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if revision is None or selection is None:
             raise WorkspaceError(
                 "Check and save the field matches before adding data checks"
             )
-        working = self.mappings.get_mapping_working_draft(project_id)
+        working = self.mappings.get_mapping_working_draft(workspace_id)
         if (
             working is not None
             and working.content_hash != revision.definition.content_hash
@@ -149,7 +149,7 @@ class QualityService:
         if dataset is None or source_dataset is None:
             raise WorkspaceError("Choose a current source table")
         return QualityConfigurationContext(
-            project_id=project_id,
+            workspace_id=workspace_id,
             revision=revision,
             selection=selection,
             dataset_id=dataset_id,
@@ -166,7 +166,7 @@ class QualityService:
     ) -> QualityRuleSet:
         """Replace one dataset's manager rules while preserving other datasets."""
 
-        current = self.quality.get_current_quality_ruleset(context.project_id)
+        current = self.quality.get_current_quality_ruleset(context.workspace_id)
         combined = list(manager_rules)
         if (
             current is not None
@@ -182,13 +182,13 @@ class QualityService:
             combined.extend(
                 item
                 for item in self.recipe_quality.get_quality_seed(
-                    context.project_id,
+                    context.workspace_id,
                     context.revision.definition.content_hash,
                 )
                 if item.dataset != context.dataset_name
             )
         ruleset = default_quality_ruleset(
-            project_id=context.project_id,
+            workspace_id=context.workspace_id,
             mapping_hash=context.revision.definition.content_hash,
             schema_hash=context.revision.definition.schema_hash,
             datasets=(item.name for item in context.selection.datasets),
@@ -215,11 +215,11 @@ class QualityService:
                     coverage_scope_hash=current.coverage_scope_hash,
                     reference_bundle_hash=current.reference_bundle_hash,
                 )
-        return self.publish_ruleset(context.project_id, ruleset, actor=actor)
+        return self.publish_ruleset(context.workspace_id, ruleset, actor=actor)
 
     def evaluate_and_publish(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         revision: MappingRevision,
         selection: SourceSelection,
         canonical_run: CanonicalStagingRun | StoredCanonicalStagingRun,
@@ -239,14 +239,14 @@ class QualityService:
         passed into evaluation so downstream evidence binds to durable Stage E.
         """
 
-        ruleset = self.quality.get_current_quality_ruleset(project.project_id)
+        ruleset = self.quality.get_current_quality_ruleset(workspace_state.workspace_id)
         if (
             ruleset is None
             or ruleset.mapping_hash != revision.definition.content_hash
             or ruleset.schema_hash != revision.definition.schema_hash
         ):
             ruleset = default_quality_ruleset(
-                project_id=project.project_id,
+                workspace_id=workspace_state.workspace_id,
                 mapping_hash=revision.definition.content_hash,
                 schema_hash=revision.definition.schema_hash,
                 datasets=(item.name for item in selection.datasets),
@@ -254,7 +254,7 @@ class QualityService:
                 parent_version=(ruleset.version if ruleset is not None else None),
                 manager_rules=(
                     self.recipe_quality.get_quality_seed(
-                        project.project_id,
+                        workspace_state.workspace_id,
                         revision.definition.content_hash,
                     )
                     if self.recipe_quality is not None
@@ -262,7 +262,7 @@ class QualityService:
                 ),
             )
             ruleset = self.quality.publish_quality_ruleset(
-                project.project_id,
+                workspace_state.workspace_id,
                 ruleset,
                 actor=actor,
             )
@@ -274,7 +274,7 @@ class QualityService:
                 try:
                     quality_run: QualityRun | StoredQualityRun = (
                         build_bounded_quality_run(
-                            project=project,
+                            workspace_state=workspace_state,
                             staging=canonical_run,
                             physical_rows=physical_rows,
                             ruleset=ruleset,
@@ -285,11 +285,11 @@ class QualityService:
                     if not allow_materialized_fallback:
                         raise ReadinessError(
                             "The data-check route could not stay bounded for "
-                            "this project. Whole-run fallback is disabled above "
+                            "this workspace. Whole-run fallback is disabled above "
                             "the materialized safety limit; no fallback was run."
                         ) from error
                     quality_run = evaluate_quality(
-                        project=project,
+                        workspace_state=workspace_state,
                         staging=materialize_staging_run(canonical_run),
                         physical_rows=physical_rows,
                         ruleset=ruleset,
@@ -298,7 +298,7 @@ class QualityService:
                     )
             else:
                 quality_run = evaluate_quality(
-                    project=project,
+                    workspace_state=workspace_state,
                     staging=canonical_run,
                     physical_rows=physical_rows,
                     ruleset=ruleset,
@@ -309,7 +309,7 @@ class QualityService:
         except QualityError as error:
             raise ReadinessError(str(error)) from error
         summary = self.quality.publish_quality_run(
-            project.project_id,
+            workspace_state.workspace_id,
             quality_run,
             staging_run_id=staging.run_id,
             effective_dataset_run_id=effective_dataset_run_id,
@@ -323,4 +323,3 @@ class QualityService:
         if isinstance(quality_run, StoredQualityRun):
             quality_run = quality_run.with_content_hash(summary.content_hash)
         return quality_run, summary
-

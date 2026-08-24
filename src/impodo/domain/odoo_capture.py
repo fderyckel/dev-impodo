@@ -23,7 +23,7 @@ from .serialization import canonical_json, content_hash
 from .source_binding import OdooSourceBinding, SourceOriginKind
 
 
-ODOO_CAPTURE_CONTRACT_VERSION = 3
+ODOO_CAPTURE_CONTRACT_VERSION = 4
 MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
 MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
 ODOO_CAPTURE_PAGE_SIZE = CURRENT_ODOO_SOURCE_POLICY.page_size
@@ -132,7 +132,7 @@ class OdooCaptureSelection:
 
     selection_id: str
     version: int
-    project_id: str
+    data_version_id: str
     dataset_name: str
     model: str
     field_names: tuple[str, ...]
@@ -160,7 +160,7 @@ class OdooCaptureSelection:
             )
         for value, label in (
             (self.selection_id, "selection ID"),
-            (self.project_id, "project ID"),
+            (self.data_version_id, "DataVersion ID"),
         ):
             try:
                 UUID(value)
@@ -251,7 +251,7 @@ class OdooCaptureSelection:
         *,
         selection_id: str,
         version: int,
-        project_id: str,
+        data_version_id: str,
         dataset_name: str,
         model: str,
         field_names: tuple[str, ...],
@@ -269,7 +269,7 @@ class OdooCaptureSelection:
         return cls(
             selection_id=selection_id,
             version=version,
-            project_id=project_id,
+            data_version_id=data_version_id,
             dataset_name=dataset_name,
             model=model,
             field_names=field_names,
@@ -307,7 +307,7 @@ class OdooCaptureSelection:
     def dataset_id(self) -> str:
         """Return the stable project/model slot identity used by later mapping."""
 
-        return odoo_dataset_id(self.project_id, self.model)
+        return odoo_dataset_id(self.data_version_id, self.model)
 
     @property
     def column_stable_keys(self) -> tuple[str, ...]:
@@ -332,7 +332,7 @@ class OdooCaptureSelection:
             "model": self.model,
             "page_size": self.page_size,
             "policy_hash": self.policy_hash,
-            "project_id": self.project_id,
+            "data_version_id": self.data_version_id,
             "read_permission_hash": self.read_permission_hash,
             "read_principal_hash": self.read_principal_hash,
             "schema_scope_hash": self.schema_scope_hash,
@@ -359,7 +359,7 @@ class OdooCaptureSelection:
                 {
                     "selection_id",
                     "version",
-                    "project_id",
+                    "data_version_id",
                     "dataset_name",
                     "model",
                     "field_names",
@@ -383,7 +383,7 @@ class OdooCaptureSelection:
             selection = cls(
                 selection_id=str(payload["selection_id"]),
                 version=int(payload["version"]),
-                project_id=str(payload["project_id"]),
+                data_version_id=str(payload["data_version_id"]),
                 dataset_name=str(payload["dataset_name"]),
                 model=str(payload["model"]),
                 field_names=tuple(str(item) for item in payload["field_names"]),
@@ -415,20 +415,22 @@ class OdooCaptureSelection:
         return selection
 
 
-def odoo_dataset_id(project_id: str, model: str, *, slot: str = "primary") -> str:
+def odoo_dataset_id(data_version_id: str, model: str, *, slot: str = "primary") -> str:
     """Derive a stable dataset identity without exposing a numeric Odoo ID."""
 
     try:
-        UUID(project_id)
+        UUID(data_version_id)
     except (AttributeError, ValueError) as error:
-        raise OdooCaptureContractError("Odoo dataset project ID is invalid") from error
+        raise OdooCaptureContractError(
+            "Odoo dataset DataVersion ID is invalid"
+        ) from error
     if _TECHNICAL_NAME.fullmatch(model) is None or not slot:
         raise OdooCaptureContractError("Odoo dataset binding is invalid")
     digest = content_hash(
         {
             "kind": SourceOriginKind.ODOO.value,
             "model": model,
-            "project_id": project_id,
+            "data_version_id": data_version_id,
             "slot": slot,
         }
     ).removeprefix("sha256:")

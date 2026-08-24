@@ -35,7 +35,7 @@ class StagingRunSummary:
     """
 
     run_id: str
-    project_id: str
+    workspace_id: str
     content_hash: str
     mapping_id: str
     mapping_version: int
@@ -85,7 +85,7 @@ class CanonicalStagingRepository(Protocol):
 
     def publish_canonical_staging(
         self,
-        project_id: str,
+        workspace_id: str,
         run: CanonicalStagingRun | StoredCanonicalStagingRun,
         *,
         mapping_version: int,
@@ -96,14 +96,14 @@ class CanonicalStagingRepository(Protocol):
 
     def get_current_staging_summary(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> StagingRunSummary | None:
         """Return the project's current published Stage-E summary."""
         ...
 
     def get_canonical_staging_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_content_hash: str | None = None,

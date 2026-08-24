@@ -26,35 +26,33 @@ def _render(
         context["error"] = plain_error
         if context.get("support_error") is None:
             context["support_error"] = support_error
-    project = context.get("project")
+    workspace_state = context.get("workspace_state")
     application = request.app.state.context
-    migration_workspace = None
-    migration_project = None
-    if isinstance(project, WorkspaceState) and (
+    workspace_view = None
+    if isinstance(workspace_state, WorkspaceState) and (
         "workspace_navigation" not in context or "migration_context" not in context
     ):
-        migration_workspace = application.migration_workspaces.get(
-            project.project_id,
+        workspace_view = application.workspace_views.get(
+            workspace_state.workspace_id,
             actor=application.actor,
-        )
-        migration_project = application.migration_projects.get(
-            migration_workspace.project_id,
-            actor=application.actor,
-        )
-    if isinstance(project, WorkspaceState) and "workspace_navigation" not in context:
-        assert migration_project is not None
-        context["workspace_navigation"] = build_workspace_navigation(
-            application,
-            project,
-            template_name,
-            current_path=request.url.path,
-            project_name=migration_project.display_name,
         )
     if (
-        isinstance(project, WorkspaceState)
-        and project.status is WorkspaceStatus.DRAFT
+        isinstance(workspace_state, WorkspaceState)
+        and "workspace_navigation" not in context
     ):
-        setup_view = build_workspace_setup_view(project, template_name)
+        assert workspace_view is not None
+        context["workspace_navigation"] = build_workspace_navigation(
+            application,
+            workspace_state,
+            template_name,
+            current_path=request.url.path,
+            migration_project_name=workspace_view.migration_project.display_name,
+        )
+    if (
+        isinstance(workspace_state, WorkspaceState)
+        and workspace_state.status is WorkspaceStatus.DRAFT
+    ):
+        setup_view = build_workspace_setup_view(workspace_state, template_name)
         context.setdefault("setup_steps", setup_view.steps)
         context.setdefault(
             "setup_current_requirements",
@@ -65,20 +63,18 @@ def _render(
             context.get("setup_attention_requested")
             or request.query_params.get("blocked") == "1"
         )
-    if isinstance(project, WorkspaceState) and "migration_context" not in context:
-        assert migration_workspace is not None
-        data_version = application.data_versions.get(
-            migration_workspace.data_version_id,
-            actor=application.actor,
-        )
-        context["migration_context"] = {
-            "project_id": migration_workspace.project_id,
-            "data_version_id": data_version.data_version_id,
-            "data_version_number": data_version.version_number,
-            "data_version_purpose": data_version.purpose.value,
-            "migration_run_id": migration_workspace.migration_run_id,
-            "workspace_id": migration_workspace.workspace_id,
-        }
+    if (
+        isinstance(workspace_state, WorkspaceState)
+        and "migration_context" not in context
+    ):
+        assert workspace_view is not None
+        context["workspace_view"] = workspace_view
+        context["workspace_id"] = workspace_view.migration_workspace.workspace_id
+        context["migration_project"] = workspace_view.migration_project
+        context["migration_workspace"] = workspace_view.migration_workspace
+        context["data_version"] = workspace_view.data_version
+        context["migration_run"] = workspace_view.migration_run
+        context["migration_context"] = workspace_view
     values = {
         "csrf_token": request.session.get("csrf_token", ""),
         "flash": request.session.pop("flash", None),
@@ -164,25 +160,25 @@ def _plain_ui_error(message: str) -> tuple[str, str | None]:
             "Contact support before trying again."
         )
     elif any(item in lowered for item in ("source", "file", "table", "dataset", "catalog")):
-        plain = "The saved source information no longer matches this project. Check the source files again before continuing."
+        plain = "The saved source information no longer matches this Data version. Check the source files again before continuing."
     else:
         plain = "Impodo could not complete this action. Your saved project information is unchanged; review the page and try again."
     return plain, raw
 
 
-def _project_error(
+def _workspace_error(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     template_name: str,
     error: Exception,
     **extra,
 ):
-    project = context.queries.get(project_id)
+    workspace_state = context.queries.get(workspace_id)
     return _render(
         request,
         template_name,
-        project=project,
+        workspace_state=workspace_state,
         error=str(error),
         status_code=422,
         **extra,
@@ -191,4 +187,3 @@ def _project_error(
 
 def _flash(request: Request, message: str) -> None:
     request.session["flash"] = message
-

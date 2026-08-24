@@ -7,9 +7,9 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
@@ -54,10 +54,29 @@ from impodo.source_snapshot_io import (
 )
 from impodo.value_rules import ScalarTransformPolicy, TextTransformStep
 from impodo.workspace_errors import WorkspaceError
+from impodo.workspace_access import WorkspaceAccessContext
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HASH_B = "sha256:" + "b" * 64
+
+
+def _lineage_id(kind: str, workspace_id: str) -> str:
+    return str(uuid5(NAMESPACE_URL, f"impodo-test:{kind}:{workspace_id}"))
+
+
+def _data_version_id(workspace_id: str) -> str:
+    return _lineage_id("data-version", workspace_id)
+
+
+class _WorkspaceAccess:
+    def require(self, _actor, _capability, *, workspace_id: str):
+        return WorkspaceAccessContext(
+            project_id=_lineage_id("project", workspace_id),
+            workspace_id=workspace_id,
+            data_version_id=_data_version_id(workspace_id),
+            migration_run_id=_lineage_id("run", workspace_id),
+        )
 
 
 class SourceSnapshotIngestionTests(unittest.TestCase):
@@ -66,14 +85,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.root = Path(self.temporary.name)
         self.database = DuckDbWorkspaceDatabase(self.root)
-        self.projects = WorkspaceStateRepository(self.database)
+        self.workspace_states = WorkspaceStateRepository(self.database)
         self.derived = DerivedEntityRepository(self.database)
         self.repository = SourceRepository(self.database, self.derived)
         self.artifacts = LocalArtifactStore(self.root)
         self.service = SourceWorkspaceService(
-            self.projects,
+            self.workspace_states,
             self.repository,
-            CapabilityAuthorizationPolicy(),
+            _WorkspaceAccess(),
             self.artifacts,
         )
 
@@ -81,42 +100,43 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_freeze_publishes_parquet_and_preview_works_without_original(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1, Alpha ,true\nC2,,false\n"
         )
         self.repository.save_source_catalogs(
-            project.project_id,
+            workspace_state.workspace_id,
             (catalog,),
             actor=LOCAL_ACTOR,
         )
         self.service.confirm_source(
-            project.project_id,
+            workspace_state.workspace_id,
             source_file.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
         selection = self.service.freeze_selection(
-            project.project_id,
+            workspace_state.workspace_id,
             dataset_names={(source_file.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
-        snapshots = self.repository.get_current_source_snapshots(project.project_id)
+        snapshots = self.repository.get_current_source_snapshots(workspace_state.workspace_id)
         self.assertEqual(len(snapshots), 1)
         self.assertEqual(snapshots[0].row_count, 2)
         definition = _direct_mapping(selection)
         sessions = PreparationSessionRepository(self.database)
 
-        self.artifacts.delete_source(project.project_id, source_file.stored_name)
+        data_version_id = _data_version_id(workspace_state.workspace_id)
+        self.artifacts.delete_source(data_version_id, source_file.stored_name)
         with self.assertRaises(ArtifactStoreError):
             with self.artifacts.materialize_source(
-                project.project_id,
+                data_version_id,
                 source_file.stored_name,
             ):
                 pass
 
         staged = stage_browser_mapping(
-            self.projects.get(project.project_id),
+            self.workspace_states.get(workspace_state.workspace_id),
             definition,
             selection,
             selection,
@@ -144,7 +164,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             ),
         ):
             bounded = prepare_bounded_direct_session(
-                self.projects.get(project.project_id),
+                self.workspace_states.get(workspace_state.workspace_id),
                 definition,
                 1,
                 selection,
@@ -160,7 +180,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
         database_path = (
-            sessions.workspace_directory(project.project_id) / "workspace-engine.duckdb"
+            sessions.workspace_directory(workspace_state.workspace_id) / "workspace-engine.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(
@@ -185,7 +205,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 encoded_rows = tuple(
                     str(item[-1])
                     for batch in sessions._iter_direct_encoded_batches(
-                        project.project_id,
+                        workspace_state.workspace_id,
                         bounded.session_id,
                         batch_size=batch_size,
                     )
@@ -207,7 +227,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
         staging_repository = StagingRepository(self.database, self.artifacts)
         restored = staging_repository.get_canonical_staging_run(
-            project.project_id,
+            workspace_state.workspace_id,
             bounded.session_id,
             expected_content_hash=bounded.run.validated_content_hash,
         )
@@ -219,7 +239,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             side_effect=AssertionError("reused preparation reran Polars"),
         ):
             repeated = prepare_bounded_direct_session(
-                self.projects.get(project.project_id),
+                self.workspace_states.get(workspace_state.workspace_id),
                 definition,
                 1,
                 selection,
@@ -237,16 +257,16 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
 
     def test_writer_uses_bounded_fragments_and_round_trips_null_and_empty(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Optional\nC1,\nC2\nC3,text\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         with patch(
             "impodo.source_snapshot_io.SOURCE_SNAPSHOT_TARGET_BATCH_ROWS",
             2,
         ):
             publication = SourceSnapshotPublisher(self.artifacts).publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -256,7 +276,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(publication.fragment_count, 2)
         snapshot = publication.snapshot
         with self.artifacts.materialize_source_snapshot(
-            project.project_id,
+            _data_version_id(workspace_state.workspace_id),
             snapshot.parquet_storage_key,
             expected_sha256=snapshot.parquet_sha256,
         ) as path:
@@ -269,14 +289,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual([row.number for row in rows], [2, 3, 4])
 
     def test_prepared_backed_duplicate_issues_are_sparse_overlays(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\nC1,Beta,false\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -286,7 +306,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         sessions = PreparationSessionRepository(self.database, self.artifacts)
         bounded = prepare_bounded_direct_session(
-            project,
+            workspace_state,
             _direct_mapping(selection),
             1,
             selection,
@@ -310,7 +330,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
         )
         database_path = (
-            sessions.workspace_directory(project.project_id) / "workspace-engine.duckdb"
+            sessions.workspace_directory(workspace_state.workspace_id) / "workspace-engine.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(
@@ -326,14 +346,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(storage, (0, 2))
 
     def test_prepared_backed_projection_detects_artifact_corruption(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -343,7 +363,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         sessions = PreparationSessionRepository(self.database, self.artifacts)
         bounded = prepare_bounded_direct_session(
-            project,
+            workspace_state,
             _direct_mapping(selection),
             1,
             selection,
@@ -356,9 +376,9 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             source_snapshots=(snapshot,),
         )
         storage_key = next(
-            iter(sessions.prepared_snapshot_storage_keys(project.project_id))
+            iter(sessions.prepared_snapshot_storage_keys(workspace_state.workspace_id))
         )
-        artifact_path = self.root / project.project_id / storage_key
+        artifact_path = self.root / "ws" / workspace_state.workspace_id / storage_key
         artifact_path.write_bytes(artifact_path.read_bytes()[:16])
 
         with self.assertRaisesRegex(
@@ -368,14 +388,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             tuple(bounded.run.rows)
 
     def test_unsupported_mapping_uses_one_dataset_wide_python_fallback(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -415,7 +435,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             side_effect=AssertionError("unsupported mapping used the native adapter"),
         ):
             bounded = prepare_bounded_direct_session(
-                project,
+                workspace_state,
                 definition,
                 1,
                 selection,
@@ -434,10 +454,10 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
 
     def test_supported_mapping_cannot_fall_back_without_source_snapshot(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         sessions = PreparationSessionRepository(self.database)
 
         with (
@@ -448,7 +468,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             self.assertRaisesRegex(ReadinessError, "source snapshot"),
         ):
             prepare_bounded_direct_session(
-                project,
+                workspace_state,
                 _direct_mapping(selection),
                 1,
                 selection,
@@ -461,15 +481,15 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
 
     def test_only_verified_supported_columnar_path_receives_100k_limit(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         definition = _direct_mapping(selection)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -524,14 +544,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
 
     def test_prepared_snapshot_bind_failure_removes_unregistered_file(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -550,7 +570,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "injected manifest failure"),
         ):
             prepare_bounded_direct_session(
-                project,
+                workspace_state,
                 _direct_mapping(selection),
                 1,
                 selection,
@@ -563,22 +583,28 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 source_snapshots=(snapshot,),
             )
 
-        prepared_root = self.root / project.project_id / "snapshots" / "prepared"
+        prepared_root = (
+            self.root
+            / "ws"
+            / workspace_state.workspace_id
+            / "snapshots"
+            / "prepared"
+        )
         self.assertEqual(tuple(prepared_root.rglob("*.parquet")), ())
         self.assertEqual(
-            sessions.prepared_snapshot_storage_keys(project.project_id),
+            sessions.prepared_snapshot_storage_keys(workspace_state.workspace_id),
             frozenset(),
         )
 
     def test_cancelled_columnar_session_reuses_snapshot_on_retry(self) -> None:
-        project, source_file, catalog = self._registered_csv(
+        workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
-        selection = _selection_for(project, source_file, catalog)
+        selection = _selection_for(workspace_state, source_file, catalog)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -594,7 +620,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "injected cancellation"):
             prepare_bounded_direct_session(
-                project,
+                workspace_state,
                 definition,
                 1,
                 selection,
@@ -610,7 +636,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            len(sessions.prepared_snapshot_storage_keys(project.project_id)),
+            len(sessions.prepared_snapshot_storage_keys(workspace_state.workspace_id)),
             1,
         )
         with patch(
@@ -618,7 +644,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             side_effect=AssertionError("retry reran Polars"),
         ):
             retry = prepare_bounded_direct_session(
-                project,
+                workspace_state,
                 definition,
                 1,
                 selection,
@@ -634,11 +660,11 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(len(retry.run.rows), 2)
 
     def test_mixed_xlsx_scalars_round_trip_through_parquet(self) -> None:
-        project, source_file, catalog, selection = self._registered_xlsx()
+        workspace_state, source_file, catalog, selection = self._registered_xlsx()
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -647,7 +673,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             .snapshot
         )
         with self.artifacts.materialize_source_snapshot(
-            project.project_id,
+            _data_version_id(workspace_state.workspace_id),
             snapshot.parquet_storage_key,
             expected_sha256=snapshot.parquet_sha256,
         ) as path:
@@ -664,12 +690,12 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
 
     def test_snapshot_hash_mismatch_and_truncation_fail_closed(self) -> None:
-        project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
-        selection = _selection_for(project, source_file, catalog)
+        workspace_state, source_file, catalog = self._registered_csv(b"Code\nC1\n")
+        selection = _selection_for(workspace_state, source_file, catalog)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -677,29 +703,34 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
             .snapshot
         )
-        path = self.root / project.project_id / snapshot.parquet_storage_key
+        path = (
+            self.root
+            / "dv"
+            / _data_version_id(workspace_state.workspace_id)
+            / snapshot.parquet_storage_key
+        )
         path.write_bytes(path.read_bytes()[:16])
         with self.assertRaisesRegex(ArtifactStoreError, "hash verification"):
             with self.artifacts.materialize_source_snapshot(
-                project.project_id,
+                _data_version_id(workspace_state.workspace_id),
                 snapshot.parquet_storage_key,
                 expected_sha256=snapshot.parquet_sha256,
             ):
                 pass
 
     def test_identical_ingestion_reuses_the_content_addressed_file(self) -> None:
-        project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
-        selection = _selection_for(project, source_file, catalog)
+        workspace_state, source_file, catalog = self._registered_csv(b"Code\nC1\n")
+        selection = _selection_for(workspace_state, source_file, catalog)
         publisher = SourceSnapshotPublisher(self.artifacts)
         first = publisher.publish(
-            project,
+            workspace_state,
             selection,
             selection.datasets[0],
             catalog,
             source_file,
         ).snapshot
         second = publisher.publish(
-            project,
+            workspace_state,
             selection,
             selection.datasets[0],
             catalog,
@@ -710,8 +741,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(second.parquet_storage_key, first.parquet_storage_key)
 
     def test_write_failure_leaves_no_partial_or_published_snapshot(self) -> None:
-        project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
-        selection = _selection_for(project, source_file, catalog)
+        workspace_state, source_file, catalog = self._registered_csv(b"Code\nC1\n")
+        selection = _selection_for(workspace_state, source_file, catalog)
         with (
             patch(
                 "polars.DataFrame.write_parquet",
@@ -720,24 +751,30 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             self.assertRaisesRegex(OSError, "disk full"),
         ):
             SourceSnapshotPublisher(self.artifacts).publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
                 source_file,
             )
-        snapshot_root = self.root / project.project_id / "snapshots" / "source"
+        snapshot_root = (
+            self.root
+            / "dv"
+            / _data_version_id(workspace_state.workspace_id)
+            / "snapshots"
+            / "source"
+        )
         self.assertEqual(tuple(snapshot_root.rglob("*.parquet")), ())
         work = snapshot_root / ".work"
         self.assertEqual(tuple(work.iterdir()), ())
 
     def test_failed_pointer_transaction_preserves_previous_selection(self) -> None:
-        project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
-        first = _selection_for(project, source_file, catalog)
+        workspace_state, source_file, catalog = self._registered_csv(b"Code\nC1\n")
+        first = _selection_for(workspace_state, source_file, catalog)
         first_snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 first,
                 first.datasets[0],
                 catalog,
@@ -746,7 +783,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             .snapshot
         )
         self.repository.publish_source_selection_with_snapshots(
-            project.project_id,
+            workspace_state.workspace_id,
             first,
             (first_snapshot,),
             actor=LOCAL_ACTOR,
@@ -758,7 +795,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             content_hash="sha256:" + "2" * 64,
         )
         second_snapshot = SourceSnapshot.create(
-            project_id=project.project_id,
+            data_version_id=_data_version_id(workspace_state.workspace_id),
             dataset_id=second.datasets[0].dataset_id,
             dataset_name=second.datasets[0].name,
             source=second.datasets[0].source,
@@ -778,28 +815,28 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "injected audit failure"),
         ):
             self.repository.publish_source_selection_with_snapshots(
-                project.project_id,
+                workspace_state.workspace_id,
                 second,
                 (second_snapshot,),
                 actor=LOCAL_ACTOR,
             )
 
         self.assertEqual(
-            self.repository.get_source_selection(project.project_id),
+            self.repository.get_source_selection(workspace_state.workspace_id),
             first,
         )
         self.assertEqual(
-            self.repository.get_current_source_snapshots(project.project_id),
+            self.repository.get_current_source_snapshots(workspace_state.workspace_id),
             (first_snapshot,),
         )
 
     def test_cleanup_removes_only_unregistered_snapshot_files(self) -> None:
-        project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
-        selection = _selection_for(project, source_file, catalog)
+        workspace_state, source_file, catalog = self._registered_csv(b"Code\nC1\n")
+        selection = _selection_for(workspace_state, source_file, catalog)
         snapshot = (
             SourceSnapshotPublisher(self.artifacts)
             .publish(
-                project,
+                workspace_state,
                 selection,
                 selection.datasets[0],
                 catalog,
@@ -807,17 +844,23 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
             .snapshot
         )
-        snapshot_path = self.root / project.project_id / snapshot.parquet_storage_key
+        data_version_id = _data_version_id(workspace_state.workspace_id)
+        snapshot_path = (
+            self.root
+            / "dv"
+            / data_version_id
+            / snapshot.parquet_storage_key
+        )
         self.assertEqual(
             self.artifacts.cleanup_source_snapshots(
-                project.project_id,
+                data_version_id,
                 frozenset((snapshot.parquet_storage_key,)),
             ),
             0,
         )
         self.assertTrue(snapshot_path.is_file())
         removed = self.artifacts.cleanup_source_snapshots(
-            project.project_id,
+            data_version_id,
             frozenset(),
         )
         self.assertGreaterEqual(removed, 1)
@@ -832,16 +875,16 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         content: bytes,
     ) -> tuple[WorkspaceState, SourceFile, SourceFileCatalog]:
         now = datetime.now(timezone.utc)
-        project = WorkspaceState(
-            project_id=str(uuid4()),
+        workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Snapshot ingestion",
             source_system="CSV",
             status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create_unlinked(project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(workspace_state, actor=LOCAL_ACTOR)
         stored = self.artifacts.store_source(
-            project.project_id,
+            _data_version_id(workspace_state.workspace_id),
             artifact_id=str(uuid4()),
             suffix=".csv",
             stream=BytesIO(content),
@@ -857,14 +900,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             sha256=stored.sha256.removeprefix("sha256:"),
             received_at=now,
         )
-        project = replace(
-            project,
+        workspace_state = replace(
+            workspace_state,
             source_files=(source_file,),
             revision=2,
             updated_at=now,
         )
-        self.projects.add_source_file(
-            project,
+        self.workspace_states.add_source_file(
+            workspace_state,
             source_file,
             expected_revision=1,
             actor=LOCAL_ACTOR,
@@ -897,7 +940,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             delimiter=",",
             tables=(table,),
         )
-        return self.projects.get(project.project_id), source_file, catalog
+        return self.workspace_states.get(workspace_state.workspace_id), source_file, catalog
 
     def _registered_xlsx(
         self,
@@ -932,16 +975,16 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         workbook.save(content)
         workbook.close()
         now = datetime.now(timezone.utc)
-        project = WorkspaceState(
-            project_id=str(uuid4()),
+        workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="XLSX snapshot ingestion",
             source_system="XLSX",
             status=WorkspaceStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create_unlinked(project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(workspace_state, actor=LOCAL_ACTOR)
         stored = self.artifacts.store_source(
-            project.project_id,
+            _data_version_id(workspace_state.workspace_id),
             artifact_id=str(uuid4()),
             suffix=".xlsx",
             stream=BytesIO(content.getvalue()),
@@ -957,14 +1000,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             sha256=stored.sha256.removeprefix("sha256:"),
             received_at=now,
         )
-        project = replace(
-            project,
+        workspace_state = replace(
+            workspace_state,
             source_files=(source_file,),
             revision=2,
             updated_at=now,
         )
-        self.projects.add_source_file(
-            project,
+        self.workspace_states.add_source_file(
+            workspace_state,
             source_file,
             expected_revision=1,
             actor=LOCAL_ACTOR,
@@ -1021,13 +1064,13 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=project.project_id,
+            data_version_id=_data_version_id(workspace_state.workspace_id),
             created_at=now,
             created_by="Tester",
             datasets=(dataset,),
             content_hash="sha256:" + "3" * 64,
         )
-        return self.projects.get(project.project_id), source_file, catalog, selection
+        return self.workspace_states.get(workspace_state.workspace_id), source_file, catalog, selection
 
 
 def _column(ordinal: int, name: str, row_count: int) -> SourceColumnProfile:
@@ -1048,7 +1091,7 @@ def _column(ordinal: int, name: str, row_count: int) -> SourceColumnProfile:
 
 
 def _selection_for(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     source_file: SourceFile,
     catalog: SourceFileCatalog,
 ):
@@ -1086,7 +1129,7 @@ def _selection_for(
     return SourceSelection(
         selection_id=str(uuid4()),
         version=1,
-        project_id=project.project_id,
+        data_version_id=_data_version_id(workspace_state.workspace_id),
         created_at=datetime.now(timezone.utc),
         created_by="Tester",
         datasets=(dataset,),

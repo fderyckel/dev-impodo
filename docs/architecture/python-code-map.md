@@ -19,9 +19,11 @@ then follow the service to its exact repository.
 | Explain data-manager concepts | immutable `ConceptHelp` presentation registry | authenticated read-only `/concepts` route and shared dialog macro |
 | List and read Projects | `migration_projects.py` | `MigrationFoundationRepository`, `/projects` |
 | Create a Project and first Authoring context | `MigrationProjectAuthoringService` | `migration_projects.py` router |
-| Own a complete source package | `DataVersion`, `DataVersionSourcePackage` | `data-version.duckdb` and DataVersion artifact directory |
-| Coordinate one target use | `MigrationRun` | registry `migration_run` projection |
-| Isolate current working evidence | `MigrationWorkspace` plus current workspace services | `workspace.duckdb`, contained `workspace-engine.duckdb`, `/workspaces/{workspace_id}` |
+| Own a complete source package | `DataVersion`, `DataVersionSourcePackage` | `data-version.duckdb` and `artifacts/dv/<data_version_id>` |
+| Coordinate one target use | `MigrationRun`, `MigrationRunTargetSetup` | registry run and target-setup projections |
+| Isolate current working evidence | `MigrationWorkspace` plus current workspace services | `workspace.duckdb`, contained `workspace-engine.duckdb`, `artifacts/ws/<workspace_id>`, `/workspaces/{workspace_id}` |
+| Authorize a workspace against its Project | `WorkspaceAccessService`, `WorkspaceAuthorizationPolicy` | `WorkspaceAccessMiddleware`, immutable worker access context reused by progress routes |
+| Render canonical workspace owners | `WorkspaceOwnerViewService` | explicit Project, workspace, DataVersion, run, package, and target view |
 | Supply mapping source contracts | `WorkspaceMappingSourceProjection` | bounded workspace source projection |
 | Compile reusable meaning | `RecipeCompiler.compile_workspace` | reads current workspace evidence only |
 | Publish optional Recipes | `RecipePublicationService` | `RecipeRepository`, protected Recipe store |
@@ -42,7 +44,8 @@ services.
 3. It creates Authoring `DataVersion` 1 and an empty draft source package.
 4. It creates Authoring `MigrationRun` 1 and one open `MigrationWorkspace`.
 5. `WorkspaceStateService.provision_migration_workspace` initializes the
-   mapping engine under that exact workspace ID.
+   mapping workbench under that exact workspace ID. The registry remains the
+   only workspace identity and lifecycle owner.
 6. Deterministic child operation IDs let the coordinator resume after a fault
    without creating duplicate roots.
 
@@ -57,18 +60,21 @@ query.
 ## Source acceptance trace
 
 1. `SourceIntakeService` receives source bytes for a workspace.
-2. `DataVersionAwareArtifactStore` resolves the workspace's DataVersion and
-   stores source bytes under that DataVersion ID.
-3. Existing inspection and source services record current authoring choices in
-   the contained mapping engine.
-4. `WorkspaceDataVersionSourceService` converts the accepted file, catalogue,
-   confirmation, dataset, and snapshot contracts into one canonical
-   `DataVersionSourcePackage`.
-5. `DataVersionSourcePackageService.freeze` freezes both the package and
+2. `LocalArtifactStore` implements the explicit
+   `DataVersionSourceArtifactStore` port and stores source bytes under
+   `artifacts/dv/<data_version_id>`.
+3. `MigrationWorkspaceStateRepository` records the file immediately in the
+   draft `DataVersionSourcePackage`; the local file row is a derived workbench
+   cache.
+4. `DataVersionOwnedSourceRepository` advances canonical inspection catalogues
+   and parsing confirmations while keeping local invalidation tables aligned.
+5. `WorkspaceDataVersionSourceService` adds logical datasets and immutable
+   snapshot references to that same package.
+6. `DataVersionSourcePackageService.freeze` freezes both the package and
    DataVersion identity.
-6. `WorkspaceSourceProjectionService` writes only selected dataset IDs and
+7. `WorkspaceSourceProjectionService` writes only selected dataset IDs and
    snapshot hashes to `workspace.duckdb`.
-7. `WorkspaceMappingSourceProjection` supplies those immutable contracts to
+8. `WorkspaceMappingSourceProjection` supplies those immutable contracts to
    the mapping editor and Recipe compiler.
 
 No source row or source artifact is copied into the clean workspace store.
@@ -96,7 +102,10 @@ Project identity, workspace identity, run identity, or cutover authority.
    rejects cycles and overlapping writable fields, and creates a canonical
    union requirement plan.
 3. One run-owned schema projection and supporting-reference bundle are
-   filtered to that union; there is no Odoo capture per Recipe.
+   filtered to that union. `MigrationRunTargetSchema` and
+   `MigrationRunReferenceBundle` use `migration_run_id`, retain their source
+   workspace provenance, and never place a run UUID in a workspace field.
+   There is no Odoo capture per Recipe.
 4. `MigrationRunPlanningRepository.provision_integrated_run` creates the run,
    target binding, applications, and distinct workspaces in one restart-safe
    operation.
@@ -149,12 +158,12 @@ Project identity, workspace identity, run identity, or cutover authority.
 | Stage | Main application service | Browser route prefix |
 | --- | --- | --- |
 | Setup | `WorkspaceStateService`, `SourceIntakeService` | `/workspaces/{workspace_id}` |
-| Source data | `SourceWorkspaceService`, `OdooCapturePublicationService` | `/workspaces/{workspace_id}/sources` |
+| Source data | `SourceWorkspaceService`, `OdooCapturePublicationService`, `OdooCaptureJobManager` | `/workspaces/{workspace_id}/sources` |
 | Odoo data | `SchemaWorkspaceService` | `/workspaces/{workspace_id}/schema` |
 | Match data | `MappingWorkspaceService` | `/workspaces/{workspace_id}/mapping` |
 | Prepare data | `PreparationService`, `PreparationJobManager` | `/workspaces/{workspace_id}/prepare` |
 | Final review | `PreflightService` | `/workspaces/{workspace_id}/summary` |
-| Load and reconcile | `ExecutionService`, `ReconciliationService` | `/workspaces/{workspace_id}/load` |
+| Load and reconcile | `ExecutionService`, `LoadJobManager`, `ReconciliationService` | `/workspaces/{workspace_id}/load` |
 
 ## Query and Odoo performance
 
@@ -171,12 +180,12 @@ separate from read capability.
 
 ## Focused verification
 
-- `tests/test_migration_project_phase_m0_contract.py`
-- `tests/test_migration_project_phase_m1_foundation.py`
-- `tests/test_migration_project_phase_m2_source_packages.py`
-- `tests/test_migration_project_phase_m3_project_authoring.py`
-- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
-- `tests/test_migration_project_phase_m5_cutover_qualification.py`
-- `tests/test_migration_project_phase_m6_production_rollout.py`
+- `tests/test_migration_project_contracts.py`
+- `tests/test_migration_foundation.py`
+- `tests/test_data_version_source_packages.py`
+- `tests/test_project_authoring.py`
+- `tests/test_integrated_recipe_runs.py`
+- `tests/test_cutover_qualification.py`
+- `tests/test_production_rollout.py`
 - `tests/test_recipe_representative_shapes.py`
 - `tests/test_preparation_jobs.py`

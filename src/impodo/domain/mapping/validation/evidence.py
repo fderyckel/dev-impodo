@@ -275,6 +275,15 @@ class MappingValidationResult:
     validator_version: str = MAPPING_VALIDATOR_VERSION
     contract_version: int = MAPPING_VALIDATION_CONTRACT_VERSION
 
+    def __post_init__(self) -> None:
+        if (
+            self.contract_version != MAPPING_VALIDATION_CONTRACT_VERSION
+            or self.validator_version != MAPPING_VALIDATOR_VERSION
+        ):
+            raise ValueError(
+                "Mapping validation does not match the current contract"
+            )
+
     @property
     def validation_hash(self) -> str:
         """Return the immutable identity used by mapping submission."""
@@ -297,14 +306,12 @@ class MappingValidationResult:
                 _portable(asdict(item)) for item in self.deferred_runtime_checks
             ],
         }
-        if self.contract_version >= 2:
-            payload["categorical_coverage"] = (
-                self.categorical_coverage.to_dict()
-                if self.categorical_coverage is not None
-                else None
-            )
-        if self.contract_version >= 3:
-            payload["reference_policy_hash"] = self.reference_policy_hash
+        payload["categorical_coverage"] = (
+            self.categorical_coverage.to_dict()
+            if self.categorical_coverage is not None
+            else None
+        )
+        payload["reference_policy_hash"] = self.reference_policy_hash
         if include_hash:
             payload["validation_hash"] = self.validation_hash
         return payload
@@ -320,6 +327,10 @@ class MappingValidationResult:
 
         payload = json.loads(value)
         contract_version = int(payload["contract_version"])
+        if contract_version != MAPPING_VALIDATION_CONTRACT_VERSION:
+            raise ValueError(
+                "Mapping validation does not match the current contract"
+            )
         expected_fields = {
             "contract_version",
             "validator_version",
@@ -330,12 +341,10 @@ class MappingValidationResult:
             "issues",
             "coverage",
             "deferred_runtime_checks",
+            "categorical_coverage",
+            "reference_policy_hash",
             "validation_hash",
         }
-        if contract_version >= 2:
-            expected_fields.add("categorical_coverage")
-        if contract_version >= 3:
-            expected_fields.add("reference_policy_hash")
         if set(payload) != expected_fields:
             raise ValueError("Mapping-validation fields are invalid")
         result = cls(
@@ -357,15 +366,10 @@ class MappingValidationResult:
                 CategoricalCoverageEvidence.from_dict(
                     payload["categorical_coverage"]
                 )
-                if int(payload["contract_version"]) >= 2
-                and payload.get("categorical_coverage") is not None
+                if payload.get("categorical_coverage") is not None
                 else None
             ),
-            reference_policy_hash=(
-                str(payload["reference_policy_hash"])
-                if contract_version >= 3
-                else ""
-            ),
+            reference_policy_hash=str(payload["reference_policy_hash"]),
         )
         if payload.get("validation_hash") != result.validation_hash:
             raise ValueError("Mapping-validation hash is invalid")

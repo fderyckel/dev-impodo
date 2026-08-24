@@ -91,7 +91,7 @@ class ReadinessReport:
     """
 
     run_id: str
-    project_id: str
+    workspace_id: str
     mapping_id: str
     mapping_version: int
     mapping_content_hash: str
@@ -212,7 +212,7 @@ class ReadinessReport:
             _require_dataclass_fields(item, ReadinessRow, "readiness row")
         return cls(
             run_id=str(payload["run_id"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             mapping_id=str(payload["mapping_id"]),
             mapping_version=int(payload["mapping_version"]),
             mapping_content_hash=str(payload["mapping_content_hash"]),
@@ -262,7 +262,7 @@ def _require_dataclass_fields(
 
 def _readiness_report(
     run_id: str,
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     revision: MappingRevision,
     result: PreflightResult,
     dataset_labels: Mapping[str, str],
@@ -327,7 +327,7 @@ def _readiness_report(
         )
     return ReadinessReport(
         run_id=run_id,
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         mapping_id=revision.mapping_id,
         mapping_version=revision.version,
         mapping_content_hash=revision.definition.content_hash,

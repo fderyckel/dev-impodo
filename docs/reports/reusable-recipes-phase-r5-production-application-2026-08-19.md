@@ -1,8 +1,8 @@
 # Recipe Phase R5 Production application implementation report
 
 **Historical evidence:** This report records the superseded Recipe-first
-implementation as it existed on 2026-08-19. ADR-014 and Migration Project
-Phases M0 through M7 define the current architecture.
+implementation as it existed on 2026-08-19. ADR-014, current architecture, and
+lifecycle contracts own behavior.
 
 ## Outcome
 

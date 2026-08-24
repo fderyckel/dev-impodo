@@ -8,7 +8,6 @@ from .access import CapabilityAuthorizationPolicy
 from .adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
-from .adapters.data_version_artifact_store import FixedDataVersionArtifactStore
 from .adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from .adapters.duckdb.mapping_repository import MappingRepository
 from .adapters.duckdb.normalization_repository import NormalizationRepository
@@ -31,6 +30,7 @@ from .application.resolution_service import ResolutionService
 from .artifacts import LocalArtifactStore
 from .preparation_jobs import PreparationWorkspace
 from .secrets import CredentialVault
+from .workspace_access import WorkspaceAccessService
 
 
 PREPARATION_DATABASE_HANDOFF_TIMEOUT_SECONDS = 5.0
@@ -52,14 +52,16 @@ def create_preparation_worker(
         project_root,
         project_id=workspace.project_id,
         workspace_id=workspace.workspace_id,
+        data_version_id=workspace.data_version_id,
+        migration_run_id=workspace.migration_run_id,
+        recipe_application_id=workspace.recipe_application_id,
         lock_wait_timeout_seconds=PREPARATION_DATABASE_HANDOFF_TIMEOUT_SECONDS,
     )
-    artifacts = FixedDataVersionArtifactStore(
-        LocalArtifactStore(Path(project_root) / "artifacts"),
-        workspace_id=workspace.workspace_id,
-        data_version_id=workspace.data_version_id,
+    artifacts = LocalArtifactStore(Path(project_root) / "artifacts")
+    authorization = WorkspaceAccessService(
+        database,
+        CapabilityAuthorizationPolicy(),
     )
-    authorization = CapabilityAuthorizationPolicy()
     secrets = CredentialVault()
     workspace_states = WorkspaceStateReader(database, workspace)
     derived_entities = DerivedEntityRepository(database)
@@ -80,7 +82,17 @@ def create_preparation_worker(
         authorization,
     )
     resolution = ResolutionService(coverage, staging)
-    odoo_provenance_repository = OdooProvenanceRepository(database, artifacts)
+    odoo_provenance_repository = OdooProvenanceRepository(
+        database,
+        artifacts,
+        protected_root=lambda workspace_id: (
+            Path(project_root)
+            / "artifacts"
+            / "dv"
+            / database.resolve_workspace_access_context(workspace_id).data_version_id
+            / "protected"
+        ),
+    )
     odoo_provenance = OdooProvenanceService(
         workspace_states,
         sources,

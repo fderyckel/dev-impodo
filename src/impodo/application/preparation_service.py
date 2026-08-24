@@ -19,7 +19,7 @@ from contextlib import ExitStack
 from typing import Callable, Iterable, Protocol
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import ArtifactStore, ArtifactStoreError
+from ..artifacts import GovernedArtifactStores, ArtifactStoreError
 from ..derived_entities import DerivedEntityPlan
 from ..domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
 from ..domain.coverage import ReferenceBundle
@@ -67,14 +67,14 @@ class PreparationOdooProvenance(Protocol):
 
     def current_manifest(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> OdooCaptureManifest | None: ...
 
     def read_current_origins(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]] | None: ...
@@ -85,7 +85,7 @@ from .resolution_service import ResolutionService
 from .readiness_ports import (
     PreparationDerivedRepository,
     PreparationMappingRepository,
-    PreparationProjectRepository,
+    PreparationWorkspaceRepository,
     PreparationSourceRepository,
     PreparationStagingRepository,
     PreparationSessionRepository,
@@ -104,20 +104,20 @@ class PreparationService:
 
     def __init__(
         self,
-        projects: PreparationProjectRepository,
+        workspaces: PreparationWorkspaceRepository,
         sources: PreparationSourceRepository,
         derived_entities: PreparationDerivedRepository,
         mappings: PreparationMappingRepository,
         staging: PreparationStagingRepository,
         sessions: PreparationSessionRepository,
-        artifacts: ArtifactStore,
+        artifacts: GovernedArtifactStores,
         authorization: AuthorizationPolicy,
         quality: QualityService,
         normalization: NormalizationService,
         resolution: ResolutionService | None = None,
         odoo_provenance: PreparationOdooProvenance | None = None,
     ) -> None:
-        self.projects = projects
+        self.workspaces = workspaces
         self.sources = sources
         self.derived_entities = derived_entities
         self.mappings = mappings
@@ -132,7 +132,7 @@ class PreparationService:
 
     def prepare(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
         progress: Callable[[PreparationPhase, int, int, str], None] | None = None,
@@ -167,26 +167,26 @@ class PreparationService:
         self.authorization.require(
             actor,
             Capability.MAPPING_SUBMIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.projects.get(project_id)
-        revision = self.mappings.get_mapping_revision(project_id)
+        workspace_state = self.workspaces.get(workspace_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
         if revision is None:
             raise ReadinessError("Submit the mapping before checking data")
         submission = self.mappings.get_mapping_submission(
-            project_id, revision.version
+            workspace_id, revision.version
         )
         if (
             submission is None
             or submission.mapping_content_hash != revision.definition.content_hash
         ):
             raise ReadinessError("Submit the current mapping before checking data")
-        physical_selection = self.sources.get_source_selection(project_id)
+        physical_selection = self.sources.get_source_selection(workspace_id)
         if physical_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
-        source_snapshots = self.sources.get_current_source_snapshots(project_id)
+        source_snapshots = self.sources.get_current_source_snapshots(workspace_id)
         _verify_odoo_preparation_evidence(
-            project_id,
+            workspace_id,
             physical_selection,
             source_snapshots,
             self.odoo_provenance,
@@ -194,23 +194,23 @@ class PreparationService:
         )
         total_rows = sum(item.row_count for item in physical_selection.datasets)
         source_hashes = canonical_source_hashes(physical_selection)
-        effective_selection = self.sources.get_mapping_source_selection(project_id)
+        effective_selection = self.sources.get_mapping_source_selection(workspace_id)
         if effective_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
         reference_bundle = (
-            self.resolution.current_reference_bundle(project_id)
+            self.resolution.current_reference_bundle(workspace_id)
             if self.resolution is not None
             else None
         )
 
-        derived_plan = self.derived_entities.get_derived_entity_plan(project_id)
+        derived_plan = self.derived_entities.get_derived_entity_plan(workspace_id)
         capability = compile_preparation_capability(
             definition=revision.definition,
             physical_selection=physical_selection,
             effective_selection=effective_selection,
             source_snapshots=source_snapshots,
             derived_plan=derived_plan,
-            current_ruleset=self.quality.current_ruleset(project_id),
+            current_ruleset=self.quality.current_ruleset(workspace_id),
             reference_bundle=reference_bundle,
         )
         capability.require_supported()
@@ -240,12 +240,12 @@ class PreparationService:
             derived_plan,
         ):
             bounded = prepare_bounded_direct_session(
-                project,
+                workspace_state,
                 revision.definition,
                 revision.version,
                 physical_selection,
                 effective_selection,
-                self.sources.get_source_catalogs(project_id),
+                self.sources.get_source_catalogs(workspace_id),
                 self.artifacts,
                 reference_bundle,
                 self.sessions,
@@ -265,36 +265,36 @@ class PreparationService:
                     "Saving prepared data",
                 )
                 staging = self.staging.publish_canonical_staging(
-                    project_id,
+                    workspace_id,
                     staging_input,
                     mapping_version=revision.version,
                     actor=actor,
                 )
             except Exception:
                 self.sessions.fail_session(
-                    project_id,
+                    workspace_id,
                     bounded_session_id,
                     "BOUNDED_PUBLICATION_FAILED",
                 )
                 raise
             del staging_input, bounded
             physical_rows = self.sessions.physical_rows(
-                project_id,
+                workspace_id,
                 bounded_session_id,
             )
             impact_rows = self.sessions.iter_impacts(
-                project_id,
+                workspace_id,
                 bounded_session_id,
             )
         else:
             materialized_impacts: list[TransformationImpactRow] = []
             staged = stage_browser_mapping(
-                project,
+                workspace_state,
                 revision.definition,
                 physical_selection,
                 effective_selection,
                 derived_plan,
-                self.sources.get_source_catalogs(project_id),
+                self.sources.get_source_catalogs(workspace_id),
                 self.artifacts,
                 source_snapshots=source_snapshots,
                 collect_transformation_impact=True,
@@ -309,7 +309,7 @@ class PreparationService:
                 "Saving prepared data",
             )
             staging = self.staging.publish_canonical_staging(
-                project_id,
+                workspace_id,
                 staged.canonical_run,
                 mapping_version=revision.version,
                 actor=actor,
@@ -323,7 +323,7 @@ class PreparationService:
                 canonical_run = bounded_canonical_run
             else:
                 canonical_run = self.staging.get_canonical_staging_run(
-                    project_id,
+                    workspace_id,
                     staging.run_id,
                     expected_content_hash=staging.content_hash,
                 )
@@ -337,7 +337,7 @@ class PreparationService:
             if self.resolution is not None:
                 effective, resolution_summary = (
                     self.resolution.evaluate_for_preparation(
-                        project_id,
+                        workspace_id,
                         canonical_run,
                         staging_run_id=staging.run_id,
                         staging_content_hash=staging.content_hash,
@@ -351,7 +351,7 @@ class PreparationService:
                 "Running data checks",
             )
             quality_run, quality = self.quality.evaluate_and_publish(
-                project,
+                workspace_state,
                 revision,
                 effective_selection,
                 canonical_run,
@@ -376,7 +376,7 @@ class PreparationService:
                 "Organizing changes for review",
             )
             normalization = self.normalization.evaluate_and_publish(
-                project,
+                workspace_state,
                 revision,
                 effective_selection,
                 canonical_run,
@@ -392,7 +392,7 @@ class PreparationService:
                 ),
             )
             if bounded_session_id is not None:
-                self.sessions.mark_published(project_id, bounded_session_id)
+                self.sessions.mark_published(workspace_id, bounded_session_id)
             report_progress(
                 PreparationPhase.COMPLETE,
                 total_rows,
@@ -404,7 +404,7 @@ class PreparationService:
             if bounded_session_id is not None:
                 try:
                     self.sessions.fail_session(
-                        project_id,
+                        workspace_id,
                         bounded_session_id,
                         "BOUNDED_PIPELINE_FAILED",
                     )
@@ -416,7 +416,7 @@ class PreparationService:
 def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
     """Return canonical evidence hashes without exposing protected Odoo IDs.
 
-    File projects retain their file-ID keys. A pinned Odoo capture is keyed by
+    File workspaces retain their file-ID keys. A pinned Odoo capture is keyed by
     its frozen dataset name and carries only the capture-selection hash.
     """
 
@@ -460,7 +460,7 @@ def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
 
 
 def _verify_odoo_preparation_evidence(
-    project_id: str,
+    workspace_id: str,
     selection: SourceSelection,
     snapshots: Iterable[SourceSnapshot],
     provenance: PreparationOdooProvenance | None,
@@ -495,8 +495,8 @@ def _verify_odoo_preparation_evidence(
         raise ReadinessError(invalid_message)
     try:
         validate_snapshot_for_dataset(selection, dataset, snapshot)
-        manifest = provenance.current_manifest(project_id, actor=actor)
-        protected = provenance.read_current_origins(project_id, actor=actor)
+        manifest = provenance.current_manifest(workspace_id, actor=actor)
+        protected = provenance.read_current_origins(workspace_id, actor=actor)
     except (WorkspaceError, ArtifactStoreError, ValueError) as error:
         raise ReadinessError(invalid_message) from error
     if manifest is None or protected is None:
@@ -504,7 +504,7 @@ def _verify_odoo_preparation_evidence(
     _header, batches = protected
     if any(
         (
-            manifest.project_id != project_id,
+            manifest.data_version_id != selection.data_version_id,
             manifest.selection_hash != binding.capture_selection_hash,
             manifest.policy_hash != binding.policy_hash,
             manifest.dataset_id != dataset.dataset_id,
@@ -537,13 +537,13 @@ def _verify_odoo_preparation_evidence(
 
 
 def stage_browser_mapping(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     definition: MappingDefinition,
     physical_selection: SourceSelection,
     effective_selection: SourceSelection,
     plan: DerivedEntityPlan | None,
     catalogs: Iterable[SourceFileCatalog],
-    artifacts: ArtifactStore,
+    artifacts: GovernedArtifactStores,
     reference_bundle: ReferenceBundle | None = None,
     *,
     source_snapshots: Iterable[SourceSnapshot] | None = None,
@@ -562,14 +562,14 @@ def stage_browser_mapping(
 
     require_supported_browser_scale(physical_selection)
     physical_tables = _load_browser_source_tables(
-        project,
+        workspace_state,
         physical_selection,
         catalogs,
         artifacts,
         source_snapshots=source_snapshots,
     )
     return evaluate_browser_mapping(
-        project_id=project.project_id,
+        workspace_id=workspace_state.workspace_id,
         definition=definition,
         physical_selection=physical_selection,
         effective_selection=effective_selection,
@@ -583,17 +583,17 @@ def stage_browser_mapping(
 
 
 def _load_browser_source_tables(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     physical_selection: SourceSelection,
     catalogs: Iterable[SourceFileCatalog],
-    artifacts: ArtifactStore,
+    artifacts: GovernedArtifactStores,
     *,
     source_snapshots: Iterable[SourceSnapshot] | None = None,
 ) -> dict[str, SourceTable]:
     """Materialize and validate physical tables before pure evaluation."""
 
     catalog_by_file = {item.file_id: item for item in catalogs}
-    source_file_by_id = {item.file_id: item for item in project.source_files}
+    source_file_by_id = {item.file_id: item for item in workspace_state.source_files}
     snapshot_by_dataset = {
         item.dataset_id: item for item in (source_snapshots or ())
     }
@@ -629,7 +629,7 @@ def _load_browser_source_tables(
                     )
                     path = stack.enter_context(
                         artifacts.materialize_source_snapshot(
-                            project.project_id,
+                            physical_selection.data_version_id,
                             snapshot.parquet_storage_key,
                             expected_sha256=snapshot.parquet_sha256,
                         )
@@ -645,7 +645,7 @@ def _load_browser_source_tables(
                 continue
             path = stack.enter_context(
                 artifacts.materialize_source(
-                    project.project_id,
+                    physical_selection.data_version_id,
                     source_file.stored_name,
                 )
             )
@@ -666,4 +666,3 @@ def _load_browser_source_tables(
                 source_display_name=source_file.display_name,
             )
     return loaded
-

@@ -8,7 +8,7 @@ import math
 import unittest
 
 from impodo.adapters.odoo_source_capture import Json2OdooSourceCapture
-from impodo.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
+from impodo.access import LOCAL_ACTOR
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
 from impodo.connectors import Json2Config
 from impodo.connectors import MetadataSnapshot
@@ -53,6 +53,7 @@ from impodo.workspace_contracts import (
     SchemaModel,
     SchemaOrigin,
 )
+from tests.workspace_access_helpers import data_version_id, workspace_access_service
 
 
 HASH = "sha256:" + "1" * 64
@@ -359,30 +360,28 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
 
 class OdooSourceCaptureServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.project_id = "00000000-0000-0000-0000-000000000001"
-        self.schema = _schema(self.project_id)
-        self.selection = _selection(self.project_id, self.schema)
-        self.project = WorkspaceState(
-            project_id=self.project_id,
+        self.workspace_id = "00000000-0000-0000-0000-000000000001"
+        self.schema = _schema(self.workspace_id)
+        self.selection = _selection(self.workspace_id, self.schema)
+        self.workspace_state = WorkspaceState(
+            workspace_id=self.workspace_id,
             name="Odoo source",
             source_system="Odoo",
             source_mode=SourceMode.ODOO,
-            data_manager="Manager",
-            functional_owner="Owner",
             odoo_connection_mode=OdooConnectionMode.REMOTE,
             odoo_base_url="https://odoo.example.test",
             odoo_database="production",
             intended_models=("res.partner",),
             status=WorkspaceStatus.REGISTERED,
         )
-        self.projects = _ProjectReader(self.project)
+        self.workspace_states = _WorkspaceStateReader(self.workspace_state)
         self.selections = _SelectionReader(self.selection)
         self.schemas = _SchemaReader(self.schema)
         self.service = OdooSourceCaptureService(
-            self.projects,
+            self.workspace_states,
             self.selections,
             self.schemas,
-            CapabilityAuthorizationPolicy(),
+            workspace_access_service(),
         )
 
     def test_planner_requires_explicit_tier_one_metadata(self) -> None:
@@ -408,7 +407,7 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
         pages = []
 
         result = self.service.capture(
-            self.project_id,
+            self.workspace_id,
             gateway,
             consume_page_factory=lambda request, selection: pages.append,
             actor=LOCAL_ACTOR,
@@ -426,26 +425,26 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             "principal",
         ):
             self.service.capture(
-                self.project_id,
+                self.workspace_id,
                 gateway,
                 consume_page_factory=lambda request, selection: lambda page: None,
                 actor=LOCAL_ACTOR,
             )
 
 
-class _ProjectReader:
-    def __init__(self, project):
-        self.project = project
+class _WorkspaceStateReader:
+    def __init__(self, workspace_state):
+        self.workspace_state = workspace_state
 
-    def get(self, project_id):
-        return self.project
+    def get(self, workspace_id):
+        return self.workspace_state
 
 
 class _SelectionReader:
     def __init__(self, selection):
         self.selection = selection
 
-    def get_current_odoo_capture_selection(self, project_id):
+    def get_current_odoo_capture_selection(self, workspace_id):
         return self.selection
 
 
@@ -453,7 +452,7 @@ class _SchemaReader:
     def __init__(self, schema):
         self.schema = schema
 
-    def get_odoo_schema_catalog(self, project_id):
+    def get_odoo_schema_catalog(self, workspace_id):
         return self.schema
 
 
@@ -559,7 +558,7 @@ class _EmptySession:
         return self._accounting
 
 
-def _schema(project_id: str) -> OdooSchemaCatalog:
+def _schema(workspace_id: str) -> OdooSchemaCatalog:
     eligibility = dict(
         relation=None,
         relation_field=None,
@@ -575,7 +574,7 @@ def _schema(project_id: str) -> OdooSchemaCatalog:
         exportable=True,
     )
     return OdooSchemaCatalog(
-        project_id=project_id,
+        workspace_id=workspace_id,
         policy_hash=ODOO_SOURCE_POLICY_HASH,
         captured_at=datetime.now(timezone.utc),
         captured_by="Manager",
@@ -617,13 +616,13 @@ def _schema(project_id: str) -> OdooSchemaCatalog:
 
 
 def _selection(
-    project_id: str,
+    workspace_id: str,
     schema: OdooSchemaCatalog,
 ) -> OdooCaptureSelection:
     return OdooCaptureSelection.create(
         selection_id="00000000-0000-0000-0000-000000000002",
         version=1,
-        project_id=project_id,
+        data_version_id=data_version_id(workspace_id),
         dataset_name="contacts",
         model="res.partner",
         field_names=("name",),
@@ -642,7 +641,9 @@ def _selection(
 def _request(**changes) -> OdooSourceCaptureRequest:
     policy = CURRENT_ODOO_SOURCE_POLICY
     values = dict(
-        project_id="00000000-0000-0000-0000-000000000001",
+        data_version_id=data_version_id(
+            "00000000-0000-0000-0000-000000000001"
+        ),
         selection_id="00000000-0000-0000-0000-000000000002",
         selection_version=1,
         selection_hash=HASH,

@@ -2,10 +2,10 @@
 
 # This build supports one exact current schema. A contract change starts a new
 # generation; workspaces from another generation are rejected, never upgraded.
-SCHEMA_GENERATION = "impodo-workspace-engine-2026-08-m7"
-# Version 2 is the clean M7 shape. Version 1 carried the removed additive
-# migration ledger and must not be accepted as the same persisted contract.
-SCHEMA_VERSION = 2
+SCHEMA_GENERATION = "impodo-workspace-engine-2026-08-workspace-owned"
+# A new generation starts at version 1. Earlier generations used a Project
+# name for the contained workspace identity and are deliberately incompatible.
+SCHEMA_VERSION = 1
 PREFLIGHT_ROW_BATCH_SIZE = 1_000
 STAGING_ROW_BATCH_SIZE = 1_000
 QUALITY_ROW_BATCH_SIZE = 1_000
@@ -15,7 +15,7 @@ DUCKDB_JSON_BATCH_MAX_BYTES = 16 * 1024 * 1024
 DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES = 2 * 1024 * 1024
 RESOLUTION_ROW_BATCH_SIZE = 1_000
 PREPARATION_SESSION_ROW_BATCH_SIZE = 5_000
-# Phase-7 production-worker evidence showed that 96 MB and 128 MB cannot hold
+# Production-worker evidence showed that 96 MB and 128 MB cannot hold
 # the bounded 96,000-effect Product/BOM normalization transaction. 192 MB keeps
 # the one-thread session below the 900 MiB worker gate without repeated OOMs.
 PREPARATION_SESSION_MEMORY_LIMIT = "192MB"

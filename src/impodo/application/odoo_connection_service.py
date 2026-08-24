@@ -34,17 +34,20 @@ class OdooConnectionIdentity:
     identity_hash: str
 
     @classmethod
-    def from_project(cls, project: WorkspaceState) -> "OdooConnectionIdentity":
-        if project.odoo_connection_mode is None:
+    def from_workspace(
+        cls,
+        workspace_state: WorkspaceState,
+    ) -> "OdooConnectionIdentity":
+        if workspace_state.odoo_connection_mode is None:
             raise WorkspaceStateError("Choose Local Odoo or Remote Odoo")
         return cls(
-            connection_mode=project.odoo_connection_mode,
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
+            connection_mode=workspace_state.odoo_connection_mode,
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
             identity_hash=target_identity_hash(
-                connection_mode=project.odoo_connection_mode.value,
-                base_url=project.odoo_base_url,
-                database=project.odoo_database,
+                connection_mode=workspace_state.odoo_connection_mode.value,
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
             ),
         )
 
@@ -79,7 +82,7 @@ class OdooConnectionTestService:
 
     def test_read(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         api_key: str,
         *,
         purpose: OdooConnectionPurpose,
@@ -88,10 +91,10 @@ class OdooConnectionTestService:
 
         if purpose is OdooConnectionPurpose.TARGET_WRITE:
             raise WorkspaceStateError("Use the write-access check at load confirmation")
-        connection = OdooConnectionIdentity.from_project(project)
-        fingerprint = self._fingerprint_probe(project, api_key)
+        connection = OdooConnectionIdentity.from_workspace(workspace_state)
+        fingerprint = self._fingerprint_probe(workspace_state, api_key)
         read_identity = self._read_identity_probe(
-            project,
+            workspace_state,
             api_key,
             ("res.users",),
         )

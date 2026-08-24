@@ -47,25 +47,25 @@ _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 ReadCredentialBindingProvider = Callable[[WorkspaceState], str]
 
 
-class ExecutionProjectRepository(Protocol):
-    def get(self, project_id: str) -> WorkspaceState: ...
+class ExecutionWorkspaceRepository(Protocol):
+    def get(self, workspace_id: str) -> WorkspaceState: ...
 
 
 class ExecutionJournalRepository(Protocol):
     def start_run(
-        self, project_id: str, run: ExecutionRun, *, actor: Actor
+        self, workspace_id: str, run: ExecutionRun, *, actor: Actor
     ) -> None: ...
 
     def record_outcomes(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         rows: Sequence[ExecutionRowAttempt],
     ) -> None: ...
 
     def finish_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         status: ExecutionRunStatus,
         *,
@@ -74,7 +74,7 @@ class ExecutionJournalRepository(Protocol):
 
     def get_current_run(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot_hash: str | None = None,
     ) -> ExecutionRun | None: ...
 
@@ -114,7 +114,7 @@ class ExecutionService:
 
     def __init__(
         self,
-        projects: ExecutionProjectRepository,
+        workspaces: ExecutionWorkspaceRepository,
         preflight: PreflightService,
         journal: ExecutionJournalRepository,
         authorization: AuthorizationPolicy,
@@ -125,7 +125,7 @@ class ExecutionService:
             ReadCredentialBindingProvider | None
         ) = None,
     ) -> None:
-        self.projects = projects
+        self.workspaces = workspaces
         self.preflight = preflight
         self.journal = journal
         self.authorization = authorization
@@ -133,20 +133,20 @@ class ExecutionService:
         self.require_remote_write_identity = require_remote_write_identity
         self.current_read_credential_binding = current_read_credential_binding
 
-    def current_preview(self, project_id: str) -> ExecutionPreview | None:
-        snapshot = self.preflight.current_execution_snapshot(project_id)
+    def current_preview(self, workspace_id: str) -> ExecutionPreview | None:
+        snapshot = self.preflight.current_execution_snapshot(workspace_id)
         if snapshot is None:
             return None
-        project = self.projects.get(project_id)
+        workspace_state = self.workspaces.get(workspace_id)
         current_read_credential_binding = (
-            self.current_read_credential_binding(project)
+            self.current_read_credential_binding(workspace_state)
             if self.current_read_credential_binding is not None
             else None
         )
-        current = self.journal.get_current_run(project_id, snapshot.semantic_hash)
+        current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
         api_scope = execution_api_scope(snapshot)
         credential_error = _read_credential_snapshot_error(
-            project,
+            workspace_state,
             snapshot,
             current_read_credential_binding=current_read_credential_binding,
         )
@@ -184,7 +184,7 @@ class ExecutionService:
             scope_error=(
                 credential_error
                 or _execution_snapshot_error(
-                    project,
+                    workspace_state,
                     snapshot,
                 )
             ),
@@ -193,7 +193,7 @@ class ExecutionService:
 
     def execute(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         expected_snapshot_hash: str,
         executor: OdooWriteExecutor,
@@ -208,15 +208,15 @@ class ExecutionService:
         self.authorization.require(
             actor,
             Capability.EXPORT_PLAN_EXECUTE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.projects.get(project_id)
-        if project.source_mode is SourceMode.ODOO:
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
                 "Pinned Odoo loading is not available yet. No Odoo record was changed."
             )
         create_batch_rows = validated_create_batch_rows(batch_rows)
-        preview = self.current_preview(project_id)
+        preview = self.current_preview(workspace_id)
         if preview is None:
             raise WorkspaceError("Compare the prepared data with Odoo first")
         snapshot = preview.snapshot
@@ -224,14 +224,14 @@ class ExecutionService:
             raise WorkspaceError("The load preview changed. Review it again.")
         if preview.scope_error:
             raise WorkspaceError(preview.scope_error)
-        self._validate_execution_scope(project, preview, executor)
+        self._validate_execution_scope(workspace_state, preview, executor)
         _validate_write_identity(
             preview,
             write_identity,
             write_credential_binding_hash,
             required=(
                 self.require_remote_write_identity
-                and project.odoo_connection_mode is OdooConnectionMode.REMOTE
+                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
             ),
         )
         _validate_read_identity(
@@ -240,7 +240,7 @@ class ExecutionService:
             read_credential_binding_hash,
             required=(
                 self.require_remote_read_identity
-                and project.odoo_connection_mode is OdooConnectionMode.REMOTE
+                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
             ),
         )
 
@@ -264,7 +264,7 @@ class ExecutionService:
         started_at = datetime.now(timezone.utc)
         run = ExecutionRun(
             run_id=str(uuid4()),
-            project_id=project_id,
+            workspace_id=workspace_id,
             snapshot_hash=snapshot.semantic_hash,
             snapshot_root_hash=snapshot.root_hash,
             preflight_run_id=snapshot.preflight_run_id,
@@ -287,7 +287,7 @@ class ExecutionService:
                 write_identity.context_hash if write_identity is not None else ""
             ),
         )
-        self.journal.start_run(project_id, run, actor=actor)
+        self.journal.start_run(workspace_id, run, actor=actor)
         report_progress = progress or (lambda _run: None)
         report_progress(run)
 
@@ -316,7 +316,7 @@ class ExecutionService:
             )
             if stop_after_unknown:
                 self._record_blocked(
-                    project_id,
+                    workspace_id,
                     run.run_id,
                     dataset_rows,
                     recorded,
@@ -346,7 +346,7 @@ class ExecutionService:
                             identity_cache,
                             executor,
                             import_relations=(
-                                project.odoo_connection_mode
+                                workspace_state.odoo_connection_mode
                                 is OdooConnectionMode.REMOTE
                             ),
                             skip_fields=frozenset(
@@ -360,7 +360,7 @@ class ExecutionService:
                             safe_error=str(error),
                         )
                         self.journal.record_outcomes(
-                            project_id, run.run_id, (outcome,)
+                            workspace_id, run.run_id, (outcome,)
                         )
                         recorded[row.row_id] = outcome
                         report_progress(replace(run, rows=tuple(recorded.values())))
@@ -383,7 +383,7 @@ class ExecutionService:
                 for prepared_group in groups.values():
                     try:
                         values = tuple(item[1] for item in prepared_group)
-                        if project.odoo_connection_mode is OdooConnectionMode.REMOTE:
+                        if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
                             identifiers = executor.load_create_rows(
                                 dataset.target_model,
                                 values,
@@ -405,7 +405,7 @@ class ExecutionService:
                             for row, _values, _deferred in prepared_group
                         )
                         self.journal.record_outcomes(
-                            project_id, run.run_id, outcomes
+                            workspace_id, run.run_id, outcomes
                         )
                         recorded.update({item.row_id: item for item in outcomes})
                         report_progress(replace(run, rows=tuple(recorded.values())))
@@ -422,7 +422,7 @@ class ExecutionService:
                             for row, _values, _deferred in prepared_group
                         )
                         self.journal.record_outcomes(
-                            project_id, run.run_id, outcomes
+                            workspace_id, run.run_id, outcomes
                         )
                         recorded.update({item.row_id: item for item in outcomes})
                         report_progress(replace(run, rows=tuple(recorded.values())))
@@ -454,7 +454,7 @@ class ExecutionService:
                         ] = identifier
                         identity_cache[_identity_cache_key(row)] = identifier
                     self.journal.record_outcomes(
-                        project_id, run.run_id, outcomes
+                        workspace_id, run.run_id, outcomes
                     )
                     recorded.update({item.row_id: item for item in outcomes})
                     report_progress(replace(run, rows=tuple(recorded.values())))
@@ -464,7 +464,7 @@ class ExecutionService:
             for row in updates:
                 if stop_after_unknown:
                     self._record_blocked(
-                        project_id,
+                        workspace_id,
                         run.run_id,
                         (row,),
                         recorded,
@@ -518,13 +518,13 @@ class ExecutionService:
                             attempt=1,
                             odoo_id=record_id,
                         )
-                self.journal.record_outcomes(project_id, run.run_id, (outcome,))
+                self.journal.record_outcomes(workspace_id, run.run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 report_progress(replace(run, rows=tuple(recorded.values())))
 
         if not stop_after_unknown:
             stop_after_unknown = self._apply_deferred_relationships(
-                project_id,
+                workspace_id,
                 run.run_id,
                 write_rows,
                 deferred_by_row,
@@ -544,7 +544,7 @@ class ExecutionService:
         )
         if remaining:
             self._record_blocked(
-                project_id,
+                workspace_id,
                 run.run_id,
                 remaining,
                 recorded,
@@ -568,7 +568,7 @@ class ExecutionService:
             )
         )
         completed_run = self.journal.finish_run(
-            project_id,
+            workspace_id,
             run.run_id,
             final_status,
             actor=actor,
@@ -578,12 +578,12 @@ class ExecutionService:
 
     @staticmethod
     def _validate_execution_scope(
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         preview: ExecutionPreview,
         executor: OdooWriteExecutor,
     ) -> None:
         snapshot = preview.snapshot
-        if project.odoo_connection_mode not in {
+        if workspace_state.odoo_connection_mode not in {
             OdooConnectionMode.LOCAL,
             OdooConnectionMode.REMOTE,
         }:
@@ -645,7 +645,7 @@ class ExecutionService:
 
     def _apply_deferred_relationships(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         rows: Sequence[ExecutionRow],
         deferred_by_row: Mapping[str, tuple[FieldIntent, ...]],
@@ -687,7 +687,7 @@ class ExecutionService:
                     status=ExecutionRowStatus.OUTCOME_UNKNOWN,
                     safe_error=str(error),
                 )
-                self.journal.record_outcomes(project_id, run_id, (outcome,))
+                self.journal.record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 return True
             except (WorkspaceError, OdooWriteRejected) as error:
@@ -704,7 +704,7 @@ class ExecutionService:
                     status=ExecutionRowStatus.COMMITTED,
                     safe_error="",
                 )
-            self.journal.record_outcomes(project_id, run_id, (outcome,))
+            self.journal.record_outcomes(workspace_id, run_id, (outcome,))
             recorded[row.row_id] = outcome
         return False
 
@@ -1013,7 +1013,7 @@ class ExecutionService:
 
     def _record_blocked(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         rows: Sequence[ExecutionRow],
         recorded: dict[str, ExecutionRowAttempt],
@@ -1028,7 +1028,7 @@ class ExecutionService:
             for row in rows
             if recorded[row.row_id].status is ExecutionRowStatus.PLANNED
         )
-        self.journal.record_outcomes(project_id, run_id, outcomes)
+        self.journal.record_outcomes(workspace_id, run_id, outcomes)
         recorded.update({item.row_id: item for item in outcomes})
 
 
@@ -1236,12 +1236,12 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
 
 
 def _execution_snapshot_error(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     snapshot: ExecutionSnapshot,
 ) -> str:
     """Explain an execution-shape problem before the user can press Load."""
 
-    if project.odoo_connection_mode not in {
+    if workspace_state.odoo_connection_mode not in {
         OdooConnectionMode.LOCAL,
         OdooConnectionMode.REMOTE,
     }:
@@ -1326,7 +1326,7 @@ def _execution_snapshot_error(
         if dataset is None:
             return f"Dataset {row.dataset} is missing from the reviewed load preview"
         if (
-            project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
             and row.disposition == "UPDATE"
         ):
             for intent in row.fields:
@@ -1368,7 +1368,7 @@ def _execution_snapshot_error(
                             "reviewed business key"
                         )
         if (
-            project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
             and row.disposition == "CREATE"
         ):
             if not row.proposed_external_id:
@@ -1462,7 +1462,7 @@ def _execution_snapshot_error(
 
 
 def _read_credential_snapshot_error(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     snapshot: ExecutionSnapshot,
     *,
     current_read_credential_binding: str | None,
@@ -1470,7 +1470,7 @@ def _read_credential_snapshot_error(
     """Explain only credential-dependent refresh failures for focused UI recovery."""
 
     if (
-        project.odoo_connection_mode is not OdooConnectionMode.REMOTE
+        workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE
         or current_read_credential_binding is None
     ):
         return ""
@@ -1550,4 +1550,3 @@ def _domain_cache_key(
     domain: tuple[tuple[str, str, Any], ...],
 ) -> str:
     return canonical_json_text({"model": model, "domain": domain})
-

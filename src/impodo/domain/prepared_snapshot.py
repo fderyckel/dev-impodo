@@ -11,8 +11,8 @@ import re
 from .serialization import canonical_json, content_hash
 
 
-PREPARED_SNAPSHOT_CONTRACT_VERSION = 1
-PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION = 2
+PREPARED_SNAPSHOT_CONTRACT_VERSION = 2
+PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION = 3
 PREPARED_WRITER_CONTRACT_VERSION = 2
 
 _DATASET_ID = re.compile(r"dataset:([0-9a-f]{24})")
@@ -27,7 +27,7 @@ class PreparedSnapshotContractError(ValueError):
 class PreparedSnapshot:
     """Bind one typed prepared Parquet artifact to exact transformation inputs."""
 
-    project_id: str
+    workspace_id: str
     dataset_id: str
     dataset_name: str
     source_snapshot_hash: str
@@ -43,9 +43,9 @@ class PreparedSnapshot:
     created_at: datetime
 
     def __post_init__(self) -> None:
-        if not self.project_id or not self.dataset_name:
+        if not self.workspace_id or not self.dataset_name:
             raise PreparedSnapshotContractError(
-                "Prepared snapshot project and dataset names are required"
+                "Prepared snapshot workspace and dataset names are required"
             )
         _dataset_digest(self.dataset_id)
         for value, label in (
@@ -58,9 +58,9 @@ class PreparedSnapshot:
             (self.parquet_sha256, "Parquet hash"),
         ):
             _hash_digest(value, label)
-        if self.writer_contract_version < 1:
+        if self.writer_contract_version != PREPARED_WRITER_CONTRACT_VERSION:
             raise PreparedSnapshotContractError(
-                "Prepared writer contract version must be positive"
+                "Prepared writer does not match the current contract"
             )
         if self.row_count < 0:
             raise PreparedSnapshotContractError(
@@ -87,7 +87,7 @@ class PreparedSnapshot:
     def create(
         cls,
         *,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         dataset_name: str,
         source_snapshot_hash: str,
@@ -101,7 +101,7 @@ class PreparedSnapshot:
         writer_contract_version: int = PREPARED_WRITER_CONTRACT_VERSION,
     ) -> "PreparedSnapshot":
         logical_hash = prepared_snapshot_logical_hash(
-            project_id=project_id,
+            workspace_id=workspace_id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
             source_snapshot_hash=source_snapshot_hash,
@@ -112,7 +112,7 @@ class PreparedSnapshot:
             row_count=row_count,
         )
         return cls(
-            project_id=project_id,
+            workspace_id=workspace_id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
             source_snapshot_hash=source_snapshot_hash,
@@ -135,7 +135,7 @@ class PreparedSnapshot:
     @property
     def expected_logical_hash(self) -> str:
         return prepared_snapshot_logical_hash(
-            project_id=self.project_id,
+            workspace_id=self.workspace_id,
             dataset_id=self.dataset_id,
             dataset_name=self.dataset_name,
             source_snapshot_hash=self.source_snapshot_hash,
@@ -171,7 +171,7 @@ class PreparedSnapshot:
             "parquet_sha256": self.parquet_sha256,
             "parquet_storage_key": self.parquet_storage_key,
             "physical_schema_hash": self.physical_schema_hash,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "row_count": self.row_count,
             "schema_hash": self.schema_hash,
             "source_snapshot_hash": self.source_snapshot_hash,
@@ -191,7 +191,7 @@ class PreparedSnapshot:
             if int(payload["contract_version"]) != PREPARED_SNAPSHOT_CONTRACT_VERSION:
                 raise ValueError
             snapshot = cls(
-                project_id=str(payload["project_id"]),
+                workspace_id=str(payload["workspace_id"]),
                 dataset_id=str(payload["dataset_id"]),
                 dataset_name=str(payload["dataset_name"]),
                 source_snapshot_hash=str(payload["source_snapshot_hash"]),
@@ -223,7 +223,7 @@ class PreparedSnapshot:
 
 def prepared_snapshot_logical_hash(
     *,
-    project_id: str,
+    workspace_id: str,
     dataset_id: str,
     dataset_name: str,
     source_snapshot_hash: str,
@@ -241,7 +241,7 @@ def prepared_snapshot_logical_hash(
             "dataset_id": dataset_id,
             "dataset_name": dataset_name,
             "mapping_hash": mapping_hash,
-            "project_id": project_id,
+            "workspace_id": workspace_id,
             "row_count": row_count,
             "schema_hash": schema_hash,
             "source_snapshot_hash": source_snapshot_hash,
@@ -256,7 +256,7 @@ def prepared_snapshot_storage_key(
     logical_hash: str,
     parquet_sha256: str,
 ) -> str:
-    """Return a safe application-constructed project-relative artifact key."""
+    """Return a safe application-constructed workspace-relative artifact key."""
 
     logical_digest = _hash_digest(logical_hash, "logical hash")
     artifact_digest = _hash_digest(parquet_sha256, "Parquet hash")

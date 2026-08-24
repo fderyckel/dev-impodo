@@ -19,6 +19,11 @@ from ..odoo_capture_jobs import (
     OdooCaptureProgress,
     odoo_capture_progress_percent,
 )
+from ..migration_foundation import MigrationIdentifierConfusionError
+from ..workspace_access import (
+    WorkspaceAccessContext,
+    bind_workspace_access_context,
+)
 from .odoo_capture_publication_service import (
     OdooCapturePublication,
     OdooCapturePublicationService,
@@ -27,7 +32,7 @@ from .odoo_source_capture_service import OdooSourceCapturePort
 
 
 class OdooCaptureJobNotFoundError(LookupError):
-    """Raised when a job is missing or belongs to another project."""
+    """Raised when a job is missing or belongs to another workspace."""
 
 
 class OdooCaptureJobStateError(ValueError):
@@ -58,34 +63,45 @@ class OdooCaptureJobManager:
 
     def enqueue(
         self,
-        project_id: str,
-        project_name: str,
+        workspace_id: str,
+        migration_project_name: str,
         maximum_rows: int,
         gateway: OdooSourceCapturePort,
         *,
+        access_context: WorkspaceAccessContext,
         actor: Actor,
     ) -> OdooCaptureJob:
-        """Create one attempt or return the project's active attempt."""
+        """Create one attempt or return the workspace's active attempt."""
+
+        if access_context.workspace_id != workspace_id:
+            raise MigrationIdentifierConfusionError(
+                "Capture access context does not belong to this workspace"
+            )
 
         with self._condition:
             if self._stopping:
                 raise OdooCaptureJobStateError("Odoo capture jobs are stopping")
-            active = self._active_locked(project_id)
+            active = self._active_locked(workspace_id)
             if active is not None:
+                if active.access_context != access_context:
+                    raise MigrationIdentifierConfusionError(
+                        "Active capture belongs to another workspace context"
+                    )
                 return active
             attempt = 1 + max(
                 (
                     job.attempt
                     for job in self._jobs.values()
-                    if job.project_id == project_id
+                    if job.workspace_id == workspace_id
                 ),
                 default=0,
             )
             now = _now()
             job = OdooCaptureJob(
                 job_id=str(uuid4()),
-                project_id=project_id,
-                project_name=project_name.strip()[:300] or "Odoo source project",
+                access_context=access_context,
+                workspace_id=workspace_id,
+                migration_project_name=migration_project_name.strip()[:300] or "Odoo source project",
                 status=OdooCaptureJobStatus.QUEUED,
                 phase=OdooCapturePhase.QUEUED,
                 message=CAPTURE_PHASE_LABELS[OdooCapturePhase.QUEUED],
@@ -117,20 +133,20 @@ class OdooCaptureJobManager:
             self._condition.notify()
             return job
 
-    def get(self, project_id: str, job_id: str) -> OdooCaptureJob:
+    def get(self, workspace_id: str, job_id: str) -> OdooCaptureJob:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.project_id != project_id:
+            if job is None or job.workspace_id != workspace_id:
                 raise OdooCaptureJobNotFoundError("Odoo capture job not found")
             return job
 
-    def active(self, project_id: str) -> OdooCaptureJob | None:
+    def active(self, workspace_id: str) -> OdooCaptureJob | None:
         with self._lock:
-            return self._active_locked(project_id)
+            return self._active_locked(workspace_id)
 
-    def cancel(self, project_id: str, job_id: str) -> OdooCaptureJob:
+    def cancel(self, workspace_id: str, job_id: str) -> OdooCaptureJob:
         with self._condition:
-            job = self.get(project_id, job_id)
+            job = self.get(workspace_id, job_id)
             if job.terminal:
                 return job
             self._cancellations[job_id].set()
@@ -173,17 +189,22 @@ class OdooCaptureJobManager:
                 job_id, gateway, actor = self._pending.popleft()
                 cancellation = self._cancellations[job_id]
                 self._mark_running(job_id)
-                project_id = self._jobs[job_id].project_id
+                access_context = self._jobs[job_id].access_context
             try:
-                publication = self._publication.publish(
-                    project_id,
-                    gateway,
-                    actor=actor,
-                    cancellation=cancellation.is_set,
-                    progress=lambda value: self._update_progress(job_id, value),
-                )
-                if self._accept_publication is not None:
-                    self._accept_publication(project_id, publication, actor)
+                with bind_workspace_access_context(access_context):
+                    publication = self._publication.publish(
+                        access_context.workspace_id,
+                        gateway,
+                        actor=actor,
+                        cancellation=cancellation.is_set,
+                        progress=lambda value: self._update_progress(job_id, value),
+                    )
+                    if self._accept_publication is not None:
+                        self._accept_publication(
+                            access_context.workspace_id,
+                            publication,
+                            actor,
+                        )
             except OdooSourceCaptureCancelled:
                 with self._lock:
                     self._finish_cancelled(job_id)
@@ -300,12 +321,12 @@ class OdooCaptureJobManager:
             )
         )
 
-    def _active_locked(self, project_id: str) -> OdooCaptureJob | None:
+    def _active_locked(self, workspace_id: str) -> OdooCaptureJob | None:
         return max(
             (
                 job
                 for job in self._jobs.values()
-                if job.project_id == project_id and job.active
+                if job.workspace_id == workspace_id and job.active
             ),
             key=lambda job: job.created_at,
             default=None,

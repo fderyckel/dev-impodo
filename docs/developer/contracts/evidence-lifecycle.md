@@ -58,12 +58,17 @@ accepted Test DataVersion + exact Recipe revisions
 The contained mapping-engine chain is:
 
 ```text
-registered `WorkspaceState`
--> current source catalogue and confirmation
+READY `MigrationWorkspace`
+-> DataVersion-owned source catalogue and confirmation
 -> frozen source selection and snapshots
 -> current target schema and governed business keys
 -> mapping revision, validation, impact review, and submission
 ```
+
+The engine's flat `WorkspaceState` object is a workbench projection over these
+owners. It is not another identity or lifecycle. Project fields come from
+`MigrationProject`; source fields come from the DataVersion package; mutable
+target setup and immutable target binding come from the MigrationRun.
 
 Each pointer selects one current immutable revision. Historical revisions
 remain available for audit but do not satisfy current-stage prerequisites.
@@ -71,9 +76,9 @@ The chains meet through exact Project, DataVersion, workspace, mapping, and
 Recipe revision hashes; no stage infers linkage from display names. Recipe
 publication does not move or copy the DataVersion evidence into the Recipe.
 
-Project-owned multi-Recipe application planning is current in M4. Execution,
-qualification, and CutoverPlans remain later evidence chains and cannot be
-inferred from an M4 `READY` application.
+Project-owned multi-Recipe application planning, qualification, CutoverPlans,
+and Production orchestration are current. None can be inferred from an
+application's setup state alone.
 
 ## Binding rules
 
@@ -93,20 +98,21 @@ one exact schema revision. Mapping evidence then binds the exact source
 selection, schema, governance, providers, transformations, relationships,
 validation result, reviewed warnings, and actor submission.
 
-Mapping contract v11 additionally binds an explicit closed-domain policy for
-every scalar selection and relationship. Application validation scans each
-affected physical dataset once across all relevant fields and embeds immutable
-`CategoricalCoverageEvidence` in validation contract v2, so its content hash
-participates in the submission validation hash. Relationship target existence
-and uniqueness remain declared deferred checks satisfied by fresh preparation
-evidence; mapping validation does not claim target-record coverage. Reusable
-control definitions and the current DataVersion's expected values are separate
-v11 objects, projected back to effective totals only at preparation time.
-Current Project work keeps expected values and parameter choices as
-DataVersion/workspace evidence; they are not part of reusable Recipe semantic
-identity unless the Recipe contract explicitly defines their portable shape.
+The exact current mapping contract is version 12. It binds an explicit
+closed-domain policy for every scalar selection and relationship. Application
+validation scans each affected physical dataset once across all relevant
+fields and embeds immutable `CategoricalCoverageEvidence` in validation
+contract version 3, so its content hash participates in the submission
+validation hash. Relationship target existence and uniqueness remain declared
+deferred checks satisfied by fresh preparation evidence; mapping validation
+does not claim target-record coverage. Reusable control definitions and the
+current DataVersion's expected values are separate objects, projected to
+effective totals only at preparation time. Current Project work keeps expected
+values and parameter choices as DataVersion or workspace evidence; they are
+not reusable Recipe identity unless the Recipe contract explicitly defines
+their portable shape.
 
-Mapping contract v12 binds conditional Selection providers, ordered rule and
+Mapping contract version 12 also binds conditional Selection providers, ordered rule and
 condition identifiers, typed comparisons, referenced source-column keys,
 captured Odoo output keys, and the otherwise decision. Categorical validation
 projects all referenced columns in the dataset's existing bounded scan and
@@ -119,8 +125,8 @@ Governed-reference policy version 1 has one canonical hash shared by Match,
 supporting lookups, Final review, and optional Recipe publication.
 Mapping validation contract version 3, supporting lookup contract version 2,
 preflight requirement-plan contract version 2, and Recipe target-contract
-version 2 bind that hash. Older versions remain readable for audit, but they
-cannot silently become current evidence under a changed policy.
+version 2 bind that hash. Retired payload versions are rejected rather than
+loaded, upgraded, or silently reused.
 
 The transformation-impact snapshot records two hash-bound facts for each
 conditional Selection rule. The match fact counts rows that matched before

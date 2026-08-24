@@ -79,7 +79,7 @@ class ExecutionRun:
     """One confirmed load attempt bound to an immutable execution snapshot."""
 
     run_id: str
-    project_id: str
+    workspace_id: str
     snapshot_hash: str
     snapshot_root_hash: str
     preflight_run_id: str

@@ -188,9 +188,9 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertNotIn("search_value", transform)
         self.assertEqual(len(transform["text_steps"]), 2)
         self.assertEqual(MappingDefinition.from_dict(payload), definition)
-        for noncurrent_version in (2, 7):
+        for noncurrent_version in (2, 7, 11):
             with self.subTest(noncurrent_version=noncurrent_version):
-                with self.assertRaisesRegex(ValueError, "version is unsupported"):
+                with self.assertRaisesRegex(ValueError, "current contract"):
                     replace(definition, contract_version=noncurrent_version)
 
         noncurrent_payload = definition.to_dict()
@@ -303,11 +303,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:863b18db3db8c35ef7261e3b540fcc41b166c33e91d4a097ac05f4a9f9c5372f",
+            "sha256:03a0c3a19c5a9bdceb8be3998f95aaf968be3e8451e276226e25d27c2075ecc9",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:3751adc4c26e259c56906f10c9cc6bd17ed381d3465b81b8bd7d72a1490ef899",
+            "sha256:05552d9fd4bee02489ac5e2be4e1e7dd1a5e68eeff489d59fd09009ec8855557",
         )
         reversed_definition = replace(
             definition,
@@ -1279,52 +1279,17 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             {item.code for item in invalid_result.issues},
         )
 
-    def test_version_eight_mapping_hash_and_json_remain_readable(self) -> None:
+    def test_retired_mapping_payload_is_rejected_before_nested_parsing(self) -> None:
         current = _valid_definition(self.selection, self.governance)
-        legacy = replace(
-            current,
-            contract_version=8,
-            datasets=tuple(
-                replace(
-                    dataset,
-                    relationships=tuple(
-                        replace(relation, categorical_policy=None)
-                        for relation in dataset.relationships
-                    ),
-                )
-                for dataset in current.datasets
-            ),
-        )
+        portable = current.to_dict()
+        portable["contract_version"] = 8
 
-        portable = legacy.to_dict()
-        restored = MappingDefinition.from_dict(portable)
-
-        self.assertNotIn("target_field_dispositions", portable["datasets"][0])
-        self.assertEqual(restored, legacy)
-        self.assertEqual(
-            legacy.content_hash,
-            "sha256:9778c44cba8bc53efdcafacef4fa38e5bb334c494e71dc69f2272a4faab7c137",
-        )
-        with self.assertRaisesRegex(ValueError, "require mapping contract version 9"):
-            replace(
-                legacy,
-                datasets=(
-                    replace(
-                        legacy.datasets[0],
-                        target_field_dispositions=(
-                            TargetFieldDisposition(
-                                target_field="name",
-                                handling=TargetFieldHandling.ODOO_DEFAULT,
-                            ),
-                        ),
-                    ),
-                    legacy.datasets[1],
-                ),
-            )
+        with self.assertRaisesRegex(ValueError, "current contract"):
+            MappingDefinition.from_dict(portable)
 
     def test_noncurrent_mapping_contract_is_rejected(self) -> None:
         current = _valid_definition(self.selection, self.governance)
-        with self.assertRaisesRegex(ValueError, "version is unsupported"):
+        with self.assertRaisesRegex(ValueError, "current contract"):
             replace(current, contract_version=2)
 
 
@@ -1418,7 +1383,7 @@ def _source_selection() -> SourceSelection:
     return SourceSelection(
         selection_id="selection:test",
         version=1,
-        project_id="project:test",
+        data_version_id="project:test",
         created_at=NOW,
         created_by="Test operator",
         datasets=(
@@ -1487,7 +1452,7 @@ def _pinned_odoo_inputs() -> tuple[SourceSelection, OdooSchemaCatalog]:
     selection = SourceSelection(
         selection_id="selection:odoo-pinned",
         version=1,
-        project_id="project:test",
+        data_version_id="project:test",
         created_at=NOW,
         created_by="Test operator",
         datasets=(
@@ -1531,7 +1496,7 @@ def _pinned_odoo_inputs() -> tuple[SourceSelection, OdooSchemaCatalog]:
         )
 
     schema = OdooSchemaCatalog(
-        project_id="project:test",
+        workspace_id="workspace:test",
         policy_hash=ODOO_SOURCE_POLICY_HASH,
         captured_at=NOW,
         captured_by="Test operator",
@@ -1583,7 +1548,7 @@ def _field(
 
 def _schema_catalog() -> OdooSchemaCatalog:
     return OdooSchemaCatalog(
-        project_id="project:test",
+        workspace_id="workspace:test",
         policy_hash=ODOO_SOURCE_POLICY_HASH,
         captured_at=NOW,
         captured_by="Test operator",
@@ -1657,7 +1622,7 @@ def _schema_governance(schema: OdooSchemaCatalog) -> SchemaGovernance:
     return SchemaGovernance(
         governance_id="governance:test",
         version=1,
-        project_id=schema.project_id,
+        workspace_id=schema.workspace_id,
         catalog_hash=schema.content_hash,
         permitted_models=tuple(model.name for model in schema.models),
         business_keys=(

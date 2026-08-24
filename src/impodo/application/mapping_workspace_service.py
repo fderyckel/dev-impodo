@@ -40,10 +40,6 @@ from ..domain.mapping.validation.evidence import (
 )
 from ..domain.mapping.validation.validator import MappingSemanticValidator
 from ..reference_keys import REFERENCE_POLICY_HASH
-from ..domain.mapping.upgrade_review import (
-    MappingContractUpgradeReview,
-    review_mapping_contract_upgrade,
-)
 from .categorical_coverage_service import CategoricalCoverageService
 from ..domain.staging.transformation_impact import (
     TransformationRuleReview,
@@ -63,7 +59,7 @@ class MappingSourceRepository(Protocol):
 
     def get_mapping_source_selection(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SourceSelection | None:
         """Return the effective physical-plus-derived selection visible to mapping."""
         ...
@@ -74,14 +70,14 @@ class MappingSchemaRepository(Protocol):
 
     def get_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooSchemaCatalog | None:
         """Return the current target-bound detailed schema."""
         ...
 
     def get_schema_governance(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SchemaGovernance | None:
         """Return current confirmed business-key governance, when available."""
         ...
@@ -92,13 +88,13 @@ class MappingWorkspaceRepository(Protocol):
 
     def get_mapping_working_draft(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> MappingWorkingDraft | None:
         """Return recoverable unchecked editor state, if one exists."""
         ...
     def save_mapping_working_draft(
         self,
-        project_id: str,
+        workspace_id: str,
         draft: MappingWorkingDraft,
         *,
         expected_version: int | None,
@@ -109,7 +105,7 @@ class MappingWorkspaceRepository(Protocol):
 
     def get_mapping_revision(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int | None = None,
     ) -> MappingRevision | None:
         """Return the current or requested immutable mapping revision."""
@@ -117,7 +113,7 @@ class MappingWorkspaceRepository(Protocol):
 
     def get_mapping_validation(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int,
     ) -> MappingValidationResult | None:
         """Return the stored validation for one checked mapping revision."""
@@ -125,7 +121,7 @@ class MappingWorkspaceRepository(Protocol):
 
     def get_mapping_submission(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int | None = None,
     ) -> MappingSubmission | None:
         """Return the newest submission globally or for one revision."""
@@ -133,14 +129,14 @@ class MappingWorkspaceRepository(Protocol):
 
     def list_mapping_revisions(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[MappingRevision, ...]:
         """Return the complete immutable revision history in version order."""
         ...
 
     def save_mapping_revision(
         self,
-        project_id: str,
+        workspace_id: str,
         revision: MappingRevision,
         *,
         validation: MappingValidationResult,
@@ -154,7 +150,7 @@ class MappingWorkspaceRepository(Protocol):
 
     def save_mapping_validation(
         self,
-        project_id: str,
+        workspace_id: str,
         version: int,
         validation: MappingValidationResult,
         *,
@@ -165,7 +161,7 @@ class MappingWorkspaceRepository(Protocol):
 
     def save_mapping_submission(
         self,
-        project_id: str,
+        workspace_id: str,
         submission: MappingSubmission,
         *,
         actor: Actor,
@@ -179,7 +175,7 @@ class MappingTransformationImpactRepository(Protocol):
 
     def get_transformation_rule_review(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         mapping_content_hash: str,
         source_selection_hash: str,
@@ -215,7 +211,7 @@ class MappingWorkspaceService:
 
     def save_working_draft(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         datasets: Iterable[DatasetMapping],
         expected_version: int | None,
@@ -226,17 +222,17 @@ class MappingWorkspaceService:
         self.authorization.require(
             actor,
             Capability.MAPPING_EDIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        selection = self.sources.get_mapping_source_selection(project_id)
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        governance = self.schemas.get_schema_governance(project_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        governance = self.schemas.get_schema_governance(workspace_id)
         if selection is None or schema is None:
             raise WorkspaceError(
                 "Freeze datasets and capture Odoo schema first"
             )
-        current = self.mappings.get_mapping_revision(project_id)
-        existing = self.mappings.get_mapping_working_draft(project_id)
+        current = self.mappings.get_mapping_revision(workspace_id)
+        existing = self.mappings.get_mapping_working_draft(workspace_id)
         actual_version = existing.version if existing else None
         if expected_version != actual_version:
             raise WorkspaceError(
@@ -263,42 +259,23 @@ class MappingWorkspaceService:
         draft = MappingWorkingDraft(
             mapping_id=mapping_id,
             version=(actual_version or 0) + 1,
-            project_id=project_id,
+            workspace_id=workspace_id,
             base_mapping_version=current.version if current else None,
             definition=definition,
             updated_at=datetime.now(timezone.utc),
             updated_by=actor.identity.display_name,
         )
         self.mappings.save_mapping_working_draft(
-            project_id,
+            workspace_id,
             draft,
             expected_version=expected_version,
             actor=actor,
         )
         return draft
 
-    def review_contract_upgrade(
-        self,
-        project_id: str,
-        *,
-        actor: Actor,
-    ) -> MappingContractUpgradeReview:
-        """Return the focused, non-mutating v8-v10 recipe upgrade review."""
-
-        self.authorization.require(
-            actor,
-            Capability.MAPPING_EDIT,
-            project_id=project_id,
-        )
-        revision = self.mappings.get_mapping_revision(project_id)
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        if revision is None or schema is None:
-            raise WorkspaceError("Save a mapping and capture Odoo fields first")
-        return review_mapping_contract_upgrade(revision.definition, schema)
-
     def remove_readonly_field_mappings(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         expected_version: int | None,
         actor: Actor,
@@ -312,10 +289,10 @@ class MappingWorkspaceService:
         self.authorization.require(
             actor,
             Capability.MAPPING_EDIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        existing = self.mappings.get_mapping_working_draft(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        existing = self.mappings.get_mapping_working_draft(workspace_id)
         if schema is None or existing is None:
             raise WorkspaceError(
                 "Load the current matching draft and Odoo fields first"
@@ -367,7 +344,7 @@ class MappingWorkspaceService:
                 "No Odoo-managed field matches need to be removed"
             )
         draft = self.save_working_draft(
-            project_id,
+            workspace_id,
             datasets=cleaned_datasets,
             expected_version=expected_version,
             actor=actor,
@@ -376,7 +353,7 @@ class MappingWorkspaceService:
 
     def set_target_field_disposition(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         dataset_id: str,
         target_field: str,
@@ -389,10 +366,10 @@ class MappingWorkspaceService:
         self.authorization.require(
             actor,
             Capability.MAPPING_EDIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        existing = self.mappings.get_mapping_working_draft(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        existing = self.mappings.get_mapping_working_draft(workspace_id)
         if schema is None or existing is None:
             raise WorkspaceError(
                 "Load the current matching draft and Odoo fields first"
@@ -477,7 +454,7 @@ class MappingWorkspaceService:
             for item in existing.definition.datasets
         )
         return self.save_working_draft(
-            project_id,
+            workspace_id,
             datasets=updated_datasets,
             expected_version=expected_version,
             actor=actor,
@@ -485,7 +462,7 @@ class MappingWorkspaceService:
 
     def check_definition(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         datasets: Iterable[DatasetMapping],
         expected_parent_version: int | None,
@@ -497,22 +474,22 @@ class MappingWorkspaceService:
         self.authorization.require(
             actor,
             Capability.MAPPING_EDIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        selection = self.sources.get_mapping_source_selection(project_id)
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        governance = self.schemas.get_schema_governance(project_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        governance = self.schemas.get_schema_governance(workspace_id)
         if selection is None or schema is None:
             raise WorkspaceError(
                 "Freeze datasets and capture Odoo schema first"
             )
-        current = self.mappings.get_mapping_revision(project_id)
+        current = self.mappings.get_mapping_revision(workspace_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
             raise WorkspaceError(
                 "The mapping was modified by another request; reload it"
             )
-        working_draft = self.mappings.get_mapping_working_draft(project_id)
+        working_draft = self.mappings.get_mapping_working_draft(workspace_id)
         actual_working_version = (
             working_draft.version if working_draft is not None else None
         )
@@ -551,7 +528,7 @@ class MappingWorkspaceService:
             )
         )
         validation = self._validate_definition(
-            project_id,
+            workspace_id,
             definition,
             selection,
             schema,
@@ -566,19 +543,19 @@ class MappingWorkspaceService:
                 and working_draft.content_hash != definition.content_hash
             ):
                 self.save_working_draft(
-                    project_id,
+                    workspace_id,
                     datasets=definition.datasets,
                     expected_version=working_draft.version,
                     actor=actor,
                 )
             self.mappings.save_mapping_validation(
-                project_id,
+                workspace_id,
                 current.version,
                 validation,
                 actor=actor,
             )
             return current, validation
-        historical_versions = self.mappings.list_mapping_revisions(project_id)
+        historical_versions = self.mappings.list_mapping_revisions(workspace_id)
         revision = MappingRevision(
             mapping_id=mapping_id,
             version=(
@@ -593,14 +570,14 @@ class MappingWorkspaceService:
         checked_draft = MappingWorkingDraft(
             mapping_id=mapping_id,
             version=(actual_working_version or 0) + 1,
-            project_id=project_id,
+            workspace_id=workspace_id,
             base_mapping_version=revision.version,
             definition=definition,
             updated_at=revision.created_at,
             updated_by=actor.identity.display_name,
         )
         self.mappings.save_mapping_revision(
-            project_id,
+            workspace_id,
             revision,
             validation=validation,
             expected_parent_version=expected_parent_version,
@@ -612,7 +589,7 @@ class MappingWorkspaceService:
 
     def submit_current(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         datasets: Iterable[DatasetMapping],
         expected_version: int | None,
@@ -625,12 +602,12 @@ class MappingWorkspaceService:
         self.authorization.require(
             actor,
             Capability.MAPPING_SUBMIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        selection = self.sources.get_mapping_source_selection(project_id)
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        governance = self.schemas.get_schema_governance(project_id)
-        revision = self.mappings.get_mapping_revision(project_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        governance = self.schemas.get_schema_governance(workspace_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
         if selection is None or schema is None:
             raise WorkspaceError(
                 "Freeze datasets and capture Odoo schema first"
@@ -648,7 +625,7 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "The mapping was modified by another request; reload it"
             )
-        working_draft = self.mappings.get_mapping_working_draft(project_id)
+        working_draft = self.mappings.get_mapping_working_draft(workspace_id)
         actual_working_version = (
             working_draft.version if working_draft is not None else None
         )
@@ -685,7 +662,7 @@ class MappingWorkspaceService:
                 "Saved changes still need checking before confirmation"
             )
         validation = self.mappings.get_mapping_validation(
-            project_id,
+            workspace_id,
             revision.version,
         )
         if (
@@ -726,7 +703,7 @@ class MappingWorkspaceService:
         )
         if rule_review_required and self.transformation_impacts is not None:
             review = self.transformation_impacts.get_transformation_rule_review(
-                project_id,
+                workspace_id,
                 mapping_content_hash=revision.definition.content_hash,
                 source_selection_hash=revision.definition.source_selection_hash,
                 schema_hash=revision.definition.schema_hash,
@@ -741,7 +718,7 @@ class MappingWorkspaceService:
                     "before confirming"
                 )
         existing = self.mappings.get_mapping_submission(
-            project_id,
+            workspace_id,
             revision.version,
         )
         if (
@@ -763,7 +740,7 @@ class MappingWorkspaceService:
             submitted_by=actor.identity.display_name,
         )
         self.mappings.save_mapping_submission(
-            project_id,
+            workspace_id,
             submission,
             actor=actor,
         )
@@ -771,7 +748,7 @@ class MappingWorkspaceService:
 
     def validate_current(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> MappingValidationResult:
@@ -780,25 +757,25 @@ class MappingWorkspaceService:
         self.authorization.require(
             actor,
             Capability.MAPPING_EDIT,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        revision = self.mappings.get_mapping_revision(project_id)
-        selection = self.sources.get_mapping_source_selection(project_id)
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
-        governance = self.schemas.get_schema_governance(project_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        governance = self.schemas.get_schema_governance(workspace_id)
         if revision is None or selection is None or schema is None:
             raise WorkspaceError(
                 "Save a mapping revision before validating"
             )
         validation = self._validate_definition(
-            project_id,
+            workspace_id,
             revision.definition,
             selection,
             schema,
             governance,
         )
         self.mappings.save_mapping_validation(
-            project_id,
+            workspace_id,
             revision.version,
             validation,
             actor=actor,
@@ -807,13 +784,13 @@ class MappingWorkspaceService:
 
     def _validate_definition(
         self,
-        project_id: str,
+        workspace_id: str,
         definition: MappingDefinition,
         selection: SourceSelection,
         schema: OdooSchemaCatalog,
         governance: SchemaGovernance | None,
     ) -> MappingValidationResult:
-        """Combine pure semantic validation with project-local scan evidence."""
+        """Combine pure semantic validation with workspace-local scan evidence."""
 
         validation = self.validator.validate(
             definition,
@@ -821,10 +798,8 @@ class MappingWorkspaceService:
             schema,
             governance,
         )
-        if definition.contract_version < 11:
-            return validation
         collected = self.categorical_coverage.collect(
-            project_id,
+            workspace_id,
             definition,
             selection,
             schema,

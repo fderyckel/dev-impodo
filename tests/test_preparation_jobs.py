@@ -54,11 +54,11 @@ def _workspace() -> PreparationWorkspace:
 class PreparationJobRegistryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = PreparationJobRegistry()
-        self.project_id = str(uuid4())
+        self.workspace_id = str(uuid4())
 
     def test_one_active_attempt_progress_cancel_and_retry(self) -> None:
         queued, created = self.registry.enqueue(
-            self.project_id,
+            self.workspace_id,
             "Large products",
             100_000,
             LOCAL_ACTOR.identity,
@@ -66,7 +66,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             TEST_BUILD_CONTRACT,
         )
         repeated, repeated_created = self.registry.enqueue(
-            self.project_id,
+            self.workspace_id,
             "Large products",
             100_000,
             LOCAL_ACTOR.identity,
@@ -88,13 +88,13 @@ class PreparationJobRegistryTests(unittest.TestCase):
         self.assertEqual(progressed.completed_rows, 5_000)
         self.assertGreater(progressed.progress_percent, 5)
 
-        stopping = self.registry.request_cancel(self.project_id, queued.job_id)
+        stopping = self.registry.request_cancel(self.workspace_id, queued.job_id)
         self.assertTrue(stopping.cancel_requested)
         stopped = self.registry.mark_cancelled(queued.job_id)
         self.assertEqual(stopped.status, PreparationJobStatus.CANCELLED)
 
         retry, retry_created = self.registry.enqueue(
-            self.project_id,
+            self.workspace_id,
             "Large products",
             100_000,
             LOCAL_ACTOR.identity,
@@ -107,7 +107,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
 
     def test_terminal_job_cannot_be_reopened_and_state_is_session_scoped(self) -> None:
         queued, _created = self.registry.enqueue(
-            self.project_id,
+            self.workspace_id,
             "Large BOM",
             100_000,
             LOCAL_ACTOR.identity,
@@ -125,7 +125,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
 
         fresh_session = PreparationJobRegistry()
         with self.assertRaises(PreparationJobNotFoundError):
-            fresh_session.get(self.project_id, queued.job_id)
+            fresh_session.get(self.workspace_id, queued.job_id)
 
     def test_build_and_contract_failures_cannot_be_retried_blindly(self) -> None:
         for failure_code in (
@@ -133,7 +133,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             "WorkspaceStateCompatibilityError",
         ):
             queued, _created = self.registry.enqueue(
-                self.project_id,
+                self.workspace_id,
                 "Customers",
                 999,
                 LOCAL_ACTOR.identity,
@@ -167,8 +167,8 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
             ),
         )
         definition = SimpleNamespace(content_hash="sha256:" + "2" * 64)
-        projects = MagicMock()
-        projects.get.return_value = SimpleNamespace(project_id="project-id")
+        workspaces = MagicMock()
+        workspaces.get.return_value = SimpleNamespace(workspace_id="workspace-id")
         sources = MagicMock()
         sources.get_source_selection.return_value = selection
         sources.get_mapping_source_selection.return_value = selection
@@ -184,7 +184,7 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
         derived.get_derived_entity_plan.return_value = None
         staging = MagicMock()
         service = PreparationService(
-            projects,
+            workspaces,
             sources,
             derived,
             mappings,
@@ -228,7 +228,7 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
             self.assertRaises(PreparationCancelled),
         ):
             service.prepare(
-                "project-id",
+                "workspace-id",
                 actor=LOCAL_ACTOR,
                 cancellation_checkpoint=cancel_after_first_batch,
             )
@@ -283,7 +283,7 @@ class PreparationJobSchedulingTests(unittest.TestCase):
 
             self.assertEqual(manager.started, [first.job_id])
             self.assertEqual(
-                manager.get(second.project_id, second.job_id).status,
+                manager.get(second.workspace_id, second.job_id).status,
                 PreparationJobStatus.QUEUED,
             )
             with manager._lock:
@@ -304,8 +304,8 @@ class PreparationWorkerFailureTests(unittest.TestCase):
             side_effect=duckdb.IOException("IO Error: No space left on device"),
         ):
             _run_preparation_worker(
-                "project-root",
-                "project-id",
+                "impodo-root",
+                "workspace-id",
                 _workspace(),
                 PROCESS_BUILD_CONTRACT,
                 LOCAL_ACTOR,
@@ -337,8 +337,8 @@ class PreparationWorkerFailureTests(unittest.TestCase):
             "impodo.preparation_worker.create_preparation_worker"
         ) as create_worker:
             _run_preparation_worker(
-                "project-root",
-                "project-id",
+                "impodo-root",
+                "workspace-id",
                 _workspace(),
                 changed,
                 LOCAL_ACTOR,

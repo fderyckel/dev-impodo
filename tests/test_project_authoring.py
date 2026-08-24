@@ -1,4 +1,4 @@
-"""Verify M3 Project-native creation and optional Recipe publication."""
+"""Verify Project-native creation and optional Recipe publication."""
 
 from __future__ import annotations
 
@@ -106,10 +106,10 @@ class FixedCompiler:
         )
 
 
-class MigrationProjectPhaseM3Tests(unittest.TestCase):
+class ProjectAuthoringTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"m3-project-authoring-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"project-authoring-{uuid4()}"
         self.root.mkdir()
         self.authorization = CapabilityAuthorizationPolicy()
         self.database = MigrationFoundationDatabase(self.root)
@@ -204,7 +204,10 @@ class MigrationProjectPhaseM3Tests(unittest.TestCase):
             self.recipe_repository.list_recipes(bundle.project.project_id),
             (),
         )
-        self.assertEqual(bundle.workspace_state.project_id, bundle.workspace.workspace_id)
+        self.assertEqual(
+            bundle.workspace_state.workspace_id,
+            bundle.workspace.workspace_id,
+        )
         self.assertEqual(
             self.authoring.create(
                 actor=LOCAL_ACTOR,
@@ -325,22 +328,22 @@ class MigrationProjectPhaseM3Tests(unittest.TestCase):
         )
 
 
-class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
+class ProjectAuthoringBrowserTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"m3-browser-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"project-authoring-browser-{uuid4()}"
         self.root.mkdir()
         self.app = create_local_app(
             self.root,
-            launch_token="m3-launch",
-            session_secret="m3-session",
+            launch_token="project-authoring-launch",
+            session_secret="project-authoring-session",
             secret_store=MemorySecretStore(),
             preparation_jobs_enabled=False,
             odoo_capture_jobs_enabled=False,
         )
         self.client = TestClient(self.app)
         launched = self.client.get(
-            "/launch?token=m3-launch",
+            "/launch?token=project-authoring-launch",
             follow_redirects=False,
         )
         self.assertEqual(launched.status_code, 303)
@@ -425,8 +428,8 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
         self.client.close()
         restarted_app = create_local_app(
             self.root,
-            launch_token="m3-restart-launch",
-            session_secret="m3-restart-session",
+            launch_token="project-restart-launch",
+            session_secret="project-restart-session",
             secret_store=MemorySecretStore(),
             preparation_jobs_enabled=False,
             odoo_capture_jobs_enabled=False,
@@ -434,7 +437,7 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
         self.app = restarted_app
         self.client = TestClient(restarted_app)
         launched = self.client.get(
-            "/launch?token=m3-restart-launch",
+            "/launch?token=project-restart-launch",
             follow_redirects=False,
         )
         self.assertEqual(launched.status_code, 303)
@@ -561,12 +564,15 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
             (
                 self.root
                 / "artifacts"
+                / "dv"
                 / data_version.data_version_id
                 / "inbox"
                 / package.files[0].storage_key
             ).is_file()
         )
-        self.assertFalse((self.root / "artifacts" / workspace_id / "inbox").exists())
+        self.assertFalse(
+            (self.root / "artifacts" / "ws" / workspace_id / "inbox").exists()
+        )
 
     def test_odoo_acceptance_freezes_the_same_data_version_boundary(self) -> None:
         context = self.app.state.context
@@ -597,10 +603,11 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
                 candidate_type="string",
             ),
         )
+        data_version_id = bundle.data_version.data_version_id
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=workspace_id,
+            data_version_id=data_version_id,
             created_at=utc_now(),
             created_by="Local operator",
             datasets=(
@@ -625,7 +632,7 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
             )
         )
         snapshot = SourceSnapshot.create(
-            project_id=workspace_id,
+            data_version_id=data_version_id,
             dataset_id=dataset_id,
             dataset_name="Contacts",
             source=source,
@@ -637,7 +644,7 @@ class MigrationProjectPhaseM3BrowserTests(unittest.TestCase):
             created_at=utc_now(),
         )
         manifest = SimpleNamespace(
-            project_id=workspace_id,
+            data_version_id=data_version_id,
             dataset_id=dataset_id,
             dataset_name="Contacts",
             row_count=2,

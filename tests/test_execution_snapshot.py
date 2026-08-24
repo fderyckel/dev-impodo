@@ -45,9 +45,9 @@ def _execution_fixture():
     records = connector.get_records(plan_record_requests(plan, prepared.records))
     metadata, records = bind_snapshot_hashes(metadata, records)
     result = PreflightEngine().run(plan, prepared, metadata, records)
-    project_id = str(uuid4())
+    workspace_id = str(uuid4())
     frozen = SimpleNamespace(
-        project_id=project_id,
+        workspace_id=workspace_id,
         prepared=prepared,
         plan=plan,
         revision=SimpleNamespace(
@@ -95,7 +95,7 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
         restored = ExecutionSnapshot.from_json(snapshot.to_json())
 
-        self.assertEqual(restored.contract_version, 3)
+        self.assertEqual(restored.contract_version, 4)
         self.assertEqual(
             restored.read_credential_binding_hash,
             frozen.captured_schema.read_credential_binding_hash,
@@ -314,7 +314,7 @@ class ExecutionSnapshotTests(unittest.TestCase):
             sort_keys=True,
         ).encode("utf-8") + b"\n"
         report = SimpleNamespace(
-            project_id=snapshot.project_id,
+            workspace_id=snapshot.workspace_id,
             run_id=run_id,
             mapping_id=snapshot.mapping_id,
             mapping_version=snapshot.mapping_version,
@@ -347,15 +347,15 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             artifacts = LocalArtifactStore(directory)
-            (Path(directory) / snapshot.project_id).mkdir()
+            (Path(directory) / snapshot.workspace_id).mkdir()
             artifacts.write_report(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 run_id,
                 EXECUTION_SNAPSHOT_NAME,
                 snapshot.to_json().encode("utf-8") + b"\n",
             )
             artifacts.write_report(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 run_id,
                 MANIFEST_NAME,
                 manifest_content,
@@ -366,14 +366,14 @@ class ExecutionSnapshotTests(unittest.TestCase):
                 quality=repositories[1],
                 normalization=repositories[2],
                 mappings=repositories[3],
-                projects=repositories[4],
+                workspaces=repositories[4],
                 sources=repositories[5],
                 preflight=repositories[6],
                 artifacts=artifacts,
                 authorization=CapabilityAuthorizationPolicy(),
             )
             with patch.object(service, "current_report", return_value=report):
-                loaded = service.current_execution_snapshot(snapshot.project_id)
+                loaded = service.current_execution_snapshot(snapshot.workspace_id)
 
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded.semantic_hash, snapshot.semantic_hash)

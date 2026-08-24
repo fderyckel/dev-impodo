@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from .workspace_access import WorkspaceAccessContext
+
 
 class LoadJobStatus(StrEnum):
     """Lifecycle states exposed by the browser progress endpoint."""
@@ -40,8 +42,9 @@ class LoadJob:
     """One browser load attempt; business values and credentials stay out."""
 
     job_id: str
-    project_id: str
-    project_name: str
+    access_context: WorkspaceAccessContext
+    workspace_id: str
+    migration_project_name: str
     target_database: str
     target_server: str
     target_environment: str

@@ -51,10 +51,10 @@ _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _CONTENT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
-class SchemaProjectReader(Protocol):
-    """Read the registered project and configured target identity."""
+class SchemaWorkspaceReader(Protocol):
+    """Read the registered workspace projection and target identity."""
 
-    def get(self, project_id: str) -> WorkspaceState:
+    def get(self, workspace_id: str) -> WorkspaceState:
         """Return registration, target identity, and permitted-model scope."""
         ...
 
@@ -62,7 +62,7 @@ class SchemaProjectReader(Protocol):
 class SourceSelectionReader(Protocol):
     """Prove that Stage B dataset freezing precedes schema capture."""
 
-    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return Stage B evidence required before detailed schema capture."""
         ...
 
@@ -72,14 +72,14 @@ class SchemaWorkspaceRepository(Protocol):
 
     def get_odoo_model_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooModelCatalog | None:
         """Return current lightweight model discovery for the target."""
         ...
 
     def save_odoo_model_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: OdooModelCatalog,
         *,
         actor: Actor,
@@ -89,14 +89,14 @@ class SchemaWorkspaceRepository(Protocol):
 
     def get_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> OdooSchemaCatalog | None:
         """Return the current detailed permitted-model schema catalog."""
         ...
 
     def save_odoo_schema_catalog(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: OdooSchemaCatalog,
         *,
         actor: Actor,
@@ -106,7 +106,7 @@ class SchemaWorkspaceRepository(Protocol):
 
     def rebind_odoo_schema_access(
         self,
-        project_id: str,
+        workspace_id: str,
         catalog: OdooSchemaCatalog,
         *,
         expected_content_hash: str,
@@ -118,14 +118,14 @@ class SchemaWorkspaceRepository(Protocol):
 
     def get_schema_governance(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> SchemaGovernance | None:
         """Return current key governance for the current schema, if present."""
         ...
 
     def save_schema_governance(
         self,
-        project_id: str,
+        workspace_id: str,
         governance: SchemaGovernance,
         *,
         actor: Actor,
@@ -144,19 +144,19 @@ class SchemaWorkspaceService:
 
     def __init__(
         self,
-        projects: SchemaProjectReader,
+        workspaces: SchemaWorkspaceReader,
         sources: SourceSelectionReader,
         schemas: SchemaWorkspaceRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.projects = projects
+        self.workspaces = workspaces
         self.sources = sources
         self.schemas = schemas
         self.authorization = authorization
 
     def discover_models(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot: RecordSnapshot,
         *,
         read_credential_binding_hash: str,
@@ -168,30 +168,30 @@ class SchemaWorkspaceService:
         self.authorization.require(
             actor,
             Capability.SCHEMA_DISCOVER,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.projects.get(project_id)
-        if project.status is not WorkspaceStatus.REGISTERED:
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before discovering Odoo models"
             )
-        if project.odoo_connection_mode is None:
+        if workspace_state.odoo_connection_mode is None:
             raise WorkspaceError(
                 "Configure the Odoo target before discovering models"
             )
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
             raise WorkspaceError("Odoo model discovery response is incomplete")
-        if snapshot.fingerprint.target_hash != _target_identity_hash(project):
+        if snapshot.fingerprint.target_hash != _target_identity_hash(workspace_state):
             raise WorkspaceError("Odoo model target does not match the project")
         if (
             snapshot.fingerprint.connection_mode
-            != project.odoo_connection_mode.value
+            != workspace_state.odoo_connection_mode.value
         ):
             raise WorkspaceError(
                 "Odoo model connection mode does not match the project"
             )
-        if snapshot.fingerprint.database != project.odoo_database:
+        if snapshot.fingerprint.database != workspace_state.odoo_database:
             raise WorkspaceError(
                 "Odoo model database does not match the project"
             )
@@ -202,7 +202,7 @@ class SchemaWorkspaceService:
                 "Odoo model discovery returned an unexpected model"
             )
         identity_hashes = _validate_read_identity(
-            project,
+            workspace_state,
             read_identity,
             required_models=("ir.model",),
         )
@@ -242,7 +242,7 @@ class SchemaWorkspaceService:
         ordered = tuple(
             sorted(models, key=lambda item: (item.label.casefold(), item.name))
         )
-        connection_target_hash = _target_identity_hash(project)
+        connection_target_hash = _target_identity_hash(workspace_state)
         content = {
             "connection_target_hash": connection_target_hash,
             "policy_hash": ODOO_SOURCE_POLICY_HASH,
@@ -252,7 +252,7 @@ class SchemaWorkspaceService:
             "models": [asdict(model) for model in ordered],
         }
         catalog = OdooModelCatalog(
-            project_id=project_id,
+            workspace_id=workspace_id,
             connection_target_hash=connection_target_hash,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=datetime.now(timezone.utc),
@@ -268,7 +268,7 @@ class SchemaWorkspaceService:
             read_context_hash=identity_hashes["read_context_hash"],
         )
         self.schemas.save_odoo_model_catalog(
-            project_id,
+            workspace_id,
             catalog,
             actor=actor,
         )
@@ -276,7 +276,7 @@ class SchemaWorkspaceService:
 
     def capture(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot: MetadataSnapshot,
         *,
         read_credential_binding_hash: str,
@@ -285,7 +285,7 @@ class SchemaWorkspaceService:
     ) -> OdooSchemaCatalog:
         """Capture a verified catalog through the connected read-only reader."""
 
-        project, permitted = self._capture_context(project_id, actor=actor)
+        workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
             raise WorkspaceError("Odoo schema response is incomplete")
@@ -293,27 +293,27 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Odoo schema response does not match permitted models"
             )
-        if snapshot.fingerprint.target_hash != _target_identity_hash(project):
+        if snapshot.fingerprint.target_hash != _target_identity_hash(workspace_state):
             raise WorkspaceError("Odoo schema target does not match the project")
         if (
             snapshot.fingerprint.connection_mode
-            != project.odoo_connection_mode.value
+            != workspace_state.odoo_connection_mode.value
         ):
             raise WorkspaceError(
                 "Odoo schema connection mode does not match the project"
             )
-        if snapshot.fingerprint.database != project.odoo_database:
+        if snapshot.fingerprint.database != workspace_state.odoo_database:
             raise WorkspaceError(
                 "Odoo schema database does not match the project"
             )
         if not snapshot.fingerprint.odoo_version.startswith("19."):
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
         identity_hashes = _validate_read_identity(
-            project,
+            workspace_state,
             read_identity,
             required_models=tuple(sorted(permitted)),
         )
-        discovered = self.schemas.get_odoo_model_catalog(project_id)
+        discovered = self.schemas.get_odoo_model_catalog(workspace_id)
         if discovered is not None:
             if read_identity is None:
                 if (
@@ -335,14 +335,14 @@ class SchemaWorkspaceService:
                     "model catalogue before capturing schema"
                 )
         models = self._schema_models_from_snapshot(
-            project,
+            workspace_state,
             permitted,
             snapshot,
             discovered=discovered,
         )
         self._validate_schema_models(models, permitted)
         return self._store_catalog(
-            project,
+            workspace_state,
             models=models,
             connection_mode=snapshot.fingerprint.connection_mode,
             database=snapshot.fingerprint.database,
@@ -356,7 +356,7 @@ class SchemaWorkspaceService:
 
     def rebind_current_access(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot: MetadataSnapshot,
         *,
         read_credential_binding_hash: str,
@@ -370,7 +370,7 @@ class SchemaWorkspaceService:
         rows, but it also must not silently bless changed fields or access.
         """
 
-        project, permitted = self._capture_context(project_id, actor=actor)
+        workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
             raise WorkspaceError("Odoo schema response is incomplete")
@@ -378,25 +378,25 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Odoo schema response does not match permitted models"
             )
-        if snapshot.fingerprint.target_hash != _target_identity_hash(project):
+        if snapshot.fingerprint.target_hash != _target_identity_hash(workspace_state):
             raise WorkspaceError("Odoo schema target does not match the project")
         if (
             snapshot.fingerprint.connection_mode
-            != project.odoo_connection_mode.value
+            != workspace_state.odoo_connection_mode.value
         ):
             raise WorkspaceError(
                 "Odoo schema connection mode does not match the project"
             )
-        if snapshot.fingerprint.database != project.odoo_database:
+        if snapshot.fingerprint.database != workspace_state.odoo_database:
             raise WorkspaceError("Odoo schema database does not match the project")
         if not snapshot.fingerprint.odoo_version.startswith("19."):
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
         identity_hashes = _validate_read_identity(
-            project,
+            workspace_state,
             read_identity,
             required_models=tuple(sorted(permitted)),
         )
-        current = self.schemas.get_odoo_schema_catalog(project_id)
+        current = self.schemas.get_odoo_schema_catalog(workspace_id)
         if current is None:
             raise WorkspaceError(
                 "Capture the Odoo schema before reconnecting read access"
@@ -406,15 +406,15 @@ class SchemaWorkspaceService:
                 "Refresh the live Odoo schema before reconnecting read access"
             )
         models = self._schema_models_from_snapshot(
-            project,
+            workspace_state,
             permitted,
             snapshot,
         )
         self._validate_schema_models(models, permitted)
         semantic_access_matches = (
-            current.project_id == project_id
+            current.workspace_id == workspace_id
             and current.policy_hash == ODOO_SOURCE_POLICY_HASH
-            and current.connection_target_hash == _target_identity_hash(project)
+            and current.connection_target_hash == _target_identity_hash(workspace_state)
             and current.connection_mode == snapshot.fingerprint.connection_mode
             and current.database == snapshot.fingerprint.database
             and current.odoo_version == snapshot.fingerprint.odoo_version
@@ -442,7 +442,7 @@ class SchemaWorkspaceService:
             read_context_hash=identity_hashes["read_context_hash"],
         )
         self.schemas.rebind_odoo_schema_access(
-            project_id,
+            workspace_id,
             rebound,
             expected_content_hash=current.content_hash,
             expected_read_credential_binding_hash=(
@@ -454,7 +454,7 @@ class SchemaWorkspaceService:
 
     def capture_local_manual(
         self,
-        project_id: str,
+        workspace_id: str,
         models: Iterable[SchemaModel],
         *,
         read_credential_binding_hash: str,
@@ -463,29 +463,29 @@ class SchemaWorkspaceService:
     ) -> OdooSchemaCatalog:
         """Store an explicitly unverified schema draft for local work."""
 
-        project, permitted = self._capture_context(project_id, actor=actor)
+        workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         identity_hashes = _validate_read_identity(
-            project,
+            workspace_state,
             read_identity,
             required_models=tuple(sorted(permitted)),
         )
-        if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
+        if workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL:
             raise WorkspaceError(
                 "A manual schema draft is available only for Local Odoo"
             )
         declared_models = tuple(sorted(models, key=lambda item: item.name))
         self._validate_schema_models(declared_models, permitted)
         return self._store_catalog(
-            project,
+            workspace_state,
             models=declared_models,
-            connection_mode=project.odoo_connection_mode.value,
-            database=project.odoo_database,
+            connection_mode=workspace_state.odoo_connection_mode.value,
+            database=workspace_state.odoo_database,
             odoo_version="unverified local draft (expected Odoo 19)",
             fingerprint={
-                "target_hash": _target_identity_hash(project),
-                "connection_mode": project.odoo_connection_mode.value,
-                "database": project.odoo_database,
+                "target_hash": _target_identity_hash(workspace_state),
+                "connection_mode": workspace_state.odoo_connection_mode.value,
+                "database": workspace_state.odoo_database,
                 "odoo_version": "unverified local draft (expected Odoo 19)",
                 "snapshot_timestamp": "not captured",
                 "module_versions": {},
@@ -498,41 +498,41 @@ class SchemaWorkspaceService:
 
     def _capture_context(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> tuple[WorkspaceState, set[str]]:
         self.authorization.require(
             actor,
             Capability.SCHEMA_DISCOVER,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.projects.get(project_id)
-        if project.status is not WorkspaceStatus.REGISTERED:
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before capturing Odoo schema"
             )
         if (
-            project.source_mode is SourceMode.FILE
-            and self.sources.get_source_selection(project_id) is None
+            workspace_state.source_mode is SourceMode.FILE
+            and self.sources.get_source_selection(workspace_id) is None
         ):
             raise WorkspaceError(
                 "Freeze source datasets before capturing Odoo schema"
             )
-        permitted = set(project.intended_models)
+        permitted = set(workspace_state.intended_models)
         if not permitted:
             raise WorkspaceError(
                 "Add at least one permitted technical Odoo model to the project"
             )
-        if project.odoo_connection_mode is None:
+        if workspace_state.odoo_connection_mode is None:
             raise WorkspaceError(
                 "Configure the Odoo target before capturing schema"
             )
-        return project, permitted
+        return workspace_state, permitted
 
     def _schema_models_from_snapshot(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         permitted: set[str],
         snapshot: MetadataSnapshot,
         *,
@@ -543,13 +543,13 @@ class SchemaWorkspaceService:
         model_catalog = discovered
         if model_catalog is None:
             model_catalog = self.schemas.get_odoo_model_catalog(
-                project.project_id
+                workspace_state.workspace_id
             )
         discovered_labels = (
             {model.name: model.label for model in model_catalog.models}
             if model_catalog
             and model_catalog.connection_target_hash
-            == _target_identity_hash(project)
+            == _target_identity_hash(workspace_state)
             and model_catalog.policy_hash == ODOO_SOURCE_POLICY_HASH
             else {}
         )
@@ -624,7 +624,7 @@ class SchemaWorkspaceService:
 
     def _store_catalog(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         *,
         models: tuple[SchemaModel, ...],
         connection_mode: str,
@@ -646,7 +646,7 @@ class SchemaWorkspaceService:
             "models": [asdict(model) for model in models],
         }
         catalog = OdooSchemaCatalog(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=datetime.now(timezone.utc),
             captured_by=actor.identity.display_name,
@@ -663,7 +663,7 @@ class SchemaWorkspaceService:
             connection_target_hash=str(fingerprint["target_hash"]),
         )
         self.schemas.save_odoo_schema_catalog(
-            project.project_id,
+            workspace_state.workspace_id,
             catalog,
             actor=actor,
         )
@@ -671,7 +671,7 @@ class SchemaWorkspaceService:
 
     def govern(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         business_keys: Iterable[BusinessKeyDefinition],
         actor: Actor,
@@ -681,17 +681,17 @@ class SchemaWorkspaceService:
         self.authorization.require(
             actor,
             Capability.SCHEMA_GOVERN,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.projects.get(project_id)
+        workspace_state = self.workspaces.get(workspace_id)
         if (
-            project.source_mode is SourceMode.ODOO
-            and self.sources.get_source_selection(project_id) is None
+            workspace_state.source_mode is SourceMode.ODOO
+            and self.sources.get_source_selection(workspace_id) is None
         ):
             raise WorkspaceError(
                 "Freeze the selected Odoo source records before confirming keys"
             )
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
         if schema is None:
             raise WorkspaceError(
                 "Capture the Odoo schema before confirming keys"
@@ -749,13 +749,13 @@ class SchemaWorkspaceService:
                     f"Business-key field {definition.model}.{missing[0]} "
                     "is not captured"
                 )
-        previous = self.schemas.get_schema_governance(project_id)
+        previous = self.schemas.get_schema_governance(workspace_id)
         governance = SchemaGovernance(
             governance_id=(
                 previous.governance_id if previous else str(uuid4())
             ),
             version=previous.version + 1 if previous else 1,
-            project_id=project_id,
+            workspace_id=workspace_id,
             catalog_hash=schema.content_hash,
             permitted_models=tuple(sorted(models)),
             business_keys=normalized,
@@ -763,22 +763,22 @@ class SchemaWorkspaceService:
             recorded_by=actor.identity.display_name,
         )
         self.schemas.save_schema_governance(
-            project_id,
+            workspace_id,
             governance,
             actor=actor,
         )
         return governance
 
 
-def _target_identity_hash(project: WorkspaceState) -> str:
+def _target_identity_hash(workspace_state: WorkspaceState) -> str:
     return target_identity_hash(
         connection_mode=(
-            project.odoo_connection_mode.value
-            if project.odoo_connection_mode
+            workspace_state.odoo_connection_mode.value
+            if workspace_state.odoo_connection_mode
             else ""
         ),
-        base_url=project.odoo_base_url,
-        database=project.odoo_database,
+        base_url=workspace_state.odoo_base_url,
+        database=workspace_state.odoo_database,
     )
 
 
@@ -788,7 +788,7 @@ def _validate_read_credential_binding_hash(value: str) -> None:
 
 
 def _validate_read_identity(
-    project: WorkspaceState,
+    workspace_state: WorkspaceState,
     identity: OdooReadIdentity | None,
     *,
     required_models: tuple[str, ...],
@@ -800,13 +800,13 @@ def _validate_read_identity(
         "read_permission_hash": "",
         "read_context_hash": "",
     }
-    if project.odoo_connection_mode is OdooConnectionMode.LOCAL and identity is None:
+    if workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL and identity is None:
         return empty
     if identity is None:
         raise WorkspaceError(
             "Verify the remote Odoo read principal before storing metadata"
         )
-    if identity.target_hash != _target_identity_hash(project):
+    if identity.target_hash != _target_identity_hash(workspace_state):
         raise WorkspaceError("Odoo read principal belongs to a different target")
     hashes = {
         "read_principal_hash": identity.principal_hash,
@@ -840,4 +840,3 @@ def _split_module_names(value: object) -> tuple[str, ...]:
             }
         )
     )
-

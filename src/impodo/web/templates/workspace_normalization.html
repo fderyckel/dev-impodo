@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Review prepared data - {{ project.name }} - Impodo{% endblock %}
+{% block title %}Review prepared data - {{ migration_project.display_name }} - Impodo{% endblock %}
 {% block content %}
-  <div class="page-heading" data-normalization-review data-normalization-position-key="{{ project.project_id }}">
+  <div class="page-heading" data-normalization-review data-normalization-position-key="{{ workspace_id }}">
     <div>
       <p class="eyebrow">Stage 4 of 6 · Prepare data</p>
       <h1>Review what Impodo prepared</h1>
@@ -13,7 +13,7 @@
   </div>
 
   <section class="readiness-cards quality-cards" aria-label="Prepared data overview">
-    <a class="readiness-card ready" href="/workspaces/{{ project.project_id }}/normalization#review-groups">
+    <a class="readiness-card ready" href="/workspaces/{{ workspace_id }}/normalization#review-groups">
       <span>Records ready</span>
       <strong>{{ normalization.eligible_record_count }}</strong>
       <small>Included in this review</small>
@@ -45,13 +45,13 @@
         <p>You can now compare these exact records with Odoo. This comparison is read-only.</p>
       </div>
       <div class="next-action-buttons">
-        <form method="post" action="/workspaces/{{ project.project_id }}/summary/compare" data-preflight-compare>
+        <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button primary" type="submit">Compare with Odoo</button>
           <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
         </form>
         <a class="button secondary" href="/projects/{{ migration_context.project_id }}#project-recipes-title">Save reusable rules (optional)</a>
-        <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary">Back to project review</a>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to project review</a>
       </div>
     </section>
   {% elif dry_run.status.value == 'BLOCKED' %}
@@ -72,9 +72,9 @@
         <p>Preparing again without changing the source or field rule will return to this same review.</p>
       </div>
       <div class="next-action-buttons">
-        <a class="button primary" href="/workspaces/{{ project.project_id }}/mapping">Edit field rules</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Edit field rules</a>
         {% if rejected_items %}
-          <form method="post" action="/workspaces/{{ project.project_id }}/normalization/reopen">
+          <form method="post" action="/workspaces/{{ workspace_id }}/normalization/reopen">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
             <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
@@ -95,7 +95,7 @@
           Nothing is sent to Odoo.
         </p>
       </div>
-      <form method="post" action="/workspaces/{{ project.project_id }}/normalization/approve" data-normalization-approve-form>
+      <form method="post" action="/workspaces/{{ workspace_id }}/normalization/approve" data-normalization-approve-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
@@ -113,7 +113,7 @@
         </h2>
         <p>Similar changes are grouped so you can review them once.</p>
       </div>
-      {% if review_status %}<a class="button secondary small" href="/workspaces/{{ project.project_id }}/normalization#review-groups">Clear filter</a>{% endif %}
+      {% if review_status %}<a class="button secondary small" href="/workspaces/{{ workspace_id }}/normalization#review-groups">Clear filter</a>{% endif %}
     </div>
 
     {% if review_items %}
@@ -163,7 +163,7 @@
                   {% else %}
                     <div class="next-action-buttons">
                       <span class="status review">Included in approval</span>
-                      <form method="post" action="/workspaces/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/reject?status={{ review_status }}&amp;page={{ review_page }}" data-normalization-reject-form>
+                      <form method="post" action="/workspaces/{{ workspace_id }}/normalization/groups/{{ group.group_id }}/reject?status={{ review_status }}&amp;page={{ review_page }}" data-normalization-reject-form>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
                         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
@@ -251,6 +251,6 @@
   {% endif %}
 
   <div class="form-actions split-actions">
-    <a class="button secondary" href="/workspaces/{{ project.project_id }}/summary">Back to project review</a>
+    <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to project review</a>
   </div>
 {% endblock %}

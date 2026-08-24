@@ -287,22 +287,11 @@ def _mapping_datasets_from_form(
     selection,
     schema,
     governance,
-    active_definition: MappingDefinition | None = None,
 ) -> tuple[DatasetMapping, ...]:
     models = {item.name: item for item in schema.models}
     keys = _available_mapping_business_keys(schema, governance)
     datasets: list[DatasetMapping] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
-        existing_dataset = next(
-            (
-                item
-                for item in (
-                    active_definition.datasets if active_definition else ()
-                )
-                if item.dataset_id == source_dataset.dataset_id
-            ),
-            None,
-        )
         pinned_update = source_dataset.origin is SourceOriginKind.ODOO
         target_model = _text(form, f"target_model_{dataset_index}")
         if pinned_update:
@@ -388,10 +377,6 @@ def _mapping_datasets_from_form(
             if item.type not in {"many2one", "many2many", "one2many"}
         ]
         scalar_mappings: list[ScalarFieldMapping] = []
-        existing_scalars = {
-            item.target_field: item
-            for item in (existing_dataset.fields if existing_dataset else ())
-        }
         for field_index, metadata in enumerate(scalar_fields):
             value_source_text = _text(
                 form,
@@ -431,15 +416,6 @@ def _mapping_datasets_from_form(
                     form,
                     f"scalar_categorical_policy_{dataset_index}_{field_index}",
                 )
-                if (
-                    not policy_text
-                    and active_definition is not None
-                    and active_definition.contract_version < 11
-                    and metadata.name in existing_scalars
-                ):
-                    raise WorkspaceError(
-                        f"Confirm how every source choice is covered for {metadata.label}"
-                    )
                 categorical_policy = (
                     CategoricalCoveragePolicy(policy_text)
                     if policy_text
@@ -611,12 +587,6 @@ def _mapping_datasets_from_form(
             if item.type in {"many2one", "many2many", "one2many"}
         ]
         relationships: list[RelationshipMapping] = []
-        existing_relationships = {
-            item.target_field: item
-            for item in (
-                existing_dataset.relationships if existing_dataset else ()
-            )
-        }
         for relation_index, metadata in enumerate(relation_fields):
             if metadata.name in identity_targets:
                 continue
@@ -678,15 +648,6 @@ def _mapping_datasets_from_form(
                 form,
                 f"relation_categorical_policy_{dataset_index}_{relation_index}",
             )
-            if (
-                not policy_text
-                and active_definition is not None
-                and active_definition.contract_version < 11
-                and metadata.name in existing_relationships
-            ):
-                raise WorkspaceError(
-                    f"Confirm how every source choice is covered for {metadata.label}"
-                )
             relationships.append(
                 RelationshipMapping(
                     target_field=metadata.name,
@@ -916,39 +877,9 @@ def _mapping_datasets_from_form(
     return tuple(datasets)
 
 
-def _split_control_contract(
-    dataset: DatasetMapping,
-) -> tuple[
-    tuple[BusinessControlDefinition, ...],
-    tuple[MappingControlExpectation, ...],
-]:
-    """Upgrade same-edition legacy controls without making them reusable yet."""
-
-    if dataset.control_definitions or dataset.control_expectations:
-        return dataset.control_definitions, dataset.control_expectations
-    definitions = tuple(
-        BusinessControlDefinition(
-            control_id=f"control:{item.target_field}",
-            name=item.name,
-            target_field=item.target_field,
-            unit=item.unit,
-            tolerance=item.tolerance,
-        )
-        for item in dataset.control_totals
-    )
-    expectations = tuple(
-        MappingControlExpectation(
-            control_id=f"control:{item.target_field}",
-            expected_total=item.expected_total,
-        )
-        for item in dataset.control_totals
-    )
-    return definitions, expectations
-
-
 def _active_mapping_definition(
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     selection,
     schema,
     governance,
@@ -956,14 +887,14 @@ def _active_mapping_definition(
     expected_schema_hash = (
         governance.content_hash if governance is not None else schema.content_hash
     )
-    working_draft = context.queries.get_mapping_working_draft(project_id)
+    working_draft = context.queries.get_mapping_working_draft(workspace_id)
     if (
         working_draft is not None
         and working_draft.definition.source_selection_hash == selection.content_hash
         and working_draft.definition.schema_hash == expected_schema_hash
     ):
         return working_draft.definition
-    revision = context.queries.get_mapping_revision(project_id)
+    revision = context.queries.get_mapping_revision(workspace_id)
     if (
         revision is not None
         and revision.definition.source_selection_hash == selection.content_hash
@@ -1035,14 +966,13 @@ def _merge_partial_mapping_datasets(
                         if compatible_existing
                         else ()
                     ),
-                    control_totals=(),
                     control_definitions=(
-                        _split_control_contract(compatible_existing)[0]
+                        compatible_existing.control_definitions
                         if compatible_existing
                         else ()
                     ),
                     control_expectations=(
-                        _split_control_contract(compatible_existing)[1]
+                        compatible_existing.control_expectations
                         if compatible_existing
                         else ()
                     ),
@@ -1278,13 +1208,12 @@ def _business_key_id(
 
 def _draft_or_redirect(
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
 ) -> WorkspaceState | RedirectResponse:
-    project = context.queries.get(project_id)
-    if project.status is not WorkspaceStatus.DRAFT:
+    workspace_state = context.queries.get(workspace_id)
+    if workspace_state.status is not WorkspaceStatus.DRAFT:
         return RedirectResponse(
-            f"/workspaces/{project.project_id}/summary",
+            f"/workspaces/{workspace_state.workspace_id}/summary",
             status_code=303,
         )
-    return project
-
+    return workspace_state

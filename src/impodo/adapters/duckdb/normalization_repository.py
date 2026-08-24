@@ -55,7 +55,7 @@ class NormalizationRepository(DuckDbRepository):
 
     def publish_normalization_run(
         self,
-        project_id: str,
+        workspace_id: str,
         evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,
         *,
         staging_run_id: str,
@@ -65,19 +65,19 @@ class NormalizationRepository(DuckDbRepository):
     ) -> NormalizationRunSummary:
         """Publish complete prepared-data review evidence without Odoo access."""
 
-        if evaluation.project_id != project_id:
-            raise WorkspaceError("Prepared review belongs to another project")
+        if evaluation.workspace_id != workspace_id:
+            raise WorkspaceError("Prepared review belongs to another workspace")
         if (
             evaluation.contract_version != NORMALIZATION_CONTRACT_VERSION
             or evaluation.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
         ):
             raise WorkspaceError("Prepared review must be regenerated")
-        project = self._workspace_states.get(project_id)
-        if evaluation.retention_context_hash != retention_context_hash(project):
+        workspace_state = self._workspace_states.get(workspace_id)
+        if evaluation.retention_context_hash != retention_context_hash(workspace_state):
             raise WorkspaceError(
                 "Prepared review no longer matches project ownership and retention"
             )
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         published_at = datetime.now(timezone.utc)
         prepared_run_id = getattr(evaluation.effects, "prepared_run_id", None)
         run_id = (
@@ -148,7 +148,7 @@ class NormalizationRepository(DuckDbRepository):
                 )
                 if current is not None and str(current[1]) == evaluation_content_hash:
                     connection.rollback()
-                    return self._normalization_summary(project_id, current)
+                    return self._normalization_summary(workspace_id, current)
 
                 sparse_quality = connection.execute(
                     """
@@ -296,18 +296,18 @@ class NormalizationRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        summary = self.get_current_normalization_summary(project_id)
+        summary = self.get_current_normalization_summary(workspace_id)
         if summary is None:
             raise WorkspaceError("Prepared review was not published")
         return summary
 
     def get_current_normalization_summary(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> NormalizationRunSummary | None:
         """Return the current non-retired review run's lifecycle projection."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -321,17 +321,17 @@ class NormalizationRepository(DuckDbRepository):
                        AND run.status NOT IN ('INVALIDATED', 'SUPERSEDED')"""
                 )
             ).fetchone()
-        return self._normalization_summary(project_id, row) if row else None
+        return self._normalization_summary(workspace_id, row) if row else None
 
     def get_normalization_evaluation(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
     ) -> NormalizationEvaluation | None:
         """Reassemble immutable effect/group evidence and verify its hash."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -361,13 +361,13 @@ class NormalizationRepository(DuckDbRepository):
 
     def get_normalization_dry_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
     ) -> DryRun | None:
         """Load the current serialized decision state for one run."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -387,13 +387,13 @@ class NormalizationRepository(DuckDbRepository):
 
     def get_normalization_review_groups(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
     ) -> tuple[tuple[NormalizationReviewGroup, ...], int]:
         """Load bounded group summaries and count routine-change records in SQL."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -422,7 +422,7 @@ class NormalizationRepository(DuckDbRepository):
 
     def decide_normalization_group(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         group_id: str,
         *,
@@ -434,7 +434,7 @@ class NormalizationRepository(DuckDbRepository):
         """Record one manager decision with an optimistic lifecycle check."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         decided_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -505,14 +505,14 @@ class NormalizationRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        summary = self.get_current_normalization_summary(project_id)
+        summary = self.get_current_normalization_summary(workspace_id)
         if summary is None:
             raise WorkspaceError("Prepared review is no longer current")
         return summary
 
     def approve_and_freeze_normalization(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_version: int,
@@ -522,7 +522,7 @@ class NormalizationRepository(DuckDbRepository):
         """Approve the full prepared dataset and bind its exact eligible hash."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         approved_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -579,14 +579,14 @@ class NormalizationRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        summary = self.get_current_normalization_summary(project_id)
+        summary = self.get_current_normalization_summary(workspace_id)
         if summary is None:
             raise WorkspaceError("Prepared review is no longer current")
         return summary
 
     def reopen_normalization_review(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_version: int,
@@ -596,7 +596,7 @@ class NormalizationRepository(DuckDbRepository):
         """Reopen the current review while retaining prior audit transitions."""
 
         canonical_run_id = self._normalization_run_id(run_id)
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         reopened_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
@@ -639,7 +639,7 @@ class NormalizationRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        summary = self.get_current_normalization_summary(project_id)
+        summary = self.get_current_normalization_summary(workspace_id)
         if summary is None:
             raise WorkspaceError("Prepared review is no longer current")
         return summary
@@ -652,7 +652,7 @@ class NormalizationRepository(DuckDbRepository):
             {
                 "contract_version": evaluation.contract_version,
                 "evaluator_version": evaluation.evaluator_version,
-                "project_id": evaluation.project_id,
+                "workspace_id": evaluation.workspace_id,
                 "staging_content_hash": evaluation.staging_content_hash,
                 "quality_content_hash": evaluation.quality_content_hash,
                 "mapping_hash": evaluation.mapping_hash,
@@ -672,11 +672,10 @@ class NormalizationRepository(DuckDbRepository):
     ) -> str:
         hasher = CanonicalJsonObjectHasher()
         hasher.add_value("contract_version", evaluation.contract_version)
-        if evaluation.contract_version >= 2:
-            hasher.add_value(
-                "effective_dataset_hash",
-                evaluation.effective_dataset_hash,
-            )
+        hasher.add_value(
+            "effective_dataset_hash",
+            evaluation.effective_dataset_hash,
+        )
         hasher.start_array("effects")
         if isinstance(evaluation, StoredNormalizationEvaluation):
             copy_to_run = getattr(evaluation.effects, "copy_to_run", None)
@@ -783,7 +782,6 @@ class NormalizationRepository(DuckDbRepository):
         hasher.end_array()
         hasher.add_value("mapping_hash", evaluation.mapping_hash)
         hasher.add_value("policy_hash", evaluation.policy_hash)
-        hasher.add_value("project_id", evaluation.project_id)
         hasher.add_value("quality_content_hash", evaluation.quality_content_hash)
         hasher.add_value(
             "retention_context_hash",
@@ -791,6 +789,7 @@ class NormalizationRepository(DuckDbRepository):
         )
         hasher.add_value("schema_hash", evaluation.schema_hash)
         hasher.add_value("staging_content_hash", evaluation.staging_content_hash)
+        hasher.add_value("workspace_id", evaluation.workspace_id)
         return hasher.finish()
 
     @staticmethod
@@ -811,7 +810,7 @@ class NormalizationRepository(DuckDbRepository):
 
     @staticmethod
     def _normalization_summary(
-        project_id: str,
+        workspace_id: str,
         row: Sequence[object],
     ) -> NormalizationRunSummary:
         try:
@@ -822,7 +821,7 @@ class NormalizationRepository(DuckDbRepository):
             ) from error
         return NormalizationRunSummary(
             run_id=str(row[0]),
-            project_id=project_id,
+            workspace_id=workspace_id,
             content_hash=str(row[1]),
             staging_run_id=str(row[2]),
             staging_content_hash=str(row[3]),
@@ -906,4 +905,3 @@ class NormalizationRepository(DuckDbRepository):
                 dry_run.to_json(),
             ],
         )
-

@@ -56,7 +56,7 @@ def require_supported_browser_scale(
     if scale.supported:
         return
     raise ReadinessError(
-        f"This project contains {scale.physical_rows:,} source rows. "
+        f"This workspace selection contains {scale.physical_rows:,} source rows. "
         f"This version of Impodo can safely check up to "
         f"{scale.supported_limit:,} rows in one project. Split the source into "
         "smaller projects before checking; no data was changed."

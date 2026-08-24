@@ -60,31 +60,31 @@ from ..domain.source_snapshot import SourceSnapshot
 from ..models import Issue
 
 
-class PreparationProjectRepository(Protocol):
-    """Load the project policy and ownership context used during preparation."""
+class PreparationWorkspaceRepository(Protocol):
+    """Load the workspace projection used during preparation."""
 
-    def get(self, project_id: str) -> WorkspaceState:
-        """Return the migration project identified by ``project_id``."""
+    def get(self, workspace_id: str) -> WorkspaceState:
+        """Return the workspace evidence projection identified by ``workspace_id``."""
         ...
 
 
 class PreparationSourceRepository(Protocol):
     """Read physical/effective frozen sources and their inspected catalogs."""
 
-    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return the frozen physical source selection."""
         ...
 
-    def get_mapping_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_mapping_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return the effective selection seen by mapping and staging."""
         ...
 
-    def get_source_catalogs(self, project_id: str) -> tuple[SourceFileCatalog, ...]:
+    def get_source_catalogs(self, workspace_id: str) -> tuple[SourceFileCatalog, ...]:
         """Return inspected catalogs used to materialize the selected rows."""
         ...
 
     def get_current_source_snapshots(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceSnapshot, ...]:
         """Return exact current Parquet manifests for physical datasets."""
         ...
@@ -93,7 +93,7 @@ class PreparationSourceRepository(Protocol):
 class PreparationDerivedRepository(Protocol):
     """Load optional virtual datasets inserted between source and mapping."""
 
-    def get_derived_entity_plan(self, project_id: str) -> DerivedEntityPlan | None:
+    def get_derived_entity_plan(self, workspace_id: str) -> DerivedEntityPlan | None:
         """Return the current derived-entity plan, if the project has one."""
         ...
 
@@ -102,13 +102,13 @@ class PreparationMappingRepository(Protocol):
     """Read the validated mapping revision and its immutable submission."""
 
     def get_mapping_revision(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingRevision | None:
         """Return a published mapping revision, defaulting to the current one."""
         ...
 
     def get_mapping_submission(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingSubmission | None:
         """Return the submitted evidence paired with a mapping revision."""
         ...
@@ -119,7 +119,7 @@ class PreparationStagingRepository(Protocol):
 
     def publish_canonical_staging(
         self,
-        project_id: str,
+        workspace_id: str,
         run: CanonicalStagingRun | StoredCanonicalStagingRun,
         *,
         mapping_version: int,
@@ -130,7 +130,7 @@ class PreparationStagingRepository(Protocol):
 
     def get_canonical_staging_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_content_hash: str | None = None,
@@ -144,7 +144,7 @@ class PreparationSessionRepository(Protocol):
 
     def begin_direct_session(
         self,
-        project_id: str,
+        workspace_id: str,
         bindings: PreparationSessionBindings,
         *,
         actor: Actor,
@@ -152,21 +152,21 @@ class PreparationSessionRepository(Protocol):
 
     def append_impacts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         rows: Sequence[TransformationImpactRow],
     ) -> None: ...
 
     def append_direct_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         rows: Sequence[CanonicalPreparedSessionRow],
     ) -> None: ...
 
     def append_native_prepared_projection(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
         projection: PreparedCanonicalProjection,
@@ -176,7 +176,7 @@ class PreparationSessionRepository(Protocol):
 
     def finalize_direct_session(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         *,
         dataset_evidence: Mapping[
@@ -190,75 +190,75 @@ class PreparationSessionRepository(Protocol):
 
     def find_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         logical_hash: str,
     ) -> PreparedSnapshot | None: ...
 
     def bind_prepared_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
     ) -> None: ...
 
     def bind_prepared_canonical_projection(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
         projection: PreparedCanonicalProjection,
     ) -> None: ...
 
-    def prepared_snapshot_storage_keys(self, project_id: str) -> frozenset[str]: ...
+    def prepared_snapshot_storage_keys(self, workspace_id: str) -> frozenset[str]: ...
 
     def find_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         dataset_id: str,
         logical_hash: str,
     ) -> DerivedValueArtifact | None: ...
 
     def bind_derived_value_artifact(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         artifact: DerivedValueArtifact,
     ) -> None: ...
 
     def session_derived_value_artifacts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> tuple[DerivedValueArtifact, ...]: ...
 
     def current_derived_value_artifacts(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[DerivedValueArtifact, ...]: ...
 
     def derived_value_artifact_storage_keys(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> frozenset[str]: ...
 
     def physical_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> dict[str, tuple[int, ...]]: ...
 
     def iter_impacts(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
     ) -> Iterable[TransformationImpactRow]: ...
 
-    def mark_published(self, project_id: str, session_id: str) -> None: ...
+    def mark_published(self, workspace_id: str, session_id: str) -> None: ...
 
     def fail_session(
         self,
-        project_id: str,
+        workspace_id: str,
         session_id: str,
         failure_code: str,
     ) -> None: ...
@@ -268,12 +268,12 @@ class QualityMappingRepository(Protocol):
     """Supply the published and editable mapping state used by Stage F."""
 
     def get_mapping_revision(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingRevision | None:
         """Return the published mapping to which checks must be bound."""
         ...
 
-    def get_mapping_working_draft(self, project_id: str) -> MappingWorkingDraft | None:
+    def get_mapping_working_draft(self, workspace_id: str) -> MappingWorkingDraft | None:
         """Return the draft used to detect unsaved semantic changes."""
         ...
 
@@ -281,7 +281,7 @@ class QualityMappingRepository(Protocol):
 class QualitySourceRepository(Protocol):
     """Supply the effective datasets against which quality rules are scoped."""
 
-    def get_mapping_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_mapping_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return effective datasets/names used to scope generated rules."""
         ...
 
@@ -289,13 +289,13 @@ class QualitySourceRepository(Protocol):
 class QualityRepository(Protocol):
     """Persist versioned rulesets and their hash-bound quality evaluations."""
 
-    def get_current_quality_ruleset(self, project_id: str) -> QualityRuleSet | None:
+    def get_current_quality_ruleset(self, workspace_id: str) -> QualityRuleSet | None:
         """Return the ruleset selected by the current pointer."""
         ...
 
     def publish_quality_ruleset(
         self,
-        project_id: str,
+        workspace_id: str,
         ruleset: QualityRuleSet,
         *,
         actor: Actor,
@@ -305,7 +305,7 @@ class QualityRepository(Protocol):
 
     def publish_quality_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run: QualityRun | StoredQualityRun,
         *,
         staging_run_id: str,
@@ -315,11 +315,11 @@ class QualityRepository(Protocol):
         """Atomically persist a full overlay and advance the current pointer."""
         ...
 
-    def get_current_quality_summary(self, project_id: str) -> QualityRunSummary | None:
+    def get_current_quality_summary(self, workspace_id: str) -> QualityRunSummary | None:
         """Return the current quality lifecycle/count projection."""
         ...
 
-    def get_quality_run(self, project_id: str, run_id: str) -> QualityRun | None:
+    def get_quality_run(self, workspace_id: str, run_id: str) -> QualityRun | None:
         """Reload the full immutable overlay referenced by ``run_id``."""
         ...
 
@@ -333,7 +333,7 @@ class NormalizationRepository(Protocol):
 
     def publish_normalization_run(
         self,
-        project_id: str,
+        workspace_id: str,
         evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,
         *,
         staging_run_id: str,
@@ -345,30 +345,30 @@ class NormalizationRepository(Protocol):
         ...
 
     def get_current_normalization_summary(
-        self, project_id: str
+        self, workspace_id: str
     ) -> NormalizationRunSummary | None:
         """Return the current review/freeze lifecycle summary."""
         ...
 
     def get_normalization_evaluation(
-        self, project_id: str, run_id: str
+        self, workspace_id: str, run_id: str
     ) -> NormalizationEvaluation | None:
         """Reload immutable effects and groups for a review run."""
         ...
 
-    def get_normalization_dry_run(self, project_id: str, run_id: str) -> DryRun | None:
+    def get_normalization_dry_run(self, workspace_id: str, run_id: str) -> DryRun | None:
         """Reload the mutable, versioned decision state for a review run."""
         ...
 
     def get_normalization_review_groups(
-        self, project_id: str, run_id: str
+        self, workspace_id: str, run_id: str
     ) -> tuple[tuple[NormalizationReviewGroup, ...], int]:
         """Return review groups plus the automatic affected-record count."""
         ...
 
     def decide_normalization_group(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         group_id: str,
         *,
@@ -382,7 +382,7 @@ class NormalizationRepository(Protocol):
 
     def approve_and_freeze_normalization(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_version: int,
@@ -394,7 +394,7 @@ class NormalizationRepository(Protocol):
 
     def reopen_normalization_review(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_version: int,
@@ -408,13 +408,13 @@ class NormalizationRepository(Protocol):
 class PreflightStagingRepository(Protocol):
     """Load the current Stage-E summary and its immutable canonical rows."""
 
-    def get_current_staging_summary(self, project_id: str) -> StagingRunSummary | None:
+    def get_current_staging_summary(self, workspace_id: str) -> StagingRunSummary | None:
         """Return the staging run selected by the current pointer."""
         ...
 
     def get_canonical_staging_run(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_content_hash: str | None = None,
@@ -426,11 +426,11 @@ class PreflightStagingRepository(Protocol):
 class PreflightQualityRepository(Protocol):
     """Load the current Stage-F eligibility summary and full overlay."""
 
-    def get_current_quality_summary(self, project_id: str) -> QualityRunSummary | None:
+    def get_current_quality_summary(self, workspace_id: str) -> QualityRunSummary | None:
         """Return the quality run selected by the current pointer."""
         ...
 
-    def get_quality_run(self, project_id: str, run_id: str) -> QualityRun | None:
+    def get_quality_run(self, workspace_id: str, run_id: str) -> QualityRun | None:
         """Reload all row dispositions, accounting, issues, and quarantine."""
         ...
 
@@ -440,7 +440,7 @@ class PreflightEffectiveRepository(Protocol):
 
     def get_current_effective_dataset(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> EffectiveDataset | None:
         """Return current effective rows, if advanced resolution is active."""
         ...
@@ -450,33 +450,33 @@ class PreflightNormalizationRepository(Protocol):
     """Load Stage-G freeze identity and its versioned approval evidence."""
 
     def get_current_normalization_summary(
-        self, project_id: str
+        self, workspace_id: str
     ) -> NormalizationRunSummary | None:
         """Return the current review run and eligible-dataset hash."""
         ...
 
-    def get_normalization_dry_run(self, project_id: str, run_id: str) -> DryRun | None:
+    def get_normalization_dry_run(self, workspace_id: str, run_id: str) -> DryRun | None:
         """Return the approval state used to prove the run is frozen."""
         ...
 
 
-class PreflightProjectRepository(Protocol):
-    """Load target identity and project policy for comparison publication."""
+class PreflightWorkspaceRepository(Protocol):
+    """Load workspace target evidence for comparison publication."""
 
-    def get(self, project_id: str) -> WorkspaceState:
-        """Return the migration project identified by ``project_id``."""
+    def get(self, workspace_id: str) -> WorkspaceState:
+        """Return the workspace evidence projection identified by ``workspace_id``."""
         ...
 
 
 class PreflightSourceRepository(Protocol):
     """Load the effective frozen selection used by the submitted mapping."""
 
-    def get_mapping_source_selection(self, project_id: str) -> SourceSelection | None:
+    def get_mapping_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return stable dataset/column identities used to compile Stage H."""
         ...
 
     def get_current_source_snapshots(
-        self, project_id: str
+        self, workspace_id: str
     ) -> tuple[SourceSnapshot, ...]:
         """Return the current immutable source snapshots for comparison."""
         ...
@@ -485,11 +485,11 @@ class PreflightSourceRepository(Protocol):
 class PreflightSchemaRepository(Protocol):
     """Load the captured target field contract used during mapping."""
 
-    def get_odoo_schema_catalog(self, project_id: str) -> OdooSchemaCatalog | None:
+    def get_odoo_schema_catalog(self, workspace_id: str) -> OdooSchemaCatalog | None:
         """Return the exact captured Odoo field metadata."""
         ...
 
-    def get_schema_governance(self, project_id: str) -> SchemaGovernance | None:
+    def get_schema_governance(self, workspace_id: str) -> SchemaGovernance | None:
         """Return governance binding the mapping to the schema catalog."""
         ...
 
@@ -498,13 +498,13 @@ class PreflightMappingRepository(Protocol):
     """Load the current mapping revision and proof it was submitted."""
 
     def get_mapping_revision(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingRevision | None:
         """Return the immutable mapping revision to compile for comparison."""
         ...
 
     def get_mapping_submission(
-        self, project_id: str, version: int | None = None
+        self, workspace_id: str, version: int | None = None
     ) -> MappingSubmission | None:
         """Return exact submission evidence for the requested revision."""
         ...
@@ -514,12 +514,12 @@ class PreflightRepository(Protocol):
     """Publish and query portable readiness evidence plus protected snapshots.
 
     The report lookup takes every upstream identity explicitly so stale runs
-    cannot be returned through a loose project-level current pointer.
+    cannot be returned through a loose workspace-level current pointer.
     """
 
     def get_readiness_report(
         self,
-        project_id: str,
+        workspace_id: str,
         mapping_id: str,
         mapping_version: int,
         mapping_content_hash: str,
@@ -537,7 +537,7 @@ class PreflightRepository(Protocol):
 
     def save_readiness_report(
         self,
-        project_id: str,
+        workspace_id: str,
         report: ReadinessReport,
         *,
         decision_rows: Iterable[ReadinessRow],
@@ -551,7 +551,7 @@ class PreflightRepository(Protocol):
 
     def get_readiness_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         status: str = "",
@@ -561,4 +561,3 @@ class PreflightRepository(Protocol):
     ) -> ReadinessRowPage:
         """Return a validated, filtered page of portable decision rows."""
         ...
-

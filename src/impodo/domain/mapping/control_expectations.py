@@ -12,14 +12,14 @@ from ...access import ActorIdentity
 from ..serialization import content_hash
 
 
-EDITION_CONTROL_EXPECTATION_CONTRACT_VERSION = 1
+EDITION_CONTROL_EXPECTATION_CONTRACT_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
 class EditionControlExpectation:
-    """Bind a fresh expected decimal to one project edition and actor."""
+    """Bind a fresh expected decimal to one workspace edition and actor."""
 
-    project_id: str
+    workspace_id: str
     logical_control_id: str
     expected_value: str
     source: str
@@ -32,9 +32,9 @@ class EditionControlExpectation:
         if self.contract_version != EDITION_CONTROL_EXPECTATION_CONTRACT_VERSION:
             raise ValueError("Edition control-expectation contract is unsupported")
         try:
-            object.__setattr__(self, "project_id", str(UUID(self.project_id)))
+            object.__setattr__(self, "workspace_id", str(UUID(self.workspace_id)))
         except (TypeError, ValueError, AttributeError) as error:
-            raise ValueError("Edition control expectation project is invalid") from error
+            raise ValueError("Edition control expectation workspace is invalid") from error
         logical_control_id = self.logical_control_id.strip()
         source = self.source.strip()
         reason = self.reason.strip()
@@ -64,7 +64,7 @@ class EditionControlExpectation:
     def to_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "logical_control_id": self.logical_control_id,
             "expected_value": self.expected_value,
             "source": self.source,
@@ -84,7 +84,7 @@ class EditionControlExpectation:
     def from_dict(cls, payload: Mapping[str, Any]) -> "EditionControlExpectation":
         if set(payload) != {
             "contract_version",
-            "project_id",
+            "workspace_id",
             "logical_control_id",
             "expected_value",
             "source",
@@ -103,7 +103,7 @@ class EditionControlExpectation:
             raise ValueError("Edition control-expectation actor is invalid")
         expectation = cls(
             contract_version=int(payload["contract_version"]),
-            project_id=str(payload["project_id"]),
+            workspace_id=str(payload["workspace_id"]),
             logical_control_id=str(payload["logical_control_id"]),
             expected_value=str(payload["expected_value"]),
             source=str(payload["source"]),

@@ -14,7 +14,8 @@ lineages. A Project can exist and complete one-off work without a Recipe.
 
 `MigrationWorkspace` is the isolated technical work area for one run over one
 DataVersion. The contained mapping engine currently represents its detailed
-state as `WorkspaceState`; that type is not the Project aggregate.
+state through a flat `WorkspaceState` workbench projection. That type is not an
+identity, aggregate root, or lifecycle owner.
 
 ## Creation
 
@@ -34,10 +35,11 @@ write authority.
 
 ## Workspace setup
 
-The mapping engine setup selects one source mode: uploaded files (`FILE`) or
-existing records in one Odoo database (`ODOO`). The detailed engine moves from
-`DRAFT` to `REGISTERED`; the clean MigrationWorkspace remains `OPEN` while it
-accepts authoring evidence.
+The DataVersion package selects one source origin: uploaded files (`FILE`) or
+existing records in one Odoo database (`ODOO`). The clean
+`MigrationWorkspace` moves from setup `DRAFT` to `READY` and remains `OPEN`
+while it accepts authoring evidence. The mapping engine has no second setup
+lifecycle.
 
 File setup requires at least one governed CSV or XLSX file before
 registration. Odoo-source setup requires an exact connection identity and the
@@ -47,13 +49,18 @@ does not publish a Recipe.
 ## Source ownership
 
 Source bytes, inspection catalogues, accepted parsing choices, logical
-datasets, and immutable snapshot references become one DataVersion source
-package. Freezing that package makes the DataVersion immutable.
+datasets, and immutable snapshot references belong to one DataVersion source
+package from the first draft file onward. Freezing that package makes the
+DataVersion immutable.
 
 The clean MigrationWorkspace store records only its projection ID, package
 hash, selected dataset IDs, and snapshot hashes. The mapping engine receives a
 read-only `SourceSelection` adapter over those references. It must not copy the
 DataVersion database or source rows.
+
+The MigrationRun owns one mutable `MigrationRunTargetSetup` revision before
+target capture and one immutable `TargetBinding` afterward. Workspaces in the
+same run cannot own or diverge from that target context.
 
 ## Authority and concurrency
 
@@ -66,6 +73,19 @@ Credentials stay in role-specific vault entries. They never become Project,
 DataVersion, Recipe, mapping, or approval meaning. Read capability never grants
 write capability.
 
+A read-only `WorkspaceAccessContext` resolver verifies the Project, workspace,
+DataVersion, MigrationRun, and optional RecipeApplication lineage in one
+registry query. It authorizes the requested capability against the resolved
+parent Project before a workspace store, DataVersion store, protected
+artifact, credential, or Odoo boundary may open.
+
+Every authenticated workspace request binds that verified context before route
+code runs. Workspace services and Odoo workers reuse it. Missing, wrong-kind,
+mismatched, and inaccessible identities stop before child stores or external
+adapters open. The contained workbench cache stores no identity columns. A
+normal request performs one bounded lineage read; a progress request reuses
+the verified job packet without reopening the registry.
+
 ## Persistence and performance
 
 The registry lists Projects and their bounded counts without opening one
@@ -74,8 +94,7 @@ schema generations and exact linkage. Storage from the superseded Recipe-first
 generation is rejected without mutation.
 
 Schema versions identify one exact persisted shape, including its metadata.
-M7 version 2 removes the additive migration ledger. Version-1 workspace engines
-are rejected without mutation instead of being treated as the clean shape.
+Any different workspace-engine generation is rejected without mutation.
 
 Preparation workers receive an exact authorized identity packet and verify the
 workspace and frozen DataVersion stores. The packet also binds the application
@@ -85,19 +104,21 @@ registry and do not issue per-row repository or Odoo calls.
 
 ## Current boundary
 
-M4 supports Project-native authoring, one-off completion, optional Recipe
-publication, and integrated Test planning over several exact Recipe revisions.
-Each Recipe application has an isolated workspace while the run owns shared
+Project-native authoring, one-off completion, optional Recipe publication,
+integrated Test qualification, and Production orchestration are implemented.
+Each RecipeApplication has an isolated workspace while the run owns shared
 target evidence. No current browser path treats a Recipe as the Project or
-gives a Recipe ownership of a DataVersion. Execution and integrated
-qualification remain later phases.
+gives a Recipe ownership of a DataVersion.
 
 ## Verification
 
-- `tests/test_migration_project_phase_m1_foundation.py`
-- `tests/test_migration_project_phase_m2_source_packages.py`
-- `tests/test_migration_project_phase_m3_project_authoring.py`
-- `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
+- `tests/test_migration_foundation.py`
+- `tests/test_data_version_source_packages.py`
+- `tests/test_project_authoring.py`
+- `tests/test_integrated_recipe_runs.py`
+- `tests/test_identity_semantics.py`
+- `tests/test_workspace_access.py`
+- `tests/test_canonical_ownership.py`
 - `tests/test_preparation_jobs.py`
 
 ## Related documentation

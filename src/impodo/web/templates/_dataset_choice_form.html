@@ -1,4 +1,4 @@
-<form method="post" action="/workspaces/{{ project.project_id }}/datasets/freeze">
+<form method="post" action="/workspaces/{{ workspace_id }}/datasets/freeze">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="file-list">
     {% for choice in choices %}
@@ -22,7 +22,7 @@
   </div>
   <div class="actions">
     {% if dataset_choice_recovery %}
-      <a class="button secondary" href="/workspaces/{{ project.project_id }}/sources#table-choices">Back to source review</a>
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/sources#table-choices">Back to source review</a>
     {% endif %}
     <button class="button primary" type="submit">Save tables for this data version</button>
   </div>

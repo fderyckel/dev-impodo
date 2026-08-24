@@ -109,7 +109,7 @@ class PreparationCapabilityManifest:
             f" ({', '.join(reason_codes)})" if reason_codes else ""
         )
         raise ReadinessError(
-            f"This project contains {self.physical_rows:,} source rows, but "
+            f"This workspace selection contains {self.physical_rows:,} source rows, but "
             f"the complete preparation route can safely check up to "
             f"{self.supported_rows:,} rows. The limiting stage is "
             f"{stage_names}{reason_suffix}. Split the source into smaller "

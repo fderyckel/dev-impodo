@@ -44,25 +44,25 @@ class NormalizationService:
         self.repository = repository
         self.authorization = authorization
 
-    def current_summary(self, project_id: str) -> NormalizationRunSummary | None:
+    def current_summary(self, workspace_id: str) -> NormalizationRunSummary | None:
         """Return the lifecycle/count projection for the current Stage-G run."""
 
-        return self.repository.get_current_normalization_summary(project_id)
+        return self.repository.get_current_normalization_summary(workspace_id)
 
     def current_review(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[NormalizationRunSummary, NormalizationEvaluation, DryRun] | None:
         """Load the current summary, immutable evaluation, and decision state."""
 
-        summary = self.current_summary(project_id)
+        summary = self.current_summary(workspace_id)
         if summary is None:
             return None
         evaluation = self.repository.get_normalization_evaluation(
-            project_id, summary.run_id
+            workspace_id, summary.run_id
         )
         dry_run = self.repository.get_normalization_dry_run(
-            project_id, summary.run_id
+            workspace_id, summary.run_id
         )
         if evaluation is None or dry_run is None:
             raise ReadinessError("Prepared review evidence is incomplete")
@@ -70,7 +70,7 @@ class NormalizationService:
 
     def current_group_review(
         self,
-        project_id: str,
+        workspace_id: str,
     ) -> tuple[
         NormalizationRunSummary,
         tuple[NormalizationReviewGroup, ...],
@@ -79,14 +79,14 @@ class NormalizationService:
     ] | None:
         """Load paginable groups with their shared governance decision state."""
 
-        summary = self.current_summary(project_id)
+        summary = self.current_summary(workspace_id)
         if summary is None:
             return None
         groups, automatic_record_count = self.repository.get_normalization_review_groups(
-            project_id, summary.run_id
+            workspace_id, summary.run_id
         )
         dry_run = self.repository.get_normalization_dry_run(
-            project_id, summary.run_id
+            workspace_id, summary.run_id
         )
         if dry_run is None:
             raise ReadinessError("Prepared review evidence is incomplete")
@@ -94,7 +94,7 @@ class NormalizationService:
 
     def decide_group(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         group_id: str,
         *,
@@ -108,10 +108,10 @@ class NormalizationService:
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_DECIDE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         return self.repository.decide_normalization_group(
-            project_id,
+            workspace_id,
             run_id,
             group_id,
             approve=approve,
@@ -122,7 +122,7 @@ class NormalizationService:
 
     def approve(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_version: int,
@@ -134,15 +134,15 @@ class NormalizationService:
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_DECIDE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_APPROVE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         return self.repository.approve_and_freeze_normalization(
-            project_id,
+            workspace_id,
             run_id,
             expected_version=expected_version,
             actor=actor,
@@ -151,7 +151,7 @@ class NormalizationService:
 
     def reopen_review(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         expected_version: int,
@@ -163,10 +163,10 @@ class NormalizationService:
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_DECIDE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
         return self.repository.reopen_normalization_review(
-            project_id,
+            workspace_id,
             run_id,
             expected_version=expected_version,
             actor=actor,
@@ -175,7 +175,7 @@ class NormalizationService:
 
     def evaluate_and_publish(
         self,
-        project: WorkspaceState,
+        workspace_state: WorkspaceState,
         revision: MappingRevision,
         selection: SourceSelection,
         canonical_run: CanonicalStagingRun | StoredCanonicalStagingRun,
@@ -225,7 +225,7 @@ class NormalizationService:
                         NormalizationEvaluation
                         | StoredNormalizationEvaluation
                     ) = build_bounded_normalization_evaluation(
-                        project=project,
+                        workspace_state=workspace_state,
                         staging=canonical_run,
                         quality=quality_run,
                         mappings=mappings,
@@ -238,12 +238,12 @@ class NormalizationService:
                     if not allow_materialized_fallback:
                         raise ReadinessError(
                             "The review-evidence route could not stay bounded "
-                            "for this project. Whole-run fallback is disabled "
+                            "for this workspace. Whole-run fallback is disabled "
                             "above the materialized safety limit; no fallback "
                             "was run."
                         ) from error
                     evaluation = evaluate_normalization(
-                        project=project,
+                        workspace_state=workspace_state,
                         staging=canonical_run,
                         quality=quality_run,
                         mappings=mappings,
@@ -254,7 +254,7 @@ class NormalizationService:
                     )
             else:
                 evaluation = evaluate_normalization(
-                    project=project,
+                    workspace_state=workspace_state,
                     staging=canonical_run,
                     quality=quality_run,
                     mappings=mappings,
@@ -268,11 +268,10 @@ class NormalizationService:
         except NormalizationError as error:
             raise ReadinessError(str(error)) from error
         return self.repository.publish_normalization_run(
-            project.project_id,
+            workspace_state.workspace_id,
             evaluation,
             staging_run_id=staging.run_id,
             quality_run_id=quality.run_id,
             source_hashes=source_hashes,
             actor=actor,
         )
-

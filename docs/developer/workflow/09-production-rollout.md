@@ -8,7 +8,7 @@ status: current
 
 ## Responsibility
 
-M6 applies one current selected and authenticated CutoverPlan revision to a
+Production rollout applies one current selected and authenticated CutoverPlan revision to a
 fresh complete Production DataVersion and different compatible Odoo 19 target.
 It creates fresh isolated application workspaces through the existing compiler
 and execution engine. Test contributes reusable qualified meaning only.
@@ -34,7 +34,7 @@ No target binding or write credential generation exists yet.
 The normal source workflow accepts the complete latest delivery into the new
 DataVersion. The normal Odoo-data workflow captures current Production schema,
 references, read identity, and read credential generation in the setup
-workspace. M6 fails early for an Odoo-source CutoverPlan because the current
+workspace. Activation fails early for an Odoo-source CutoverPlan because the current
 Odoo-source product path stops after capture and cannot safely round-trip to
 Production.
 
@@ -106,8 +106,9 @@ operator can establish what happened before retry.
 
 ## Odoo 19 and performance
 
-The exact registry generation is `impodo-migration-registry-2026-08-m6`. M5
-and older development storage are rejected rather than upgraded.
+The exact registry generation is
+`impodo-migration-registry-2026-08-project-root`. Other development storage is
+rejected rather than upgraded.
 
 Project overview loads Production bindings with one registry query. Credential
 owner resolution is one joined registry query. Activation captures one
@@ -128,7 +129,7 @@ call per source row, or N+1 workspace open for Project status.
 
 ## Verification
 
-- [`tests/test_migration_project_phase_m6_production_rollout.py`](../../../tests/test_migration_project_phase_m6_production_rollout.py)
+- [`tests/test_production_rollout.py`](../../../tests/test_production_rollout.py)
 
 The focused gate proves fresh setup identity, exact plan pins, a different
 Production target, separate credential generations, isolated application

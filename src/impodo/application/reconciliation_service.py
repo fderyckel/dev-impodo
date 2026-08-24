@@ -47,23 +47,23 @@ _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 class ReconciliationExecutionRepository(Protocol):
     def get_current_run(
         self,
-        project_id: str,
+        workspace_id: str,
         snapshot_hash: str | None = None,
     ) -> ExecutionRun | None: ...
 
-    def get_run(self, project_id: str, run_id: str) -> ExecutionRun | None: ...
+    def get_run(self, workspace_id: str, run_id: str) -> ExecutionRun | None: ...
 
 
 class ReconciliationResultRepository(Protocol):
     def get_current(
         self,
-        project_id: str,
+        workspace_id: str,
         execution_run_id: str | None = None,
     ) -> ReconciliationRun | None: ...
 
     def publish(
         self,
-        project_id: str,
+        workspace_id: str,
         report: ReconciliationRun,
         *,
         actor: Actor,
@@ -79,15 +79,15 @@ class ReconciliationService:
     results: ReconciliationResultRepository
     authorization: AuthorizationPolicy
 
-    def current(self, project_id: str) -> ReconciliationRun | None:
-        run = self.execution.get_current_run(project_id)
+    def current(self, workspace_id: str) -> ReconciliationRun | None:
+        run = self.execution.get_current_run(workspace_id)
         if run is None:
             return None
-        return self.results.get_current(project_id, run.run_id)
+        return self.results.get_current(workspace_id, run.run_id)
 
     def reconcile(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         expected_execution_run_id: str,
         reader: OdooReadbackReader,
@@ -98,10 +98,10 @@ class ReconciliationService:
         self.authorization.require(
             actor,
             Capability.EXPORT_PLAN_EXECUTE,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        run = self.execution.get_run(project_id, expected_execution_run_id)
-        current = self.execution.get_current_run(project_id)
+        run = self.execution.get_run(workspace_id, expected_execution_run_id)
+        current = self.execution.get_current_run(workspace_id)
         if run is None or current is None or current.run_id != expected_execution_run_id:
             raise WorkspaceError("The saved load outcome is no longer current")
         _require_matching_write_identity(
@@ -109,13 +109,13 @@ class ReconciliationService:
             write_identity,
             write_credential_binding_hash,
         )
-        existing = self.results.get_current(project_id, run.run_id)
+        existing = self.results.get_current(workspace_id, run.run_id)
         if existing is not None:
             return existing
         if run.status is ExecutionRunStatus.RUNNING or run.planned_count:
             raise WorkspaceError("The Odoo load is not finished yet")
         snapshot = self.preflight.execution_snapshot(
-            project_id,
+            workspace_id,
             run.preflight_run_id,
         )
         if (
@@ -140,7 +140,7 @@ class ReconciliationService:
         )
         # Exercise the portable contract before it reaches durable storage.
         report = ReconciliationRun.from_json(report.to_json())
-        self.results.publish(project_id, report, actor=actor)
+        self.results.publish(workspace_id, report, actor=actor)
         return report
     def _read_back(
         self,
@@ -246,7 +246,7 @@ class ReconciliationService:
         )
         return ReconciliationRun(
             reconciliation_id=str(uuid4()),
-            project_id=run.project_id,
+            workspace_id=run.workspace_id,
             execution_run_id=run.run_id,
             snapshot_hash=run.snapshot_hash,
             target_hash=run.target_hash,

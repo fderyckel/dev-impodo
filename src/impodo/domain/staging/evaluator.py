@@ -269,7 +269,7 @@ class CompiledBrowserRowTransformer:
 
 def evaluate_browser_mapping(
     *,
-    project_id: str,
+    workspace_id: str,
     definition: MappingDefinition,
     physical_selection: SourceSelection,
     effective_selection: SourceSelection,
@@ -291,13 +291,14 @@ def evaluate_browser_mapping(
 
     require_supported_browser_scale(physical_selection)
     if (
-        physical_selection.project_id != project_id
-        or effective_selection.project_id != project_id
-        or (plan is not None and plan.project_id != project_id)
+        physical_selection.data_version_id != effective_selection.data_version_id
+        or (plan is not None and plan.workspace_id != workspace_id)
     ):
-        raise ReadinessError("Canonical evaluation evidence belongs to another project")
-    if reference_bundle is not None and reference_bundle.project_id != project_id:
-        raise ReadinessError("Reference data belongs to another project")
+        raise ReadinessError(
+            "Canonical evaluation evidence belongs to another DataVersion or workspace"
+        )
+    if reference_bundle is not None and reference_bundle.workspace_id != workspace_id:
+        raise ReadinessError("Reference data belongs to another workspace")
     reference_indexes = _compile_reference_indexes(reference_bundle)
     if (
         plan is not None
@@ -550,7 +551,7 @@ def evaluate_browser_mapping(
             preparation_issues,
         )
     canonical_run = CanonicalStagingRun.from_prepared(
-        project_id=project_id,
+        workspace_id=workspace_id,
         mapping_id=definition.mapping_id,
         physical_selection_hash=physical_selection.content_hash,
         source_selection_hash=effective_selection.content_hash,

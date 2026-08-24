@@ -10,7 +10,7 @@ import stat
 import tempfile
 import unittest
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from impodo.access import (
     Actor,
@@ -67,7 +67,9 @@ from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
+    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
 )
+from impodo.workspace_access import WorkspaceAccessContext, WorkspaceAccessService
 from impodo.workspace_errors import WorkspaceError
 
 
@@ -75,12 +77,37 @@ ROOT = Path(__file__).resolve().parents[1]
 HASHES = tuple("sha256:" + digit * 64 for digit in "123456789abcdef")
 
 
+def _lineage_id(kind: str, workspace_id: str) -> str:
+    return str(uuid5(NAMESPACE_URL, f"impodo-test:{kind}:{workspace_id}"))
+
+
+def _data_version_id(workspace_id: str) -> str:
+    return _lineage_id("data-version", workspace_id)
+
+
+def _protected_root(root: str | Path, workspace_id: str) -> Path:
+    return Path(root) / "dv" / _data_version_id(workspace_id) / "protected"
+
+
+class _WorkspaceLineageRepository:
+    def resolve_workspace_access_context(
+        self,
+        workspace_id: str,
+    ) -> WorkspaceAccessContext:
+        return WorkspaceAccessContext(
+            project_id=_lineage_id("project", workspace_id),
+            workspace_id=workspace_id,
+            data_version_id=_data_version_id(workspace_id),
+            migration_run_id=_lineage_id("run", workspace_id),
+        )
+
+
 class OdooProvenanceTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(self.database)
+        self.workspace_states = WorkspaceStateRepository(self.database)
         derived = DerivedEntityRepository(self.database)
         self.sources = SourceRepository(self.database, derived)
         self.schemas = SchemaRepository(self.database)
@@ -88,24 +115,29 @@ class OdooProvenanceTests(unittest.TestCase):
         self.repository = OdooProvenanceRepository(
             self.database,
             self.artifacts,
+            protected_root=lambda workspace_id: _protected_root(
+                self.temporary.name,
+                workspace_id,
+            ),
         )
         self.secrets = MemorySecretStore()
+        self.workspace_access = WorkspaceAccessService(
+            _WorkspaceLineageRepository(),
+            CapabilityAuthorizationPolicy(),
+        )
         self.service = OdooProvenanceService(
-            self.projects,
+            self.workspace_states,
             self.sources,
             self.repository,
             self.secrets,
-            CapabilityAuthorizationPolicy(),
+            self.workspace_access,
         )
         self.now = datetime.now(timezone.utc)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Odoo contacts",
             source_system="Odoo",
             source_mode=SourceMode.ODOO,
-            data_manager="Data Manager",
-            functional_owner="Functional Owner",
-            business_unit="Example",
             retention_days=1,
             odoo_connection_mode=OdooConnectionMode.REMOTE,
             odoo_base_url="https://odoo.example.test",
@@ -116,9 +148,9 @@ class OdooProvenanceTests(unittest.TestCase):
             created_at=self.now,
             updated_at=self.now,
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         schema = OdooSchemaCatalog(
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=self.now,
             captured_by="Data Manager",
@@ -162,13 +194,13 @@ class OdooProvenanceTests(unittest.TestCase):
             connection_target_hash=HASHES[0],
         )
         self.schemas.save_odoo_schema_catalog(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             schema,
             actor=LOCAL_ACTOR,
         )
         self.selection = self._selection(version=1)
         self.sources.save_odoo_capture_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             self.selection,
             actor=LOCAL_ACTOR,
         )
@@ -181,11 +213,11 @@ class OdooProvenanceTests(unittest.TestCase):
 
         manifest = self._publish(batches)
         restored = self.service.current_manifest(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             actor=LOCAL_ACTOR,
         )
         decoded = self.service.read_current_origins(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             actor=LOCAL_ACTOR,
             now=self.now + timedelta(hours=1),
         )
@@ -196,15 +228,13 @@ class OdooProvenanceTests(unittest.TestCase):
         self.assertEqual(header, OdooCaptureOriginHeader(high_water_id=99))
         self.assertEqual(restored_batches, batches)
         self.assertEqual(
-            self.service.history(self.project.project_id, actor=LOCAL_ACTOR),
+            self.service.history(self.workspace_state.workspace_id, actor=LOCAL_ACTOR),
             (manifest,),
         )
-        artifact = (
-            Path(self.temporary.name)
-            / self.project.project_id
-            / "protected"
-            / manifest.provenance_storage_key
-        )
+        artifact = _protected_root(
+            self.temporary.name,
+            self.workspace_state.workspace_id,
+        ) / manifest.provenance_storage_key
         encrypted = artifact.read_bytes()
         self.assertNotIn(self.now.date().isoformat().encode("ascii"), encrypted)
         self.assertNotIn((41).to_bytes(8, "big"), encrypted)
@@ -281,12 +311,10 @@ class OdooProvenanceTests(unittest.TestCase):
 
     def test_tamper_wrong_key_and_binding_fail_closed(self) -> None:
         manifest = self._publish(self._batches())
-        artifact = (
-            Path(self.temporary.name)
-            / self.project.project_id
-            / "protected"
-            / manifest.provenance_storage_key
-        )
+        artifact = _protected_root(
+            self.temporary.name,
+            self.workspace_state.workspace_id,
+        ) / manifest.provenance_storage_key
         original = artifact.read_bytes()
         changed = bytearray(original)
         changed[-1] ^= 1
@@ -297,7 +325,7 @@ class OdooProvenanceTests(unittest.TestCase):
             "artifact hash verification",
         ):
             self.service.read_current_origins(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 actor=LOCAL_ACTOR,
                 now=self.now + timedelta(hours=1),
             )
@@ -310,7 +338,7 @@ class OdooProvenanceTests(unittest.TestCase):
             "authentication failed",
         ):
             self.service.read_current_origins(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 actor=LOCAL_ACTOR,
                 now=self.now + timedelta(hours=1),
             )
@@ -323,21 +351,23 @@ class OdooProvenanceTests(unittest.TestCase):
             self.database,
             self.artifacts,
             history_quota_bytes=(first.data_size_bytes + first.provenance_size_bytes),
+            protected_root=lambda workspace_id: _protected_root(
+                self.temporary.name,
+                workspace_id,
+            ),
         )
         with self.assertRaisesRegex(WorkspaceError, "history quota"):
             self._publish(self._batches(), repository=constrained)
 
-        self.assertEqual(self.repository.get_current(self.project.project_id), first)
+        self.assertEqual(self.repository.get_current(self.workspace_state.workspace_id), first)
         self.assertEqual(
-            self.repository.history(self.project.project_id),
+            self.repository.history(self.workspace_state.workspace_id),
             (first,),
         )
-        candidates = (
-            Path(self.temporary.name)
-            / self.project.project_id
-            / "protected"
-            / "candidates"
-        )
+        candidates = _protected_root(
+            self.temporary.name,
+            self.workspace_state.workspace_id,
+        ) / "candidates"
         self.assertEqual(tuple(candidates.glob("*")), ())
 
     def test_selection_change_invalidates_current_but_retains_history(self) -> None:
@@ -348,33 +378,33 @@ class OdooProvenanceTests(unittest.TestCase):
         )
 
         self.sources.save_odoo_capture_selection(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             replacement,
             actor=LOCAL_ACTOR,
         )
 
-        self.assertIsNone(self.repository.get_current(self.project.project_id))
-        self.assertEqual(self.repository.history(self.project.project_id), (manifest,))
+        self.assertIsNone(self.repository.get_current(self.workspace_state.workspace_id))
+        self.assertEqual(self.repository.history(self.workspace_state.workspace_id), (manifest,))
 
     def test_target_change_invalidates_current_but_retains_history(self) -> None:
         manifest = self._publish(self._batches())
         changed = replace(
-            self.project,
+            self.workspace_state,
             odoo_database="replacement",
-            revision=self.project.revision + 1,
+            revision=self.workspace_state.revision + 1,
             updated_at=self.now + timedelta(minutes=2),
         )
 
-        self.projects.save(
+        self.workspace_states.save(
             changed,
-            expected_revision=self.project.revision,
+            expected_revision=self.workspace_state.revision,
             event_type="WORKSPACE_TARGET_UPDATED",
             event_detail="replacement target",
             actor=LOCAL_ACTOR,
         )
 
-        self.assertIsNone(self.repository.get_current(self.project.project_id))
-        self.assertEqual(self.repository.history(self.project.project_id), (manifest,))
+        self.assertIsNone(self.repository.get_current(self.workspace_state.workspace_id))
+        self.assertEqual(self.repository.history(self.workspace_state.workspace_id), (manifest,))
 
     def test_retention_refuses_expired_reads_and_purges_expired_history(self) -> None:
         manifest = self._publish(self._batches())
@@ -382,40 +412,39 @@ class OdooProvenanceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "expired"):
             self.service.read_current_origins(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 actor=LOCAL_ACTOR,
                 now=expired_at,
             )
         self.assertEqual(
             self.service.enforce_retention(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 actor=LOCAL_ACTOR,
                 now=expired_at,
             ),
             1,
         )
-        self.assertIsNone(self.repository.get_current(self.project.project_id))
-        self.assertEqual(self.repository.history(self.project.project_id), ())
-        artifact = (
-            Path(self.temporary.name)
-            / self.project.project_id
-            / "protected"
-            / manifest.provenance_storage_key
-        )
+        self.assertIsNone(self.repository.get_current(self.workspace_state.workspace_id))
+        self.assertEqual(self.repository.history(self.workspace_state.workspace_id), ())
+        artifact = _protected_root(
+            self.temporary.name,
+            self.workspace_state.workspace_id,
+        ) / manifest.provenance_storage_key
         self.assertFalse(artifact.exists())
         self.assertFalse(
             (
                 Path(self.temporary.name)
-                / self.project.project_id
+                / "dv"
+                / _data_version_id(self.workspace_state.workspace_id)
                 / manifest.data_storage_key
             ).exists()
         )
-        self.assertIsNone(self.sources.get_source_selection(self.project.project_id))
+        self.assertIsNone(self.sources.get_source_selection(self.workspace_state.workspace_id))
 
     def test_purge_preserves_a_value_artifact_reused_by_retained_history(self) -> None:
         first = self._publish(self._batches())
         self.repository.invalidate_current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             reason="RECAPTURE",
             actor=LOCAL_ACTOR,
         )
@@ -425,6 +454,10 @@ class OdooProvenanceTests(unittest.TestCase):
             history_quota_bytes=(
                 first.data_size_bytes + 2 * first.provenance_size_bytes
             ),
+            protected_root=lambda workspace_id: _protected_root(
+                self.temporary.name,
+                workspace_id,
+            ),
         )
         second = self._publish(
             self._batches(),
@@ -433,23 +466,24 @@ class OdooProvenanceTests(unittest.TestCase):
         )
         self.assertEqual(first.data_storage_key, second.data_storage_key)
         self.repository.invalidate_current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             reason="TEST_HISTORY",
             actor=LOCAL_ACTOR,
         )
 
         purged = self.repository.purge_expired_history(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             now=self.now + timedelta(days=1, minutes=2),
             actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(purged, 1)
-        self.assertEqual(self.repository.history(self.project.project_id), (second,))
+        self.assertEqual(self.repository.history(self.workspace_state.workspace_id), (second,))
         self.assertTrue(
             (
                 Path(self.temporary.name)
-                / self.project.project_id
+                / "dv"
+                / _data_version_id(self.workspace_state.workspace_id)
                 / second.data_storage_key
             ).is_file()
         )
@@ -465,7 +499,7 @@ class OdooProvenanceTests(unittest.TestCase):
         )
         with self.assertRaises(PermissionError):
             self.service.current_manifest(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 actor=unauthorized,
             )
 
@@ -474,14 +508,14 @@ class OdooProvenanceTests(unittest.TestCase):
         self.assertTrue(self.secrets.values)
 
         self.service.delete_recipe_workspace_key(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(self.secrets.values, {})
         with self.assertRaisesRegex(SecretStoreError, "key is missing"):
             self.service.read_current_origins(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 actor=LOCAL_ACTOR,
                 now=self.now + timedelta(hours=1),
             )
@@ -493,7 +527,7 @@ class OdooProvenanceTests(unittest.TestCase):
         )
         manifest = OdooExecutionOriginManifest.create(
             origin_id=str(uuid4()),
-            project_id=self.project.project_id,
+            workspace_id=self.workspace_state.workspace_id,
             capture_manifest_hash=HASHES[2],
             execution_snapshot_hash=HASHES[3],
             connection_target_hash=HASHES[4],
@@ -542,7 +576,7 @@ class OdooProvenanceTests(unittest.TestCase):
             )
             for item in columns
         )
-        current = self.sources.get_source_selection(self.project.project_id)
+        current = self.sources.get_source_selection(self.workspace_state.workspace_id)
         version = current.version + 1 if current else 1
         dataset = SourceDataset(
             dataset_id=self.selection.dataset_id,
@@ -554,20 +588,21 @@ class OdooProvenanceTests(unittest.TestCase):
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=version,
-            project_id=self.project.project_id,
+            data_version_id=_data_version_id(self.workspace_state.workspace_id),
             created_at=finished_at,
             created_by=LOCAL_ACTOR.identity.display_name,
             datasets=(dataset,),
             content_hash=content_hash(
                 {
-                    "project_id": self.project.project_id,
+                    "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+                    "data_version_id": _data_version_id(self.workspace_state.workspace_id),
                     "version": version,
                     "datasets": [dataset.to_dict()],
                 }
             ),
         )
         with self.artifacts.prepare_source_snapshot(
-            self.project.project_id
+            _data_version_id(self.workspace_state.workspace_id)
         ) as workspace:
             writer = SourceSnapshotCandidateWriter(
                 workspace,
@@ -584,7 +619,7 @@ class OdooProvenanceTests(unittest.TestCase):
                 )
             candidate = writer.finalize()
             snapshot = SourceSnapshot.create(
-                project_id=self.project.project_id,
+                data_version_id=_data_version_id(self.workspace_state.workspace_id),
                 dataset_id=dataset.dataset_id,
                 dataset_name=dataset.name,
                 source=dataset.source,
@@ -596,13 +631,13 @@ class OdooProvenanceTests(unittest.TestCase):
                 created_at=selection.created_at,
             )
             self.artifacts.publish_source_snapshot(
-                self.project.project_id,
+                _data_version_id(self.workspace_state.workspace_id),
                 candidate.path,
                 snapshot.parquet_storage_key,
                 expected_sha256=candidate.parquet_sha256,
             )
         protected = self.service.prepare_capture_origins(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             actor=LOCAL_ACTOR,
             header=OdooCaptureOriginHeader(high_water_id=99),
             batches=batches,
@@ -617,7 +652,7 @@ class OdooProvenanceTests(unittest.TestCase):
         publisher = repository or self.repository
         try:
             publisher.publish_complete_capture(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 protected.manifest,
                 protected.encrypted_bytes,
                 selection,
@@ -625,7 +660,7 @@ class OdooProvenanceTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
         except Exception:
-            publisher.recover_incomplete_publications(self.project.project_id)
+            publisher.recover_incomplete_publications(self.workspace_state.workspace_id)
             raise
         return protected.manifest
 
@@ -638,7 +673,7 @@ class OdooProvenanceTests(unittest.TestCase):
         return OdooCaptureSelection.create(
             selection_id=selection_id or str(uuid4()),
             version=version,
-            project_id=self.project.project_id,
+            data_version_id=_data_version_id(self.workspace_state.workspace_id),
             dataset_name="odoo_contacts",
             model="res.partner",
             field_names=("active", "name"),

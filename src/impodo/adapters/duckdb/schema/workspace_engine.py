@@ -13,11 +13,84 @@ from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
-from .recipe_application_workspace import (
-    create_recipe_application_workspace_schema,
+from .recipe_compilation import (
+    create_recipe_compilation_schema,
 )
 from .supporting_lookup import create_supporting_lookup_schema
 from .source_snapshot import create_source_snapshot_schema
+
+
+_WORKSPACE_PROJECTION_COLUMNS = (
+    "singleton_id",
+    "name",
+    "source_system",
+    "source_mode",
+    "data_classification",
+    "retention_days",
+    "odoo_connection_mode",
+    "odoo_base_url",
+    "odoo_database",
+    "intended_applications",
+    "intended_models",
+    "status",
+    "revision",
+    "created_at",
+    "updated_at",
+    "registered_at",
+    "mapping_version",
+    "current_run_id",
+    "approval_status",
+)
+_AUDIT_EVENT_COLUMNS = (
+    "event_id",
+    "event_type",
+    "workspace_revision",
+    "occurred_at",
+    "detail",
+    "actor_issuer",
+    "actor_subject",
+    "actor_display_name",
+)
+_WORKSPACE_ENGINE_TABLES = frozenset(
+    {
+        "audit_event", "canonical_prepared_projection", "canonical_staging_current",
+        "canonical_staging_row", "canonical_staging_row_issue", "canonical_staging_run",
+        "coverage_scope_current", "coverage_scope_revision",
+        "derived_entity_plan_current", "derived_entity_plan_revision",
+        "derived_value_artifact_current", "derived_value_artifact_manifest",
+        "effective_dataset_current", "effective_dataset_reconciliation", "effective_row",
+        "execution_current", "execution_row", "execution_run", "mapping_current",
+        "mapping_revision", "mapping_submission", "mapping_validation",
+        "mapping_working_draft", "normalization_current", "normalization_effect",
+        "normalization_group", "normalization_run", "normalization_transition",
+        "odoo_capture_manifest_current", "odoo_capture_manifest_revision",
+        "odoo_capture_selection_current", "odoo_capture_selection_revision",
+        "odoo_model_catalog", "odoo_schema_catalog", "preflight_current",
+        "preflight_dataset", "preflight_decision", "preflight_target_snapshot",
+        "preflight_transition", "preparation_direct_identity",
+        "preparation_identity_group", "preparation_impact_row", "preparation_lineage",
+        "preparation_normalization_finding", "preparation_normalization_group_seed",
+        "preparation_physical_row", "preparation_relationship_edge",
+        "preparation_session", "preparation_session_derived_artifact",
+        "preparation_session_snapshot", "prepared_snapshot_current",
+        "prepared_snapshot_manifest", "quality_current", "quality_evidence_projection",
+        "quality_issue", "quality_quarantine_entry", "quality_row_result",
+        "quality_ruleset_current", "quality_ruleset_revision", "quality_run",
+        "readiness_run", "recipe_parameter_definitions", "recipe_quality_seed",
+        "reconciliation_current", "reconciliation_run", "reference_bundle_current",
+        "reference_bundle_revision", "resolution_accounting", "resolution_candidate",
+        "resolution_current", "resolution_decision", "resolution_finding",
+        "resolution_policy_current", "resolution_policy_revision", "resolution_run",
+        "retired_evidence", "schema_governance_current", "schema_governance_revision",
+        "schema_version", "source_accounting_entry", "source_accounting_link",
+        "source_catalog", "source_configuration", "source_file", "source_selection",
+        "source_snapshot_current", "source_snapshot_manifest",
+        "supporting_lookup_current", "supporting_lookup_revision",
+        "transformation_impact_row", "transformation_impact_run",
+        "transformation_rule_acknowledgement", "transformation_rule_impact",
+        "workspace_projection_cache",
+    }
+)
 
 
 _UNSUPPORTED_WORKSPACE_MESSAGE = (
@@ -45,20 +118,13 @@ class WorkspaceEngineSchemaMixin:
                 1, '{SCHEMA_GENERATION}', {SCHEMA_VERSION}
             );
 
-            CREATE TABLE workspace_state (
-                project_id VARCHAR PRIMARY KEY,
+            CREATE TABLE workspace_projection_cache (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
                 name VARCHAR NOT NULL,
                 source_system VARCHAR NOT NULL,
                 source_mode VARCHAR NOT NULL,
-                export_status VARCHAR NOT NULL,
-                export_date VARCHAR,
-                description VARCHAR NOT NULL,
-                data_manager VARCHAR NOT NULL,
-                functional_owner VARCHAR NOT NULL,
-                business_unit VARCHAR NOT NULL,
                 data_classification VARCHAR NOT NULL,
                 retention_days INTEGER NOT NULL,
-                support_access BOOLEAN NOT NULL,
                 odoo_connection_mode VARCHAR,
                 odoo_base_url VARCHAR NOT NULL,
                 odoo_database VARCHAR NOT NULL,
@@ -590,7 +656,7 @@ class WorkspaceEngineSchemaMixin:
             CREATE TABLE audit_event (
                 event_id BIGINT PRIMARY KEY,
                 event_type VARCHAR NOT NULL,
-                project_revision INTEGER NOT NULL,
+                workspace_revision INTEGER NOT NULL,
                 occurred_at VARCHAR NOT NULL,
                 detail VARCHAR NOT NULL,
                 actor_issuer VARCHAR NOT NULL,
@@ -609,7 +675,7 @@ class WorkspaceEngineSchemaMixin:
         create_source_snapshot_schema(connection)
         create_prepared_snapshot_schema(connection)
         create_derived_value_artifact_schema(connection)
-        create_recipe_application_workspace_schema(connection)
+        create_recipe_compilation_schema(connection)
         create_supporting_lookup_schema(connection)
 
     def _ensure_workspace_database_schema(
@@ -633,4 +699,33 @@ class WorkspaceEngineSchemaMixin:
         stored_version = int(row[1])
         if stored_version != SCHEMA_VERSION:
             raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
-
+        try:
+            tables = frozenset(
+                str(item[0])
+                for item in connection.execute("SHOW TABLES").fetchall()
+            )
+        except duckdb.Error as error:
+            raise WorkspaceStateCompatibilityError(
+                _UNSUPPORTED_WORKSPACE_MESSAGE
+            ) from error
+        if tables != _WORKSPACE_ENGINE_TABLES:
+            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
+        for table, expected in (
+            ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
+            ("audit_event", _AUDIT_EVENT_COLUMNS),
+        ):
+            try:
+                columns = tuple(
+                    str(item[1])
+                    for item in connection.execute(
+                        f"PRAGMA table_info('{table}')"
+                    ).fetchall()
+                )
+            except duckdb.Error as error:
+                raise WorkspaceStateCompatibilityError(
+                    _UNSUPPORTED_WORKSPACE_MESSAGE
+                ) from error
+            if columns != expected:
+                raise WorkspaceStateCompatibilityError(
+                    _UNSUPPORTED_WORKSPACE_MESSAGE
+                )

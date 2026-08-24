@@ -20,7 +20,7 @@ from ..preparation_jobs import (
 
 
 class PreparationJobNotFoundError(LookupError):
-    """Raised when a job ID is absent or belongs to another project."""
+    """Raised when a job ID is absent or belongs to another workspace."""
 
 
 class PreparationJobStateError(ValueError):
@@ -36,32 +36,32 @@ class PreparationJobRegistry:
 
     def enqueue(
         self,
-        project_id: str,
-        project_name: str,
+        workspace_id: str,
+        migration_project_name: str,
         total_rows: int,
         requested_by: ActorIdentity,
         workspace: PreparationWorkspace,
         build_contract: ApplicationBuildContract,
     ) -> tuple[PreparationJob, bool]:
-        """Create one attempt or return the project's already-active attempt."""
+        """Create one attempt or return the workspace's already-active attempt."""
 
         with self._lock:
-            active = self._active_locked(project_id)
+            active = self._active_locked(workspace_id)
             if active is not None:
                 return active, False
             attempt = 1 + max(
                 (
                     job.attempt
                     for job in self._jobs.values()
-                    if job.project_id == project_id
+                    if job.workspace_id == workspace_id
                 ),
                 default=0,
             )
             now = _now()
             job = PreparationJob(
                 job_id=str(uuid4()),
-                project_id=project_id,
-                project_name=project_name.strip()[:300] or "Data preparation project",
+                workspace_id=workspace_id,
+                migration_project_name=migration_project_name.strip()[:300] or "Data preparation project",
                 build_contract=build_contract,
                 workspace=workspace,
                 status=PreparationJobStatus.QUEUED,
@@ -86,10 +86,10 @@ class PreparationJobRegistry:
             self._jobs[job.job_id] = job
             return job, True
 
-    def get(self, project_id: str, job_id: str) -> PreparationJob:
+    def get(self, workspace_id: str, job_id: str) -> PreparationJob:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.project_id != project_id:
+            if job is None or job.workspace_id != workspace_id:
                 raise PreparationJobNotFoundError("Preparation job not found")
             return job
 
@@ -97,20 +97,20 @@ class PreparationJobRegistry:
         with self._lock:
             return self._get_by_id_locked(job_id)
 
-    def active(self, project_id: str) -> PreparationJob | None:
+    def active(self, workspace_id: str) -> PreparationJob | None:
         with self._lock:
-            return self._active_locked(project_id)
+            return self._active_locked(workspace_id)
 
-    def delete_project_history(self, project_id: str) -> None:
+    def delete_workspace_history(self, workspace_id: str) -> None:
         with self._lock:
-            if self._active_locked(project_id) is not None:
+            if self._active_locked(workspace_id) is not None:
                 raise PreparationJobStateError(
-                    "Stop the active preparation before deleting this project"
+                    "Stop the active preparation before deleting this workspace"
                 )
             self._jobs = {
                 job_id: job
                 for job_id, job in self._jobs.items()
-                if job.project_id != project_id
+                if job.workspace_id != workspace_id
             }
 
     def mark_running(self, job_id: str) -> PreparationJob:
@@ -172,9 +172,9 @@ class PreparationJobRegistry:
                 )
             )
 
-    def request_cancel(self, project_id: str, job_id: str) -> PreparationJob:
+    def request_cancel(self, workspace_id: str, job_id: str) -> PreparationJob:
         with self._lock:
-            job = self.get(project_id, job_id)
+            job = self.get(workspace_id, job_id)
             if job.terminal:
                 return job
             if not job.active:
@@ -271,11 +271,11 @@ class PreparationJobRegistry:
                 )
             )
 
-    def _active_locked(self, project_id: str) -> PreparationJob | None:
+    def _active_locked(self, workspace_id: str) -> PreparationJob | None:
         active = (
             job
             for job in self._jobs.values()
-            if job.project_id == project_id and job.active
+            if job.workspace_id == workspace_id and job.active
         )
         return max(active, key=lambda job: job.created_at, default=None)
 

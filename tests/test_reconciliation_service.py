@@ -47,11 +47,11 @@ class _Execution:
         self.run = run
 
     def get_run(self, project_id, run_id):
-        return self.run if (project_id, run_id) == (self.run.project_id, self.run.run_id) else None
+        return self.run if (project_id, run_id) == (self.run.workspace_id, self.run.run_id) else None
 
     def get_current_run(self, project_id, snapshot_hash=None):
         del snapshot_hash
-        return self.run if project_id == self.run.project_id else None
+        return self.run if project_id == self.run.workspace_id else None
 
 
 class _Results:
@@ -59,7 +59,7 @@ class _Results:
         self.report = None
 
     def get_current(self, project_id, execution_run_id=None):
-        if self.report is None or self.report.project_id != project_id:
+        if self.report is None or self.report.workspace_id != project_id:
             return None
         if execution_run_id and self.report.execution_run_id != execution_run_id:
             return None
@@ -67,7 +67,7 @@ class _Results:
 
     def publish(self, project_id, report, *, actor):
         del actor
-        assert report.project_id == project_id
+        assert report.workspace_id == project_id
         self.report = report
 
 
@@ -161,7 +161,7 @@ def _run(snapshot, statuses=None):
     )
     return ExecutionRun(
         run_id=str(uuid4()),
-        project_id=snapshot.project_id,
+        workspace_id=snapshot.workspace_id,
         snapshot_hash=snapshot.semantic_hash,
         snapshot_root_hash=snapshot.root_hash,
         preflight_run_id=snapshot.preflight_run_id,
@@ -188,7 +188,7 @@ class ReconciliationServiceTests(unittest.TestCase):
                 execution_snapshot=lambda project_id, preflight_id: (
                     snapshot
                     if (project_id, preflight_id)
-                    == (snapshot.project_id, snapshot.preflight_run_id)
+                    == (snapshot.workspace_id, snapshot.preflight_run_id)
                     else None
                 )
             ),
@@ -204,7 +204,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         service, results = self._service(snapshot, run)
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=_Reader(execution_api_scope(snapshot).semantic_hash),
             actor=LOCAL_ACTOR,
@@ -246,7 +246,7 @@ class ReconciliationServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(WorkspaceError, "changed after execution"):
             service.reconcile(
-                snapshot.project_id,
+                snapshot.workspace_id,
                 expected_execution_run_id=run.run_id,
                 reader=reader,
                 actor=LOCAL_ACTOR,
@@ -284,7 +284,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         rotated_binding = "sha256:" + "9" * 64
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=_Reader(execution_api_scope(snapshot).semantic_hash),
             actor=LOCAL_ACTOR,
@@ -353,7 +353,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -378,7 +378,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         reader.uncertain = (ReadbackRecord(10, {"name": "Category"}),)
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -401,7 +401,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         service, _results = self._service(snapshot, run)
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=_Reader(execution_api_scope(snapshot).semantic_hash),
             actor=LOCAL_ACTOR,
@@ -446,7 +446,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         reader = _Reader(execution_api_scope(scoped).semantic_hash)
 
         service.reconcile(
-            scoped.project_id,
+            scoped.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -469,7 +469,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         reader.records[("res.partner", 50)]["email"] = "different@example.test"
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -488,7 +488,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         del reader.external_ids[snapshot.rows[0].proposed_external_id]
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -511,7 +511,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -549,7 +549,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         reader.references["product.category"] = {"Existing Category": 50}
 
         report = service.reconcile(
-            scoped.project_id,
+            scoped.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -571,7 +571,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         reader.references["product.category"] = {"Existing Category": 50}
 
         report = service.reconcile(
-            snapshot.project_id,
+            snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,
@@ -607,7 +607,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         reader.references["x.tag"] = {"BLUE": 60, "FOOD": 61}
 
         report = service.reconcile(
-            scoped.project_id,
+            scoped.workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,

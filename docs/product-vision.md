@@ -598,9 +598,9 @@ gateway; or hosted multi-user infrastructure.
 Product ownership has accepted an architecture in which `MigrationProject` is
 the business root, DataVersion owns a complete Project source package, and
 several Project-scoped Recipes can participate in one qualified CutoverPlan.
-Phases M0 through M7 implement the Project root, source ownership, one-off
-authoring, optional Recipe publication, and integrated Test planning with one
-isolated workspace per Recipe application. Exact ordered application evidence,
+The current implementation provides the Project root, source ownership,
+one-off authoring, optional Recipe publication, and integrated Test planning
+with one isolated workspace per Recipe application. Exact ordered application evidence,
 qualified CutoverPlans, and separate rollout-candidate selection are now
 implemented. A selected plan now creates a fresh latest-data Production run,
 different Odoo 19 target binding, independent credential authority, and fresh
@@ -610,10 +610,10 @@ records the Project-first ownership decision.
 ## 8. Delivery roadmap
 
 **Current priority note, 2026-08-24:** The historical capability phases below
-describe the wider product progression. The Project-first cutover is current,
-and its remaining internal workspace-identity gate is recorded in the
-[authoritative remaining-work roadmap](plans/remaining-work.md). Completed
-Recipe-first delivery remains historical implementation evidence only. Scale expansion, general
+describe the wider product progression. The Project-first architecture is
+current. The [authoritative remaining-work roadmap](plans/remaining-work.md)
+contains only unfinished work. Completed Recipe-first delivery remains
+historical implementation evidence only. Scale expansion, general
 certification, general production hardening, Odoo-source guarded updates,
 gateway, and hosted work remain deferred in that roadmap.
 

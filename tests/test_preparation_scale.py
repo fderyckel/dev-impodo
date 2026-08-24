@@ -219,7 +219,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         fixture_cpu_started = process_time()
         process = psutil.Process()
         with _PeakWorkingSetSampler(process) as fixture_memory_sampler:
-            project_id, source_sha256, source_size_bytes = (
+            workspace_id, source_sha256, source_size_bytes = (
                 self._prepare_project_and_evidence(
                     row_count=PREPARATION_SCALE_ROWS,
                     column_count=PREPARATION_SCALE_COLUMNS,
@@ -228,13 +228,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 )
             )
         if os.environ.get("IMPODO_PREPARATION_ADVANCED") == "1":
-            self._enable_advanced_coverage(project_id)
-        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
+            self._enable_advanced_coverage(workspace_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(workspace_id)
         physical_selection = self.context.preparation.sources.get_source_selection(
-            project_id
+            workspace_id
         )
         effective_selection = (
-            self.context.preparation.sources.get_mapping_source_selection(project_id)
+            self.context.preparation.sources.get_mapping_source_selection(workspace_id)
         )
         assert revision is not None
         assert physical_selection is not None
@@ -245,19 +245,19 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             effective_selection=effective_selection,
             source_snapshots=(
                 self.context.preparation.sources.get_current_source_snapshots(
-                    project_id
+                    workspace_id
                 )
             ),
             derived_plan=(
                 self.context.preparation.derived_entities.get_derived_entity_plan(
-                    project_id
+                    workspace_id
                 )
             ),
             current_ruleset=(
-                self.context.preparation.quality.current_ruleset(project_id)
+                self.context.preparation.quality.current_ruleset(workspace_id)
             ),
             reference_bundle=(
-                self.context.preparation.resolution.current_reference_bundle(project_id)
+                self.context.preparation.resolution.current_reference_bundle(workspace_id)
                 if self.context.preparation.resolution is not None
                 else None
             ),
@@ -630,7 +630,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             for active_patch in patches:
                 stack.enter_context(active_patch)
             normalization = self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
         elapsed = perf_counter() - started
@@ -644,11 +644,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             python_traced_peak = 0
 
         staging = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
-        quality = self.context.preparation.quality.current_summary(project_id)
+        quality = self.context.preparation.quality.current_summary(workspace_id)
         current_normalization = self.context.preparation.normalization.current_summary(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(staging)
         self.assertIsNotNone(quality)
@@ -661,21 +661,21 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
         peak_tree_mib = memory_sampler.peak_tree_bytes / (1024 * 1024)
         database_path = (
-            self.context.preparation.staging.workspace_directory(project_id)
+            self.context.preparation.staging.workspace_directory(workspace_id)
             / "workspace-engine.duckdb"
         )
         source_snapshots = (
-            self.context.preparation.sources.get_current_source_snapshots(project_id)
+            self.context.preparation.sources.get_current_source_snapshots(workspace_id)
         )
         snapshot_bytes = sum(
-            (self.root / project_id / snapshot.parquet_storage_key).stat().st_size
+            (self.root / workspace_id / snapshot.parquet_storage_key).stat().st_size
             for snapshot in source_snapshots
         )
         prepared_snapshots = (
-            self.context.preparation.sessions.current_prepared_snapshots(project_id)
+            self.context.preparation.sessions.current_prepared_snapshots(workspace_id)
         )
         prepared_snapshot_bytes = sum(
-            (self.root / project_id / snapshot.parquet_storage_key).stat().st_size
+            (self.root / workspace_id / snapshot.parquet_storage_key).stat().st_size
             for snapshot in prepared_snapshots
         )
         with self.context.preparation.staging._connect(database_path) as connection:
@@ -746,7 +746,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert database_size_row is not None
         block_size = int(database_size_row[2])
         database_file_bytes = database_path.stat().st_size
-        project_directory = self.root / project_id
+        project_directory = self.root / workspace_id
         project_storage_bytes = sum(
             item.stat().st_size
             for item in project_directory.rglob("*")
@@ -1032,30 +1032,30 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         import psutil
 
-        project_id, source_sha256, source_size_bytes = (
+        workspace_id, source_sha256, source_size_bytes = (
             self._prepare_project_and_evidence(
                 row_count=PREPARATION_SCALE_ROWS,
                 column_count=PREPARATION_SCALE_COLUMNS,
                 mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
             )
         )
-        project = self.context.preparation.projects.get(project_id)
-        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
-        physical = self.context.preparation.sources.get_source_selection(project_id)
+        workspace_state = self.context.preparation.workspaces.get(workspace_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(workspace_id)
+        physical = self.context.preparation.sources.get_source_selection(workspace_id)
         effective = self.context.preparation.sources.get_mapping_source_selection(
-            project_id
+            workspace_id
         )
         assert revision is not None
         assert physical is not None
         assert effective is not None
         reference_bundle = (
-            self.context.preparation.resolution.current_reference_bundle(project_id)
+            self.context.preparation.resolution.current_reference_bundle(workspace_id)
             if self.context.preparation.resolution is not None
             else None
         )
         process = psutil.Process()
         source_snapshots = (
-            self.context.preparation.sources.get_current_source_snapshots(project_id)
+            self.context.preparation.sources.get_current_source_snapshots(workspace_id)
         )
         phase_seconds: dict[str, float] = {}
 
@@ -1167,12 +1167,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 )
             )
             bounded = preparation_module.prepare_bounded_direct_session(
-                project,
+                workspace_state,
                 revision.definition,
                 revision.version,
                 physical,
                 effective,
-                self.context.preparation.sources.get_source_catalogs(project_id),
+                self.context.preparation.sources.get_source_catalogs(workspace_id),
                 self.artifacts,
                 reference_bundle,
                 self.context.preparation.sessions,
@@ -1182,7 +1182,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         elapsed = perf_counter() - started
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
         ending_mib = process.memory_info().rss / (1024 * 1024)
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         database_mib = database_path.stat().st_size / (1024 * 1024)
         self.assertEqual(len(bounded.run.rows), PREPARATION_SCALE_ROWS)
         for forbidden_phase in (
@@ -1224,7 +1224,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
 
         if related_product_bom:
-            project_id, source_sha256, source_size_bytes = (
+            workspace_id, source_sha256, source_size_bytes = (
                 self._prepare_related_product_bom_project_and_evidence(
                     product_count=PREPARATION_SCALE_PRODUCTS,
                     bom_line_count=PREPARATION_SCALE_BOM_LINES,
@@ -1233,7 +1233,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 )
             )
         else:
-            project_id, source_sha256, source_size_bytes = (
+            workspace_id, source_sha256, source_size_bytes = (
                 self._prepare_project_and_evidence(
                     row_count=PREPARATION_SCALE_ROWS,
                     column_count=PREPARATION_SCALE_COLUMNS,
@@ -1241,14 +1241,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     dirty=PREPARATION_SCALE_DIRTY,
                 )
             )
-        project = self.context.queries.get(project_id)
-        selection = self.context.queries.get_source_selection(project_id)
+        workspace_state = self.context.queries.get(workspace_id)
+        selection = self.context.queries.get_source_selection(workspace_id)
         assert selection is not None
         manager = self.context.preparation_jobs
         assert manager is not None
         workspace = PreparationWorkspace.from_resolution(
             self.context.recipes.resolve_workspace(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
         )
@@ -1257,8 +1257,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         def run_attempt() -> tuple[float, float, int]:
             job = manager.enqueue(
-                project_id,
-                project.name,
+                workspace_id,
+                workspace_state.name,
                 sum(item.row_count for item in selection.datasets),
                 actor=self.context.actor,
                 workspace=workspace,
@@ -1268,7 +1268,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             worker_cpu_seconds = 0.0
             deadline = started + 600
             while perf_counter() < deadline:
-                current = manager.get(project_id, job.job_id)
+                current = manager.get(workspace_id, job.job_id)
                 worker_pid = manager.worker_pid(job.job_id)
                 if worker_pid is not None:
                     try:
@@ -1304,7 +1304,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
 
         def storage_evidence() -> dict[str, int]:
-            database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+            database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
             with self.context.preparation.staging._connect(database_path) as connection:
                 connection.execute("CHECKPOINT")
                 database_size_row = connection.execute(
@@ -1312,7 +1312,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 ).fetchone()
             assert database_size_row is not None
             block_size = int(database_size_row[2])
-            project_directory = self.root / project_id
+            project_directory = self.root / workspace_id
             return {
                 "database_file_bytes": database_path.stat().st_size,
                 "database_free_bytes": block_size * int(database_size_row[5]),
@@ -1325,7 +1325,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             }
 
         def vectorization_evidence() -> dict[str, object]:
-            database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+            database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
             with self.context.preparation.staging._connect(database_path) as connection:
                 row = connection.execute(
                     """
@@ -1362,40 +1362,40 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         first_seconds, first_cpu_seconds, first_peak = run_attempt()
         first_staging = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
-        first_quality = self.context.preparation.quality.current_summary(project_id)
+        first_quality = self.context.preparation.quality.current_summary(workspace_id)
         first_normalization = self.context.preparation.normalization.current_summary(
-            project_id
+            workspace_id
         )
         first_storage = storage_evidence()
         parent_rss_after_first = parent_process.memory_info().rss
         prepared = self.context.preparation.sessions.current_prepared_snapshots(
-            project_id
+            workspace_id
         )
         expected_prepared_count = 2 if related_product_bom else 1
         self.assertEqual(len(prepared), expected_prepared_count)
         prepared_modified = {
             item.parquet_storage_key: (
-                self.root / project_id / item.parquet_storage_key
+                self.root / workspace_id / item.parquet_storage_key
             )
             .stat()
             .st_mtime_ns
             for item in prepared
         }
-        for source_file in project.source_files:
+        for source_file in workspace_state.source_files:
             self.artifacts.delete_source(
-                project_id,
+                workspace_id,
                 source_file.stored_name,
             )
 
         repeat_seconds, repeat_cpu_seconds, repeat_peak = run_attempt()
         repeated_staging = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
-        repeated_quality = self.context.preparation.quality.current_summary(project_id)
+        repeated_quality = self.context.preparation.quality.current_summary(workspace_id)
         repeated_normalization = self.context.preparation.normalization.current_summary(
-            project_id
+            workspace_id
         )
         repeat_storage = storage_evidence()
         parent_rss_after_repeat = parent_process.memory_info().rss
@@ -1420,13 +1420,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             first_normalization.content_hash,
         )
         self.assertEqual(
-            self.context.preparation.sessions.current_prepared_snapshots(project_id),
+            self.context.preparation.sessions.current_prepared_snapshots(workspace_id),
             prepared,
         )
         self.assertEqual(
             {
                 item.parquet_storage_key: (
-                    self.root / project_id / item.parquet_storage_key
+                    self.root / workspace_id / item.parquet_storage_key
                 )
                 .stat()
                 .st_mtime_ns
@@ -1518,7 +1518,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         if column_count < 4 or mapped_field_count < 4:
             self.fail("The related fixture requires at least four columns")
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        project = self.context.project_authoring.create(
+        workspace_state = self.context.project_authoring.create(
             actor=self.context.actor,
             display_name="96k related Product/BOM preparation benchmark",
             source_mode="FILE",
@@ -1556,7 +1556,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             file_id = str(_benchmark_uuid(f"{fixture_name}-source-file"))
             with source_path.open("rb") as stream:
                 stored = self.artifacts.store_source(
-                    project.project_id,
+                    workspace_state.workspace_id,
                     artifact_id=file_id,
                     suffix=".csv",
                     stream=stream,
@@ -1572,10 +1572,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 sha256=stored.sha256,
                 received_at=benchmark_now,
             )
-            project = self.context.workspace_states.add_source_file(
-                project.project_id,
+            workspace_state = self.context.workspace_states.add_source_file(
+                workspace_state.workspace_id,
                 actor=self.context.actor,
-                expected_revision=project.revision,
+                expected_revision=workspace_state.revision,
                 source_file=source,
             )
             sources.append(source)
@@ -1590,42 +1590,39 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 )
             )
 
-        registered = replace(
-            project,
-            data_manager="Performance tester",
-            functional_owner="Performance tester",
-            business_unit="Engineering",
+        registered_workspace_state = replace(
+            workspace_state,
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
             intended_models=("product.template", "mrp.bom.line"),
             status=WorkspaceStatus.REGISTERED,
-            revision=project.revision + 1,
+            revision=workspace_state.revision + 1,
             updated_at=benchmark_now,
             registered_at=benchmark_now,
         )
         self.context.workspace_states.repository.save(
-            registered,
-            expected_revision=project.revision,
+            registered_workspace_state,
+            expected_revision=workspace_state.revision,
             event_type="TEST_PROJECT_REGISTERED",
             event_detail="96k related Product/BOM preparation benchmark",
             actor=self.context.actor,
         )
         self.context.sources.sources.save_source_catalogs(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             tuple(catalogs),
             actor=self.context.actor,
         )
         for source in sources:
             self.context.sources.confirm_source(
-                registered.project_id,
+                registered_workspace_state.workspace_id,
                 source.file_id,
                 selected_table_keys=("csv",),
                 warnings_acknowledged=False,
                 actor=self.context.actor,
             )
         selection = self.context.sources.freeze_selection(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             dataset_names={
                 (sources[0].file_id, "csv"): "products",
                 (sources[1].file_id, "csv"): "bom_lines",
@@ -1782,7 +1779,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         mapping_repository = self.context.mapping_workspace.mappings
         mapping_repository.save_mapping_revision(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             revision,
             validation=validation,
             expected_parent_version=None,
@@ -1790,7 +1787,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             checked_draft=MappingWorkingDraft(
                 mapping_id=definition.mapping_id,
                 version=1,
-                project_id=registered.project_id,
+                workspace_id=registered_workspace_state.workspace_id,
                 base_mapping_version=revision.version,
                 definition=definition,
                 updated_at=benchmark_now,
@@ -1799,7 +1796,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             actor=self.context.actor,
         )
         mapping_repository.save_mapping_submission(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             MappingSubmission(
                 submission_id=str(_benchmark_uuid("mapping-submission")),
                 mapping_id=definition.mapping_id,
@@ -1817,7 +1814,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             fixture_digest.update(source.sha256.encode("ascii"))
             fixture_digest.update(str(source.size_bytes).encode("ascii"))
         return (
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             "sha256:" + fixture_digest.hexdigest(),
             sum(source.size_bytes for source in sources),
         )
@@ -1831,7 +1828,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         dirty: bool = False,
     ) -> tuple[str, str, int]:
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        project = self.context.project_authoring.create(
+        workspace_state = self.context.project_authoring.create(
             actor=self.context.actor,
             display_name="100k complete preparation benchmark",
             source_mode="FILE",
@@ -1856,7 +1853,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         file_id = str(_benchmark_uuid("source-file"))
         with source_path.open("rb") as stream:
             stored = self.artifacts.store_source(
-                project.project_id,
+                workspace_state.workspace_id,
                 artifact_id=file_id,
                 suffix=".csv",
                 stream=stream,
@@ -1872,30 +1869,27 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             sha256=stored.sha256,
             received_at=benchmark_now,
         )
-        project = self.context.workspace_states.add_source_file(
-            project.project_id,
+        workspace_state = self.context.workspace_states.add_source_file(
+            workspace_state.workspace_id,
             actor=self.context.actor,
-            expected_revision=project.revision,
+            expected_revision=workspace_state.revision,
             source_file=source,
         )
         now = benchmark_now
-        registered = replace(
-            project,
-            data_manager="Performance tester",
-            functional_owner="Performance tester",
-            business_unit="Engineering",
+        registered_workspace_state = replace(
+            workspace_state,
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
             intended_models=(_target_model(PREPARATION_SCALE_WORKLOAD),),
             status=WorkspaceStatus.REGISTERED,
-            revision=project.revision + 1,
+            revision=workspace_state.revision + 1,
             updated_at=now,
             registered_at=now,
         )
         self.context.workspace_states.repository.save(
-            registered,
-            expected_revision=project.revision,
+            registered_workspace_state,
+            expected_revision=workspace_state.revision,
             event_type="TEST_PROJECT_REGISTERED",
             event_detail="100k complete preparation benchmark",
             actor=self.context.actor,
@@ -1908,19 +1902,19 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             inspected_at=now,
         )
         self.context.sources.sources.save_source_catalogs(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             (catalog,),
             actor=self.context.actor,
         )
         self.context.sources.confirm_source(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
             actor=self.context.actor,
         )
         selection = self.context.sources.freeze_selection(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             dataset_names={
                 (source.file_id, "csv"): (_dataset_name(PREPARATION_SCALE_WORKLOAD))
             },
@@ -2043,7 +2037,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         mapping_repository = self.context.mapping_workspace.mappings
         mapping_repository.save_mapping_revision(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             revision,
             validation=validation,
             expected_parent_version=None,
@@ -2051,7 +2045,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             checked_draft=MappingWorkingDraft(
                 mapping_id=definition.mapping_id,
                 version=1,
-                project_id=registered.project_id,
+                workspace_id=registered_workspace_state.workspace_id,
                 base_mapping_version=revision.version,
                 definition=definition,
                 updated_at=now,
@@ -2060,7 +2054,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             actor=self.context.actor,
         )
         mapping_repository.save_mapping_submission(
-            registered.project_id,
+            registered_workspace_state.workspace_id,
             MappingSubmission(
                 submission_id=str(_benchmark_uuid("mapping-submission")),
                 mapping_id=definition.mapping_id,
@@ -2073,13 +2067,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ),
             actor=self.context.actor,
         )
-        return registered.project_id, stored.sha256, stored.size_bytes
+        return registered_workspace_state.workspace_id, stored.sha256, stored.size_bytes
 
-    def _enable_advanced_coverage(self, project_id: str) -> None:
+    def _enable_advanced_coverage(self, workspace_id: str) -> None:
         """Install deterministic Slice 6 inputs for the supported-scale probe."""
 
-        selection = self.context.preparation.sources.get_source_selection(project_id)
-        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
+        selection = self.context.preparation.sources.get_source_selection(workspace_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(workspace_id)
         assert selection is not None
         assert revision is not None
         dataset_mapping = revision.definition.datasets[0]
@@ -2087,7 +2081,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         scope = CoverageScopeRevision(
             scope_id=str(_benchmark_uuid("coverage-scope")),
-            project_id=project_id,
+            workspace_id=workspace_id,
             version=1,
             parent_version=None,
             source_selection_hash=selection.content_hash,
@@ -2157,13 +2151,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             classification="internal",
             effective_label="Deterministic scale fixture",
         )
-        bundle = ReferenceBundle(project_id=project_id, datasets=(reference,))
+        bundle = ReferenceBundle(workspace_id=workspace_id, datasets=(reference,))
         target_fields = tuple(
             sorted(item.target_field for item in dataset_mapping.fields)
         )
         policy = ResolutionPolicy(
             policy_id=str(_benchmark_uuid("resolution-policy")),
-            project_id=project_id,
+            workspace_id=workspace_id,
             version=1,
             parent_version=None,
             coverage_scope_hash=scope.content_hash,
@@ -2189,24 +2183,24 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         advanced = self.context.resolution.repository
         advanced.save_coverage_scope(
-            project_id,
+            workspace_id,
             scope,
             expected_parent_version=None,
             actor=self.context.actor,
         )
         advanced.save_reference_bundle(
-            project_id,
+            workspace_id,
             bundle,
             actor=self.context.actor,
         )
         advanced.save_resolution_policy(
-            project_id,
+            workspace_id,
             policy,
             expected_parent_version=None,
             actor=self.context.actor,
         )
         base = default_quality_ruleset(
-            project_id=project_id,
+            workspace_id=workspace_id,
             mapping_hash=revision.definition.content_hash,
             schema_hash=revision.definition.schema_hash,
             datasets=(dataset_name,),
@@ -2244,7 +2238,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         ruleset = QualityRuleSet(
             ruleset_id=base.ruleset_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
             version=1,
             parent_version=None,
             mapping_hash=base.mapping_hash,
@@ -2259,7 +2253,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             reference_bundle_hash=bundle.content_hash,
         )
         self.context.quality.publish_ruleset(
-            project_id,
+            workspace_id,
             ruleset,
             actor=self.context.actor,
         )
@@ -2280,7 +2274,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_direct_session_matches_materialized_canonical_evidence(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=37,
@@ -2289,11 +2283,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 dirty=True,
             )
         )
-        project = self.context.preparation.projects.get(project_id)
-        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
-        physical = self.context.preparation.sources.get_source_selection(project_id)
+        workspace_state = self.context.preparation.workspaces.get(workspace_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(workspace_id)
+        physical = self.context.preparation.sources.get_source_selection(workspace_id)
         effective = self.context.preparation.sources.get_mapping_source_selection(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(revision)
         self.assertIsNotNone(physical)
@@ -2308,12 +2302,12 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             materialized_impacts = []
             materialized = preparation_module.stage_browser_mapping(
-                project,
+                workspace_state,
                 revision.definition,
                 physical,
                 effective,
                 None,
-                self.context.preparation.sources.get_source_catalogs(project_id),
+                self.context.preparation.sources.get_source_catalogs(workspace_id),
                 self.artifacts,
                 collect_transformation_impact=True,
                 transformation_detail_limit=0,
@@ -2415,7 +2409,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
         ):
             self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
         self.assertEqual(
@@ -2431,7 +2425,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         impact_batches = preparation_transport_batches["impacts"]
         self.assertEqual(impact_batches, [])
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             native_counts = connection.execute(
                 """
@@ -2448,38 +2442,38 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(native_counts, (37, 1))
 
         summary = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(summary)
         assert summary is not None
         stored = self.context.preparation.staging.get_canonical_staging_run(
-            project_id,
+            workspace_id,
             summary.run_id,
         )
         self.assertIsNotNone(stored)
         assert stored is not None
         self.assertEqual(summary.content_hash, materialized.canonical_run.content_hash)
         self.assertEqual(stored.to_json(), materialized.canonical_run.to_json())
-        ruleset = self.context.preparation.quality.current_ruleset(project_id)
-        quality_summary = self.context.preparation.quality.current_summary(project_id)
+        ruleset = self.context.preparation.quality.current_ruleset(workspace_id)
+        quality_summary = self.context.preparation.quality.current_summary(workspace_id)
         self.assertIsNotNone(ruleset)
         self.assertIsNotNone(quality_summary)
         assert ruleset is not None
         assert quality_summary is not None
         expected_quality = evaluate_quality(
-            project=project,
+            workspace_state=workspace_state,
             staging=materialized.canonical_run,
             physical_rows=dict(materialized.physical_rows),
             ruleset=ruleset,
             published_staging_content_hash=summary.content_hash,
         )
         self.assertEqual(quality_summary.content_hash, expected_quality.content_hash)
-        stored_quality = self.context.preparation.quality.current_run(project_id)
+        stored_quality = self.context.preparation.quality.current_run(workspace_id)
         self.assertIsNotNone(stored_quality)
         assert stored_quality is not None
         self.assertEqual(stored_quality.to_json(), expected_quality.to_json())
         quality_page = self.context.preparation.quality.quality.get_quality_review_page(
-            project_id,
+            workspace_id,
             quality_summary.run_id,
             page_size=17,
         )
@@ -2490,13 +2484,13 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         quarantined_page = (
             self.context.preparation.quality.quality.get_quality_review_page(
-                project_id,
+                workspace_id,
                 quality_summary.run_id,
                 status="quarantined",
             )
         )
         self.assertEqual(quarantined_page.matching_count, 2)
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.quality.quality._connect(
             database_path
         ) as connection:
@@ -2519,7 +2513,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             for item in revision.definition.datasets
         }
         expected_normalization = evaluate_normalization(
-            project=project,
+            workspace_state=workspace_state,
             staging=materialized.canonical_run,
             quality=expected_quality,
             mappings=mappings,
@@ -2541,7 +2535,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             published_quality_content_hash=quality_summary.content_hash,
         )
         normalization_summary = self.context.preparation.normalization.current_summary(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(normalization_summary)
         assert normalization_summary is not None
@@ -2550,7 +2544,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             expected_normalization.content_hash,
         )
         stored_normalization = self.context.preparation.normalization.repository.get_normalization_evaluation(
-            project_id,
+            workspace_id,
             normalization_summary.run_id,
         )
         self.assertIsNotNone(stored_normalization)
@@ -2559,7 +2553,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             stored_normalization.to_json(),
             expected_normalization.to_json(),
         )
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             sessions = connection.execute(
                 """
@@ -2586,11 +2580,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(temporary_rows, (0, 0, 0, 0, 0, 0))
 
         repeated = self.context.preparation.prepare(
-            project_id,
+            workspace_id,
             actor=self.context.actor,
         )
         repeated_staging = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(repeated_staging)
         assert repeated_staging is not None
@@ -2620,7 +2614,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(pending_rows, (0,))
 
     def test_quality_row_transport_failure_rolls_back_pending_evidence(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=5,
@@ -2650,11 +2644,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
         ):
             self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2667,7 +2661,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(counts, (0, 0, 0))
 
     def test_native_projection_failure_cleans_pending_preparation(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=5,
@@ -2688,11 +2682,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
         ):
             self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session = connection.execute(
                 "SELECT status, failure_code FROM preparation_session"
@@ -2709,7 +2703,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(counts, (0, 0, 0))
 
     def test_large_canonical_rows_use_scalar_fallback(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=5,
@@ -2748,20 +2742,20 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
         ):
             summary = self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
 
         staging = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(staging)
         assert staging is not None
         self.assertEqual(staging.total_rows, 5)
-        self.assertEqual(summary.project_id, project_id)
+        self.assertEqual(summary.workspace_id, workspace_id)
 
     def test_native_projection_miss_above_python_limit_fails_closed(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=5,
@@ -2788,11 +2782,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
         ):
             self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session = connection.execute(
                 "SELECT status, failure_code FROM preparation_session"
@@ -2804,7 +2798,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(current, (0,))
 
     def test_sparse_quality_manifest_failure_rolls_back_quality(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=5,
@@ -2833,11 +2827,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
         ):
             self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2853,7 +2847,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(counts, (0, 0, 0, 0, 0, 0))
 
     def test_normalization_transport_failure_rolls_back_pending_evidence(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=5,
@@ -2879,11 +2873,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "injected transport failure"),
         ):
             self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             counts = connection.execute(
                 """
@@ -2902,7 +2896,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
     def test_normalization_effects_are_constructed_once_and_reused_directly(
         self,
     ) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=17,
@@ -2934,11 +2928,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
         ):
             summary = self.context.preparation.prepare(
-                project_id,
+                workspace_id,
                 actor=self.context.actor,
             )
 
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             session_id = str(
                 connection.execute(
@@ -2973,7 +2967,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(summary.changed_record_count, changed)
 
     def test_direct_publication_failure_preserves_current_run(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=17,
@@ -2982,11 +2976,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
         )
         self.context.preparation.prepare(
-            project_id,
+            workspace_id,
             actor=self.context.actor,
         )
         current = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(current)
         assert current is not None
@@ -3001,17 +2995,17 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 "injected publication failure",
             ):
                 self.context.preparation.prepare(
-                    project_id,
+                    workspace_id,
                     actor=self.context.actor,
                 )
 
         unchanged = self.context.preparation.staging.get_current_staging_summary(
-            project_id
+            workspace_id
         )
         self.assertIsNotNone(unchanged)
         assert unchanged is not None
         self.assertEqual(unchanged.run_id, current.run_id)
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             state = connection.execute(
                 """
@@ -3025,7 +3019,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(state, (0, 1, 17, 1))
 
     def test_direct_promotion_rolls_back_atomically(self) -> None:
-        project_id, _source_hash, _source_size = (
+        workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
                 row_count=13,
@@ -3043,14 +3037,14 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 "injected commit failure",
             ):
                 self.context.preparation.prepare(
-                    project_id,
+                    workspace_id,
                     actor=self.context.actor,
                 )
 
         self.assertIsNone(
-            self.context.preparation.staging.get_current_staging_summary(project_id)
+            self.context.preparation.staging.get_current_staging_summary(workspace_id)
         )
-        database_path = self.context.preparation.staging.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             state = connection.execute(
                 """

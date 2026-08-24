@@ -1,14 +1,14 @@
-"""Create the Recipe compilation tables used by one current workspace."""
+"""Create the Recipe compilation tables used by one current workbench."""
 
 from __future__ import annotations
 
 import duckdb
 
 
-def create_recipe_application_workspace_schema(
+def create_recipe_compilation_schema(
     connection: duckdb.DuckDBPyConnection,
 ) -> None:
-    """Create current tables without migrating Recipe-first workspace state."""
+    """Create exact current Recipe parameter and quality-seed tables."""
 
     connection.execute(
         """

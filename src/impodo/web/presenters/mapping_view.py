@@ -31,7 +31,6 @@ from ...domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
 )
-from ...domain.mapping.upgrade_review import review_mapping_contract_upgrade
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
 from ...domain.staging.transformation_impact import (
     reviewable_rule_impact_definitions,
@@ -67,7 +66,7 @@ from .mapping_impact import (
 def _render_mapping(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
     *,
     error: str | None = None,
     status_code: int = 200,
@@ -80,32 +79,32 @@ def _render_mapping(
             "The mapping request exceeded a safety limit or could not be read. "
             "No mapping change was saved; the last working draft is loaded."
         )
-    physical_selection = context.queries.get_source_selection(project_id)
-    preparation_plan = context.queries.get_derived_entity_plan(project_id)
+    physical_selection = context.queries.get_source_selection(workspace_id)
+    preparation_plan = context.queries.get_derived_entity_plan(workspace_id)
     source_catalogs = (
-        context.queries.get_source_catalogs(project_id)
+        context.queries.get_source_catalogs(workspace_id)
         if physical_selection is not None
         else ()
     )
-    selection = context.queries.get_mapping_source_selection(project_id)
-    schema = context.queries.get_odoo_schema_catalog(project_id)
-    governance = context.queries.get_schema_governance(project_id)
-    revision = context.queries.get_mapping_revision(project_id)
+    selection = context.queries.get_mapping_source_selection(workspace_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    governance = context.queries.get_schema_governance(workspace_id)
+    revision = context.queries.get_mapping_revision(workspace_id)
     stored_validation = (
         context.queries.get_mapping_validation(
-            project_id, revision.version
+            workspace_id, revision.version
         )
         if revision
         else None
     )
     stored_submission = (
         context.queries.get_mapping_submission(
-            project_id, revision.version
+            workspace_id, revision.version
         )
         if revision
         else None
     )
-    working_draft = context.queries.get_mapping_working_draft(project_id)
+    working_draft = context.queries.get_mapping_working_draft(workspace_id)
     odoo_pinned = bool(
         selection is not None
         and selection.datasets
@@ -128,13 +127,6 @@ def _render_mapping(
             revision is None
             or working_draft.content_hash != revision.definition.content_hash
         )
-    )
-    contract_upgrade_review = (
-        review_mapping_contract_upgrade(active_definition, schema)
-        if active_definition is not None
-        and schema is not None
-        and active_definition.contract_version < 11
-        else None
     )
     validation = None if has_unvalidated_changes else stored_validation
     submission = None if has_unvalidated_changes else stored_submission
@@ -194,7 +186,7 @@ def _render_mapping(
         if selection and schema
         else ()
     )
-    _add_mapping_dataset_urls(request, project_id, dataset_views)
+    _add_mapping_dataset_urls(request, workspace_id, dataset_views)
     readonly_field_recovery = _readonly_field_recovery(
         validation,
         selection,
@@ -202,7 +194,7 @@ def _render_mapping(
     )
     issue_views = _mapping_issue_views(
         request,
-        project_id,
+        workspace_id,
         validation,
         selection,
         schema,
@@ -216,7 +208,7 @@ def _render_mapping(
     )
     previous_check_issue_views = _mapping_issue_views(
         request,
-        project_id,
+        workspace_id,
         stored_validation if has_unvalidated_changes else None,
         selection,
         schema,
@@ -268,7 +260,7 @@ def _render_mapping(
             )
             rule_impact_snapshot = (
                 context.queries.get_transformation_impact_snapshot(
-                    project_id,
+                    workspace_id,
                     identity,
                 )
             )
@@ -280,7 +272,7 @@ def _render_mapping(
         )
     )
     next_step = _mapping_next_step(
-        project_id=project_id,
+        workspace_id=workspace_id,
         schema=schema,
         revision=revision,
         validation=validation,
@@ -306,13 +298,13 @@ def _render_mapping(
             selection,
             schema,
             active_dataset_index,
-            context.queries.get_current_quality_ruleset(project_id),
+            context.queries.get_current_quality_ruleset(workspace_id),
         )
     return _render(
         request,
         "workspace_mapping.html",
-        project_id=project_id,
-        project=context.queries.get(project_id),
+        workspace_id=workspace_id,
+        workspace_state=context.queries.get(workspace_id),
         selection=selection,
         schema=schema,
         governance=governance,
@@ -326,7 +318,6 @@ def _render_mapping(
             working_draft is not None and not working_draft_is_current
         ),
         has_unvalidated_changes=has_unvalidated_changes,
-        contract_upgrade_review=contract_upgrade_review,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
         readonly_field_recovery=readonly_field_recovery,
@@ -347,7 +338,7 @@ def _render_mapping(
 def _render_mapping_field_catalog(
     request: Request,
     context: WebContext,
-    project_id: str,
+    workspace_id: str,
 ) -> HTMLResponse:
     """Render only one active field catalogue from saved local evidence."""
 
@@ -358,12 +349,12 @@ def _render_mapping_field_catalog(
         else "scalar"
     )
     workspace_read_started = perf_counter()
-    snapshot = context.queries.get_mapping_field_catalog_snapshot(project_id)
+    snapshot = context.queries.get_mapping_field_catalog_snapshot(workspace_id)
     workspace_read_ms = (perf_counter() - workspace_read_started) * 1000
     physical_selection = snapshot.physical_selection
     preparation_plan = snapshot.preparation_plan
     source_catalogs = snapshot.source_catalogs
-    selection = context.queries.get_mapping_source_selection(project_id)
+    selection = context.queries.get_mapping_source_selection(workspace_id)
     schema = snapshot.schema
     governance = snapshot.governance
     revision = snapshot.revision
@@ -438,7 +429,7 @@ def _render_mapping_field_catalog(
         field_query=request.query_params.get("field_query", "").strip()[:128],
         mapped_only=request.query_params.get("mapped_only") == "1",
     )
-    _add_mapping_dataset_urls(request, project_id, dataset_views)
+    _add_mapping_dataset_urls(request, workspace_id, dataset_views)
     active_view = next(
         (view for view in dataset_views if view["active"]),
         None,
@@ -462,7 +453,7 @@ def _render_mapping_field_catalog(
     template_context = template.new_context(
         {
             "request": request,
-            "project_id": project_id,
+            "workspace_id": workspace_id,
             "dataset_index": active_view["index"],
             "view": active_view,
         }
@@ -535,13 +526,13 @@ def _lookup_mapping_materials(
 
 def _add_mapping_dataset_urls(
     request: Request,
-    project_id: str,
+    workspace_id: str,
     dataset_views,
 ) -> None:
     for view in dataset_views:
         view["edit_url"] = _mapping_return_url(
             request,
-            project_id,
+            workspace_id,
             mapping_dataset=view["index"],
             scalar_page=1,
             relation_page=1,
@@ -554,7 +545,7 @@ def _add_mapping_dataset_urls(
                 "size": size,
                 "url": _mapping_return_url(
                     request,
-                    project_id,
+                    workspace_id,
                     scalar_page=1,
                     scalar_page_size=(
                         None
@@ -571,7 +562,7 @@ def _add_mapping_dataset_urls(
                 "size": size,
                 "url": _mapping_return_url(
                     request,
-                    project_id,
+                    workspace_id,
                     relation_page=1,
                     relation_page_size=(
                         None
@@ -586,7 +577,7 @@ def _add_mapping_dataset_urls(
         view["scalar_previous_url"] = (
             _mapping_return_url(
                 request,
-                project_id,
+                workspace_id,
                 scalar_page=int(view["scalar_page"]) - 1,
                 save_error=None,
             )
@@ -596,7 +587,7 @@ def _add_mapping_dataset_urls(
         view["scalar_next_url"] = (
             _mapping_return_url(
                 request,
-                project_id,
+                workspace_id,
                 scalar_page=int(view["scalar_page"]) + 1,
                 save_error=None,
             )
@@ -606,7 +597,7 @@ def _add_mapping_dataset_urls(
         view["relation_previous_url"] = (
             _mapping_return_url(
                 request,
-                project_id,
+                workspace_id,
                 relation_page=int(view["relation_page"]) - 1,
                 save_error=None,
             )
@@ -616,7 +607,7 @@ def _add_mapping_dataset_urls(
         view["relation_next_url"] = (
             _mapping_return_url(
                 request,
-                project_id,
+                workspace_id,
                 relation_page=int(view["relation_page"]) + 1,
                 save_error=None,
             )
@@ -685,7 +676,7 @@ def _readonly_field_recovery(validation, selection, schema):
 
 def _mapping_issue_views(
     request,
-    project_id,
+    workspace_id,
     validation,
     selection,
     schema,
@@ -742,7 +733,7 @@ def _mapping_issue_views(
                 updates["field_query"] = field.label or field.name
                 updates["relation_query"] = None
             fix_url = (
-                f"{_mapping_return_url(request, project_id, **updates)}"
+                f"{_mapping_return_url(request, workspace_id, **updates)}"
                 f"#mapping-dataset-{dataset_index}"
             )
         views.append(
@@ -793,7 +784,7 @@ def _mapping_issue_views(
 
 def _mapping_next_step(
     *,
-    project_id,
+    workspace_id,
     schema,
     revision,
     validation,
@@ -811,7 +802,7 @@ def _mapping_next_step(
             "label": "Continue to Prepare data",
             "available": True,
             "kind": "link",
-            "href": f"/workspaces/{project_id}/prepare",
+            "href": f"/workspaces/{workspace_id}/prepare",
             "button_style": "secondary",
             "blockers": (),
             "previous_check_items": (),
@@ -896,7 +887,7 @@ def _mapping_next_step(
                         "before confirming."
                     ),
                     "href": (
-                        f"/workspaces/{project_id}/mapping/transformation-impact"
+                        f"/workspaces/{workspace_id}/mapping/transformation-impact"
                     ),
                     "action_label": "Review rule effects",
                 }
@@ -1136,10 +1127,8 @@ def _mapping_dataset_views(
         existing_controls = existing.effective_control_totals if existing else ()
         existing_control_ids = (
             tuple(item.control_id for item in existing.control_definitions)
-            if existing and existing.control_definitions
-            else tuple(
-                f"control:{item.target_field}" for item in existing_controls
-            )
+            if existing
+            else ()
         )
         control_total_slots = tuple(
             {
@@ -1621,7 +1610,7 @@ def _quality_check_view(
 def _manager_quality_rules_from_form(
     form,
     *,
-    project_id: str,
+    workspace_id: str,
     dataset: str,
     allowed_fields: set[str],
 ):
@@ -1695,7 +1684,7 @@ def _manager_quality_rules_from_form(
             ) from error
         rules.append(
             manager_quality_rule(
-                project_id=project_id,
+                workspace_id=workspace_id,
                 dataset=dataset,
                 family=family,
                 name=name,

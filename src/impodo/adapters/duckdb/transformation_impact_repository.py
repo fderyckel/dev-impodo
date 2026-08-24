@@ -41,12 +41,12 @@ class TransformationImpactRepository(DuckDbRepository):
 
     def get_transformation_impact_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
     ) -> TransformationImpactSnapshot | None:
         """Return the current snapshot only when every input still matches."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -94,7 +94,7 @@ class TransformationImpactRepository(DuckDbRepository):
         )
     def replace_transformation_impact_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         build: Callable[
             [Callable[[TransformationImpactRow], None]],
@@ -106,10 +106,10 @@ class TransformationImpactRepository(DuckDbRepository):
         """Build and atomically replace the bounded-browser impact source."""
 
         with self._transformation_impact_lock:
-            current = self.get_transformation_impact_snapshot(project_id, identity)
+            current = self.get_transformation_impact_snapshot(workspace_id, identity)
             if current is not None:
                 return current
-            database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+            database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
             if not database_path.is_file():
                 raise WorkspaceStateNotFoundError("Workspace engine state not found")
             created_at = datetime.now(timezone.utc)
@@ -249,7 +249,7 @@ class TransformationImpactRepository(DuckDbRepository):
 
     def acknowledge_transformation_rule(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         rule_fingerprint: str,
         *,
@@ -257,7 +257,7 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> None:
         """Acknowledge one reviewable rule fact for the exact current snapshot."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -313,7 +313,7 @@ class TransformationImpactRepository(DuckDbRepository):
 
     def get_transformation_rule_review(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         mapping_content_hash: str,
         source_selection_hash: str,
@@ -321,7 +321,7 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> TransformationRuleReview | None:
         """Return review evidence only for the exact current mapping inputs."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -356,7 +356,7 @@ class TransformationImpactRepository(DuckDbRepository):
             )
     def get_transformation_impact_page(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         filters: TransformationImpactFilter,
         *,
@@ -370,7 +370,7 @@ class TransformationImpactRepository(DuckDbRepository):
             raise WorkspaceError("Transformation impact page size is invalid")
         if after is not None and before is not None:
             raise WorkspaceError("Choose only one transformation impact cursor")
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -474,13 +474,13 @@ class TransformationImpactRepository(DuckDbRepository):
         )
     def iter_transformation_impact_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         identity: TransformationImpactIdentity,
         filters: TransformationImpactFilter,
     ) -> Iterator[TransformationImpactRow]:
         """Stream all matching snapshot rows in deterministic order."""
 
-        database_path = self.workspace_directory(project_id) / "workspace-engine.duckdb"
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:

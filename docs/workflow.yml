@@ -17,7 +17,6 @@ shared:
     - docs/user/README.md
     - docs/user/concepts.md
     - docs/developer/README.md
-    - docs/reports/browser-language-review-2026-08-23.md
 
 stages:
   - id: setup
@@ -35,8 +34,6 @@ stages:
       - src/impodo/web/templates/project_new.html
       - src/impodo/web/templates/project_business_overview.html
       - src/impodo/web/templates/workspace_overview.html
-      - src/impodo/web/templates/workspace_details.html
-      - src/impodo/web/templates/workspace_governance.html
       - src/impodo/web/templates/workspace_files.html
       - src/impodo/web/templates/workspace_review.html
       - src/impodo/web/templates/workspace_target.html
@@ -45,9 +42,17 @@ stages:
       - src/impodo/migration_projects.py::MigrationProjectService
       - src/impodo/data_versions.py::DataVersionService
       - src/impodo/migration_runs.py::MigrationRunService
+      - src/impodo/migration_run_setup.py::MigrationRunTargetSetupService
       - src/impodo/migration_workspaces.py::MigrationWorkspaceService
+      - src/impodo/workspace_access.py::WorkspaceAccessService
+      - src/impodo/web/security.py::WorkspaceAccessMiddleware
+      - src/impodo/adapters/duckdb/migration_foundation_repository.py::MigrationFoundationRepository.resolve_workspace_access_context
       - src/impodo/application/recipe_publication_service.py::RecipePublicationService
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
+      - src/impodo/adapters/duckdb/data_version_source_repository.py::DataVersionOwnedSourceRepository
+      - src/impodo/artifacts.py::DataVersionSourceArtifactStore
+      - src/impodo/artifacts.py::WorkspaceArtifactStore
+      - src/impodo/workspace_views.py::WorkspaceOwnerViewService
       - src/impodo/workspace_state.py::WorkspaceStateService
       - src/impodo/workspace_state.py::WorkspaceStateService.register
       - src/impodo/application/recipe_compilation_service.py::RecipeCompiler.compile_workspace
@@ -56,7 +61,11 @@ stages:
       - src/impodo/web/presenters/concepts.py::ConceptHelp
     tests:
       - tests/test_concept_help.py
-      - tests/test_migration_project_phase_m3_project_authoring.py
+      - tests/test_project_authoring.py
+      - tests/test_identity_semantics.py
+      - tests/test_workspace_access.py
+      - tests/test_canonical_ownership.py
+      - tests/test_workspace_evidence_storage.py
       - tests/test_project_security.py
       - tests/test_recipe_representative_shapes.py
       - tests/test_odoo_connection_service.py
@@ -90,6 +99,7 @@ stages:
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.freeze_selection
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService
+      - src/impodo/application/odoo_capture_job_service.py::OdooCaptureJobManager
       - src/impodo/derived_entities.py::DerivedEntityWorkspaceService
       - src/impodo/source_worker.py::validate_source_file_isolated
     tests:
@@ -97,6 +107,7 @@ stages:
       - tests/test_source_worker_build_contract.py
       - tests/test_source_snapshot.py
       - tests/test_odoo_source_capture.py
+      - tests/test_odoo_capture_jobs.py
       - tests/test_derived_entities.py
       - tests/test_web_app.py
     contracts:
@@ -120,10 +131,12 @@ stages:
       - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository
+      - src/impodo/migration_run_planning.py::MigrationRunTargetSchema
+      - src/impodo/migration_run_planning.py::MigrationRunReferenceBundle
       - src/impodo/adapters/duckdb/run_aware_schema_repository.py::RunAwareSchemaRepository
       - src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py::RunAwareAdvancedCoverageRepository
     tests:
-      - tests/test_migration_project_phase_m4_multi_recipe_runs.py
+      - tests/test_integrated_recipe_runs.py
     contracts:
       - docs/developer/contracts/integrated-run-lifecycle.md
       - docs/developer/contracts/project-lifecycle.md
@@ -147,7 +160,7 @@ stages:
       - src/impodo/migration_cutover.py::CutoverPlanRevision
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
-      - tests/test_migration_project_phase_m5_cutover_qualification.py
+      - tests/test_cutover_qualification.py
     contracts:
       - docs/developer/contracts/cutover-plan-lifecycle.md
       - docs/developer/contracts/integrated-run-lifecycle.md
@@ -172,7 +185,7 @@ stages:
       - src/impodo/migration_production.py::ProductionRunBinding
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
-      - tests/test_migration_project_phase_m6_production_rollout.py
+      - tests/test_production_rollout.py
     contracts:
       - docs/developer/contracts/production-run-lifecycle.md
       - docs/developer/contracts/cutover-plan-lifecycle.md
@@ -315,12 +328,14 @@ stages:
     code_references:
       - src/impodo/application/execution_service.py::ExecutionService
       - src/impodo/application/execution_service.py::ExecutionService.execute
+      - src/impodo/application/load_job_service.py::LoadJobManager
       - src/impodo/application/reconciliation_service.py::ReconciliationService
       - src/impodo/application/reconciliation_service.py::ReconciliationService.reconcile
     tests:
       - tests/test_execution_service.py
       - tests/test_execution_web.py
       - tests/test_execution_repository.py
+      - tests/test_load_jobs.py
       - tests/test_reconciliation_service.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md

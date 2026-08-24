@@ -27,15 +27,15 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.projects = WorkspaceStateRepository(database)
+        self.workspace_states = WorkspaceStateRepository(database)
         self.repository = SupportingLookupRepository(database)
         self.service = SupportingLookupService(
             self.repository,
             CapabilityAuthorizationPolicy(),
         )
         self.now = datetime(2026, 8, 21, tzinfo=timezone.utc)
-        self.project = WorkspaceState(
-            project_id=str(uuid4()),
+        self.workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()),
             name="Country lookup",
             source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.REMOTE,
@@ -44,11 +44,11 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
             intended_models=("res.partner",),
             updated_at=self.now,
         )
-        self.projects.create_unlinked(self.project, actor=LOCAL_ACTOR)
+        self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
         self.target_hash = target_identity_hash(
             connection_mode="REMOTE",
-            base_url=self.project.odoo_base_url,
-            database=self.project.odoo_database,
+            base_url=self.workspace_state.odoo_base_url,
+            database=self.workspace_state.odoo_database,
         )
 
     def tearDown(self) -> None:
@@ -58,7 +58,7 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
         self,
     ) -> None:
         captured = self.service.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             relation_model="res.country",
             key_fields=("code",),
             scope_fields=(),
@@ -78,7 +78,7 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
         )
 
         restored = self.service.current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             relation_model="res.country",
             key_fields=("code",),
             scope_fields=(),
@@ -94,14 +94,14 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
         self.assertNotIn("odoo_id", captured.to_json())
         self.assertNotIn("api_key", captured.to_json())
         changed = replace(
-            self.project,
+            self.workspace_state,
             odoo_database="replacement",
-            revision=self.project.revision + 1,
+            revision=self.workspace_state.revision + 1,
             updated_at=self.now + timedelta(minutes=1),
         )
-        self.projects.save(
+        self.workspace_states.save(
             changed,
-            expected_revision=self.project.revision,
+            expected_revision=self.workspace_state.revision,
             event_type="WORKSPACE_TARGET_UPDATED",
             event_detail="Target changed",
             actor=LOCAL_ACTOR,
@@ -109,14 +109,14 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
 
         self.assertIsNone(
             self.repository.get_current(
-                self.project.project_id,
+                self.workspace_state.workspace_id,
                 captured.lookup_key,
             )
         )
 
     def test_read_context_mismatch_prevents_reuse(self) -> None:
         self.service.capture(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             relation_model="res.country",
             key_fields=("code",),
             scope_fields=(),
@@ -133,7 +133,7 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
         )
 
         current = self.service.current(
-            self.project.project_id,
+            self.workspace_state.workspace_id,
             relation_model="res.country",
             key_fields=("code",),
             scope_fields=(),

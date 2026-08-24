@@ -117,7 +117,7 @@ class PreflightAuthorizationTests(unittest.TestCase):
             quality=repositories[1],
             normalization=repositories[2],
             mappings=repositories[3],
-            projects=repositories[4],
+            workspaces=repositories[4],
             sources=repositories[5],
             preflight=repositories[6],
             artifacts=MagicMock(),
@@ -249,7 +249,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             )
         )
         (
-            project,
+            workspace_state,
             definition,
             physical,
             effective,
@@ -270,7 +270,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
 
         direct = evaluate_browser_mapping(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             definition=definition,
             physical_selection=physical,
             effective_selection=effective,
@@ -279,7 +279,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
         compatibility = stage_browser_mapping(*evidence)
         repeated = evaluate_browser_mapping(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             definition=definition,
             physical_selection=physical,
             effective_selection=effective,
@@ -335,7 +335,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             schema_hash="sha256:" + "9" * 64,
         )
         changed = evaluate_browser_mapping(
-            project_id=project.project_id,
+            workspace_id=workspace_state.workspace_id,
             definition=changed_definition,
             physical_selection=physical,
             effective_selection=effective,
@@ -1000,7 +1000,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         physical = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=project_id,
+            data_version_id=project_id,
             created_at=now,
             created_by="Tester",
             datasets=(physical_dataset,),
@@ -1017,7 +1017,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=project_id,
+            workspace_id=project_id,
             source_selection_hash=physical.content_hash,
             rules=(rule,),
             updated_at=now,
@@ -1087,8 +1087,8 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                 ),
             ),
         )
-        project = WorkspaceState(
-            project_id=project_id,
+        workspace_state = WorkspaceState(
+            workspace_id=project_id,
             name="BOM migration",
             source_system="Legacy ERP",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
@@ -1109,7 +1109,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             registered_at=now,
         )
         return (
-            project,
+            workspace_state,
             definition,
             physical,
             effective,
@@ -1182,7 +1182,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         physical = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
-            project_id=project_id,
+            data_version_id=project_id,
             created_at=now,
             created_by="Tester",
             datasets=(physical_dataset,),
@@ -1201,7 +1201,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=project_id,
+            workspace_id=project_id,
             source_selection_hash=physical.content_hash,
             rules=(rule,),
             updated_at=now,
@@ -1254,8 +1254,8 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                 ),
             ),
         )
-        project = WorkspaceState(
-            project_id=project_id,
+        workspace_state = WorkspaceState(
+            workspace_id=project_id,
             name="Product migration",
             source_system="Legacy ERP",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
@@ -1277,7 +1277,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
         return (
             (
-                project,
+                workspace_state,
                 definition,
                 physical,
                 effective,
@@ -1289,15 +1289,15 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _snapshots(project: WorkspaceState):
+    def _snapshots(workspace_state: WorkspaceState):
         fingerprint = TargetFingerprint(
             target_hash=target_identity_hash(
                 connection_mode="LOCAL",
-                base_url=project.odoo_base_url,
-                database=project.odoo_database,
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
             ),
             connection_mode="LOCAL",
-            database=project.odoo_database,
+            database=workspace_state.odoo_database,
             odoo_version="19.0",
             snapshot_timestamp="2026-08-04T00:00:00Z",
         )
@@ -1338,15 +1338,15 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         return metadata, records
 
     @staticmethod
-    def _product_snapshots(project: WorkspaceState):
+    def _product_snapshots(workspace_state: WorkspaceState):
         fingerprint = TargetFingerprint(
             target_hash=target_identity_hash(
                 connection_mode="LOCAL",
-                base_url=project.odoo_base_url,
-                database=project.odoo_database,
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
             ),
             connection_mode="LOCAL",
-            database=project.odoo_database,
+            database=workspace_state.odoo_database,
             odoo_version="19.0",
             snapshot_timestamp="2026-08-04T00:00:00Z",
         )

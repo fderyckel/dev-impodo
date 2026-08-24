@@ -15,7 +15,7 @@ from typing import Callable
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import ArtifactStore, ArtifactStoreError
+from ..artifacts import WorkspaceArtifactStore, ArtifactStoreError
 from ..connectors import (
     MetadataRequest,
     MetadataSnapshot,
@@ -52,7 +52,7 @@ from .readiness_ports import (
     PreflightMappingRepository,
     PreflightEffectiveRepository,
     PreflightNormalizationRepository,
-    PreflightProjectRepository,
+    PreflightWorkspaceRepository,
     PreflightQualityRepository,
     PreflightRepository,
     PreflightSchemaRepository,
@@ -93,10 +93,10 @@ class PreflightService:
         quality: PreflightQualityRepository,
         normalization: PreflightNormalizationRepository,
         mappings: PreflightMappingRepository,
-        projects: PreflightProjectRepository,
+        workspaces: PreflightWorkspaceRepository,
         sources: PreflightSourceRepository,
         preflight: PreflightRepository,
-        artifacts: ArtifactStore,
+        artifacts: WorkspaceArtifactStore,
         authorization: AuthorizationPolicy,
         effective: PreflightEffectiveRepository | None = None,
         schemas: PreflightSchemaRepository | None = None,
@@ -106,7 +106,7 @@ class PreflightService:
         self.quality = quality
         self.normalization = normalization
         self.mappings = mappings
-        self.projects = projects
+        self.workspaces = workspaces
         self.sources = sources
         self.preflight = preflight
         self.artifacts = artifacts
@@ -116,7 +116,7 @@ class PreflightService:
         self.odoo_provenance = odoo_provenance
         self.engine = PreflightEngine()
 
-    def current_report(self, project_id: str) -> ReadinessReport | None:
+    def current_report(self, workspace_id: str) -> ReadinessReport | None:
         """Return the report only if every current upstream/target binding matches.
 
         A report is treated as absent when staging, quality, normalization,
@@ -124,14 +124,14 @@ class PreflightService:
         target identity moved since publication.
         """
 
-        staging = self.staging.get_current_staging_summary(project_id)
+        staging = self.staging.get_current_staging_summary(workspace_id)
         if staging is None:
             return None
-        quality = self.quality.get_current_quality_summary(project_id)
+        quality = self.quality.get_current_quality_summary(workspace_id)
         if quality is None or quality.staging_run_id != staging.run_id:
             return None
         normalization = self.normalization.get_current_normalization_summary(
-            project_id
+            workspace_id
         )
         if (
             normalization is None
@@ -140,11 +140,11 @@ class PreflightService:
             or normalization.quality_run_id != quality.run_id
         ):
             return None
-        revision = self.mappings.get_mapping_revision(project_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
         if revision is None:
             return None
         submission = self.mappings.get_mapping_submission(
-            project_id, revision.version
+            workspace_id, revision.version
         )
         if (
             submission is None
@@ -152,7 +152,7 @@ class PreflightService:
         ):
             return None
         report = self.preflight.get_readiness_report(
-            project_id,
+            workspace_id,
             revision.mapping_id,
             revision.version,
             revision.definition.content_hash,
@@ -167,25 +167,25 @@ class PreflightService:
         )
         if report is None:
             return None
-        project = self.projects.get(project_id)
+        workspace_state = self.workspaces.get(workspace_id)
         expected_target = target_identity_hash(
             connection_mode=(
-                project.odoo_connection_mode.value
-                if project.odoo_connection_mode is not None
+                workspace_state.odoo_connection_mode.value
+                if workspace_state.odoo_connection_mode is not None
                 else ""
             ),
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
         )
         return report if report.target_hash == expected_target else None
 
-    def current_staging(self, project_id: str) -> StagingRunSummary | None:
+    def current_staging(self, workspace_id: str) -> StagingRunSummary | None:
         """Return the current staging summary used by package eligibility UI."""
 
-        return self.staging.get_current_staging_summary(project_id)
+        return self.staging.get_current_staging_summary(workspace_id)
 
     def current_execution_snapshot(
-        self, project_id: str
+        self, workspace_id: str
     ) -> ExecutionSnapshot | None:
         """Load the automatically generated snapshot for current evidence.
 
@@ -196,17 +196,17 @@ class PreflightService:
         """
 
         if (
-            getattr(self.projects.get(project_id), "source_mode", SourceMode.FILE)
+            getattr(self.workspaces.get(workspace_id), "source_mode", SourceMode.FILE)
             is SourceMode.ODOO
         ):
             return None
-        report = self.current_report(project_id)
+        report = self.current_report(workspace_id)
         if report is None:
             return None
         try:
-            snapshot = self.execution_snapshot(project_id, report.run_id)
+            snapshot = self.execution_snapshot(workspace_id, report.run_id)
             with self.artifacts.materialize_report(
-                project_id,
+                workspace_id,
                 report.run_id,
                 MANIFEST_NAME,
             ) as path:
@@ -236,7 +236,7 @@ class PreflightService:
 
     def execution_snapshot(
         self,
-        project_id: str,
+        workspace_id: str,
         preflight_run_id: str,
     ) -> ExecutionSnapshot:
         """Load one immutable execution snapshot by its preflight run.
@@ -248,7 +248,7 @@ class PreflightService:
 
         try:
             with self.artifacts.materialize_report(
-                project_id,
+                workspace_id,
                 preflight_run_id,
                 EXECUTION_SNAPSHOT_NAME,
             ) as path:
@@ -259,15 +259,15 @@ class PreflightService:
                 "Odoo again before another load."
             ) from error
         if (
-            snapshot.project_id != project_id
+            snapshot.workspace_id != workspace_id
             or snapshot.preflight_run_id != preflight_run_id
         ):
-            raise ReadinessError("The saved load preview does not match this project")
+            raise ReadinessError("The saved load preview does not match this workspace")
         return snapshot
 
     def readiness_rows(
         self,
-        project_id: str,
+        workspace_id: str,
         run_id: str,
         *,
         status: str = "",
@@ -278,7 +278,7 @@ class PreflightService:
         """Load one filtered, bounded page from a published readiness run."""
 
         return self.preflight.get_readiness_rows(
-            project_id,
+            workspace_id,
             run_id,
             status=status,
             dataset=dataset,
@@ -288,7 +288,7 @@ class PreflightService:
 
     def compare(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         reader: ReadinessReader,
         actor: Actor,
@@ -305,16 +305,16 @@ class PreflightService:
         self.authorization.require(
             actor,
             Capability.PREFLIGHT_RUN,
-            project_id=project_id,
+            workspace_id=workspace_id,
         )
-        project = self.projects.get(project_id)
-        if getattr(project, "source_mode", SourceMode.FILE) is SourceMode.ODOO:
+        workspace_state = self.workspaces.get(workspace_id)
+        if getattr(workspace_state, "source_mode", SourceMode.FILE) is SourceMode.ODOO:
             return self._compare_odoo_source(
-                project,
+                workspace_state,
                 reader=reader,
                 actor=actor,
             )
-        frozen = self._load_frozen_input(project_id)
+        frozen = self._load_frozen_input(workspace_id)
         requirements = plan_preflight_requirements(
             frozen.plan,
             frozen.prepared.records,
@@ -335,12 +335,12 @@ class PreflightService:
         )
         expected_target = target_identity_hash(
             connection_mode=(
-                project.odoo_connection_mode.value
-                if project.odoo_connection_mode is not None
+                workspace_state.odoo_connection_mode.value
+                if workspace_state.odoo_connection_mode is not None
                 else ""
             ),
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
         )
         if metadata.fingerprint.target_hash != expected_target:
             raise OdooReadWorkflowError(
@@ -391,7 +391,7 @@ class PreflightService:
         del manifest
         report = _readiness_report(
             run_id,
-            project,
+            workspace_state,
             frozen.revision,
             result,
             frozen.dataset_labels,
@@ -415,19 +415,19 @@ class PreflightService:
         del frozen, requirements, result
         try:
             self.artifacts.write_report(
-                project_id,
+                workspace_id,
                 run_id,
                 MANIFEST_NAME,
                 manifest_content,
             )
             self.artifacts.write_report(
-                project_id,
+                workspace_id,
                 run_id,
                 EXECUTION_SNAPSHOT_NAME,
                 execution_snapshot_content,
             )
             self.preflight.save_readiness_report(
-                project_id,
+                workspace_id,
                 report,
                 decision_rows=decision_rows,
                 decision_count=decision_count,
@@ -438,7 +438,7 @@ class PreflightService:
         except Exception:
             for filename in (MANIFEST_NAME, EXECUTION_SNAPSHOT_NAME):
                 try:
-                    self.artifacts.delete_report(project_id, run_id, filename)
+                    self.artifacts.delete_report(workspace_id, run_id, filename)
                 except Exception:
                     pass
             raise
@@ -446,15 +446,15 @@ class PreflightService:
 
     def current_odoo_comparison(
         self,
-        project_id: str,
+        workspace_id: str,
         *,
         actor: Actor,
     ) -> OdooComparisonArtifact | None:
         """Decrypt the current exact-ID comparison for an authorized backend."""
 
-        report = self.current_report(project_id)
+        report = self.current_report(workspace_id)
         if report is None or (
-            getattr(self.projects.get(project_id), "source_mode", SourceMode.FILE)
+            getattr(self.workspaces.get(workspace_id), "source_mode", SourceMode.FILE)
             is not SourceMode.ODOO
         ):
             return None
@@ -462,20 +462,20 @@ class PreflightService:
             raise ReadinessError("Protected Odoo comparison support is unavailable")
         try:
             with self.artifacts.materialize_report(
-                project_id,
+                workspace_id,
                 report.run_id,
                 MANIFEST_NAME,
             ) as path:
                 manifest = json.loads(path.read_text("utf-8"))
             evidence = manifest["preflight_evidence"]
             with self.artifacts.materialize_report(
-                project_id,
+                workspace_id,
                 report.run_id,
                 ODOO_COMPARISON_ARTIFACT_NAME,
             ) as path:
                 encrypted = path.read_bytes()
             plaintext = self.odoo_provenance.open_comparison(
-                project_id,
+                workspace_id,
                 report.run_id,
                 str(evidence["capture_manifest_hash"]),
                 encrypted,
@@ -496,7 +496,7 @@ class PreflightService:
                 "The protected Odoo comparison is missing or invalid. Compare again."
             ) from error
         if (
-            artifact.project_id != project_id
+            artifact.workspace_id != workspace_id
             or artifact.run_id != report.run_id
             or artifact.frozen_input_hash != report.frozen_input_hash
             or artifact.content_hash != evidence.get("protected_comparison_hash")
@@ -508,7 +508,7 @@ class PreflightService:
 
     def _compare_odoo_source(
         self,
-        project,
+        workspace_state,
         *,
         reader: ReadinessReader,
         actor: Actor,
@@ -519,19 +519,19 @@ class PreflightService:
             raise ReadinessError(
                 "Protected Odoo comparison support is unavailable. Odoo was not contacted."
             )
-        frozen = self._load_frozen_input(project.project_id)
-        selection = self.sources.get_mapping_source_selection(project.project_id)
+        frozen = self._load_frozen_input(workspace_state.workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_state.workspace_id)
         if selection is None:
             raise ReadinessError(
                 "Refresh the captured Odoo records before comparing. Odoo was not contacted."
             )
         run_id = str(uuid4())
         publication = build_odoo_comparison_publication(
-            project=project,
+            workspace_state=workspace_state,
             frozen=frozen,
             selection=selection,
             source_snapshots=self.sources.get_current_source_snapshots(
-                project.project_id
+                workspace_state.workspace_id
             ),
             artifacts=self.artifacts,
             provenance=self.odoo_provenance,
@@ -541,19 +541,19 @@ class PreflightService:
         )
         try:
             self.artifacts.write_report(
-                project.project_id,
+                workspace_state.workspace_id,
                 run_id,
                 MANIFEST_NAME,
                 publication.portable_manifest,
             )
             self.artifacts.write_report(
-                project.project_id,
+                workspace_state.workspace_id,
                 run_id,
                 ODOO_COMPARISON_ARTIFACT_NAME,
                 publication.protected.encrypted_bytes,
             )
             self.preflight.save_readiness_report(
-                project.project_id,
+                workspace_state.workspace_id,
                 replace(publication.report, rows=()),
                 decision_rows=iter(publication.rows),
                 decision_count=len(publication.rows),
@@ -564,24 +564,24 @@ class PreflightService:
         except Exception:
             for filename in (MANIFEST_NAME, ODOO_COMPARISON_ARTIFACT_NAME):
                 try:
-                    self.artifacts.delete_report(project.project_id, run_id, filename)
+                    self.artifacts.delete_report(workspace_state.workspace_id, run_id, filename)
                 except Exception:
                     pass
             raise
         return publication.report
 
-    def _load_frozen_input(self, project_id: str) -> FrozenPreflightInput:
+    def _load_frozen_input(self, workspace_id: str) -> FrozenPreflightInput:
         """Load version-checked durable evidence without source artifacts."""
 
-        project = self.projects.get(project_id)
-        revision = self.mappings.get_mapping_revision(project_id)
+        workspace_state = self.workspaces.get(workspace_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
         if revision is None:
             raise OdooReadWorkflowError(
                 OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
                 "Submit the mapping before comparing with Odoo",
             )
         submission = self.mappings.get_mapping_submission(
-            project_id, revision.version
+            workspace_id, revision.version
         )
         if (
             submission is None
@@ -593,8 +593,8 @@ class PreflightService:
             )
         captured_schema = None
         if self.schemas is not None:
-            captured_schema = self.schemas.get_odoo_schema_catalog(project_id)
-            governance = self.schemas.get_schema_governance(project_id)
+            captured_schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+            governance = self.schemas.get_schema_governance(workspace_id)
             expected_schema_hash = (
                 governance.content_hash
                 if governance is not None
@@ -621,11 +621,11 @@ class PreflightService:
                     "The captured Odoo fields no longer match the submitted "
                     "mapping. Odoo was not contacted.",
                 )
-        selection = self.sources.get_mapping_source_selection(project_id)
-        staging_summary = self.staging.get_current_staging_summary(project_id)
-        quality_summary = self.quality.get_current_quality_summary(project_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        staging_summary = self.staging.get_current_staging_summary(workspace_id)
+        quality_summary = self.quality.get_current_quality_summary(workspace_id)
         normalization = self.normalization.get_current_normalization_summary(
-            project_id
+            workspace_id
         )
         if selection is None or staging_summary is None or quality_summary is None:
             raise OdooReadWorkflowError(
@@ -640,9 +640,9 @@ class PreflightService:
                 "Odoo was not contacted.",
             )
         staging = self.staging.get_canonical_staging_run(
-            project_id, staging_summary.run_id
+            workspace_id, staging_summary.run_id
         )
-        quality = self.quality.get_quality_run(project_id, quality_summary.run_id)
+        quality = self.quality.get_quality_run(workspace_id, quality_summary.run_id)
         effective = None
         if quality_summary.effective_dataset_run_id is not None:
             if self.effective is None:
@@ -651,7 +651,7 @@ class PreflightService:
                     "The approved resolved rows could not be loaded. "
                     "Odoo was not contacted.",
                 )
-            effective = self.effective.get_current_effective_dataset(project_id)
+            effective = self.effective.get_current_effective_dataset(workspace_id)
             if (
                 effective is None
                 or effective.content_hash != quality_summary.effective_dataset_hash
@@ -662,7 +662,7 @@ class PreflightService:
                     "Odoo was not contacted.",
                 )
         dry_run = self.normalization.get_normalization_dry_run(
-            project_id, normalization.run_id
+            workspace_id, normalization.run_id
         )
         if staging is None or quality is None or dry_run is None:
             raise OdooReadWorkflowError(
@@ -687,7 +687,7 @@ class PreflightService:
             ) from error
         try:
             return build_frozen_preflight_input(
-                project_id=project.project_id,
+                workspace_id=workspace_state.workspace_id,
                 revision=revision,
                 selection=selection,
                 staging_summary=staging_summary,
@@ -772,7 +772,7 @@ def _snapshot_matches_report(
     """Bind a stored execution payload to the exact current readiness report."""
 
     return (
-        snapshot.project_id == report.project_id
+        snapshot.workspace_id == report.workspace_id
         and snapshot.preflight_run_id == report.run_id
         and snapshot.mapping_id == report.mapping_id
         and snapshot.mapping_version == report.mapping_version
@@ -806,4 +806,3 @@ def _snapshot_matches_report(
             "UPDATE": report.update_count,
         }
     )
-

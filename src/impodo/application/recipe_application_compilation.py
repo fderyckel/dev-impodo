@@ -189,11 +189,16 @@ class RecipeApplicationCompiler:
         issues = []
         contract = dict(definition["odoo_target_contract"])
         target_contract_version = int(
-            dict(definition.get("contract_versions", {})).get(
-                "odoo_target_contract",
-                1,
-            )
+            dict(definition["contract_versions"])["odoo_target_contract"]
         )
+        if target_contract_version != 2:
+            return "", [
+                self._block(
+                    "RECIPE_TARGET_CONTRACT_RETIRED",
+                    "The Recipe target contract is not current.",
+                    "Publish a new Recipe revision with the current editor.",
+                )
+            ]
         try:
             actual_major = int(str(schema.odoo_version).split(".", 1)[0])
         except ValueError:
@@ -202,10 +207,7 @@ class RecipeApplicationCompiler:
             issues.append(self._block("RECIPE_TARGET_VERSION_INCOMPATIBLE", "The connected Odoo major version does not match this Recipe.", "Choose a compatible Odoo server or publish and retest a new Recipe revision."))
         actual_models = {item.name: item for item in schema.models}
         dependency_projection = []
-        if (
-            target_contract_version >= 2
-            and contract.get("reference_policy_hash") != REFERENCE_POLICY_HASH
-        ):
+        if contract.get("reference_policy_hash") != REFERENCE_POLICY_HASH:
             issues.append(
                 self._block(
                     "RECIPE_REFERENCE_POLICY_CHANGED",
@@ -239,10 +241,8 @@ class RecipeApplicationCompiler:
                     ReferenceEvidenceKind.CAPTURED_GOVERNED.value,
                 )
             )
-            reviewed_standard = bool(
-                target_contract_version >= 2
-                and evidence_kind
-                == ReferenceEvidenceKind.REVIEWED_STANDARD.value
+            reviewed_standard = (
+                evidence_kind == ReferenceEvidenceKind.REVIEWED_STANDARD.value
             )
             reference_decisions = []
             if reviewed_standard:
@@ -468,7 +468,7 @@ class RecipeApplicationCompiler:
                 {
                     "logical_rule_id": str(item["logical_rule_id"]),
                     "physical_dataset": physical_dataset,
-                    "project_id": selection.project_id,
+                    "data_version_id": selection.data_version_id,
                 }
             )
             rules.append(
@@ -553,7 +553,7 @@ class RecipeApplicationCompiler:
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
-            project_id=project_id,
+            workspace_id=project_id,
             source_selection_hash=source.content_hash,
             rules=rules,
             updated_at=datetime.now(timezone.utc),
