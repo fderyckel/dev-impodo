@@ -172,6 +172,19 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
         try:
             path = Path("C:/impodo/registry.duckdb")
             ensure_migration_registry_schema(connection, path)
+            connection.execute(
+                "INSERT INTO migration_project_identity VALUES (?)",
+                [PROJECT_ID],
+            )
+            connection.execute(
+                """
+                INSERT INTO migration_project VALUES (
+                    ?, 'Legacy ERP rollout', 'Move customers to Odoo 19',
+                    'Legacy ERP', 'BUSINESS', 365, 'ACTIVE', 4, ?, ?, NULL, NULL
+                )
+                """,
+                [PROJECT_ID, CREATED_AT.isoformat(), CREATED_AT.isoformat()],
+            )
             _restore_v1_shape(connection)
             self.assertEqual(
                 _schema_fingerprint(connection),
@@ -187,6 +200,12 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 generation=MIGRATION_REGISTRY_GENERATION,
                 version=MIGRATION_REGISTRY_VERSION,
                 migration_id="migration-registry-v1-to-v2-migration-ledger",
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT display_name, status FROM migration_project"
+                ).fetchone(),
+                ("Legacy ERP rollout", "ACTIVE"),
             )
         finally:
             connection.close()
