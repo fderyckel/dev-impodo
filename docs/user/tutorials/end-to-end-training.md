@@ -372,10 +372,10 @@ step depends on the result of another. Guided steps update the sample preview;
 **Advanced pattern** remains an explicit expert choice and is validated only
 after **Save progress**.
 
-Saving does not alter the registered source. Before confirming the field
-matches, **Review rule effects** shows how many values each cleanup step
-matched and changed. A step that changed no values must be fixed or explicitly
-kept.
+Saving does not alter the registered source. After **Check matches**,
+**Review rule effects** can show how many values each cleanup step matched and
+changed. This read-only preview is optional because Stage 4 still prepares
+every row for the required data review.
 
 ### 6.3 Handle a Many2one relationship
 
@@ -424,9 +424,10 @@ ambiguous, the affected row is blocked. Never choose the first match.
 If line numbers can be reordered, use a stable source line reference as part
 of the identity; do not assume a display sequence is permanent.
 
-## 7. Review transformations before confirming
+## 7. Optionally review transformations before confirming
 
-After **Check matches** succeeds, select **Preview rule effects**.
+After **Check matches** succeeds, select **Review rule effects (optional)** if
+you want to inspect the changes before confirmation.
 
 This read-only report compares original source values with the values Impodo
 will prepare. It does not contact or change Odoo.
@@ -445,8 +446,9 @@ For each affected value, verify:
 - field rules;
 - result and any message.
 
-Return to Match data and select **Confirm field matches** only after the report
-is acceptable.
+Return to Match data and select **Confirm field matches** when the checked
+mapping is acceptable. You can skip this optional preview and go directly to
+Stage 4, where Impodo prepares every row for review.
 
 ## 8. Prepare all rows and resolve findings
 

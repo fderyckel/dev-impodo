@@ -33,8 +33,10 @@ record identity automatically.
    approved existing Odoo data.
 7. Select **Save progress** before leaving the page.
 8. Select **Check matches**.
-9. Review transformation effects, including rules that changed no values.
-10. Select **Confirm field matches** for the exact checked revision.
+9. Optionally select **Review rule effects** when you want to inspect changed
+   values before confirmation.
+10. Select **Confirm field matches** for the exact checked revision. You can
+    continue without the optional rule-effects preview.
 
 For reviewed Odoo 19 references such as Country, Language, and Currency,
 Impodo checks the parent relationship and exact portable key through one
@@ -93,7 +95,7 @@ Confirming these choices still does not contact or change Odoo.
 
 ![Current field-value and cleanup controls for a fictional Contact mapping.](../../images/user/11-mapping-fields.png)
 
-![Current read-only report showing the effects of confirmed cleanup rules.](../../images/user/13-rule-effects.png)
+![Optional read-only report showing the effects of confirmed cleanup rules.](../../images/user/13-rule-effects.png)
 
 ## What to check
 
@@ -105,8 +107,9 @@ Confirming these choices still does not contact or change Odoo.
   to a current Odoo choice or is deliberately blocked for review.
 - Many2one, One2many, and Many2many relationships use portable keys.
 - Cleanup rules change only the intended values and run in the intended order.
-- Choice rules show how many rows matched, how many rows first-match priority
-  selected, and how many rows also matched another rule.
+- When you use the optional rule-effects preview, choice rules show how many
+  rows matched, how many rows first-match priority selected, and how many rows
+  also matched another rule.
 - No field is mapped merely because its name looks similar.
 
 ## What Complete means
@@ -124,10 +127,10 @@ itself, authorize a load, or write to Odoo.
 ## Needs attention
 
 Resolve missing required fields, duplicate target assignments, incompatible
-types, unresolved relationships, unexpected selection values, and rules with
-zero matches or overlapping priority. Keep a zero-match rule only after you
-review why it is intentional. Keep overlapping rules only after you confirm
-that the earlier matching rule should supply the final Odoo choice.
+types, unresolved relationships, and unexpected selection values. A rule with
+zero matches or overlapping priority does not block confirmation. Use the
+optional rule-effects preview when you want to inspect that result before
+Stage 4 prepares every row for the required data review.
 
 When **Confirm field matches** is unavailable, the reason panel beside the
 bottom workflow actions lists every current blocker even if a field search or

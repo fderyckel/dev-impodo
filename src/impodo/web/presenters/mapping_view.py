@@ -32,9 +32,6 @@ from ...domain.mapping.scalar_values import (
     evaluate_scalar_mapping_value,
 )
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
-from ...domain.staging.transformation_impact import (
-    reviewable_rule_impact_definitions,
-)
 from ...quality import (
     MAX_MANAGER_RULES_PER_DATASET,
     QualityOutcomePolicy,
@@ -59,7 +56,6 @@ from .mapping_forms import (
 from .mapping_impact import (
     _mapping_field_page_size,
     _mapping_return_url,
-    _transformation_impact_identity,
 )
 
 
@@ -236,41 +232,6 @@ def _render_mapping(
     validation_problem_count = len(visible_validation_issues) + (
         1 if readonly_field_recovery else 0
     )
-    rule_review_required = bool(
-        revision is not None
-        and any(
-            reviewable_rule_impact_definitions(dataset.dataset_id, field)
-            for dataset in revision.definition.datasets
-            for field in dataset.fields
-        )
-    )
-    rule_impact_snapshot = None
-    if (
-        rule_review_required
-        and revision is not None
-        and not has_unvalidated_changes
-        and selection is not None
-    ):
-        if physical_selection is not None:
-            identity = _transformation_impact_identity(
-                revision,
-                physical_selection,
-                selection,
-                preparation_plan,
-            )
-            rule_impact_snapshot = (
-                context.queries.get_transformation_impact_snapshot(
-                    workspace_id,
-                    identity,
-                )
-            )
-    rule_review_ready = bool(
-        not rule_review_required
-        or (
-            rule_impact_snapshot is not None
-            and not rule_impact_snapshot.unacknowledged_rule_impacts
-        )
-    )
     next_step = _mapping_next_step(
         workspace_id=workspace_id,
         schema=schema,
@@ -278,7 +239,6 @@ def _render_mapping(
         validation=validation,
         submission=submission,
         has_unvalidated_changes=has_unvalidated_changes,
-        rule_review_ready=rule_review_ready,
         blocking_issue_views=blocking_issue_views,
         previous_check_blocking_issue_views=(
             previous_check_blocking_issue_views
@@ -325,9 +285,6 @@ def _render_mapping(
         validation_problem_count=validation_problem_count,
         blocking_issue_views=blocking_issue_views,
         next_step=next_step,
-        rule_review_required=rule_review_required,
-        rule_impact_snapshot=rule_impact_snapshot,
-        rule_review_ready=rule_review_ready,
         quality_view=quality_view,
         recipe_application=None,
         error=error,
@@ -790,7 +747,6 @@ def _mapping_next_step(
     validation,
     submission,
     has_unvalidated_changes,
-    rule_review_ready,
     blocking_issue_views,
     previous_check_blocking_issue_views,
     readonly_field_recovery,
@@ -872,25 +828,6 @@ def _mapping_next_step(
                     "issue_view": item,
                 }
                 for item in blocking_issue_views
-            )
-        if (
-            revision is not None
-            and validation is not None
-            and validation.status.value != "INVALID"
-            and not rule_review_ready
-        ):
-            blockers.append(
-                {
-                    "title": "Rule effects still need review",
-                    "message": (
-                        "Review rules with no matches or overlapping priority "
-                        "before confirming."
-                    ),
-                    "href": (
-                        f"/workspaces/{workspace_id}/mapping/transformation-impact"
-                    ),
-                    "action_label": "Review rule effects",
-                }
             )
     return {
         "label": "Confirm field matches",

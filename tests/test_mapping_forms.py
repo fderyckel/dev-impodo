@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 from starlette.datastructures import FormData
 
@@ -112,6 +113,17 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertNotIn("scalar_replacement_0_0", allowed)
         self.assertNotIn("scalar_search_mode_0_0", allowed)
         self.assertNotIn("scalar_replace_all_0_0", allowed)
+
+    def test_button_authored_text_steps_notify_mapping_draft_tracking(self) -> None:
+        script = (
+            Path(__file__).parents[1] / "src" / "impodo" / "web" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'storage?.dispatchEvent(new Event("input", { bubbles: true }));',
+            script,
+        )
+        self.assertEqual(script.count("notifyTextStepsChanged(builder);"), 3)
 
 
 if __name__ == "__main__":

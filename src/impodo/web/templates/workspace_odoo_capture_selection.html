@@ -46,6 +46,12 @@
       <p>The capture plan must be bound to authenticated, current Odoo schema evidence.</p>
       <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo record type</a>
     </section>
+  {% elif schema.pending_refresh %}
+    <section class="notice warning" role="alert">
+      <strong>Odoo data needs attention.</strong>
+      <p>Impodo found changed Odoo details and kept the current capture plan and frozen evidence. Review the changes before freezing another source version.</p>
+      <a class="button primary" href="/workspaces/{{ workspace_id }}/schema#odoo-schema-changes">Review Odoo changes</a>
+    </section>
   {% elif schema.origin.value != 'LIVE_API' or not schema.connection_target_hash or not schema.read_principal_hash or not schema.read_permission_hash or not schema.read_context_hash %}
     <section class="form-card">
       <h2>Refresh authenticated Odoo details</h2>
@@ -134,7 +140,7 @@
         <span class="status registered">Plan saved</span>
       </div>
       <p><strong>{{ current.dataset_name }}</strong> will read at most {{ current.max_rows }} {{ current.model }} record(s), using {{ current.field_names|length }} selected field(s).</p>
-      {% if schema and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
+      {% if schema and not schema.pending_refresh and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
         <div class="notice warning">
           <strong>{% if current_manifest %}This creates a replacement version.{% else %}This creates the first frozen version.{% endif %}</strong>
           The current version changes only after all target checks, value data, and protected origins are complete. A stop or failure leaves the existing current version unchanged.
@@ -150,7 +156,7 @@
           <button class="button primary" type="submit">Freeze these Odoo records</button>
         </form>
       {% else %}
-        <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh credential-bound Odoo details</a></p>
+        <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">{% if schema and schema.pending_refresh %}Review Odoo changes{% else %}Refresh credential-bound Odoo details{% endif %}</a></p>
       {% endif %}
       <details class="technical-evidence">
         <summary>Support details</summary>

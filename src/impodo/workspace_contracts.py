@@ -351,6 +351,43 @@ class SchemaOrigin(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class OdooSchemaChange:
+    """Describe one bounded, data-manager-visible schema difference."""
+
+    kind: str
+    model_name: str
+    model_label: str
+    field_name: str | None
+    field_label: str | None
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
+class OdooSchemaRefreshCandidate:
+    """Hold checked Odoo details that are not current until confirmation."""
+
+    candidate_id: str
+    checked_at: datetime
+    checked_by: str
+    expected_current_content_hash: str
+    semantic_hash: str
+    connection_target_hash: str
+    policy_hash: str
+    connection_mode: str
+    database: str
+    odoo_version: str
+    models: tuple[SchemaModel, ...]
+    content_hash: str
+    origin: SchemaOrigin
+    read_credential_binding_hash: str
+    read_principal_hash: str
+    read_permission_hash: str
+    read_context_hash: str
+    change_count: int
+    changes: tuple[OdooSchemaChange, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class OdooSchemaCatalog:
     """Hold the exact permitted-model Odoo schema captured for mapping.
 
@@ -375,6 +412,9 @@ class OdooSchemaCatalog:
     read_permission_hash: str
     read_context_hash: str
     connection_target_hash: str
+    last_checked_at: datetime | None = None
+    last_checked_by: str | None = None
+    pending_refresh: OdooSchemaRefreshCandidate | None = None
 
     def to_json(self) -> str:
         """Serialize the complete captured schema and provenance deterministically."""
@@ -396,6 +436,7 @@ class OdooSchemaCatalog:
             != WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION
         ):
             raise ValueError("Stored Odoo schema uses an unsupported contract")
+        pending_payload = payload.get("pending_refresh")
         return cls(
             workspace_id=payload["workspace_id"],
             policy_hash=payload["policy_hash"],
@@ -404,57 +445,7 @@ class OdooSchemaCatalog:
             connection_mode=payload["connection_mode"],
             database=payload["database"],
             odoo_version=payload["odoo_version"],
-            models=tuple(
-                SchemaModel(
-                    name=model["name"],
-                    label=model["label"],
-                    fields=tuple(
-                        SchemaField(
-                            name=field["name"],
-                            label=field["label"],
-                            type=field["type"],
-                            required=bool(field["required"]),
-                            readonly=bool(field["readonly"]),
-                            relation=field["relation"],
-                            relation_field=field["relation_field"],
-                            selection=tuple(
-                                tuple(item)
-                                for item in field["selection"]
-                            ),
-                            stored=_optional_bool(field["stored"]),
-                            computed=_optional_bool(field["computed"]),
-                            has_inverse=_optional_bool(field["has_inverse"]),
-                            related=_optional_bool(field["related"]),
-                            translated=_optional_bool(field["translated"]),
-                            company_dependent=_optional_bool(
-                                field["company_dependent"]
-                            ),
-                            searchable=_optional_bool(field["searchable"]),
-                            sortable=_optional_bool(field["sortable"]),
-                            exportable=_optional_bool(field["exportable"]),
-                            digits=(
-                                tuple(int(item) for item in field["digits"])
-                                if field["digits"] is not None
-                                else None
-                            ),
-                            currency_field=(
-                                str(field["currency_field"])
-                                if field["currency_field"] is not None
-                                else None
-                            ),
-                        )
-                        for field in model["fields"]
-                    ),
-                    unique_constraints=tuple(
-                        UniqueConstraintMetadata(
-                            name=str(item["name"]),
-                            definition=str(item["definition"]),
-                        )
-                        for item in model["unique_constraints"]
-                    ),
-                )
-                for model in payload["models"]
-            ),
+            models=_schema_models_from_payload(payload["models"]),
             content_hash=payload["content_hash"],
             origin=SchemaOrigin(payload["origin"]),
             read_credential_binding_hash=payload["read_credential_binding_hash"],
@@ -462,7 +453,123 @@ class OdooSchemaCatalog:
             read_permission_hash=payload["read_permission_hash"],
             read_context_hash=payload["read_context_hash"],
             connection_target_hash=payload["connection_target_hash"],
+            last_checked_at=(
+                datetime.fromisoformat(payload["last_checked_at"])
+                if payload.get("last_checked_at")
+                else None
+            ),
+            last_checked_by=payload.get("last_checked_by"),
+            pending_refresh=(
+                _schema_refresh_candidate_from_payload(pending_payload)
+                if pending_payload is not None
+                else None
+            ),
         )
+
+
+def _schema_models_from_payload(value: object) -> tuple[SchemaModel, ...]:
+    if not isinstance(value, list):
+        raise ValueError("Stored Odoo schema models are invalid")
+    return tuple(_schema_model_from_payload(model) for model in value)
+
+
+def _schema_model_from_payload(value: object) -> SchemaModel:
+    if not isinstance(value, dict):
+        raise ValueError("Stored Odoo schema model is invalid")
+    return SchemaModel(
+        name=str(value["name"]),
+        label=str(value["label"]),
+        fields=tuple(
+            _schema_field_from_payload(field) for field in value["fields"]
+        ),
+        unique_constraints=tuple(
+            UniqueConstraintMetadata(
+                name=str(item["name"]),
+                definition=str(item["definition"]),
+            )
+            for item in value["unique_constraints"]
+        ),
+    )
+
+
+def _schema_field_from_payload(value: object) -> SchemaField:
+    if not isinstance(value, dict):
+        raise ValueError("Stored Odoo schema field is invalid")
+    return SchemaField(
+        name=str(value["name"]),
+        label=str(value["label"]),
+        type=str(value["type"]),
+        required=bool(value["required"]),
+        readonly=bool(value["readonly"]),
+        relation=value["relation"],
+        relation_field=value["relation_field"],
+        selection=tuple(tuple(item) for item in value["selection"]),
+        stored=_optional_bool(value["stored"]),
+        computed=_optional_bool(value["computed"]),
+        has_inverse=_optional_bool(value["has_inverse"]),
+        related=_optional_bool(value["related"]),
+        translated=_optional_bool(value["translated"]),
+        company_dependent=_optional_bool(value["company_dependent"]),
+        searchable=_optional_bool(value["searchable"]),
+        sortable=_optional_bool(value["sortable"]),
+        exportable=_optional_bool(value["exportable"]),
+        digits=(
+            tuple(int(item) for item in value["digits"])
+            if value["digits"] is not None
+            else None
+        ),
+        currency_field=(
+            str(value["currency_field"])
+            if value["currency_field"] is not None
+            else None
+        ),
+    )
+
+
+def _schema_refresh_candidate_from_payload(
+    value: object,
+) -> OdooSchemaRefreshCandidate:
+    if not isinstance(value, dict):
+        raise ValueError("Stored Odoo schema refresh candidate is invalid")
+    return OdooSchemaRefreshCandidate(
+        candidate_id=str(value["candidate_id"]),
+        checked_at=datetime.fromisoformat(value["checked_at"]),
+        checked_by=str(value["checked_by"]),
+        expected_current_content_hash=str(value["expected_current_content_hash"]),
+        semantic_hash=str(value["semantic_hash"]),
+        connection_target_hash=str(value["connection_target_hash"]),
+        policy_hash=str(value["policy_hash"]),
+        connection_mode=str(value["connection_mode"]),
+        database=str(value["database"]),
+        odoo_version=str(value["odoo_version"]),
+        models=_schema_models_from_payload(value["models"]),
+        content_hash=str(value["content_hash"]),
+        origin=SchemaOrigin(value["origin"]),
+        read_credential_binding_hash=str(value["read_credential_binding_hash"]),
+        read_principal_hash=str(value["read_principal_hash"]),
+        read_permission_hash=str(value["read_permission_hash"]),
+        read_context_hash=str(value["read_context_hash"]),
+        change_count=int(value["change_count"]),
+        changes=tuple(
+            OdooSchemaChange(
+                kind=str(item["kind"]),
+                model_name=str(item["model_name"]),
+                model_label=str(item["model_label"]),
+                field_name=(
+                    str(item["field_name"])
+                    if item["field_name"] is not None
+                    else None
+                ),
+                field_label=(
+                    str(item["field_label"])
+                    if item["field_label"] is not None
+                    else None
+                ),
+                description=str(item["description"]),
+            )
+            for item in value["changes"]
+        ),
+    )
 
 
 def _optional_bool(value: object) -> bool | None:

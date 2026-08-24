@@ -2759,12 +2759,107 @@ class ProjectSetupWizardTests(unittest.TestCase):
             cached_schema_page.text,
         )
         self.assertIn(
-            "Update selected Odoo data",
+            "Check for Odoo changes",
             cached_schema_page.text,
         )
         self.local_odoo_reader.get_model_metadata.assert_called_once()
 
         context.local_stack = configured_local_stack
+        current_schema = context.queries.get_odoo_schema_catalog(
+            registered.workspace_id
+        )
+        assert current_schema is not None
+        self.local_odoo_reader.get_model_metadata.return_value = _browser_schema(
+            registered
+        )
+        unchanged_check = self._post(
+            f"/workspaces/{registered.workspace_id}/schema/capture",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(unchanged_check.status_code, 303)
+        unchanged_page = self.client.get(unchanged_check.headers["location"])
+        self.assertIn("Odoo details are unchanged", unchanged_page.text)
+        unchanged_schema = context.queries.get_odoo_schema_catalog(
+            registered.workspace_id
+        )
+        assert unchanged_schema is not None
+        self.assertEqual(unchanged_schema.content_hash, current_schema.content_hash)
+        self.assertIsNone(unchanged_schema.pending_refresh)
+
+        changed_snapshot = _browser_schema(registered)
+        changed_partner = changed_snapshot.models["res.partner"]
+        self.local_odoo_reader.get_model_metadata.return_value = replace(
+            changed_snapshot,
+            models={
+                "res.partner": replace(
+                    changed_partner,
+                    fields={
+                        **changed_partner.fields,
+                        "name": replace(
+                            changed_partner.fields["name"],
+                            required=False,
+                        ),
+                    },
+                )
+            },
+        )
+        changed_check = self._post(
+            f"/workspaces/{registered.workspace_id}/schema/capture",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(changed_check.status_code, 303)
+        changed_page = self.client.get(changed_check.headers["location"])
+        self.assertIn("Odoo details changed", changed_page.text)
+        self.assertIn("Field behavior changed", changed_page.text)
+        self.assertIn("Use updated Odoo details", changed_page.text)
+        self.assertIn("Needs attention", changed_page.text)
+        reviewed_schema = context.queries.get_odoo_schema_catalog(
+            registered.workspace_id
+        )
+        assert reviewed_schema is not None
+        pending = reviewed_schema.pending_refresh
+        assert pending is not None
+        unconfirmed = self._post(
+            f"/workspaces/{registered.workspace_id}/schema/capture/confirm",
+            {
+                "csrf_token": self.csrf,
+                "expected_current_content_hash": (
+                    pending.expected_current_content_hash
+                ),
+                "candidate_id": pending.candidate_id,
+                "candidate_semantic_hash": pending.semantic_hash,
+            },
+        )
+        self.assertEqual(unconfirmed.status_code, 422)
+        self.assertIn("Confirm that Impodo may replace", unconfirmed.text)
+        still_pending = context.queries.get_odoo_schema_catalog(
+            registered.workspace_id
+        )
+        assert still_pending is not None
+        self.assertEqual(still_pending.pending_refresh, pending)
+        confirmed = self._post(
+            f"/workspaces/{registered.workspace_id}/schema/capture/confirm",
+            {
+                "csrf_token": self.csrf,
+                "expected_current_content_hash": (
+                    pending.expected_current_content_hash
+                ),
+                "candidate_id": pending.candidate_id,
+                "candidate_semantic_hash": pending.semantic_hash,
+                "confirm_schema_refresh": "1",
+            },
+        )
+        self.assertEqual(confirmed.status_code, 303)
+        confirmed_schema = context.queries.get_odoo_schema_catalog(
+            registered.workspace_id
+        )
+        assert confirmed_schema is not None
+        self.assertIsNone(confirmed_schema.pending_refresh)
+        self.assertNotEqual(
+            confirmed_schema.content_hash,
+            current_schema.content_hash,
+        )
+
         self.local_odoo_reader.get_model_metadata.side_effect = ConnectorError(
             "raw local reader failure"
         )
@@ -2817,7 +2912,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(recovered.status_code, 303)
         recovered_page = self.client.get(recovered.headers["location"])
         self.assertIn("Odoo data is ready", recovered_page.text)
-        self.assertIn("Update selected Odoo data", recovered_page.text)
+        self.assertIn("Check for Odoo changes", recovered_page.text)
 
     def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
         self,
@@ -2967,6 +3062,52 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Capture plan version 1", saved_page.text)
         self.assertIn("Freeze these Odoo records", saved_page.text)
         self.assertIn("Ready to freeze", saved_page.text)
+
+        context = self.app.state.context
+        original_schema_reader = context.schema_reader
+        changed_snapshot = _browser_schema(workspace_state)
+        changed_partner = changed_snapshot.models["res.partner"]
+        changed_snapshot = replace(
+            changed_snapshot,
+            models={
+                "res.partner": replace(
+                    changed_partner,
+                    fields={
+                        **changed_partner.fields,
+                        "name": replace(
+                            changed_partner.fields["name"],
+                            required=False,
+                        ),
+                    },
+                )
+            },
+        )
+        context.schema_reader = lambda _workspace_state, _api_key: changed_snapshot
+        change_check = self._post(
+            f"/workspaces/{workspace_id}/schema/capture",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(change_check.status_code, 303)
+        attention_page = self.client.get(f"/workspaces/{workspace_id}/sources")
+        self.assertIn("Odoo data needs attention", attention_page.text)
+        self.assertIn("Review Odoo changes", attention_page.text)
+        blocked_by_change = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-capture",
+            {
+                "csrf_token": self.csrf,
+                "selection_id": selection.selection_id,
+                "selection_hash": selection.content_hash,
+                "confirm_capture": "1",
+            },
+        )
+        self.assertEqual(blocked_by_change.status_code, 422)
+        self.assertIn("Review the checked Odoo changes", blocked_by_change.text)
+        context.schema_reader = original_schema_reader
+        cleared_check = self._post(
+            f"/workspaces/{workspace_id}/schema/capture",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(cleared_check.status_code, 303)
 
         stale = self._post(
             f"/workspaces/{workspace_id}/sources/odoo-capture",
@@ -4383,32 +4524,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(checked_revision.version, 1)
 
-        premature_submit = self.client.post(
-            f"/workspaces/{workspace_id}/mapping/save",
-            data={
-                **mapping_data,
-                "action": "submit",
-                "expected_parent_version": "1",
-                "expected_working_draft_version": "2",
-            },
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-        self.assertEqual(premature_submit.status_code, 303)
-        premature_page = self.client.get(premature_submit.headers["location"])
-        self.assertIn(
-            "Preview the current rule effects before confirming field matches",
-            premature_page.text,
-        )
-
-        rule_preview = self.client.post(
-            f"/workspaces/{workspace_id}/mapping/transformation-impact/prepare",
-            data={"csrf_token": self.csrf},
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-        self.assertEqual(rule_preview.status_code, 303)
-
         submitted = self.client.post(
             f"/workspaces/{workspace_id}/mapping/save",
             data={
@@ -4489,16 +4604,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_link = (
             f"/workspaces/{workspace_id}/mapping/transformation-impact"
         )
-        self.assertIn("Review rule effects", confirmed_mapping_page.text)
+        self.assertIn("Review rule effects (optional)", confirmed_mapping_page.text)
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
         self.assertIn("Review rule effects", impact_page.text)
         self.assertIn("Stage 3 of 6", impact_page.text)
-        self.assertIn("Rule review", impact_page.text)
+        self.assertIn("Optional rule review", impact_page.text)
         self.assertIn('aria-current="step"', impact_page.text)
         self.assertIn('aria-current="page"', impact_page.text)
-        self.assertIn("What each rule did", impact_page.text)
-        self.assertIn("your confirmed preparation choices", impact_page.text)
+        self.assertIn("This review is optional", impact_page.text)
+        self.assertIn("Prepare preview", impact_page.text)
+        self.assertNotIn("What each rule did", impact_page.text)
+        self.assertIn("your checked field rules", impact_page.text)
         self.assertNotIn("data-impact-row", impact_page.text)
         prepared = self.client.post(
             f"{impact_link}/prepare",

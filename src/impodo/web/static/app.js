@@ -2428,6 +2428,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const notifyTextStepsChanged = (builder) => {
+    const storage = builder.querySelector("[data-text-step-storage]");
+    storage?.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
   const refreshTextStepCard = (card) => {
     const preset = card.querySelector("[data-text-step-kind]")?.value || "literal";
     const separatorFields = card.querySelector("[data-text-step-separators]");
@@ -2805,6 +2810,7 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         renderTextSteps(builder, internationalPhoneTextSteps());
+        notifyTextStepsChanged(builder);
         updateScalarRow();
         return;
       }
@@ -2817,6 +2823,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const preset =
           builder.querySelector("[data-new-text-step-kind]")?.value || "literal";
         renderTextSteps(builder, [...steps, defaultTextStep(preset)]);
+        notifyTextStepsChanged(builder);
         updateScalarRow();
         return;
       }
@@ -2839,6 +2846,7 @@ document.addEventListener("DOMContentLoaded", () => {
         [steps[index], steps[targetIndex]] = [steps[targetIndex], steps[index]];
       }
       renderTextSteps(builder, steps);
+      notifyTextStepsChanged(builder);
       updateScalarRow();
     });
     const syncFromControl = (event) => {

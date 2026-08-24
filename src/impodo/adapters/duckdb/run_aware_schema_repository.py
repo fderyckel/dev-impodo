@@ -47,6 +47,28 @@ class RunAwareSchemaRepository:
             **kwargs,
         )
 
+    def save_odoo_schema_check(self, workspace_id, catalog, **kwargs):
+        if self.runs.get_workspace_target_schema(workspace_id) is not None:
+            raise MigrationRunPlanningError(
+                "Check target evidence once from the integrated run"
+            )
+        return self.local.save_odoo_schema_check(
+            workspace_id,
+            catalog,
+            **kwargs,
+        )
+
+    def confirm_odoo_schema_refresh(self, workspace_id, catalog, **kwargs):
+        if self.runs.get_workspace_target_schema(workspace_id) is not None:
+            raise MigrationRunPlanningError(
+                "Refresh target evidence once from the integrated run"
+            )
+        return self.local.confirm_odoo_schema_refresh(
+            workspace_id,
+            catalog,
+            **kwargs,
+        )
+
     def get_schema_governance(self, workspace_id):
         return self.local.get_schema_governance(workspace_id)
 

@@ -26,9 +26,30 @@ from impodo.web.presenters.mapping_impact import (
     _transformation_impact_row_views,
     _transformation_rule_impact_views,
 )
+from impodo.web.presenters.mapping_view import _mapping_next_step
 
 
 class TransformationImpactPresenterTests(unittest.TestCase):
+    def test_valid_checked_mapping_can_confirm_without_rule_effect_preview(
+        self,
+    ) -> None:
+        next_step = _mapping_next_step(
+            workspace_id="workspace-1",
+            schema=SimpleNamespace(origin=SimpleNamespace(value="LIVE_API")),
+            revision=SimpleNamespace(),
+            validation=SimpleNamespace(status=SimpleNamespace(value="VALID")),
+            submission=None,
+            has_unvalidated_changes=False,
+            blocking_issue_views=(),
+            previous_check_blocking_issue_views=(),
+            readonly_field_recovery=None,
+        )
+
+        self.assertTrue(next_step["available"])
+        self.assertEqual(next_step["action"], "submit")
+        self.assertEqual(next_step["label"], "Confirm field matches")
+        self.assertEqual(next_step["blockers"], ())
+
     def test_edge_spaces_are_explained_when_values_look_identical(self) -> None:
         row = TransformationImpactRow(
             dataset="contacts",

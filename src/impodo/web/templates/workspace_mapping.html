@@ -1131,23 +1131,9 @@
           {% endif %}
           {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
             <div class="actions">
-              <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Review rule effects</a>
+              <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Review rule effects (optional)</a>
             </div>
-            <p class="muted">Shows how the confirmed rules prepare every source row. This does not contact or change Odoo.</p>
-          {% endif %}
-          {% if rule_review_required and not rule_review_ready %}
-            <div class="notice warning">
-              {% if rule_impact_snapshot %}
-                <strong>One or more rules need your decision.</strong>
-                Review rules that matched no rows or overlapped an earlier rule, then fix or explicitly keep each result before confirming.
-              {% else %}
-                <strong>Review what the saved rules did before confirming.</strong>
-                Impodo must evaluate the current saved mapping against every source row first.
-              {% endif %}
-              <div class="actions">
-                <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Review rule effects</a>
-              </div>
-            </div>
+            <p class="muted">Use this read-only preview when you want to inspect rule effects now. You can also confirm the checked matches and review every prepared row in Stage 4.</p>
           {% endif %}
           {% for item in warning_issues %}
             <label class="acknowledgement">

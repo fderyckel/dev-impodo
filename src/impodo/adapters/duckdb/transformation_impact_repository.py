@@ -25,7 +25,6 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
     TransformationImpactSnapshot,
     TransformationRuleImpact,
-    TransformationRuleReview,
 )
 from ...workspace_errors import WorkspaceError
 from .repository import DuckDbRepository
@@ -311,49 +310,6 @@ class TransformationImpactRepository(DuckDbRepository):
                 ],
             )
 
-    def get_transformation_rule_review(
-        self,
-        workspace_id: str,
-        *,
-        mapping_content_hash: str,
-        source_selection_hash: str,
-        schema_hash: str,
-    ) -> TransformationRuleReview | None:
-        """Return review evidence only for the exact current mapping inputs."""
-
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        if not database_path.is_file():
-            raise WorkspaceStateNotFoundError("Workspace engine state not found")
-        with self._connect(database_path) as connection:
-            self._ensure_workspace_database_schema(connection)
-            run = connection.execute(
-                """
-                SELECT identity_hash, mapping_content_hash,
-                       source_selection_hash, schema_hash
-                  FROM transformation_impact_run
-                 WHERE singleton_id = 1
-                """
-            ).fetchone()
-            if run is None or (
-                str(run[1]), str(run[2]), str(run[3])
-            ) != (
-                mapping_content_hash,
-                source_selection_hash,
-                schema_hash,
-            ):
-                return None
-            identity_hash = str(run[0])
-            return TransformationRuleReview(
-                identity_hash=identity_hash,
-                mapping_content_hash=str(run[1]),
-                source_selection_hash=str(run[2]),
-                schema_hash=str(run[3]),
-                rule_impacts=self._rule_impacts(connection),
-                acknowledged_rule_fingerprints=self._rule_acknowledgements(
-                    connection,
-                    identity_hash,
-                ),
-            )
     def get_transformation_impact_page(
         self,
         workspace_id: str,
@@ -614,4 +570,3 @@ class TransformationImpactRepository(DuckDbRepository):
                 [identity_hash],
             ).fetchall()
         )
-

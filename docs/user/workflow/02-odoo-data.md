@@ -30,6 +30,19 @@ agree stable business keys with the functional owner.
 7. For an Odoo source, confirm the eligible fields needed by the bounded source
    capture.
 
+After the first capture, **Check for Odoo changes** reads the same selected
+record types again. If their technical Odoo details are unchanged, Impodo
+records the successful check and keeps the current mapping and later review
+work. A new check time or translated display label does not replace that work.
+
+If Odoo fields, types, requirements, selections, relationships, constraints,
+target identity, or selected scope changed, **Odoo data** becomes **Needs
+attention**. Impodo shows the detected differences but keeps the current
+evidence in place. Review the differences, then select **Use updated Odoo
+details** only when the new target definition is correct. That confirmation
+replaces the schema and retires dependent work that described the previous
+definition.
+
 Use portable values such as customer reference, internal product reference,
 country code, or BoM reference. Do not choose an Odoo numeric database ID as a
 portable business key.
@@ -86,16 +99,18 @@ current value is unique; the later comparison checks current target evidence.
 ## Needs attention
 
 Do not continue when the wrong database, model, inherited field, or business
-key is shown. Refresh the available records or recapture the selected details.
-If access is unavailable, resolve the Odoo plan, credentials, or permissions
-instead of guessing field definitions.
+key is shown. Refresh the available record types or select **Check for Odoo
+changes**. When Impodo finds a change, review it before selecting **Use updated
+Odoo details**. If access is unavailable, resolve the Odoo plan, credentials,
+or permissions instead of guessing field definitions.
 
 ## What makes this work stale
 
-Changing model scope, recapturing fields, or changing a business key
-invalidates dependent mapping and review evidence in this data version.
-Recheck the next stages against the new captured schema. A target change does
-not rewrite an already saved Recipe version.
+Checking unchanged Odoo details does not make later work stale. Confirming a
+changed model scope, field definition, or business key invalidates dependent
+mapping and review evidence in this data version. Recheck the next stages
+against the new captured schema. A target change does not rewrite an already
+saved Recipe version.
 
 ## Next stage
 

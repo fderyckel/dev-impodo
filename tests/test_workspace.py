@@ -388,6 +388,37 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(event, ("ODOO_SCHEMA_ACCESS_REBOUND",))
 
+    def test_schema_access_rebind_ignores_display_label_only_changes(self) -> None:
+        schema = self._capture_authenticated_schema()
+        snapshot = _metadata_snapshot()
+        partner = snapshot.models["res.partner"]
+        relabeled = replace(
+            snapshot,
+            models={
+                "res.partner": replace(
+                    partner,
+                    fields={
+                        **partner.fields,
+                        "name": replace(
+                            partner.fields["name"],
+                            label="Legal name",
+                        ),
+                    },
+                )
+            },
+        )
+
+        rebound = self.schemas.rebind_current_access(
+            self.workspace_state.workspace_id,
+            relabeled,
+            read_credential_binding_hash="sha256:" + "7" * 64,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(rebound.content_hash, schema.content_hash)
+        self.assertEqual(rebound.models, schema.models)
+
     def test_schema_access_rebind_blocks_field_drift_without_invalidation(
         self,
     ) -> None:
@@ -416,7 +447,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                         **partner.fields,
                         "name": replace(
                             partner.fields["name"],
-                            label="Legal name",
+                            required=False,
                         ),
                     },
                 )
@@ -529,7 +560,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
-    def test_odoo_capture_plan_is_versioned_and_invalidated_by_schema_refresh(
+    def test_odoo_capture_plan_survives_check_until_schema_change_is_confirmed(
         self,
     ) -> None:
         odoo_project = replace(
@@ -596,11 +627,73 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(first.connection_target_hash, schema.connection_target_hash)
 
-        self.schemas.capture(
+        unchanged_snapshot = _metadata_snapshot()
+        unchanged_snapshot = replace(
+            unchanged_snapshot,
+            fingerprint=replace(
+                unchanged_snapshot.fingerprint,
+                snapshot_timestamp="2026-08-24T12:00:00Z",
+            ),
+        )
+        checked = self.schemas.check_refresh(
             self.workspace_state.workspace_id,
-            _metadata_snapshot(),
+            unchanged_snapshot,
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(checked.content_hash, schema.content_hash)
+        self.assertIsNone(checked.pending_refresh)
+        self.assertEqual(
+            self.source_repository.get_current_odoo_capture_selection(
+                self.workspace_state.workspace_id
+            ),
+            second,
+        )
+
+        changed_snapshot = _metadata_snapshot()
+        partner = changed_snapshot.models["res.partner"]
+        changed_snapshot = replace(
+            changed_snapshot,
+            models={
+                "res.partner": replace(
+                    partner,
+                    fields={
+                        **partner.fields,
+                        "name": replace(
+                            partner.fields["name"],
+                            required=False,
+                        ),
+                    },
+                )
+            },
+        )
+        review = self.schemas.check_refresh(
+            self.workspace_state.workspace_id,
+            changed_snapshot,
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertIsNotNone(review.pending_refresh)
+        pending = review.pending_refresh
+        assert pending is not None
+        self.assertEqual(pending.change_count, 1)
+        self.assertEqual(pending.changes[0].kind, "FIELD_CHANGED")
+        self.assertEqual(
+            self.source_repository.get_current_odoo_capture_selection(
+                self.workspace_state.workspace_id
+            ),
+            second,
+        )
+
+        confirmed = self.schemas.confirm_refresh(
+            self.workspace_state.workspace_id,
+            expected_current_content_hash=pending.expected_current_content_hash,
+            expected_candidate_id=pending.candidate_id,
+            expected_candidate_semantic_hash=pending.semantic_hash,
             actor=LOCAL_ACTOR,
         )
 
@@ -609,6 +702,8 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 self.workspace_state.workspace_id
             )
         )
+        self.assertIsNone(confirmed.pending_refresh)
+        self.assertNotEqual(confirmed.content_hash, schema.content_hash)
         self.assertEqual(
             len(
                 self.source_repository.get_odoo_capture_selection_history(

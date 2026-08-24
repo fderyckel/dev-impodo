@@ -41,10 +41,6 @@ from ..domain.mapping.validation.evidence import (
 from ..domain.mapping.validation.validator import MappingSemanticValidator
 from ..reference_keys import REFERENCE_POLICY_HASH
 from .categorical_coverage_service import CategoricalCoverageService
-from ..domain.staging.transformation_impact import (
-    TransformationRuleReview,
-    reviewable_rule_impact_definitions,
-)
 from ..workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -170,19 +166,6 @@ class MappingWorkspaceRepository(Protocol):
         ...
 
 
-class MappingTransformationImpactRepository(Protocol):
-    """Read separate full-row rule-review evidence for submission gates."""
-
-    def get_transformation_rule_review(
-        self,
-        workspace_id: str,
-        *,
-        mapping_content_hash: str,
-        source_selection_hash: str,
-        schema_hash: str,
-    ) -> TransformationRuleReview | None: ...
-
-
 class MappingWorkspaceService:
     """Own Stage D concurrency, evidence binding, and submission gates.
 
@@ -199,13 +182,11 @@ class MappingWorkspaceService:
         mappings: MappingWorkspaceRepository,
         authorization: AuthorizationPolicy,
         categorical_coverage: CategoricalCoverageService,
-        transformation_impacts: MappingTransformationImpactRepository | None = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
         self.mappings = mappings
         self.authorization = authorization
-        self.transformation_impacts = transformation_impacts
         self.categorical_coverage = categorical_coverage
         self.validator = MappingSemanticValidator()
 
@@ -696,27 +677,6 @@ class MappingWorkspaceService:
                 "Acknowledge every current validation warning before "
                 "confirming"
             )
-        rule_review_required = any(
-            reviewable_rule_impact_definitions(dataset.dataset_id, field)
-            for dataset in revision.definition.datasets
-            for field in dataset.fields
-        )
-        if rule_review_required and self.transformation_impacts is not None:
-            review = self.transformation_impacts.get_transformation_rule_review(
-                workspace_id,
-                mapping_content_hash=revision.definition.content_hash,
-                source_selection_hash=revision.definition.source_selection_hash,
-                schema_hash=revision.definition.schema_hash,
-            )
-            if review is None:
-                raise WorkspaceError(
-                    "Preview the current rule effects before confirming field matches"
-                )
-            if review.unacknowledged_rule_impacts:
-                raise WorkspaceError(
-                    "Review every rule with no matches or overlapping priority "
-                    "before confirming"
-                )
         existing = self.mappings.get_mapping_submission(
             workspace_id,
             revision.version,

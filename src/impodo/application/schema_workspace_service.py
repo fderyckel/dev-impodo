@@ -37,7 +37,9 @@ from ..workspace_state import (
 from ..workspace_contracts import (
     OdooModelCatalog,
     OdooModelSummary,
+    OdooSchemaChange,
     OdooSchemaCatalog,
+    OdooSchemaRefreshCandidate,
     SchemaField,
     SchemaModel,
     SchemaOrigin,
@@ -49,6 +51,7 @@ from ..domain.serialization import content_hash
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _CONTENT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
+_MAX_SCHEMA_REFRESH_CHANGES = 50
 
 
 class SchemaWorkspaceReader(Protocol):
@@ -114,6 +117,31 @@ class SchemaWorkspaceRepository(Protocol):
         actor: Actor,
     ) -> None:
         """Update verified access evidence without retiring semantic dependents."""
+        ...
+
+    def save_odoo_schema_check(
+        self,
+        workspace_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_content_hash: str,
+        expected_read_credential_binding_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Record refresh status without replacing current schema meaning."""
+        ...
+
+    def confirm_odoo_schema_refresh(
+        self,
+        workspace_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_current_content_hash: str,
+        expected_candidate_id: str,
+        expected_candidate_semantic_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Promote the exact reviewed candidate and retire its dependents."""
         ...
 
     def get_schema_governance(
@@ -285,6 +313,179 @@ class SchemaWorkspaceService:
     ) -> OdooSchemaCatalog:
         """Capture a verified catalog through the connected read-only reader."""
 
+        catalog = self._validated_live_catalog(
+            workspace_id,
+            snapshot,
+            read_credential_binding_hash=read_credential_binding_hash,
+            read_identity=read_identity,
+            actor=actor,
+        )
+        self.schemas.save_odoo_schema_catalog(
+            workspace_id,
+            catalog,
+            actor=actor,
+        )
+        return catalog
+
+    def check_refresh(
+        self,
+        workspace_id: str,
+        snapshot: MetadataSnapshot,
+        *,
+        read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None = None,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Check current Odoo details without replacing current schema meaning."""
+
+        candidate_catalog = self._validated_live_catalog(
+            workspace_id,
+            snapshot,
+            read_credential_binding_hash=read_credential_binding_hash,
+            read_identity=read_identity,
+            actor=actor,
+        )
+        current = self.schemas.get_odoo_schema_catalog(workspace_id)
+        if current is None or current.origin is not SchemaOrigin.LIVE_API:
+            raise WorkspaceError(
+                "Load verified Odoo details before checking them for changes"
+            )
+        current_semantic_hash = _schema_semantic_hash(current)
+        candidate_semantic_hash = _schema_semantic_hash(candidate_catalog)
+        checked_at = candidate_catalog.captured_at
+
+        if current_semantic_hash == candidate_semantic_hash:
+            checked = replace(
+                current,
+                read_credential_binding_hash=(
+                    candidate_catalog.read_credential_binding_hash
+                ),
+                read_principal_hash=candidate_catalog.read_principal_hash,
+                read_permission_hash=candidate_catalog.read_permission_hash,
+                read_context_hash=candidate_catalog.read_context_hash,
+                last_checked_at=checked_at,
+                last_checked_by=actor.identity.display_name,
+                pending_refresh=None,
+            )
+        else:
+            changes = _schema_refresh_changes(current, candidate_catalog)
+            pending = OdooSchemaRefreshCandidate(
+                candidate_id=str(uuid4()),
+                checked_at=checked_at,
+                checked_by=actor.identity.display_name,
+                expected_current_content_hash=current.content_hash,
+                semantic_hash=candidate_semantic_hash,
+                connection_target_hash=candidate_catalog.connection_target_hash,
+                policy_hash=candidate_catalog.policy_hash,
+                connection_mode=candidate_catalog.connection_mode,
+                database=candidate_catalog.database,
+                odoo_version=candidate_catalog.odoo_version,
+                models=candidate_catalog.models,
+                content_hash=candidate_catalog.content_hash,
+                origin=candidate_catalog.origin,
+                read_credential_binding_hash=(
+                    candidate_catalog.read_credential_binding_hash
+                ),
+                read_principal_hash=candidate_catalog.read_principal_hash,
+                read_permission_hash=candidate_catalog.read_permission_hash,
+                read_context_hash=candidate_catalog.read_context_hash,
+                change_count=len(changes),
+                changes=changes[:_MAX_SCHEMA_REFRESH_CHANGES],
+            )
+            checked = replace(
+                current,
+                last_checked_at=checked_at,
+                last_checked_by=actor.identity.display_name,
+                pending_refresh=pending,
+            )
+        self.schemas.save_odoo_schema_check(
+            workspace_id,
+            checked,
+            expected_content_hash=current.content_hash,
+            expected_read_credential_binding_hash=(
+                current.read_credential_binding_hash
+            ),
+            actor=actor,
+        )
+        return checked
+
+    def confirm_refresh(
+        self,
+        workspace_id: str,
+        *,
+        expected_current_content_hash: str,
+        expected_candidate_id: str,
+        expected_candidate_semantic_hash: str,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Promote one exact checked candidate after explicit confirmation."""
+
+        workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
+        current = self.schemas.get_odoo_schema_catalog(workspace_id)
+        if current is None or current.pending_refresh is None:
+            raise WorkspaceError(
+                "Check Odoo for changes again before confirming updated details"
+            )
+        pending = current.pending_refresh
+        if (
+            current.content_hash != expected_current_content_hash
+            or pending.expected_current_content_hash
+            != expected_current_content_hash
+            or pending.candidate_id != expected_candidate_id
+            or pending.semantic_hash != expected_candidate_semantic_hash
+        ):
+            raise WorkspaceError(
+                "The checked Odoo details changed in another request; check again"
+            )
+        if (
+            pending.connection_target_hash != _target_identity_hash(workspace_state)
+            or pending.policy_hash != ODOO_SOURCE_POLICY_HASH
+            or {model.name for model in pending.models} != permitted
+        ):
+            raise WorkspaceError(
+                "The checked Odoo details no longer match this migration scope"
+            )
+        confirmed = OdooSchemaCatalog(
+            workspace_id=workspace_id,
+            policy_hash=pending.policy_hash,
+            captured_at=pending.checked_at,
+            captured_by=pending.checked_by,
+            connection_mode=pending.connection_mode,
+            database=pending.database,
+            odoo_version=pending.odoo_version,
+            models=pending.models,
+            content_hash=pending.content_hash,
+            origin=pending.origin,
+            read_credential_binding_hash=pending.read_credential_binding_hash,
+            read_principal_hash=pending.read_principal_hash,
+            read_permission_hash=pending.read_permission_hash,
+            read_context_hash=pending.read_context_hash,
+            connection_target_hash=pending.connection_target_hash,
+            last_checked_at=pending.checked_at,
+            last_checked_by=actor.identity.display_name,
+            pending_refresh=None,
+        )
+        self.schemas.confirm_odoo_schema_refresh(
+            workspace_id,
+            confirmed,
+            expected_current_content_hash=expected_current_content_hash,
+            expected_candidate_id=expected_candidate_id,
+            expected_candidate_semantic_hash=expected_candidate_semantic_hash,
+            actor=actor,
+        )
+        return confirmed
+
+    def _validated_live_catalog(
+        self,
+        workspace_id: str,
+        snapshot: MetadataSnapshot,
+        *,
+        read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Build one validated live candidate without publishing it."""
+
         workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
@@ -341,7 +542,7 @@ class SchemaWorkspaceService:
             discovered=discovered,
         )
         self._validate_schema_models(models, permitted)
-        return self._store_catalog(
+        return self._build_catalog(
             workspace_state,
             models=models,
             connection_mode=snapshot.fingerprint.connection_mode,
@@ -411,19 +612,20 @@ class SchemaWorkspaceService:
             snapshot,
         )
         self._validate_schema_models(models, permitted)
+        candidate = self._build_catalog(
+            workspace_state,
+            models=models,
+            connection_mode=snapshot.fingerprint.connection_mode,
+            database=snapshot.fingerprint.database,
+            odoo_version=snapshot.fingerprint.odoo_version,
+            fingerprint=snapshot.fingerprint.portable_dict(),
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash=read_credential_binding_hash,
+            identity_hashes=identity_hashes,
+            actor=actor,
+        )
         semantic_access_matches = (
-            current.workspace_id == workspace_id
-            and current.policy_hash == ODOO_SOURCE_POLICY_HASH
-            and current.connection_target_hash == _target_identity_hash(workspace_state)
-            and current.connection_mode == snapshot.fingerprint.connection_mode
-            and current.database == snapshot.fingerprint.database
-            and current.odoo_version == snapshot.fingerprint.odoo_version
-            and current.models == models
-            and current.read_principal_hash
-            == identity_hashes["read_principal_hash"]
-            and current.read_permission_hash
-            == identity_hashes["read_permission_hash"]
-            and current.read_context_hash == identity_hashes["read_context_hash"]
+            _schema_semantic_hash(current) == _schema_semantic_hash(candidate)
         )
         if not semantic_access_matches:
             raise WorkspaceError(
@@ -440,6 +642,9 @@ class SchemaWorkspaceService:
             read_principal_hash=identity_hashes["read_principal_hash"],
             read_permission_hash=identity_hashes["read_permission_hash"],
             read_context_hash=identity_hashes["read_context_hash"],
+            last_checked_at=candidate.captured_at,
+            last_checked_by=actor.identity.display_name,
+            pending_refresh=None,
         )
         self.schemas.rebind_odoo_schema_access(
             workspace_id,
@@ -636,6 +841,41 @@ class SchemaWorkspaceService:
         identity_hashes: Mapping[str, str],
         actor: Actor,
     ) -> OdooSchemaCatalog:
+        catalog = self._build_catalog(
+            workspace_state,
+            models=models,
+            connection_mode=connection_mode,
+            database=database,
+            odoo_version=odoo_version,
+            fingerprint=fingerprint,
+            origin=origin,
+            read_credential_binding_hash=read_credential_binding_hash,
+            identity_hashes=identity_hashes,
+            actor=actor,
+        )
+        self.schemas.save_odoo_schema_catalog(
+            workspace_state.workspace_id,
+            catalog,
+            actor=actor,
+        )
+        return catalog
+
+    def _build_catalog(
+        self,
+        workspace_state: WorkspaceState,
+        *,
+        models: tuple[SchemaModel, ...],
+        connection_mode: str,
+        database: str,
+        odoo_version: str,
+        fingerprint: Mapping[str, object],
+        origin: SchemaOrigin,
+        read_credential_binding_hash: str,
+        identity_hashes: Mapping[str, str],
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Build current-shaped evidence without publishing a current pointer."""
+
         content = {
             "connection_target_hash": str(fingerprint["target_hash"]),
             "policy_hash": ODOO_SOURCE_POLICY_HASH,
@@ -645,10 +885,11 @@ class SchemaWorkspaceService:
             "origin": origin.value,
             "models": [asdict(model) for model in models],
         }
-        catalog = OdooSchemaCatalog(
+        observed_at = datetime.now(timezone.utc)
+        return OdooSchemaCatalog(
             workspace_id=workspace_state.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=observed_at,
             captured_by=actor.identity.display_name,
             connection_mode=connection_mode,
             database=database,
@@ -661,13 +902,9 @@ class SchemaWorkspaceService:
             read_permission_hash=identity_hashes["read_permission_hash"],
             read_context_hash=identity_hashes["read_context_hash"],
             connection_target_hash=str(fingerprint["target_hash"]),
+            last_checked_at=observed_at,
+            last_checked_by=actor.identity.display_name,
         )
-        self.schemas.save_odoo_schema_catalog(
-            workspace_state.workspace_id,
-            catalog,
-            actor=actor,
-        )
-        return catalog
 
     def govern(
         self,
@@ -768,6 +1005,209 @@ class SchemaWorkspaceService:
             actor=actor,
         )
         return governance
+
+
+def _schema_semantic_hash(catalog: OdooSchemaCatalog) -> str:
+    """Hash schema meaning while excluding observation and display metadata."""
+
+    return content_hash(
+        {
+            "connection_target_hash": catalog.connection_target_hash,
+            "policy_hash": catalog.policy_hash,
+            "connection_mode": catalog.connection_mode,
+            "database": catalog.database,
+            "odoo_version": catalog.odoo_version,
+            "origin": catalog.origin.value,
+            "read_principal_hash": catalog.read_principal_hash,
+            "read_permission_hash": catalog.read_permission_hash,
+            "read_context_hash": catalog.read_context_hash,
+            "models": [
+                _schema_model_semantics(model)
+                for model in sorted(catalog.models, key=lambda item: item.name)
+            ],
+        }
+    )
+
+
+def _schema_model_semantics(model: SchemaModel) -> dict[str, object]:
+    return {
+        "name": model.name,
+        "fields": [
+            _schema_field_semantics(field)
+            for field in sorted(model.fields, key=lambda item: item.name)
+        ],
+        "unique_constraints": _schema_unique_constraint_semantics(model),
+    }
+
+
+def _schema_unique_constraint_semantics(
+    model: SchemaModel,
+) -> list[dict[str, object]]:
+    return [
+        asdict(item)
+        for item in sorted(
+            model.unique_constraints,
+            key=lambda item: (item.name, item.definition),
+        )
+    ]
+
+
+def _schema_field_semantics(field: SchemaField) -> dict[str, object]:
+    return {
+        "name": field.name,
+        "type": field.type,
+        "required": field.required,
+        "readonly": field.readonly,
+        "relation": field.relation,
+        "relation_field": field.relation_field,
+        "selection_codes": [item[0] for item in field.selection],
+        "stored": field.stored,
+        "computed": field.computed,
+        "has_inverse": field.has_inverse,
+        "related": field.related,
+        "translated": field.translated,
+        "company_dependent": field.company_dependent,
+        "searchable": field.searchable,
+        "sortable": field.sortable,
+        "exportable": field.exportable,
+        "digits": field.digits,
+        "currency_field": field.currency_field,
+    }
+
+
+def _schema_refresh_changes(
+    current: OdooSchemaCatalog,
+    candidate: OdooSchemaCatalog,
+) -> tuple[OdooSchemaChange, ...]:
+    """Describe semantic differences without treating translated labels as meaning."""
+
+    changes: list[OdooSchemaChange] = []
+
+    def add(
+        kind: str,
+        model: SchemaModel | None,
+        description: str,
+        field: SchemaField | None = None,
+    ) -> None:
+        changes.append(
+            OdooSchemaChange(
+                kind=kind,
+                model_name=model.name if model is not None else "",
+                model_label=model.label if model is not None else "Odoo target",
+                field_name=field.name if field is not None else None,
+                field_label=field.label if field is not None else None,
+                description=description,
+            )
+        )
+
+    target_facts = (
+        (
+            current.connection_target_hash,
+            candidate.connection_target_hash,
+            "The Odoo target changed.",
+        ),
+        (current.policy_hash, candidate.policy_hash, "The schema policy changed."),
+        (
+            current.connection_mode,
+            candidate.connection_mode,
+            "The Odoo connection mode changed.",
+        ),
+        (current.database, candidate.database, "The Odoo database changed."),
+        (current.odoo_version, candidate.odoo_version, "The Odoo version changed."),
+        (current.origin, candidate.origin, "The schema evidence origin changed."),
+        (
+            current.read_principal_hash,
+            candidate.read_principal_hash,
+            "The verified Odoo reader changed.",
+        ),
+        (
+            current.read_permission_hash,
+            candidate.read_permission_hash,
+            "The verified Odoo read permissions changed.",
+        ),
+        (
+            current.read_context_hash,
+            candidate.read_context_hash,
+            "The verified Odoo company or access context changed.",
+        ),
+    )
+    for previous, observed, description in target_facts:
+        if previous != observed:
+            add("TARGET_CHANGED", None, description)
+
+    current_models = {model.name: model for model in current.models}
+    candidate_models = {model.name: model for model in candidate.models}
+    for name in sorted(current_models.keys() - candidate_models.keys()):
+        add("MODEL_REMOVED", current_models[name], "This Odoo record type was removed.")
+    for name in sorted(candidate_models.keys() - current_models.keys()):
+        add("MODEL_ADDED", candidate_models[name], "This Odoo record type was added.")
+    for name in sorted(current_models.keys() & candidate_models.keys()):
+        previous_model = current_models[name]
+        observed_model = candidate_models[name]
+        previous_fields = {field.name: field for field in previous_model.fields}
+        observed_fields = {field.name: field for field in observed_model.fields}
+        for field_name in sorted(previous_fields.keys() - observed_fields.keys()):
+            add(
+                "FIELD_REMOVED",
+                previous_model,
+                "This field was removed.",
+                previous_fields[field_name],
+            )
+        for field_name in sorted(observed_fields.keys() - previous_fields.keys()):
+            add(
+                "FIELD_ADDED",
+                observed_model,
+                "This field was added.",
+                observed_fields[field_name],
+            )
+        for field_name in sorted(previous_fields.keys() & observed_fields.keys()):
+            previous_field = previous_fields[field_name]
+            observed_field = observed_fields[field_name]
+            previous_semantics = _schema_field_semantics(previous_field)
+            observed_semantics = _schema_field_semantics(observed_field)
+            if previous_semantics == observed_semantics:
+                continue
+            changed_facts = [
+                label
+                for key, label in _FIELD_SEMANTIC_LABELS
+                if previous_semantics[key] != observed_semantics[key]
+            ]
+            add(
+                "FIELD_CHANGED",
+                observed_model,
+                "Field behavior changed: " + ", ".join(changed_facts) + ".",
+                observed_field,
+            )
+        if _schema_unique_constraint_semantics(
+            previous_model
+        ) != _schema_unique_constraint_semantics(observed_model):
+            add(
+                "CONSTRAINTS_CHANGED",
+                observed_model,
+                "The available uniqueness evidence changed.",
+            )
+    return tuple(changes)
+
+
+_FIELD_SEMANTIC_LABELS = (
+    ("type", "field type"),
+    ("required", "required setting"),
+    ("readonly", "read-only setting"),
+    ("relation", "linked record type"),
+    ("relation_field", "linked field"),
+    ("selection_codes", "available choice codes"),
+    ("stored", "stored behavior"),
+    ("computed", "calculated behavior"),
+    ("has_inverse", "write-back behavior"),
+    ("related", "related-field behavior"),
+    ("translated", "translation behavior"),
+    ("company_dependent", "company-specific behavior"),
+    ("searchable", "search behavior"),
+    ("sortable", "sorting behavior"),
+    ("exportable", "export behavior"),
+    ("digits", "number precision"),
+    ("currency_field", "currency field"),
+)
 
 
 def _target_identity_hash(workspace_state: WorkspaceState) -> str:

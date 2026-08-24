@@ -352,28 +352,6 @@ class TransformationImpactSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class TransformationRuleReview:
-    """Current hash-bound rule review used by the mapping submission gate."""
-
-    identity_hash: str
-    mapping_content_hash: str
-    source_selection_hash: str
-    schema_hash: str
-    rule_impacts: tuple[TransformationRuleImpact, ...]
-    acknowledged_rule_fingerprints: tuple[str, ...] = ()
-
-    @property
-    def unacknowledged_rule_impacts(self) -> tuple[TransformationRuleImpact, ...]:
-        acknowledged = frozenset(self.acknowledged_rule_fingerprints)
-        return tuple(
-            item
-            for item in self.rule_impacts
-            if item.requires_acknowledgement
-            and item.rule_fingerprint not in acknowledged
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class TransformationImpactFilter:
     """Server-side filters shared by the browser table and CSV export."""
 

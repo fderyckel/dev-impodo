@@ -54,6 +54,43 @@ async def _capture_selected_schema(
 ) -> OdooSchemaCatalog:
     """Load and persist field details for the saved Odoo model choices."""
 
+    snapshot, read_credential_binding_hash, read_identity, local_profile = (
+        await _read_selected_schema(context, workspace_state)
+    )
+    schema = context.schema_workspace.capture(
+        workspace_state.workspace_id,
+        snapshot,
+        read_credential_binding_hash=read_credential_binding_hash,
+        read_identity=read_identity,
+        actor=context.actor,
+    )
+    _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
+    return schema
+
+
+async def _check_selected_schema(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+) -> OdooSchemaCatalog:
+    """Check saved field details without replacing current schema meaning."""
+
+    snapshot, read_credential_binding_hash, read_identity, local_profile = (
+        await _read_selected_schema(context, workspace_state)
+    )
+    schema = context.schema_workspace.check_refresh(
+        workspace_state.workspace_id,
+        snapshot,
+        read_credential_binding_hash=read_credential_binding_hash,
+        read_identity=read_identity,
+        actor=context.actor,
+    )
+    _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
+    return schema
+
+
+async def _read_selected_schema(context: WebContext, workspace_state: WorkspaceState):
+    """Read one closed metadata snapshot and its verified access provenance."""
+
     local_profile = _selected_local_profile(context, workspace_state)
     credential = get_target_credential(
         context.secret_store,
@@ -86,14 +123,23 @@ async def _capture_selected_schema(
             credential.secret,
         )
         read_credential_binding_hash = credential.binding_hash
-    schema = context.schema_workspace.capture(
-        workspace_state.workspace_id,
+    return (
         snapshot,
-        read_credential_binding_hash=read_credential_binding_hash,
-        read_identity=read_identity,
-        actor=context.actor,
+        read_credential_binding_hash,
+        read_identity,
+        local_profile if local_profile is not None and credential is None else None,
     )
-    if local_profile is not None and credential is None:
+
+
+def _mark_local_metadata_ready(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+    local_profile,
+) -> None:
+    """Retain the session-only local readiness state after a successful read."""
+
+    if local_profile is not None:
         catalog = context.queries.get_odoo_model_catalog(workspace_state.workspace_id)
         context.local_stack.mark_metadata_ready(
             workspace_state.workspace_id,
@@ -105,7 +151,6 @@ async def _capture_selected_schema(
                 else len(schema.models)
             ),
         )
-    return schema
 
 
 def build_schema_router(context: WebContext) -> APIRouter:
@@ -262,13 +307,18 @@ def build_schema_router(context: WebContext) -> APIRouter:
 
     @router.post("/workspaces/{workspace_id}/schema/capture")
     async def capture_workspace_schema(request: Request, workspace_id: str):
-        """Capture metadata for the explicitly permitted models only."""
+        """Capture first metadata or compare a refresh with current evidence."""
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         workspace_state = context.queries.get(workspace_id)
+        current = context.queries.get_odoo_schema_catalog(workspace_id)
         try:
-            await _capture_selected_schema(context, workspace_state)
+            schema = (
+                await _check_selected_schema(context, workspace_state)
+                if current is not None and current.origin is SchemaOrigin.LIVE_API
+                else await _capture_selected_schema(context, workspace_state)
+            )
         except (
             ConnectorError,
             WorkspaceStateError,
@@ -283,7 +333,74 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 schema_load_failed=True,
                 status_code=422,
             )
-        _flash(request, "Odoo data is ready.")
+        if schema.pending_refresh is not None:
+            _flash(
+                request,
+                "Odoo changes need review. Your current work was preserved.",
+            )
+        elif current is not None and current.origin is SchemaOrigin.LIVE_API:
+            _flash(
+                request,
+                "Odoo details are unchanged. Your current work remains available.",
+            )
+        else:
+            _flash(request, "Odoo data is ready.")
+        return RedirectResponse(
+            f"/workspaces/{workspace_id}/schema#odoo-details",
+            status_code=303,
+        )
+
+    @router.post("/workspaces/{workspace_id}/schema/capture/confirm")
+    async def confirm_workspace_schema_refresh(request: Request, workspace_id: str):
+        """Promote one reviewed checked snapshot and invalidate dependents."""
+
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "expected_current_content_hash",
+                "candidate_id",
+                "candidate_semantic_hash",
+                "confirm_schema_refresh",
+            },
+        )
+        if not _checked(form, "confirm_schema_refresh"):
+            return _render_schema(
+                request,
+                context,
+                workspace_id,
+                error=(
+                    "Confirm that Impodo may replace the saved Odoo details "
+                    "and retire work that depends on them"
+                ),
+                status_code=422,
+            )
+        try:
+            context.schema_workspace.confirm_refresh(
+                workspace_id,
+                expected_current_content_hash=_text(
+                    form, "expected_current_content_hash"
+                ),
+                expected_candidate_id=_text(form, "candidate_id"),
+                expected_candidate_semantic_hash=_text(
+                    form, "candidate_semantic_hash"
+                ),
+                actor=context.actor,
+            )
+        except (WorkspaceStateError, WorkspaceError) as error:
+            return _render_schema(
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            "Updated the saved Odoo details. Review the stages that now need attention.",
+        )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/schema#odoo-details",
             status_code=303,

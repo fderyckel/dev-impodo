@@ -386,6 +386,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "The Odoo read credential changed. Refresh the record types "
                     "and fields before freezing records."
                 )
+            if schema.pending_refresh is not None:
+                raise WorkspaceError(
+                    "Odoo fields changed. Review the checked Odoo changes before "
+                    "freezing another source version."
+                )
             gateway = context.source_capture_factory(workspace_state, credential.secret)
             manager = _odoo_capture_manager(context)
             workspace = context.migration_workspaces.get(

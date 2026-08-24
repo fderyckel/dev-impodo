@@ -192,6 +192,193 @@ class SchemaRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
+    def save_odoo_schema_check(
+        self,
+        workspace_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_content_hash: str,
+        expected_read_credential_binding_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Store freshness or a pending candidate without retiring dependents."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            connection.begin()
+            try:
+                row = connection.execute(
+                    """
+                    SELECT catalog_json
+                      FROM odoo_schema_catalog
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                if row is None:
+                    raise WorkspaceError("Capture the Odoo schema first")
+                current = OdooSchemaCatalog.from_json(str(row[0]))
+                unchanged_current = (
+                    current.workspace_id == workspace_id
+                    and current.content_hash == expected_content_hash
+                    and current.read_credential_binding_hash
+                    == expected_read_credential_binding_hash
+                    and catalog.workspace_id == current.workspace_id
+                    and catalog.content_hash == current.content_hash
+                    and catalog.policy_hash == current.policy_hash
+                    and catalog.connection_target_hash
+                    == current.connection_target_hash
+                    and catalog.connection_mode == current.connection_mode
+                    and catalog.database == current.database
+                    and catalog.odoo_version == current.odoo_version
+                    and catalog.origin is current.origin
+                    and catalog.models == current.models
+                    and catalog.read_principal_hash
+                    == current.read_principal_hash
+                    and catalog.read_permission_hash
+                    == current.read_permission_hash
+                    and catalog.read_context_hash == current.read_context_hash
+                    and catalog.captured_at == current.captured_at
+                    and catalog.captured_by == current.captured_by
+                )
+                if not unchanged_current:
+                    raise WorkspaceError(
+                        "Odoo schema was modified by another request"
+                    )
+                pending = catalog.pending_refresh
+                if (
+                    pending is not None
+                    and pending.expected_current_content_hash
+                    != current.content_hash
+                ):
+                    raise WorkspaceError(
+                        "Checked Odoo details do not match the current schema"
+                    )
+                connection.execute(
+                    """
+                    UPDATE odoo_schema_catalog
+                       SET catalog_json = ?
+                     WHERE singleton_id = 1
+                    """,
+                    [catalog.to_json()],
+                )
+                event_type = (
+                    "ODOO_SCHEMA_CHANGE_DETECTED"
+                    if pending is not None
+                    else "ODOO_SCHEMA_REVERIFIED_UNCHANGED"
+                )
+                detail = (
+                    f"{pending.change_count} semantic change(s) need review"
+                    if pending is not None
+                    else f"{len(catalog.models)} permitted model(s); semantic schema unchanged"
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._workspace_revision(connection),
+                    event_type=event_type,
+                    detail=detail,
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def confirm_odoo_schema_refresh(
+        self,
+        workspace_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_current_content_hash: str,
+        expected_candidate_id: str,
+        expected_candidate_semantic_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Atomically promote the reviewed candidate and retire dependents."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            connection.begin()
+            try:
+                row = connection.execute(
+                    """
+                    SELECT catalog_json
+                      FROM odoo_schema_catalog
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                if row is None:
+                    raise WorkspaceError("Capture the Odoo schema first")
+                current = OdooSchemaCatalog.from_json(str(row[0]))
+                pending = current.pending_refresh
+                candidate_matches = (
+                    current.content_hash == expected_current_content_hash
+                    and pending is not None
+                    and pending.candidate_id == expected_candidate_id
+                    and pending.semantic_hash == expected_candidate_semantic_hash
+                    and pending.expected_current_content_hash
+                    == expected_current_content_hash
+                    and catalog.workspace_id == workspace_id
+                    and catalog.content_hash == pending.content_hash
+                    and catalog.policy_hash == pending.policy_hash
+                    and catalog.connection_target_hash
+                    == pending.connection_target_hash
+                    and catalog.connection_mode == pending.connection_mode
+                    and catalog.database == pending.database
+                    and catalog.odoo_version == pending.odoo_version
+                    and catalog.models == pending.models
+                    and catalog.origin is pending.origin
+                    and catalog.read_credential_binding_hash
+                    == pending.read_credential_binding_hash
+                    and catalog.read_principal_hash == pending.read_principal_hash
+                    and catalog.read_permission_hash
+                    == pending.read_permission_hash
+                    and catalog.read_context_hash == pending.read_context_hash
+                    and catalog.pending_refresh is None
+                )
+                if not candidate_matches:
+                    raise WorkspaceError(
+                        "The checked Odoo details changed in another request"
+                    )
+                connection.execute(
+                    """
+                    UPDATE odoo_schema_catalog
+                       SET catalog_json = ?
+                     WHERE singleton_id = 1
+                    """,
+                    [catalog.to_json()],
+                )
+                for target in (
+                    "mapping_current",
+                    "odoo_capture_selection_current",
+                    "odoo_capture_manifest_current",
+                    "schema_governance_current",
+                ):
+                    connection.execute(f"DELETE FROM {target}")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="ODOO_SCHEMA_CHANGED",
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._workspace_revision(connection),
+                    event_type="ODOO_SCHEMA_CHANGE_ACCEPTED",
+                    detail=(
+                        f"{len(catalog.models)} permitted model(s); "
+                        "reviewed Odoo changes accepted"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
     def get_schema_governance(
         self,
         workspace_id: str,
@@ -301,4 +488,3 @@ class SchemaRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-

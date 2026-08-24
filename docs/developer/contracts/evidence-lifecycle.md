@@ -62,8 +62,12 @@ READY `MigrationWorkspace`
 -> DataVersion-owned source catalogue and confirmation
 -> frozen source selection and snapshots
 -> current target schema and governed business keys
--> mapping revision, validation, impact review, and submission
+-> mapping revision, validation, and submission
 ```
+
+The checked mapping can also produce an optional, read-only
+transformation-impact snapshot. That preview does not authorize submission or
+replace the required prepared-data review in Stage 4.
 
 The engine's flat `WorkspaceState` object is a workbench projection over these
 owners. It is not another identity or lifecycle. Project fields come from
@@ -92,6 +96,13 @@ Live target schema evidence binds the target identity to the permitted models,
 effective fields, relationship and selection metadata, and read-credential
 provenance. A local manual draft remains unverified and cannot authorize
 mapping submission.
+
+A later target-schema check first compares a validated candidate with the
+current semantic evidence. Capture/check times, actors, credential generations,
+and translated labels do not change that semantic identity. An unchanged check
+retains the current schema hash and dependent pointers. A detected change keeps
+the candidate unconfirmed beside the current catalogue. Only explicit
+confirmation publishes the candidate and crosses the invalidation boundary.
 
 Schema governance binds confirmed natural business keys and optional scope to
 one exact schema revision. Mapping evidence then binds the exact source
@@ -132,10 +143,10 @@ The transformation-impact snapshot records two hash-bound facts for each
 conditional Selection rule. The match fact counts rows that matched before
 priority and rows that the rule selected after first-match priority. The
 overlap fact counts rows where that rule matched alongside another rule. A
-zero-match fact or nonzero overlap fact blocks mapping submission until the
-data manager edits the rule or acknowledges that exact current fingerprint.
-Changing or reordering a rule changes the mapping and impact identities, so
-the previous acknowledgement cannot satisfy the new revision.
+zero-match fact or nonzero overlap fact remains available for optional review;
+neither fact blocks mapping submission. Changing or reordering a rule changes
+the mapping and impact identities, so an older preview or acknowledgement
+cannot describe the new revision.
 
 A Recipe revision contains logical source, preparation, mapping, target,
 quality, reference, parameter-definition, and control-definition meaning. It
@@ -159,7 +170,9 @@ portable source or relationship identities.
 | Reinspect or reconfirm a file | Frozen source selection, snapshots, derived plans, mapping, and downstream evidence |
 | Freeze a new source selection | Derived plans, mapping, and downstream evidence |
 | Change an Odoo capture plan | Prior current Odoo snapshot, mapping, and downstream evidence |
-| Recapture target schema | Schema governance, mapping, and downstream evidence |
+| Check target schema and find no semantic change | No invalidation; update freshness and access provenance only |
+| Detect a target-schema change | No invalidation; preserve current evidence, mark Odoo data **Needs attention**, and block a new Odoo source freeze |
+| Confirm a detected target-schema change | Schema governance, Odoo capture selection and snapshot pointers, mapping, and downstream evidence |
 | Change target identity or model scope | Target schema, governance, mapping, comparison, and execution evidence |
 | Change governed business keys | Mapping, target comparison, and execution evidence |
 | Change the governed-reference policy | Mapping validation and submission, supporting lookups, preparation, comparison, and new Recipe target contracts |

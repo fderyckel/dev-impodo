@@ -3,15 +3,20 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 3 of 6 · Rule review</p>
+      <p class="eyebrow">Stage 3 of 6 · Optional rule review</p>
       <h1>Review rule effects</h1>
       {% if report %}
         <p>Compare original source values with the values Impodo will prepare.</p>
       {% else %}
-        <p>Preview how your confirmed preparation choices affect the source values.</p>
+        <p>Preview how your checked field rules affect the source values.</p>
       {% endif %}
     </div>
     <span class="status registered">Read only</span>
+  </div>
+
+  <div class="notice">
+    <strong>This review is optional.</strong>
+    You can return to Match data and confirm the checked matches without preparing this preview. Stage 4 still requires you to review the prepared data before continuing.
   </div>
 
   {% if not report %}
@@ -33,7 +38,7 @@
   {% if report %}
     <div class="notice success">
       <strong>Your registered Excel or CSV source remains unchanged.</strong>
-      Impodo applies your confirmed preparation choices here. It does not contact or change Odoo.
+      Impodo applies your checked field rules here. It does not contact or change Odoo.
     </div>
 
     <section class="impact-cards" aria-label="Transformation impact overview">

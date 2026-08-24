@@ -10,8 +10,8 @@ status: current
 
 Match data builds a portable mapping definition from frozen source datasets to
 the governed Odoo schema. It owns recoverable drafts, immutable revisions,
-semantic validation, transformation-impact evidence, warning acknowledgement,
-and exact submission.
+semantic validation, exact submission, and an optional transformation-impact
+preview with optional review decisions.
 
 It does not prepare all rows or write to Odoo.
 
@@ -39,10 +39,11 @@ For each conditional Selection rule, the impact snapshot records every
 evaluated row, every raw match before priority, every row selected by
 first-match priority, and every row where that rule matched alongside another
 rule. A zero-match fact and an overlap fact have separate stable fingerprints.
-The data manager must acknowledge every current warning fact or edit the rule
-before submission. The snapshot identity includes the mapping, source,
+The data manager can inspect and acknowledge those facts, but the preview does
+not gate mapping submission. Stage 4 prepares every row and owns the required
+prepared-data review. The snapshot identity includes the mapping, source,
 schema, evaluator, and impact-contract versions, so a rule edit or reorder
-retires the prior decisions.
+retires the prior optional decisions.
 
 Optional Recipe publication compiles only an eligible submitted mapping and
 its required portable contracts. It does not change this working draft or move
@@ -127,8 +128,9 @@ governed relationship workflow.
 
 The recoverable working draft is deliberately non-authoritative. Semantic
 validation creates immutable issues and coverage. Submission then binds the
-exact valid revision to the source and schema evidence, impact review, warning
-acknowledgement, and actor. Preparation and final review remain responsible for
+exact valid revision to the source and schema evidence, semantic-validation
+warning acknowledgement, and actor. The optional impact preview does not
+authorize submission. Preparation and final review remain responsible for
 row-level uniqueness and relationship resolution; a mapping preview does not
 claim those results.
 
@@ -155,8 +157,8 @@ claim those results.
 The working draft is recoverable but non-authoritative. `MappingRevision`
 stores immutable portable meaning. `MappingValidationResult` binds validation
 to the revision. `MappingSubmission` binds the current actor decision to the
-exact mapping content, source selection, schema, warning review, and impact
-evidence.
+exact mapping content, source selection, schema, and semantic warning review.
+`TransformationImpactSnapshot` remains separate, optional, read-only evidence.
 
 ## Completion and navigation
 
@@ -168,11 +170,11 @@ without matching submission does not unlock Prepare data.
 
 Source or schema changes invalidate the current mapping boundary. Editing a
 submitted mapping creates new work; it never rewrites the old revision.
-Configured text steps and conditional Selection rules require current effect
-evidence. A cleanup step with no effect and a Selection rule with no matches
-must be changed or acknowledged explicitly before submission. A Selection
-rule that overlaps another rule also requires an explicit acknowledgement of
-the current first-match priority.
+Configured text steps and conditional Selection rules can produce current
+optional effect evidence. A cleanup step with no effect or a Selection rule
+with zero matches or overlapping priority remains visible in that preview, but
+it does not block submission. Stage 4 still requires current prepared evidence
+and review before the workflow can continue.
 
 Form parsers must reject unexpected fields and stale versions. Preserve the
 working draft when validation fails so the data manager can correct it.
@@ -200,8 +202,8 @@ look plausible.
 - [`tests/test_recipe_representative_shapes.py`](../../../tests/test_recipe_representative_shapes.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
-ordered transformations, zero-match and overlap acknowledgement, hash binding,
-and exact submission.
+ordered transformations, optional zero-match and overlap review, hash binding,
+direct exact submission, and required Stage 4 review.
 
 ## Related documentation
 

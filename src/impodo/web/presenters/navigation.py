@@ -177,6 +177,7 @@ def build_workspace_navigation(
         schema = context.queries.get_odoo_schema_catalog(
             current_workspace_state.workspace_id
         )
+        schema_attention = bool(schema and schema.pending_refresh)
         capture_selection = (
             context.queries.get_current_odoo_capture_selection(
                 current_workspace_state.workspace_id
@@ -197,8 +198,16 @@ def build_workspace_navigation(
                 1,
                 "Odoo source data",
                 "/schema",
-                status=("complete" if schema is not None else "current"),
-                status_label=("Complete" if schema is not None else "Current"),
+                status=(
+                    "attention"
+                    if schema_attention
+                    else ("complete" if schema is not None else "current")
+                ),
+                status_label=(
+                    "Needs attention"
+                    if schema_attention
+                    else ("Complete" if schema is not None else "Current")
+                ),
                 pages=(
                     _page(
                         current_workspace_state.workspace_id,
@@ -228,17 +237,25 @@ def build_workspace_navigation(
                 status=(
                     "complete"
                     if frozen_source is not None
-                    else ("current" if schema is not None else "locked")
+                    else (
+                        "attention"
+                        if schema_attention
+                        else ("current" if schema is not None else "locked")
+                    )
                 ),
                 status_label=(
                     "Frozen"
                     if frozen_source is not None
                     else (
-                        "Ready to freeze"
-                        if capture_selection is not None
-                        else "Define capture plan"
-                        if schema is not None
-                        else "Capture Odoo fields first"
+                        "Review Odoo changes"
+                        if schema_attention
+                        else (
+                            "Ready to freeze"
+                            if capture_selection is not None
+                            else "Define capture plan"
+                            if schema is not None
+                            else "Capture Odoo fields first"
+                        )
                     )
                 ),
                 pages=(
@@ -519,6 +536,7 @@ def build_workspace_navigation(
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
     governance = context.queries.get_schema_governance(workspace_id)
     schema_complete = schema is not None and governance is not None
+    schema_attention = bool(schema and schema.pending_refresh)
     stages.append(
         _stage(
             workspace_id,
@@ -526,8 +544,16 @@ def build_workspace_navigation(
             2,
             "Odoo data",
             "/schema",
-            status=("complete" if schema_complete else "current"),
-            status_label=("Complete" if schema_complete else "Current"),
+            status=(
+                "attention"
+                if schema_attention
+                else ("complete" if schema_complete else "current")
+            ),
+            status_label=(
+                "Needs attention"
+                if schema_attention
+                else ("Complete" if schema_complete else "Current")
+            ),
             pages=(
                 _page(
                     workspace_id,
@@ -562,14 +588,6 @@ def build_workspace_navigation(
         and submission.mapping_id == revision.mapping_id
         and submission.mapping_content_hash == revision.definition.content_hash
     )
-    rule_review_required = bool(
-        revision is not None
-        and any(
-            field.transform.configured_text_steps
-            for dataset in revision.definition.datasets
-            for field in dataset.fields
-        )
-    )
     stages.append(
         _stage(
             workspace_id,
@@ -592,7 +610,7 @@ def build_workspace_navigation(
                     "transformation-impact",
                     "Review rule effects",
                     "/mapping/transformation-impact",
-                    optional=not rule_review_required,
+                    optional=True,
                 ),
             ),
         )
@@ -1244,4 +1262,3 @@ def _locked_stages(
         if stage_id == after:
             include = True
     return tuple(stages)
-

@@ -213,6 +213,8 @@ stages:
     code_references:
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.capture
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.check_refresh
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.confirm_refresh
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern
     tests:
       - tests/test_workspace.py

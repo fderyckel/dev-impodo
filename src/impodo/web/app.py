@@ -457,7 +457,6 @@ def create_local_app(
         mapping_repository,
         workspace_access,
         categorical_coverage=categorical_coverage,
-        transformation_impacts=transformation_impact_repository,
     )
     recipe_application_service = RecipeApplicationService(
         sources=workspace_mapping_sources,

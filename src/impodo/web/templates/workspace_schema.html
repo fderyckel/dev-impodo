@@ -11,8 +11,8 @@
       <p>Choose the kinds of Odoo information needed for this workspace_state.</p>
     </div>
     {% if schema %}
-      <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' %}warning{% else %}registered{% endif %}">
-        {% if schema.origin.value == 'LOCAL_MANUAL' %}Needs Odoo check{% else %}Ready{% endif %}
+      <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' or schema.pending_refresh %}warning{% else %}registered{% endif %}">
+        {% if schema.origin.value == 'LOCAL_MANUAL' %}Needs Odoo check{% elif schema.pending_refresh %}Needs attention{% else %}Ready{% endif %}
       </span>
     {% endif %}
   </div>
@@ -187,7 +187,36 @@
         {% endif %}
       </div>
     {% endif %}
-    {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
+    {% if schema and schema.pending_refresh %}
+      {% set pending = schema.pending_refresh %}
+      <section class="notice warning" id="odoo-schema-changes" role="alert">
+        <strong>Odoo details changed.</strong>
+        <p>Impodo kept your current Odoo details and dependent work. Review these changes before using updated Odoo details.</p>
+        <ul>
+          {% for change in pending.changes %}
+            <li>
+              <strong>{{ change.model_label }}{% if change.field_label %} · {{ change.field_label }}{% endif %}</strong>
+              — {{ change.description }}
+              <small><code>{{ change.model_name }}{% if change.field_name %}.{{ change.field_name }}{% endif %}</code></small>
+            </li>
+          {% endfor %}
+        </ul>
+        {% if pending.change_count > pending.changes|length %}
+          <p>{{ pending.change_count - pending.changes|length }} more change(s) are included in this checked snapshot.</p>
+        {% endif %}
+        <form method="post" action="/workspaces/{{ workspace_id }}/schema/capture/confirm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_current_content_hash" value="{{ pending.expected_current_content_hash }}">
+          <input type="hidden" name="candidate_id" value="{{ pending.candidate_id }}">
+          <input type="hidden" name="candidate_semantic_hash" value="{{ pending.semantic_hash }}">
+          <label class="checkbox">
+            <input type="checkbox" name="confirm_schema_refresh" value="1" required>
+            I understand that using these updated Odoo details retires matching and prepared work that depends on the current details
+          </label>
+          <button class="button primary" type="submit">Use updated Odoo details</button>
+        </form>
+      </section>
+    {% elif schema and schema.origin.value != 'LOCAL_MANUAL' %}
       <div class="notice stack-ready" role="status">
         <strong>Odoo details are ready.</strong>
         {{ schema_field_count }} fields are available across {{ schema.models|length }} choice(s).
@@ -208,6 +237,9 @@
             {{ schema_field_count }} effective fields captured from
             <code>{{ schema.database }}</code> at {{ schema.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
             The snapshot includes inherited fields and is used without another Odoo call.
+            {% if schema.last_checked_at %}
+              Impodo last checked these details at {{ schema.last_checked_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+            {% endif %}
           </p>
         {% endif %}
       </details>
@@ -225,15 +257,17 @@
               Try loading details again
             {% elif schema and schema.origin.value == 'LOCAL_MANUAL' %}
               Check selected data with Odoo
+            {% elif schema and schema.pending_refresh %}
+              Check Odoo again
             {% elif schema %}
-              Update selected Odoo data
+              Check for Odoo changes
             {% else %}
               Load saved Odoo data
             {% endif %}
           </button>
         </div>
         {% if schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
-          <small>Use this only when fields or choices have changed in Odoo.</small>
+          <small>Checking does not replace current work unless Odoo changed and you confirm the replacement.</small>
         {% elif local_mode and workspace_state.intended_models and not local_stack.profile %}
           <small>The saved choices remain available. Find local Odoo before loading their details.</small>
         {% endif %}

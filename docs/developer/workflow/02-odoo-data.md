@@ -35,6 +35,26 @@ key governance. `SchemaWorkspaceService` coordinates these operations through
 separate ports for the model catalogue, schema catalogue, source selection,
 and mapping invalidation.
 
+The first capture publishes the selected target schema. A later **Check for
+Odoo changes** builds and validates a candidate before publication. The
+service compares its semantic fingerprint with the current catalogue:
+
+- An unchanged result keeps the current catalogue content hash and dependent
+  current pointers. It records the check time, actor, and current access
+  binding, and clears any older pending candidate.
+- A changed result stores the candidate and its bounded model/field change
+  summary beside the current catalogue. It marks the stage **Needs attention**
+  and blocks new Odoo source freezes without invalidating current evidence.
+- **Use updated Odoo details** compares the candidate and current hashes again,
+  then atomically publishes the candidate and invalidates schema governance,
+  source-capture selection and snapshot pointers, mapping, and later evidence.
+
+The semantic fingerprint binds technical target identity, selected model
+scope, field types and flags, relationship metadata, selection codes,
+constraints, origin, and read-access meaning. It excludes capture/check times,
+actors, credential generations, and translated display labels. Those facts are
+freshness, access provenance, or presentation rather than schema structure.
+
 Local capture uses the isolated local reader. Remote capture uses the narrow
 JSON-2 read connector. Both normalize metadata into the same domain catalogue
 before governance is saved.
@@ -80,8 +100,10 @@ remains outside the migration write scope.
 
 The model catalogue records the available scope. The schema catalogue binds
 models, fields, types, requirements, selections, relations, and target
-provenance. In file mode, `SchemaGovernance` binds the confirmed business-key
-rules to that exact schema revision.
+provenance. It may also carry one unconfirmed refresh candidate while its
+current content hash continues to identify the published schema. In file mode,
+`SchemaGovernance` binds the confirmed business-key rules to that exact schema
+revision.
 
 Stable technical model and field names are evidence; translated UI labels are
 presentation. Numeric database IDs must not become portable identities.
@@ -101,10 +123,13 @@ integrated Test workflow.
 
 ## Invalidation and recovery
 
-Recapture or governance changes invalidate dependent mapping revisions and
-later artifacts. Local draft capture is a deliberate development path and may
-not be presented as live Odoo evidence. Connector failures must retain the
-upstream cause instead of being reduced to a generic browser status.
+An unchanged schema check does not invalidate dependent evidence. Detecting a
+change preserves the current revision while the data manager reviews the
+candidate. Confirming that candidate invalidates dependent mapping revisions
+and later artifacts. Governance changes retain their existing invalidation
+boundary. Local draft capture is a deliberate development path and may not be
+presented as live Odoo evidence. Connector failures must retain the upstream
+cause instead of being reduced to a generic browser status.
 
 ## Odoo 19 and performance
 
@@ -112,6 +137,11 @@ Read capability is explicit and narrow: model catalogue, metadata, target
 fingerprint, and planned record requests. Batch metadata and record reads by
 model. Never call `fields_get`, selection providers, or relationship catalogues
 inside a source-row loop.
+
+A schema check performs the same bounded metadata read as an initial capture:
+one `fields_get` request per selected model plus the bounded constraint batch.
+Candidate comparison and confirmation run locally. Confirmation does not call
+Odoo again and introduces no per-field or per-row requests.
 
 Odoo 19 inherited fields and dynamic selections must come from the connected
 database. Do not hard-code a standard-only catalogue when custom modules are in
