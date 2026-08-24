@@ -12,6 +12,12 @@ from typing import Any
 import duckdb
 
 from ..access import Actor
+from ..build_contract import (
+    ApplicationBuildContract,
+    ApplicationBuildMismatchError,
+    PROCESS_BUILD_CONTRACT,
+    require_same_application_build,
+)
 from .preparation_job_registry import (
     PreparationJobRegistry,
     PreparationJobStateError,
@@ -50,11 +56,13 @@ class PreparationJobManager:
         *,
         process_context: BaseContext | None = None,
         max_workers: int = 1,
+        build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
     ) -> None:
         import multiprocessing
 
         self.root = Path(root).resolve()
         self.registry = PreparationJobRegistry()
+        self.build_contract = build_contract
         self._process_context = process_context or multiprocessing.get_context("spawn")
         if max_workers < 1:
             raise ValueError("max_workers must be at least one")
@@ -80,6 +88,7 @@ class PreparationJobManager:
             total_rows,
             actor.identity,
             workspace,
+            self.build_contract,
         )
         if created:
             with self._lock:
@@ -106,6 +115,10 @@ class PreparationJobManager:
         }:
             raise PreparationJobStateError(
                 "Only a failed or stopped preparation can be tried again"
+            )
+        if not previous.retry_allowed:
+            raise PreparationJobStateError(
+                "Restart Impodo before preparing this saved work again"
             )
         return self.enqueue(
             project_id,
@@ -192,6 +205,7 @@ class PreparationJobManager:
                 str(self.root),
                 job.project_id,
                 job.workspace,
+                job.build_contract,
                 actor,
                 events,
                 cancel,
@@ -285,6 +299,7 @@ def _run_preparation_worker(
     root: str,
     project_id: str,
     workspace: PreparationWorkspace,
+    expected_build_contract: ApplicationBuildContract,
     actor: Actor,
     events: Any,
     cancel: Any,
@@ -293,6 +308,7 @@ def _run_preparation_worker(
 
     events.put(("started",))
     try:
+        require_same_application_build(expected_build_contract)
         # Import lazily so multiprocessing imports only the project-scoped
         # worker composition. The child never opens the Recipe registry.
         from ..preparation_worker import create_preparation_worker
@@ -328,6 +344,8 @@ def _run_preparation_worker(
         events.put(("succeeded", normalization.run_id))
     except PreparationCancelled:
         events.put(("cancelled",))
+    except ApplicationBuildMismatchError as error:
+        events.put(("failed", error.failure_code, str(error)))
     except (
         ConnectorError,
         WorkspaceStateError,

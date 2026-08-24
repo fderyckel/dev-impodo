@@ -28,6 +28,12 @@ For file mode, `sources.py` invokes source inspection and
 tables. The frozen source snapshot is built from hash-checked CSV or XLSX
 content and materialized as tagged Parquet evidence.
 
+File validation and inspection run in spawned, resource-bounded processes.
+Each process receives the application build contract that accepted the parent
+request and verifies it before opening the source file. A changed editable
+installation therefore requires an Impodo restart instead of combining two
+builds in one intake operation.
+
 After every file is confirmed, the Source data page uses the already loaded
 catalogues and configurations to render the dataset-name fields and the final
 save action. `POST /workspaces/{project_id}/datasets/freeze` retains the hard
@@ -70,6 +76,7 @@ field path.
 | Role | Code |
 | --- | --- |
 | File and selection orchestration | [`SourceWorkspaceService`](../../../src/impodo/application/source_workspace_service.py) |
+| Isolated source workers | [`source_worker.py`](../../../src/impodo/source_worker.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/derived_entities.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
@@ -124,6 +131,7 @@ falling back to unbounded Python work.
 ## Verification
 
 - [`tests/test_workspace.py`](../../../tests/test_workspace.py)
+- [`tests/test_source_worker_build_contract.py`](../../../tests/test_source_worker_build_contract.py)
 - [`tests/test_source_snapshot.py`](../../../tests/test_source_snapshot.py)
 - [`tests/test_odoo_source_capture.py`](../../../tests/test_odoo_source_capture.py)
 - [`tests/test_derived_entities.py`](../../../tests/test_derived_entities.py)

@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 
 from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
+from ...load_jobs import LoadJob
 from ...preparation_jobs import PreparationJob
 from ...workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
 from ...workspace_errors import WorkspaceError
@@ -1044,6 +1045,122 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
         viewed_stage_id="prepare",
         viewed_page_label="Preparation progress",
         stages=stages,
+    )
+
+
+def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
+    """Build Stage-6 navigation without opening the busy workspace database."""
+
+    project_id = job.project_id
+    progress_url = f"/workspaces/{project_id}/load/progress/{job.job_id}"
+    load_status = (
+        "current"
+        if job.active
+        else "attention"
+        if job.status.value == "FAILED"
+        else "current"
+    )
+    load_label = (
+        "In progress"
+        if job.active
+        else "Needs attention"
+        if job.status.value == "FAILED"
+        else "Verify outcome"
+    )
+    prior_stages = (
+        WorkflowStage(
+            stage_id="source",
+            number=1,
+            label="Source data",
+            href=f"/workspaces/{project_id}/sources",
+            status="complete",
+            status_label="Complete",
+        ),
+        WorkflowStage(
+            stage_id="odoo",
+            number=2,
+            label="Odoo data",
+            href=f"/workspaces/{project_id}/schema",
+            status="complete",
+            status_label="Complete",
+        ),
+        WorkflowStage(
+            stage_id="match",
+            number=3,
+            label="Match data",
+            href=f"/workspaces/{project_id}/mapping",
+            status="complete",
+            status_label="Complete",
+        ),
+        WorkflowStage(
+            stage_id="prepare",
+            number=4,
+            label="Prepare data",
+            href=f"/workspaces/{project_id}/prepare",
+            status="complete",
+            status_label="Complete",
+        ),
+        WorkflowStage(
+            stage_id="review",
+            number=5,
+            label="Final review",
+            href=f"/workspaces/{project_id}/summary",
+            status="complete",
+            status_label="Complete",
+        ),
+    )
+    load_stage = WorkflowStage(
+        stage_id="load",
+        number=6,
+        label="Load into Odoo",
+        href=progress_url,
+        status=load_status,
+        status_label=load_label,
+        pages=(
+            WorkflowPage(
+                page_id="load-review",
+                label="Check changes",
+                href=f"/workspaces/{project_id}/load/review",
+                status="complete",
+                status_label="Complete",
+            ),
+            WorkflowPage(
+                page_id="load-confirm",
+                label="Confirm and load",
+                href=progress_url,
+                status=("current" if job.active else load_status),
+                status_label=load_label,
+                current=True,
+            ),
+            WorkflowPage(
+                page_id="load-outcome",
+                label="Verify result",
+                href=(
+                    f"/workspaces/{project_id}/load/outcome"
+                    if job.status.value == "SUCCEEDED"
+                    else None
+                ),
+                status=("available" if job.status.value == "SUCCEEDED" else "locked"),
+                status_label=(
+                    "Available" if job.status.value == "SUCCEEDED" else "Not ready"
+                ),
+            ),
+        ),
+        active=True,
+    )
+    return WorkspaceNavigation(
+        workspace_id=project_id,
+        project_name=job.project_name,
+        registered=True,
+        setup_active=False,
+        setup_href=f"/workspaces/{project_id}/details",
+        overview_href=f"/workspaces/{project_id}/overview",
+        overview_active=False,
+        current_stage_id="load",
+        current_stage_label="Load into Odoo",
+        viewed_stage_id="load",
+        viewed_page_label="Confirm and load",
+        stages=(*prior_stages, load_stage),
     )
 
 

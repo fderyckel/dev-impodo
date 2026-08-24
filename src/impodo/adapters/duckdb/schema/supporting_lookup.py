@@ -12,7 +12,7 @@ def create_supporting_lookup_schema(
 
     connection.execute(
         """
-        CREATE TABLE IF NOT EXISTS supporting_lookup_revision (
+        CREATE TABLE supporting_lookup_revision (
             snapshot_id VARCHAR PRIMARY KEY,
             lookup_key VARCHAR NOT NULL,
             content_hash VARCHAR NOT NULL,
@@ -21,10 +21,10 @@ def create_supporting_lookup_schema(
             snapshot_json VARCHAR NOT NULL
         );
 
-        CREATE INDEX IF NOT EXISTS supporting_lookup_revision_lookup_key
+        CREATE INDEX supporting_lookup_revision_lookup_key
             ON supporting_lookup_revision (lookup_key);
 
-        CREATE TABLE IF NOT EXISTS supporting_lookup_current (
+        CREATE TABLE supporting_lookup_current (
             lookup_key VARCHAR PRIMARY KEY,
             snapshot_id VARCHAR NOT NULL
         );

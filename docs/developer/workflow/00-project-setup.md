@@ -69,10 +69,11 @@ DataVersion identities unchanged.
 ## Background preparation
 
 The browser captures Project, DataVersion, run, and workspace identities before
-spawning a preparation worker. The worker opens the fixed workspace engine,
-verifies `workspace.duckdb` and the frozen `data-version.duckdb`, and routes
-source artifacts to the DataVersion. It never opens the registry or loads a
-Recipe-root linkage.
+spawning a preparation worker. It also captures the exact application build and
+workspace schema contract. The worker proves that it loaded the same build
+before it opens the fixed workspace engine. It then verifies `workspace.duckdb`
+and the frozen `data-version.duckdb`, and routes source artifacts to the
+DataVersion. It never opens the registry or loads a Recipe-root linkage.
 
 ## Completion and navigation
 

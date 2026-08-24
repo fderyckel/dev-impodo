@@ -13,6 +13,11 @@ from typing import Any
 
 import psutil
 
+from .build_contract import (
+    ApplicationBuildContract,
+    PROCESS_BUILD_CONTRACT,
+    require_same_application_build,
+)
 from .inspection import (
     SourceFileCatalog,
     SourceInspectionError,
@@ -28,7 +33,11 @@ INSPECTION_TIMEOUT_SECONDS = 60
 VALIDATION_MEMORY_BYTES = 512 * 1024 * 1024
 
 
-def validate_source_file_isolated(path: str | Path) -> None:
+def validate_source_file_isolated(
+    path: str | Path,
+    *,
+    build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
+) -> None:
     """Validate an untrusted file in a spawned, resource-bounded process."""
 
     context = multiprocessing.get_context("spawn")
@@ -36,7 +45,7 @@ def validate_source_file_isolated(path: str | Path) -> None:
     start_event = context.Event()
     process = context.Process(
         target=_worker,
-        args=(str(Path(path)), sender, start_event),
+        args=(str(Path(path)), build_contract, sender, start_event),
         name="impodo-source-validator",
         daemon=True,
     )
@@ -86,6 +95,7 @@ def inspect_source_file_isolated(
     *,
     source_file: SourceFile,
     options: SourceInspectionOptions | None,
+    build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
 ) -> SourceFileCatalog:
     """Inspect an accepted file in a spawned, resource-bounded process."""
 
@@ -94,7 +104,14 @@ def inspect_source_file_isolated(
     start_event = context.Event()
     process = context.Process(
         target=_inspection_worker,
-        args=(str(Path(path)), source_file, options, sender, start_event),
+        args=(
+            str(Path(path)),
+            source_file,
+            options,
+            build_contract,
+            sender,
+            start_event,
+        ),
         name="impodo-source-inspector",
         daemon=True,
     )
@@ -140,11 +157,17 @@ def inspect_source_file_isolated(
             _windows_kernel32().CloseHandle(job_handle)
 
 
-def _worker(path: str, sender: Any, start_event: Any) -> None:
+def _worker(
+    path: str,
+    expected_build_contract: ApplicationBuildContract,
+    sender: Any,
+    start_event: Any,
+) -> None:
     try:
         if os.name != "nt" and sys.platform != "darwin":
             _limit_unix_memory()
         start_event.wait()
+        require_same_application_build(expected_build_contract)
         validate_source_file(path)
     except Exception as error:
         sender.send(("error", str(error)))
@@ -158,6 +181,7 @@ def _inspection_worker(
     path: str,
     source_file: SourceFile,
     options: SourceInspectionOptions | None,
+    expected_build_contract: ApplicationBuildContract,
     sender: Any,
     start_event: Any,
 ) -> None:
@@ -165,6 +189,7 @@ def _inspection_worker(
         if os.name != "nt" and sys.platform != "darwin":
             _limit_unix_memory()
         start_event.wait()
+        require_same_application_build(expected_build_contract)
         catalog = inspect_source_file(
             path,
             source_file=source_file,

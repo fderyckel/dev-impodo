@@ -580,12 +580,14 @@ class ExecutionServiceTests(unittest.TestCase):
         snapshot = _snapshot()
         service, _journal = self._service(snapshot)
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+        progress = []
 
         run = service.execute(
             snapshot.project_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
+            progress=progress.append,
         )
 
         self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
@@ -595,6 +597,13 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertEqual(
             executor.updates,
             [("res.partner", 50, {"email": "new@example.test"})],
+        )
+        self.assertEqual(progress[0].planned_count, 3)
+        self.assertEqual(progress[-1].status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(progress[-1].committed_count, 3)
+        self.assertEqual(
+            [item.total_count - item.planned_count for item in progress],
+            sorted(item.total_count - item.planned_count for item in progress),
         )
 
     def test_remote_load_journals_exact_write_principal_evidence(self):

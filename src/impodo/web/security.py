@@ -9,11 +9,18 @@ separate application-service responsibility in ``access.py``.
 from __future__ import annotations
 
 from hmac import compare_digest
+from threading import RLock
+from time import monotonic
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
+
+from ..build_contract import (
+    ApplicationBuildContract,
+    calculate_application_build_contract,
+)
 
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -27,6 +34,46 @@ FORWARDED_HEADERS = frozenset(
         "x-forwarded-proto",
     }
 )
+
+
+class BuildConsistencyMiddleware(BaseHTTPMiddleware):
+    """Stop requests when an editable installation changes under the server."""
+
+    def __init__(
+        self,
+        app,
+        *,
+        expected: ApplicationBuildContract,
+        check_interval_seconds: float = 1.0,
+    ) -> None:
+        super().__init__(app)
+        self.expected = expected
+        self.check_interval_seconds = max(0.0, float(check_interval_seconds))
+        self._lock = RLock()
+        self._next_check = 0.0
+        self._changed = False
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        """Check one bounded process-wide fingerprint before route dispatch."""
+
+        if self._application_changed():
+            return PlainTextResponse(
+                "Impodo was updated while it was open. Restart Impodo before "
+                "continuing. Your saved work is unchanged.",
+                status_code=409,
+            )
+        return await call_next(request)
+
+    def _application_changed(self) -> bool:
+        with self._lock:
+            if self._changed:
+                return True
+            now = monotonic()
+            if now < self._next_check:
+                return False
+            self._next_check = now + self.check_interval_seconds
+            self._changed = calculate_application_build_contract() != self.expected
+            return self._changed
 
 
 class LoopbackSecurityMiddleware(BaseHTTPMiddleware):

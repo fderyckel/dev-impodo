@@ -48,6 +48,7 @@ from ..application.recipe_compilation_service import RecipeCompiler
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
+from ..build_contract import ApplicationBuildContract, PROCESS_BUILD_CONTRACT
 from ..application.migration_run_planning_service import (
     MigrationRunPlanningService,
 )
@@ -204,7 +205,7 @@ from .routers.sources import build_sources_router
 from .routers.summary import build_summary_router
 from .routers.target import build_target_router
 from .remote_connection import RemoteConnectionStatusService
-from .security import LoopbackSecurityMiddleware
+from .security import BuildConsistencyMiddleware, LoopbackSecurityMiddleware
 
 
 def create_local_app(
@@ -233,6 +234,7 @@ def create_local_app(
     odoo_capture_jobs_enabled: bool = True,
     load_jobs_enabled: bool = True,
     duckdb_lock_wait_timeout_seconds: float = 0.0,
+    application_build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
 ) -> FastAPI:
     """Construct the loopback FastAPI application for migration Stages A–K.
 
@@ -559,7 +561,12 @@ def create_local_app(
         authorization=resolved_authorization,
     )
     preparation_jobs = (
-        PreparationJobManager(project_root) if preparation_jobs_enabled else None
+        PreparationJobManager(
+            project_root,
+            build_contract=application_build_contract,
+        )
+        if preparation_jobs_enabled
+        else None
     )
     odoo_capture_jobs = (
         OdooCaptureJobManager(
@@ -698,6 +705,7 @@ def create_local_app(
         lifespan=lifespan,
     )
     app.state.context = context
+    app.state.build_contract = application_build_contract
     app.state.server = None
     app.state.templates = templates
     app.mount(
@@ -712,6 +720,10 @@ def create_local_app(
         max_age=30 * 60,
         same_site="strict",
         https_only=False,
+    )
+    app.add_middleware(
+        BuildConsistencyMiddleware,
+        expected=application_build_contract,
     )
     app.add_middleware(
         LoopbackSecurityMiddleware,

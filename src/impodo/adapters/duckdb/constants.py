@@ -1,8 +1,10 @@
 """Shared DuckDB schema and write-batch settings."""
 
 # This build supports one exact current schema. A contract change starts a new
-# generation; projects from another generation are rejected, never upgraded.
+# generation; workspaces from another generation are rejected, never upgraded.
 SCHEMA_GENERATION = "impodo-workspace-engine-2026-08-m7"
+# Version 2 is the clean M7 shape. Version 1 carried the removed additive
+# migration ledger and must not be accepted as the same persisted contract.
 SCHEMA_VERSION = 2
 PREFLIGHT_ROW_BATCH_SIZE = 1_000
 STAGING_ROW_BATCH_SIZE = 1_000

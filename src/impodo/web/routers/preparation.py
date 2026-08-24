@@ -262,6 +262,7 @@ def _job_payload(job: PreparationJob) -> dict[str, object]:
         "cancel_requested": job.cancel_requested,
         "failure_code": job.failure_code,
         "failure_message": job.failure_message,
+        "retry_allowed": job.retry_allowed,
         "redirect_url": redirect_url,
     }
 

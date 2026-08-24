@@ -73,8 +73,14 @@ workspace database per list row. DataVersion and workspace databases use exact
 schema generations and exact linkage. Storage from the superseded Recipe-first
 generation is rejected without mutation.
 
+Schema versions identify one exact persisted shape, including its metadata.
+M7 version 2 removes the additive migration ledger. Version-1 workspace engines
+are rejected without mutation instead of being treated as the clean shape.
+
 Preparation workers receive an exact authorized identity packet and verify the
-workspace and frozen DataVersion stores. They do not open or scan the shared
+workspace and frozen DataVersion stores. The packet also binds the application
+build identifier and expected workspace schema contract; a mismatch stops the
+worker before either store is opened. Workers do not open or scan the shared
 registry and do not issue per-row repository or Odoo calls.
 
 ## Current boundary

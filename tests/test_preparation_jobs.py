@@ -10,6 +10,10 @@ from uuid import uuid4
 import duckdb
 
 from impodo.access import LOCAL_ACTOR
+from impodo.build_contract import (
+    ApplicationBuildContract,
+    PROCESS_BUILD_CONTRACT,
+)
 from impodo.application.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobRegistry,
@@ -29,6 +33,11 @@ from impodo.preparation_jobs import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+TEST_BUILD_CONTRACT = ApplicationBuildContract(
+    application_build_id="sha256:" + "1" * 64,
+    workspace_schema_generation="test-workspace-generation",
+    workspace_schema_version=1,
+)
 
 
 def _workspace() -> PreparationWorkspace:
@@ -54,6 +63,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             100_000,
             LOCAL_ACTOR.identity,
             _workspace(),
+            TEST_BUILD_CONTRACT,
         )
         repeated, repeated_created = self.registry.enqueue(
             self.project_id,
@@ -61,6 +71,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             100_000,
             LOCAL_ACTOR.identity,
             _workspace(),
+            TEST_BUILD_CONTRACT,
         )
 
         self.assertTrue(created)
@@ -88,6 +99,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             100_000,
             LOCAL_ACTOR.identity,
             _workspace(),
+            TEST_BUILD_CONTRACT,
         )
         self.assertTrue(retry_created)
         self.assertEqual(retry.attempt, 2)
@@ -100,6 +112,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             100_000,
             LOCAL_ACTOR.identity,
             _workspace(),
+            TEST_BUILD_CONTRACT,
         )
         self.registry.mark_running(queued.job_id)
         self.registry.mark_failed(
@@ -113,6 +126,26 @@ class PreparationJobRegistryTests(unittest.TestCase):
         fresh_session = PreparationJobRegistry()
         with self.assertRaises(PreparationJobNotFoundError):
             fresh_session.get(self.project_id, queued.job_id)
+
+    def test_build_and_contract_failures_cannot_be_retried_blindly(self) -> None:
+        for failure_code in (
+            "IMPODO_BUILD_CHANGED",
+            "WorkspaceStateCompatibilityError",
+        ):
+            queued, _created = self.registry.enqueue(
+                self.project_id,
+                "Customers",
+                999,
+                LOCAL_ACTOR.identity,
+                _workspace(),
+                TEST_BUILD_CONTRACT,
+            )
+            failed = self.registry.mark_failed(
+                queued.job_id,
+                failure_code,
+                "Restart Impodo before continuing",
+            )
+            self.assertFalse(failed.retry_allowed)
 
 
 class PreparationCancellationBoundaryTests(unittest.TestCase):
@@ -274,6 +307,7 @@ class PreparationWorkerFailureTests(unittest.TestCase):
                 "project-root",
                 "project-id",
                 _workspace(),
+                PROCESS_BUILD_CONTRACT,
                 LOCAL_ACTOR,
                 events,
                 cancel,
@@ -285,6 +319,39 @@ class PreparationWorkerFailureTests(unittest.TestCase):
         self.assertEqual(failure[1], "LOCAL_WORKSPACE_STORAGE_IO_FAILED")
         self.assertIn("No Odoo records were changed", failure[2])
         self.assertIn("free space", failure[2])
+
+    def test_changed_build_stops_before_worker_composition(self) -> None:
+        events = MagicMock()
+        cancel = MagicMock()
+        changed = ApplicationBuildContract(
+            application_build_id="sha256:" + "0" * 64,
+            workspace_schema_generation=(
+                PROCESS_BUILD_CONTRACT.workspace_schema_generation
+            ),
+            workspace_schema_version=(
+                PROCESS_BUILD_CONTRACT.workspace_schema_version
+            ),
+        )
+
+        with patch(
+            "impodo.preparation_worker.create_preparation_worker"
+        ) as create_worker:
+            _run_preparation_worker(
+                "project-root",
+                "project-id",
+                _workspace(),
+                changed,
+                LOCAL_ACTOR,
+                events,
+                cancel,
+            )
+
+        create_worker.assert_not_called()
+        self.assertEqual(events.put.call_args_list[0].args[0], ("started",))
+        failure = events.put.call_args_list[1].args[0]
+        self.assertEqual(failure[0], "failed")
+        self.assertEqual(failure[1], "IMPODO_BUILD_CHANGED")
+        self.assertIn("Restart Impodo", failure[2])
 
 
 if __name__ == "__main__":

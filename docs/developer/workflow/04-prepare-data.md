@@ -23,11 +23,18 @@ before any publication begins.
 ## Implementation flow
 
 `preparation.py` starts and monitors work through `PreparationJobManager`.
-Before spawning, the route resolves and captures the active Recipe/DataVersion.
+Before spawning, the route resolves and captures the Project, DataVersion,
+MigrationRun, and MigrationWorkspace identities. The application also captures
+the exact application build and workspace schema contract that accepted the
+request.
 `preparation_worker.py` composes project-only adapters and validates that
-captured identity against the project's immutable linkage; it cannot open the
-shared Recipe registry. The progress page renders from the same in-memory job
-snapshot. It therefore does not race either DuckDB writer.
+captured identity against the Project's immutable linkage; it cannot open the
+shared Recipe registry. Before it opens workspace evidence, the spawned worker
+must prove that it loaded the same application build and workspace schema
+contract. A mismatch returns `IMPODO_BUILD_CHANGED` and requires an application
+restart; the browser must not offer a blind retry. The progress page renders
+from the same in-memory job snapshot. It therefore does not race either DuckDB
+writer.
 `PreparationService` selects the supported preparation capability, compiles the
 mapping, writes bounded staging batches, publishes quality/accounting evidence,
 and records the preparation session.
@@ -43,6 +50,8 @@ the frozen source.
 | --- | --- |
 | Preparation orchestration | [`PreparationService`](../../../src/impodo/application/preparation_service.py) |
 | Background jobs | [`PreparationJobManager`](../../../src/impodo/application/preparation_job_service.py) |
+| Process build contract | [`ApplicationBuildContract`](../../../src/impodo/build_contract.py) |
+| Running-build request guard | [`BuildConsistencyMiddleware`](../../../src/impodo/web/security.py) |
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/quality_service.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/resolution_service.py) |
@@ -79,6 +88,11 @@ normalization binding change invalidates dependent evidence. A failed or
 cancelled attempt retains its status; retry creates a controlled attempt and
 must not partially reuse uncommitted tables.
 
+A changed application build or incompatible workspace contract is deterministic
+for the running process. The operator must restart Impodo or follow the
+workspace compatibility action. Retrying the same job cannot repair either
+condition.
+
 Use stage-level transactions and idempotent publication. Never repair a result
 by editing DuckDB rows directly.
 
@@ -95,6 +109,8 @@ lineage parity before being called an optimization.
 ## Verification
 
 - [`tests/test_preparation_jobs.py`](../../../tests/test_preparation_jobs.py)
+- [`tests/test_build_contract.py`](../../../tests/test_build_contract.py)
+- [`tests/test_workspace_schema_contract.py`](../../../tests/test_workspace_schema_contract.py)
 - [`tests/test_preparation_session.py`](../../../tests/test_preparation_session.py)
 - [`tests/test_quality.py`](../../../tests/test_quality.py)
 - [`tests/test_normalization.py`](../../../tests/test_normalization.py)

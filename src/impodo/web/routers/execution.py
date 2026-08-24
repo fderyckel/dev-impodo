@@ -6,6 +6,7 @@ import csv
 from dataclasses import dataclass
 from io import StringIO
 from secrets import compare_digest
+from types import SimpleNamespace
 from typing import Sequence
 from urllib.parse import urlencode, urlsplit
 
@@ -36,6 +37,7 @@ from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..presenters.navigation import build_load_workspace_navigation
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
@@ -193,16 +195,21 @@ def _target_server(base_url: str) -> str:
     return parsed.netloc or parsed.path or "Configured Odoo server"
 
 
-def _target_environment(context: WebContext, project_id: str) -> str:
-    workspace = context.migration_workspaces.get(project_id, actor=context.actor)
+def _load_job_display_context(
+    context: WebContext,
+    workspace_id: str,
+) -> tuple[str, str]:
+    workspace = context.migration_workspaces.get(workspace_id, actor=context.actor)
     data_version = context.data_versions.get(
         workspace.data_version_id,
         actor=context.actor,
     )
-    return {
+    project = context.migration_projects.get(workspace.project_id, actor=context.actor)
+    environment = {
         "PRODUCTION": "Production",
         "TEST": "Test",
     }.get(data_version.purpose.value, "Target")
+    return project.display_name, environment
 
 
 def build_execution_router(context: WebContext) -> APIRouter:
@@ -404,11 +411,29 @@ def build_execution_router(context: WebContext) -> APIRouter:
     async def load_progress(request: Request, project_id: str, job_id: str):
         require_session(request)
         job = _get_job(context, project_id, job_id)
-        project = context.queries.get(project_id)
+        workspace = context.migration_workspaces.get(project_id, actor=context.actor)
+        data_version = context.data_versions.get(
+            workspace.data_version_id,
+            actor=context.actor,
+        )
+        project = SimpleNamespace(
+            project_id=job.project_id,
+            name=job.project_name,
+            registered_at=True,
+        )
         return _render(
             request,
             "workspace_load_progress.html",
             project=project,
+            workspace_navigation=build_load_workspace_navigation(job),
+            migration_context={
+                "project_id": workspace.project_id,
+                "data_version_id": data_version.data_version_id,
+                "data_version_number": data_version.version_number,
+                "data_version_purpose": data_version.purpose.value,
+                "migration_run_id": workspace.migration_run_id,
+                "workspace_id": workspace.workspace_id,
+            },
             job=job,
             job_payload=_job_payload(job),
             status_code=200,
@@ -624,12 +649,16 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     verification_complete=verification_complete,
                 )
 
+            project_name, target_environment = _load_job_display_context(
+                context,
+                project_id,
+            )
             job = _manager(context).enqueue(
                 project_id,
-                project.name,
+                project_name,
                 target_database=preview.snapshot.target_database,
                 target_server=_target_server(project.odoo_base_url),
-                target_environment=_target_environment(context, project_id),
+                target_environment=target_environment,
                 total_rows=preview.snapshot.write_count,
                 work=run_load,
             )

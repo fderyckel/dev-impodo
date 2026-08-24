@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from .build_contract import ApplicationBuildContract
 from .data_versions import DataVersion, DataVersionPurpose, DataVersionState
 from .migration_foundation import MigrationFoundationError, require_uuid
 from .migration_runs import MigrationRun
@@ -32,6 +33,13 @@ TERMINAL_PREPARATION_JOB_STATUSES = frozenset(
         PreparationJobStatus.REVIEW_REQUIRED,
         PreparationJobStatus.FAILED,
         PreparationJobStatus.CANCELLED,
+    }
+)
+
+NON_RETRYABLE_PREPARATION_FAILURE_CODES = frozenset(
+    {
+        "IMPODO_BUILD_CHANGED",
+        "WorkspaceStateCompatibilityError",
     }
 )
 
@@ -127,6 +135,7 @@ class PreparationJob:
     job_id: str
     project_id: str
     project_name: str
+    build_contract: ApplicationBuildContract
     workspace: PreparationWorkspace
     status: PreparationJobStatus
     phase: PreparationPhase
@@ -154,6 +163,15 @@ class PreparationJob:
     @property
     def terminal(self) -> bool:
         return self.status in TERMINAL_PREPARATION_JOB_STATUSES
+
+    @property
+    def retry_allowed(self) -> bool:
+        """Return whether repeating the same saved request can make progress."""
+
+        return (
+            self.status in {PreparationJobStatus.FAILED, PreparationJobStatus.CANCELLED}
+            and self.failure_code not in NON_RETRYABLE_PREPARATION_FAILURE_CODES
+        )
 
 
 def preparation_progress_percent(

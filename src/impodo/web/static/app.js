@@ -3701,7 +3701,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const cancelButton = preparationJob.querySelector("[data-preparation-cancel]");
     const failed = preparationJob.querySelector("[data-preparation-failed]");
     const failure = preparationJob.querySelector("[data-preparation-failure]");
+    const failureTitle = preparationJob.querySelector("[data-preparation-failure-title]");
     const failureCode = preparationJob.querySelector("[data-preparation-failure-code]");
+    const retryAction = preparationJob.querySelector("[data-preparation-retry]");
     const cancelled = preparationJob.querySelector("[data-preparation-cancelled]");
     const complete = preparationJob.querySelector("[data-preparation-complete]");
     const continueLink = preparationJob.querySelector("[data-preparation-continue]");
@@ -3738,6 +3740,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (job.status === "FAILED") {
         if (failed) failed.hidden = false;
         if (failure) failure.textContent = job.failure_message;
+        if (failureTitle) {
+          failureTitle.textContent = job.retry_allowed
+            ? "Review the message and try again"
+            : "Restart Impodo before continuing";
+        }
+        if (retryAction) retryAction.hidden = !job.retry_allowed;
         if (failureCode) {
           failureCode.hidden = !job.failure_code;
           const code = failureCode.querySelector("code");

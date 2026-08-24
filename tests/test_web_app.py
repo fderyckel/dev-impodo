@@ -73,6 +73,7 @@ from impodo.data_version_sources import (
     SourcePackageState,
     source_column_contract_hash,
 )
+from impodo.domain.execution import ExecutionRowStatus, ExecutionRunStatus
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCapturePage,
@@ -81,6 +82,7 @@ from impodo.domain.odoo_source_capture import (
 from impodo.domain.odoo_comparison import OdooComparisonOutcome
 from impodo.application.preflight_service import MANIFEST_NAME
 from impodo.application.odoo_connection_service import OdooConnectionTestService
+from impodo.application.load_job_service import LoadJobResult
 from impodo.application.odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
@@ -115,6 +117,7 @@ from impodo.web.app import create_local_app
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential,
+    store_target_credential,
 )
 from impodo.web.target_readers import _source_value_choices
 from impodo.workspace_errors import WorkspaceError
@@ -222,6 +225,23 @@ def _wait_for_odoo_capture(
                 return payload
         time.sleep(0.02)
     raise AssertionError("background Odoo capture did not finish in time")
+
+
+def _wait_for_load(
+    client: TestClient,
+    progress_url: str,
+    *,
+    timeout: float = 10.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        response = client.get(f"{progress_url}/status")
+        if response.status_code == 200:
+            payload = response.json()
+            if payload["status"] not in {"QUEUED", "RUNNING"}:
+                return payload
+        time.sleep(0.02)
+    raise AssertionError("background Odoo load did not finish in time")
 
 
 def _created_workspace_id(app, response) -> str:
@@ -2215,6 +2235,205 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(
             blocked_confirm.headers["location"],
             f"/workspaces/{project.project_id}/load/review",
+        )
+
+    def test_load_progress_names_target_and_exposes_non_secret_counts(self) -> None:
+        context = self.app.state.context
+        project = _create_workspace(
+            context,
+            name="Visible load progress",
+            source_system="Other",
+        )
+        project = context.workspace_states.update_target(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            odoo_connection_mode="REMOTE",
+            odoo_base_url="https://odoo.example.test",
+            odoo_database="migration",
+            intended_applications=("Contacts",),
+            intended_models=(),
+        )
+        manager = context.load_jobs
+        assert manager is not None
+        job = manager.enqueue(
+            project.project_id,
+            project.name,
+            target_database="migration",
+            target_server="odoo.example.test",
+            target_environment="Test",
+            total_rows=3,
+            work=lambda _writing, _verifying: LoadJobResult(
+                execution_run_id="run-1",
+                verification_complete=False,
+            ),
+        )
+        progress_url = f"/workspaces/{project.project_id}/load/progress/{job.job_id}"
+
+        finished = _wait_for_load(self.client, progress_url)
+        page = self.client.get(progress_url)
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("data-load-job", page.text)
+        self.assertIn(f"Loading {project.name} into Test Odoo", page.text)
+        self.assertIn("odoo.example.test", page.text)
+        self.assertIn("migration", page.text)
+        self.assertEqual(finished["total_rows"], 3)
+        self.assertEqual(finished["created_count"], 0)
+        self.assertEqual(finished["updated_count"], 0)
+        self.assertEqual(finished["attention_count"], 0)
+        self.assertNotIn("write_api_key", page.text)
+
+    def test_confirmed_load_runs_in_background_and_redirects_to_progress(self) -> None:
+        context = self.app.state.context
+        project = _create_workspace(
+            context,
+            name="Background load",
+            source_system="Other",
+        )
+        project = context.workspace_states.update_target(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            odoo_connection_mode="REMOTE",
+            odoo_base_url="https://odoo.example.test",
+            odoo_database="migration",
+            intended_applications=("Contacts",),
+            intended_models=(),
+        )
+        read_credential = store_target_credential(
+            context.secret_store,
+            project,
+            TargetCredentialRole.READ,
+            "read-secret",
+            persistent=False,
+        )
+        store_target_credential(
+            context.secret_store,
+            project,
+            TargetCredentialRole.WRITE,
+            "write-secret",
+            persistent=False,
+        )
+        semantic_hash = "sha256:" + "a" * 64
+        target_hash = "sha256:" + "b" * 64
+        read_context_hash = "sha256:" + "c" * 64
+        snapshot = SimpleNamespace(
+            semantic_hash=semantic_hash,
+            target_hash=target_hash,
+            target_database="migration",
+            target_odoo_version="19.0",
+            write_count=2,
+            readable_models=("res.partner",),
+            read_context_hash=read_context_hash,
+            read_credential_binding_hash=read_credential.binding_hash,
+        )
+        preview = SimpleNamespace(
+            snapshot=snapshot,
+            api_scope=SimpleNamespace(models=()),
+            scope_error="",
+            current_run=None,
+            can_load=True,
+        )
+        attempts = (
+            SimpleNamespace(
+                operation="CREATE",
+                status=ExecutionRowStatus.COMMITTED,
+            ),
+            SimpleNamespace(
+                operation="UPDATE",
+                status=ExecutionRowStatus.COMMITTED,
+            ),
+        )
+        completed_run = SimpleNamespace(
+            run_id="11111111-1111-4111-8111-111111111111",
+            total_count=2,
+            planned_count=0,
+            status=ExecutionRunStatus.COMPLETED,
+            rows=attempts,
+        )
+
+        def execute(_project_id, **kwargs):
+            kwargs["progress"](completed_run)
+            return completed_run
+
+        read_identity = OdooReadIdentity(
+            target_hash=target_hash,
+            principal_hash="sha256:" + "d" * 64,
+            permission_hash="sha256:" + "e" * 64,
+            context_hash=read_context_hash,
+            readable_models=("res.partner",),
+            observed_at="2026-08-23T00:00:00Z",
+        )
+        write_identity = OdooWriteIdentity(
+            target_hash=target_hash,
+            principal_hash="sha256:" + "1" * 64,
+            permission_hash="sha256:" + "2" * 64,
+            context_hash=read_context_hash,
+            readable_models=("res.partner",),
+            writable_models=("res.partner",),
+            observed_at="2026-08-23T00:00:00Z",
+        )
+
+        with (
+            patch.object(
+                type(context.execution),
+                "current_preview",
+                return_value=preview,
+            ),
+            patch.object(type(context.execution), "execute", side_effect=execute),
+            patch.object(
+                type(context.reconciliation),
+                "reconcile",
+                return_value=SimpleNamespace(),
+            ),
+            patch.object(
+                type(context.cutover_plans),
+                "assert_application_can_execute",
+                return_value=None,
+            ),
+            patch.object(
+                type(context.production_runs),
+                "credential_workspace",
+                return_value=project,
+            ),
+            patch.object(
+                type(context.production_runs),
+                "assert_execution_authority",
+                return_value=None,
+            ),
+            patch.object(
+                type(context.queries),
+                "get_odoo_schema_catalog",
+                return_value=SimpleNamespace(read_context_hash=read_context_hash),
+            ),
+            patch.object(context, "read_identity_probe", return_value=read_identity),
+            patch.object(context, "write_identity_probe", return_value=write_identity),
+            patch.object(context, "write_executor_factory", return_value=object()),
+            patch.object(context, "readback_reader_factory", return_value=object()),
+        ):
+            started = self.client.post(
+                f"/workspaces/{project.project_id}/load",
+                data={
+                    "csrf_token": self.csrf,
+                    "snapshot_hash": semantic_hash,
+                    "batch_rows": "10",
+                },
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+            self.assertEqual(started.status_code, 303, started.text)
+            self.assertIn("/load/progress/", started.headers["location"])
+            finished = _wait_for_load(self.client, started.headers["location"])
+
+        self.assertEqual(finished["status"], "SUCCEEDED", finished)
+        self.assertEqual(finished["completed_rows"], 2)
+        self.assertEqual(finished["created_count"], 1)
+        self.assertEqual(finished["updated_count"], 1)
+        self.assertTrue(finished["verification_complete"])
+        self.assertEqual(
+            finished["redirect_url"],
+            f"/workspaces/{project.project_id}/load/outcome",
         )
 
     def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
@@ -4733,9 +4952,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(loaded.status_code, 303, loaded.text)
+        progress_url = loaded.headers["location"]
+        self.assertIn("/load/progress/", progress_url)
+        progress_page = self.client.get(progress_url)
+        self.assertEqual(progress_page.status_code, 200, progress_page.text)
+        self.assertIn("data-load-job", progress_page.text)
+        self.assertIn("odoo.example.test", progress_page.text)
+        self.assertIn("migration", progress_page.text)
+        finished_load = _wait_for_load(self.client, progress_url)
+        self.assertEqual(finished_load["status"], "SUCCEEDED", finished_load)
+        self.assertEqual(
+            finished_load["completed_rows"],
+            repeated_report.create_count + repeated_report.update_count,
+        )
+        self.assertEqual(finished_load["created_count"], repeated_report.create_count)
+        self.assertEqual(finished_load["updated_count"], repeated_report.update_count)
+        self.assertEqual(finished_load["attention_count"], 0)
+        self.assertTrue(finished_load["verification_complete"])
+        self.assertNotIn("load-secret", json.dumps(finished_load))
         self.assertEqual(write_factory_keys, ["load-secret"])
         self.assertEqual(readback_factory_keys, ["load-secret"])
-        outcome_page = self.client.get(loaded.headers["location"])
+        outcome_page = self.client.get(finished_load["redirect_url"])
         self.assertIn("Odoo read-back complete", outcome_page.text)
         self.assertIn("Verified in Odoo", outcome_page.text)
         self.assertIn("Odoo now matches every field", outcome_page.text)

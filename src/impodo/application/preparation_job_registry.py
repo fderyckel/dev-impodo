@@ -8,6 +8,7 @@ from threading import RLock
 from uuid import uuid4
 
 from ..access import ActorIdentity
+from ..build_contract import ApplicationBuildContract
 from ..preparation_jobs import (
     PHASE_LABELS,
     PreparationJob,
@@ -40,6 +41,7 @@ class PreparationJobRegistry:
         total_rows: int,
         requested_by: ActorIdentity,
         workspace: PreparationWorkspace,
+        build_contract: ApplicationBuildContract,
     ) -> tuple[PreparationJob, bool]:
         """Create one attempt or return the project's already-active attempt."""
 
@@ -60,6 +62,7 @@ class PreparationJobRegistry:
                 job_id=str(uuid4()),
                 project_id=project_id,
                 project_name=project_name.strip()[:300] or "Data preparation project",
+                build_contract=build_contract,
                 workspace=workspace,
                 status=PreparationJobStatus.QUEUED,
                 phase=PreparationPhase.QUEUED,

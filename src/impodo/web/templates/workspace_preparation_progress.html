@@ -41,11 +41,11 @@
     <section class="next-action-card blocked" data-preparation-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
       <div>
         <p class="eyebrow">Preparation stopped</p>
-        <h2>Review the message and try again</h2>
+        <h2 data-preparation-failure-title>{% if job.retry_allowed %}Review the message and try again{% else %}Restart Impodo before continuing{% endif %}</h2>
         <p data-preparation-failure>{{ failure_message }}</p>
       </div>
       <div class="next-action-buttons">
-        <form method="post" action="/workspaces/{{ job.project_id }}/preparation/{{ job.job_id }}/retry">
+        <form method="post" action="/workspaces/{{ job.project_id }}/preparation/{{ job.job_id }}/retry" data-preparation-retry {% if not job.retry_allowed %}hidden{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button primary" type="submit">Try again</button>
         </form>

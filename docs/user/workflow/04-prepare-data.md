@@ -27,6 +27,9 @@ source, schema, key, or transformation decision is still changing.
 6. Review prepared-value groups and accept or reject proposed normalization
    decisions when they are present.
 7. Approve the resolved prepared data only when no required decision remains.
+8. If you want to reuse the revised rules, select **Save reusable rules
+   (optional)** and publish the first Recipe or a new Recipe version from the
+   data project overview.
 
 ![Current prepared-data review inside a fictional data project workspace.](../../images/user/15-prepared-data-review.png)
 
@@ -62,14 +65,19 @@ current file data version.
 
 Preparation saves protected prepared-data evidence. It does not call Odoo, change
 the accepted source, modify the Recipe version, or copy prepared rows between
-data versions. Merge and normalization decisions affect the prepared result,
-not the original evidence.
+data versions. Publishing the reusable rules is a separate explicit action.
+Merge and normalization decisions affect the prepared result, not the original
+evidence.
 
 ## Needs attention
 
 Investigate blocked rows, unresolved relationships, unexpected quarantine,
 count differences, or a stopped background job. A cancelled or failed attempt
 may be retried only after its recorded outcome is understood.
+
+If Impodo reports that it was updated while preparation was starting, restart
+Impodo. The stopped attempt did not open the workspace or contact Odoo. Do not
+repeat the same attempt from the old browser session.
 
 ## What makes this work stale
 

@@ -605,7 +605,7 @@ def validate_repository(
     template_root = repo_root / "src/impodo/web/templates"
     actual_templates = {
         path.relative_to(repo_root).as_posix()
-        for pattern in ("project_*.html", "recipe_*.html")
+        for pattern in ("project_*.html", "workspace_*.html")
         for path in template_root.glob(pattern)
     }
     for path in sorted(actual_templates | set(template_owners)):

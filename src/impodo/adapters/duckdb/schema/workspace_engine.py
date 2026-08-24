@@ -22,7 +22,8 @@ from .source_snapshot import create_source_snapshot_schema
 
 _UNSUPPORTED_WORKSPACE_MESSAGE = (
     "This workspace uses a different Impodo data contract and cannot be opened "
-    "by this build. Delete its Data Project and create a new one."
+    "by this build. Impodo left its saved evidence unchanged. Return to Projects "
+    "and continue with a workspace created by the current build."
 )
 
 
@@ -631,8 +632,5 @@ class WorkspaceEngineSchemaMixin:
             raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
         stored_version = int(row[1])
         if stored_version != SCHEMA_VERSION:
-            raise WorkspaceStateCompatibilityError(
-                "This workspace uses a different Impodo data contract and cannot "
-                "be opened by this build."
-            )
+            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
 

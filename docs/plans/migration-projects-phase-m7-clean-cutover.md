@@ -34,8 +34,15 @@ browser now uses `/projects/new` only for Project creation and uses
 The current workspace engine uses `workspace-engine.duckdb`, `WorkspaceState`,
 `WorkspaceStateService`, `WorkspaceStateRepository`, and
 `WorkspaceStateReader`. New stores use the exact M7 schema generation. M7
-removed the additive `project_schema_migration` ledger; an incompatible store
-is rejected instead of upgraded or adopted.
+removed the additive `project_schema_migration` ledger. The clean schema is M7
+version 2; a version-1 store is rejected without mutation instead of upgraded
+or adopted.
+
+The web process and each spawned worker also bind a job to one immutable
+application build identifier and the exact workspace schema contract. A child
+process rejects a different build before opening the workspace. This prevents
+an editable installation from combining an older web process with newer
+worker code and presenting that deployment fault as a saved-workspace fault.
 
 The mapping boundary reads the DataVersion datasets selected for one workspace.
 It overlays only that workspace's current derived-dataset plan and does not copy
