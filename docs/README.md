@@ -70,63 +70,12 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
-- [Browser language and concept help proposal](plans/browser-language-and-concept-help-proposal.md)
-  — proposed canonical browser vocabulary, data-manager concepts page,
-  contextual help dialogs, complete HTML copy review, and accessibility and
-  performance acceptance gates. This behavior is not yet implemented.
 - [Impodo remaining work](plans/remaining-work.md) — the authoritative
-  forward-looking roadmap. Migration Project ownership, optional reusable
-  Recipes, Project-owned data packages, and integrated multi-Recipe cutover
-  are the current product-delivery focus.
-- [Migration projects and multi-Recipe cutover implementation plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-  — implemented target architecture. Phases M0 through M7 establish the
-  Project-first browser, optional Recipe publication, integrated Test planning,
-  exact CutoverPlan qualification, fresh Production rollout, and the final
-  clean removal of Recipe-first ownership.
-- [Migration Projects Phase M0 contracts](plans/migration-projects-phase-m0-contracts.md)
-  — completed architecture-only contracts and executable fixtures for Project
-  ownership, optional and multiple Recipes, Project-owned data packages,
-  integrated runs, CutoverPlans, and exact qualification.
-- [Migration Projects Phase M1 persistence foundation](plans/migration-projects-phase-m1-foundation.md)
-  — clean Project, DataVersion, run, and workspace roots, exact new DuckDB
-  generations, bounded projections, restart-safe intents, old-storage
-  rejection, and recoverable development reset. M3 now composes these roots
-  into the Project-first browser.
-- [Migration Projects Phase M2 source-package foundation](plans/migration-projects-phase-m2-source-packages.md)
-  — Project-owned DataVersion source packages, immutable acceptance, bounded
-  read-only workspace projections, exact M2 storage, and the internal
-  `WorkspaceState` rename. M3 now composes these packages and projections into
-  file and Odoo authoring workspaces.
-- [Migration Projects Phase M3 Project authoring](plans/migration-projects-phase-m3-project-authoring.md)
-  — Project-native creation, one-off authoring, immutable file and Odoo source
-  acceptance, and optional atomic Recipe revision publication.
-- [Migration Projects Phase M4 multi-Recipe Test runs](plans/migration-projects-phase-m4-multi-recipe-runs.md)
-  — one Project-owned Test run, unioned Odoo requirements, isolated Recipe
-  applications, collision checks, and bounded integrated progress.
-- [Migration Projects Phase M6 Production rollout](plans/migration-projects-phase-m6-production-rollout.md)
-  — fresh latest-data acceptance, exact selected-plan activation, independent
-  Production authority, isolated applications, and restart-safe recovery.
-- [Migration Projects Phase M7 clean cutover](plans/migration-projects-phase-m7-clean-cutover.md)
-  — final removal of Recipe-first ownership, compatibility code, additive
-  workspace schema migration, stale fixtures, and current documentation claims.
-- [Migration Projects Phase M5 integrated qualification](plans/migration-projects-phase-m5-cutover-qualification.md)
-  — immutable CutoverPlan revisions, complete ordered Test evidence,
-  protected qualification, dependency write guards, and separate rollout
-  selection without Production authority.
-- [Odoo source import and round-trip update implementation plan](plans/odoo-source-import-plan.md)
-  — scoped proposal for selecting existing Odoo 19 records as immutable
-  Impodo source data, transforming them, and applying guarded updates back to
-  the same database.
-- [High-volume transformation architecture implementation plan](plans/transformation-scale-architecture-plan.md)
-  — weighted comparison of four scale architectures, with a phased proposal
-  for reducing transformation CPU and memory, extending bounded preparation to
-  related Products and BOMs, and retaining governed audit evidence.
-- [Reusable recipes and data versions implementation plan](plans/reusable-recipes-and-data-versions-implementation-plan.md)
-  — completed historical implementation record for the removed Recipe-first
-  vertical slice. ADR-014 and the Migration Project plan supersede it.
-- [Recipe-first Phase R0 contracts](plans/reusable-recipes-phase-r0-contracts.md)
-  — historical frozen contracts for the removed Recipe-first slice. Current
-  Project and Recipe publication contracts are authoritative.
+  forward-looking roadmap. It is the only file in `docs/plans/`; completed
+  delivery history belongs in reports and Git history.
+
+## Implementation reports
+
 - [Recipe-first Phase R1 implementation report](reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
   — completed Recipe/DataVersion registry lineage, protected payload storage,
   workspace linkage and sealing, compatibility resolution, and deterministic

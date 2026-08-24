@@ -2,218 +2,173 @@
 
 ## Status and authority
 
-**Status:** Active roadmap, updated 2026-08-23.
+**Status:** Active roadmap, updated 2026-08-24.
 
-This is the authoritative cross-product roadmap in `docs/plans/`. Scoped
-implementation proposals do not change its priority order unless explicitly
-adopted here. Completed implementation belongs in Git, release evidence belongs
-in `docs/reports/` and `docs/testing/`, and current behavior belongs in
-architecture, contracts, and audience-appropriate documentation.
+This is the only forward-looking plan in `docs/plans/`. It records genuinely
+unfinished or explicitly deferred product work. Completed behavior belongs in
+architecture, contracts, user and developer documentation. Point-in-time
+implementation evidence belongs in `docs/reports/`, `docs/testing/`, and Git
+history.
+
+Finishing an item means removing its delivery detail from this file after the
+current documentation and evidence have been updated. Completed plan files do
+not remain in this directory as an archive.
 
 ## Current implemented boundary
 
-Impodo supports the Project-first browser and the reviewed local or remote Odoo
-19 workflow. A Project may contain no Recipe or several Project-scoped Recipes.
-The Project owns complete DataVersion source packages, Authoring, Test, and
-Production runs, workspaces, and its CutoverPlan. A Recipe owns only immutable
-reusable rule revisions.
+Impodo supports a Project-first local or remote Odoo 19 workflow. A Project may
+contain no Recipe or several Project-scoped Recipes. The Project owns complete
+DataVersion source packages, Authoring, Test, and Production runs, workspaces,
+and its CutoverPlan. A Recipe owns immutable reusable rule revisions.
 
-Phases M0 through M7 are complete. They provide one-off authoring, optional
-Recipe publication, shared Test target capture, isolated Recipe applications,
-integrated qualification and selection, fresh Production data and authority,
-and the clean removal of Recipe-first ownership and compatibility code.
-Recipe-first R0 through R7 records remain historical evidence only.
+The current preparation limits are:
 
-The current preparation limits remain:
-
-- 100,000 physical rows only for exact-snapshot, single-dataset direct mappings
+- 100,000 physical rows for exact-snapshot, single-dataset direct mappings
   compiled entirely to the verified native-columnar route;
 - 50,000 physical rows for current direct Python-fallback or relationship
   routes; and
 - 25,000 physical rows for current derived or materialized routes.
 
-This roadmap decision does not raise, remove, or reinterpret those limits.
+This roadmap does not raise, remove, or reinterpret those limits.
 
-## Completed product priority — Migration Projects and multi-Recipe cutover
+## Active work
 
-**Priority decision, 2026-08-22:** Product ownership accepted
-[ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
-and made the [Migration projects and multi-Recipe cutover implementation
-plan](migration-projects-and-multi-recipe-cutover-implementation-plan.md) the
-product-delivery focus. That plan completed on 2026-08-23.
+### 1. Complete workspace identity and Project authorization
 
-The current browser uses `MigrationProject` as the business root, lets a
-Project exist without a Recipe, makes DataVersion the owner of the complete
-source package, and applies several exact Project-scoped Recipe revisions
-through one planned Test MigrationRun. One exact integrated CutoverPlan is
-qualified and selected separately. Production uses a fresh latest-data run
-with independent target and credential authority. M7 removed the remaining
-Recipe-first compatibility code and stale active fixtures.
+**Status:** Active. This is the final M7 conformance gate.
 
-The completed implementation retains the portable Recipe compiler, fresh Test
-and Production evidence, credential separation, Odoo 19 boundaries, immutable
-execution evidence, and reconciliation behavior. M7 removed the
-Project-as-Recipe alias, Recipe-owned DataVersions and cutover pointer,
-Recipe-root creation route, old schema migration, compatibility shells, and
-stale active documentation.
+The Project-first structure, browser workflow, clean persistence generations,
+and Recipe-first removal are implemented. One internal boundary still gives
+`project_id` a second meaning: the retained workspace engine uses it for the
+contained workspace identity. That ambiguity must be removed without restoring
+an old storage upgrader or compatibility alias.
 
-Completing M7 does not automatically activate a deferred product track. Product
-ownership must explicitly select the next priority. Narrow maintenance,
-security, data-loss, regression, and performance fixes required to preserve the
-current workflow remain in scope.
+The remaining work is to:
 
-**Phase status, 2026-08-23:** Phases M0 through M7 are complete. The [Phase M0
-contracts](migration-projects-phase-m0-contracts.md) freeze the target
-ownership and integrated-plan rules. The [Phase M1 persistence
-foundation](migration-projects-phase-m1-foundation.md) implements the clean
-Project, DataVersion, run, and workspace roots, exact new stores, bounded
-registry projection, compatibility rejection, and recoverable development
-reset. The [Phase M2 source-package
-foundation](migration-projects-phase-m2-source-packages.md) adds immutable
-DataVersion source packages, bounded workspace dataset projections, and the
-mapping-source adapter without copying source state. The [Phase M3
-implementation](migration-projects-phase-m3-project-authoring.md) composes the
-Project-first browser, one-off authoring, and optional Recipe publication. The
-[Phase M4 implementation](migration-projects-phase-m4-multi-recipe-runs.md)
-adds one run-owned target and union requirement plan, isolated Recipe
-applications, dependency and write-collision validation, fresh mapping drafts,
-and bounded integrated status. The [Phase M5
-implementation](migration-projects-phase-m5-cutover-qualification.md) adds
-immutable CutoverPlan revisions, ordered exact Test qualification, dependency
-write guards, protected evidence, and separate rollout selection. The [Phase
-M6 implementation](migration-projects-phase-m6-production-rollout.md) adds
-fresh latest-data setup, exact selected-plan activation, independent
-Production read and write authority, isolated application evidence, and
-restart-safe cross-store recovery. The [Phase M7 clean
-cutover](migration-projects-phase-m7-clean-cutover.md) removes Recipe-first
-ownership, additive workspace migration, compatibility paths, stale fixtures,
-and stale current documentation.
+1. name the contained identity `workspace_id` throughout its domain,
+   application, persistence, route, template, and test boundaries;
+2. make every Project-scoped authorization decision resolve the workspace's
+   actual parent Project before granting access;
+3. keep Project, workspace, Recipe, DataVersion, MigrationRun, and CutoverPlan
+   identities distinct in stored evidence and operation identities;
+4. reject obsolete storage generations instead of upgrading or interpreting
+   them; and
+5. update current contracts and operator language in the same change so the
+   dual meaning cannot survive in documentation.
 
-## Completed product priority — Recipe test-to-production reuse
+**Exit gate:** no active contract, field, parameter, audit fact, or browser
+route calls a workspace a Project. Authorization tests prove that access to one
+Project cannot grant access to another Project's workspace. Focused lifecycle,
+storage, browser, security, and documentation checks pass from a clean root.
 
-**Priority decision, 2026-08-19:** Product ownership made the
-[Recipe-first test-to-production implementation
-plan](reusable-recipes-and-data-versions-implementation-plan.md) the only
-product-delivery focus. That definition of done passed on 2026-08-19. Competing
-feature, scale, certification, gateway, hosted, and general
-production-hardening tracks remain deferred until product ownership explicitly
-selects one below.
-
-The required outcome is:
-
-> A data manager authors and fine-tunes immutable Recipe revisions with
-> representative data against a remote Test Odoo server, qualifies one exact
-> revision from successful execution and reconciliation, then applies that
-> qualified revision on rollout day to the latest same-format-kind data and a
-> different compatible Production Odoo server using current independently
-> supplied API credentials.
-
-The Recipe work owned the following sequence. Steps 1 through 9 completed on
-2026-08-19:
-
-1. rebase the frozen architecture around Recipe as aggregate root — completed;
-2. add Recipe/DataVersion lineage, protected storage, and recovery — completed;
-3. create, author, and publish a composite Customer Recipe — completed;
-4. bind current remote Test Odoo server and credential evidence — completed;
-5. apply same-ish data and review only drift — completed;
-6. execute, reconcile, qualify, and select a cutover candidate — completed;
-7. run that exact revision with the latest data on a different Production Odoo
-   server and different API keys — completed;
-8. prove credential rotation and remote failure invalidation — completed; and
-9. qualify Customers, Product/BOM, and parameterized stock-level Recipe shapes
-   within their currently supported limits — completed.
-
-On 2026-08-22, product ownership selected the Migration Project and
-multi-Recipe cutover correction above as the next priority. Phases M0 through
-M4 now implement Project-first authoring, optional Recipe publication, and
-integrated Test planning. The
-completed Recipe-first work remains historical implementation evidence, not
-the active architecture.
-
-Maintenance, security fixes, data-loss prevention, dependency compatibility,
-and regressions blocking this Recipe path remain in scope. They do not reopen a
-deferred product track.
+Completing this gate does not automatically activate a deferred track. Product
+ownership must explicitly select the next priority below.
 
 ## Deferred tracks
 
-The following sections are retained so their existing plans, evidence, and
-anchors remain discoverable. They are not current implementation priorities.
+Deferred work is recorded here so it remains visible, but it is not authorized
+for implementation merely because the active gate completes. Maintenance,
+security, data-loss prevention, dependency compatibility, and regressions that
+threaten the current workflow remain in scope.
 
-## 1. Qualify related and mixed preparation at 100,000 rows
+### 2. Qualify related and mixed preparation at 100,000 rows
 
-**Status:** Deferred; the Recipe prerequisite passed, but explicit product
-reopening is still required.
+**Status:** Deferred. The direct-route foundation is implemented; the mixed and
+derived high-volume route is not qualified.
 
-The existing
-[high-volume transformation architecture implementation
-plan](transformation-scale-architecture-plan.md), measurements, fixtures, and
-acceptance evidence remain valid historical and future inputs. Do not raise the
-  current relationship/derived limits or resume generalized scale work while the
-  Migration Project and multi-Recipe cutover plan is active.
+The unfinished outcome is a bounded Product/BOM workflow for approximately
+16,000 products and 80,000 BOM lines, plus a representative mixed or derived
+100,000-row fixture. The work must complete set-based derived and grouped
+production, logical projection, relationship accounting, and dependency
+propagation without whole-run Python collections.
 
-Recipe acceptance may use representative Customer, Product/BOM, and stock-level
-volumes only within the route limits already supported. A concrete Recipe
-blocker may justify the narrowest measured performance fix required for that
-acceptance path; it does not reopen the general 100,000-row objective.
+Before raising any limit, the release evidence must prove:
 
-## 2. Add optional clean-package certification
+- identical ordered values, lineage, issues, effects, control totals, and
+  hashes across batch sizes;
+- zero Odoo calls during transformation and no query, scan, or Python callback
+  per BOM line;
+- explicit unique, missing, ambiguous, duplicate, unsafe-parent, and resolved
+  relationship states;
+- crash, cancellation, and retry safety that preserves the previous current
+  run; and
+- three fresh Windows worker runs below the accepted time and memory limits,
+  including a reproducible improvement for the sanitized 1,000-customer case.
 
-**Status:** Deferred; the Recipe prerequisite passed, but explicit product
-reopening is still required.
+The [transformation scale implementation
+log](../reports/transformation-scale-implementation-log.md) retains the
+completed measurements and failed qualification evidence. Transport or
+hash-root changes remain conditional on measured benefit and must not weaken
+artifact verification.
 
-Formal organization-specific certification remains a conditional future track.
-The current Recipe implementation provides exact Test qualification and
-Production fresh-evidence boundaries only. It does not claim a general clean-package
-certificate or reuse Test qualification as Production approval.
+### 3. Add optional clean-package certification
 
-## 3. Complete general remote acceptance and production readiness
+**Status:** Deferred.
 
-**Status:** Deferred except for the exact remote Test-to-Production behavior
-already implemented and retained by the active Migration Project plan.
+Formal organization-specific certification remains a possible future track.
+Current Test qualification and fresh Production evidence do not constitute a
+general clean-package certificate and do not reuse Test approval as Production
+approval.
 
-The Recipe vertical slice includes current remote server binding, API-key
-generation changes, principal/permission capture, comparison, explicit write
-authority, unknown-write recovery, read-back, and reconciliation. Broader
-production matrices, representative-customer rollout programs, organization
-assurance levels, and business actions remain deferred.
+### 4. Complete general remote acceptance and production readiness
 
-The retained
-[remote Odoo acceptance runbook](../developer/runbooks/remote-odoo-acceptance.md)
-continues to govern existing opt-in acceptance behavior.
+**Status:** Deferred except for the implemented remote Test-to-Production
+workflow.
 
-## 4. Complete guarded Odoo-source updates
+Broader production matrices, representative-customer rollout programs,
+organization assurance levels, and business actions remain unfinished. The
+[remote Odoo acceptance
+runbook](../developer/runbooks/remote-odoo-acceptance.md) continues to govern
+existing opt-in acceptance behavior.
 
-**Status:** Deferred; the Recipe prerequisite passed, but explicit product
-reopening is still required.
+### 5. Complete guarded Odoo-source updates
 
-The [Odoo source import and round-trip update implementation
-plan](odoo-source-import-plan.md) retains its completed capture and comparison
-evidence and its future guarded-update design. No later Odoo-source phase may
-displace the active Migration Project work.
+**Status:** Deferred. Bounded Odoo-source capture, immutable local publication,
+offline preparation, and read-only three-way comparison are implemented.
 
-## 5. Conditional target-side gateway
+The remaining increments are:
+
+1. **Disposable guarded updates:** derive an exact update scope from reviewed
+   evidence, probe a separate write principal, re-read concurrency evidence,
+   update only protected numeric IDs, journal every attempt, stop on unknown
+   outcomes, read back, reconcile, and prove repeat comparison is idempotent.
+2. **Type, model, relationship, and side-effect qualification:** qualify each
+   additional field or model class for serialization, baseline comparison,
+   write behavior, read-back, side effects, idempotence, and batched non-N+1
+   access. Unsupported classes remain fail-closed.
+3. **Production authorization:** support Production writes only if a strong
+   target-instance identity and a narrow atomic lock/check/write seam can be
+   proven without direct SQL, generic remote methods, or caller-selected
+   operations. Otherwise Production Odoo-source writes remain unsupported.
+
+The first exit gate is a fully journaled and reconciled disposable Odoo 19
+round trip that is clearly labelled as non-production. Production additionally
+requires restore and race tests, ACL and record-rule coverage, privacy and
+threat review, fault injection, backup and rollback evidence, and measured
+batch/call counts.
+
+### 6. Conditional target-side gateway
 
 **Status:** Deferred.
 
 A signed Odoo 19 add-on, manifest-bound grants, target-side receipts, and named
-business-action handlers may be reconsidered only when a proven Recipe
-execution requirement cannot be met safely through the existing bounded
-connector/executor contracts. No generic RPC, SQL, `sudo`, or caller-selected
-method surface is permitted.
+business-action handlers may be reconsidered only when a proven execution
+requirement cannot be met safely through the existing bounded connector and
+executor contracts. No generic RPC, SQL, `sudo`, or caller-selected method
+surface is permitted.
 
-## 6. Conditional hosted composition
+### 7. Conditional hosted composition
 
 **Status:** Deferred.
 
 PostgreSQL repositories, object storage, durable workers, distributed target
 locks, SSO actors, centralized authorization, and managed secrets remain
-conditional on a hosted deployment requirement. The local composition remains
-the implementation target for the active Migration Project plan.
+conditional on an approved hosted deployment requirement. The local
+composition remains authoritative until then.
 
-## Reopening another track
+## Selecting the next track
 
-No deferred track becomes active automatically. After the Migration Project
-and multi-Recipe definition of done passes, product ownership must make a new
-explicit priority decision in this file. That decision must name the next
-track, its accepted prerequisites, and any interaction with Project, Recipe,
-DataVersion, run, and cutover evidence.
+No deferred track becomes active automatically. Product ownership must record
+the next priority in this file, state its accepted prerequisites, and define
+how it affects Project, workspace, Recipe, DataVersion, run, and cutover
+evidence before implementation begins.

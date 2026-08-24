@@ -142,4 +142,3 @@ and recovery after a registry/store boundary fault.
 - [Production run lifecycle contract](../contracts/production-run-lifecycle.md)
 - [Cutover plan lifecycle contract](../contracts/cutover-plan-lifecycle.md)
 - [Execution and reconciliation contract](../contracts/execution-and-reconciliation.md)
-- [M6 implementation record](../../plans/migration-projects-phase-m6-production-rollout.md)

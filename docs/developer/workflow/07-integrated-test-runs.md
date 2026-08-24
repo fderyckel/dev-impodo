@@ -158,5 +158,4 @@ sample is valid Test evidence.
 - [Project lifecycle](../contracts/project-lifecycle.md)
 - [Integrated run lifecycle contract](../contracts/integrated-run-lifecycle.md)
 - [Evidence lifecycle](../contracts/evidence-lifecycle.md)
-- [M4 implementation record](../../plans/migration-projects-phase-m4-multi-recipe-runs.md)
 - [M5 qualification workflow](08-integrated-qualification.md)

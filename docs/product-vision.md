@@ -39,10 +39,10 @@ capabilities. Production loading outside the selected qualified-plan workflow
 is not a current capability.
 
 The completed disposable-target migration is retained as acceptance evidence.
-The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
-the clean Migration Project, Project-owned data package, optional Recipe, and
-multi-Recipe cutover architecture. Scale expansion, optional clean-package,
-general production, gateway, and hosted capabilities remain deferred.
+The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes the
+last internal workspace-identity and Project-authorization conformance gate.
+Scale expansion, optional clean-package, general production, gateway, and
+hosted capabilities remain deferred.
 
 ## 2. User workflow
 
@@ -604,22 +604,18 @@ isolated workspace per Recipe application. Exact ordered application evidence,
 qualified CutoverPlans, and separate rollout-candidate selection are now
 implemented. A selected plan now creates a fresh latest-data Production run,
 different Odoo 19 target binding, independent credential authority, and fresh
-isolated applications. The
-[Migration projects and multi-Recipe cutover implementation
-plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-records the completed clean-cutover architecture.
+isolated applications. [ADR-014](decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
+records the Project-first ownership decision.
 
 ## 8. Delivery roadmap
 
-**Current priority note, 2026-08-23:** The historical capability phases below
-describe the wider product progression. The [Migration projects and
-multi-Recipe cutover
-plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
-is complete. The completed Recipe-first plan remains historical implementation
-evidence only. Scale expansion, general
+**Current priority note, 2026-08-24:** The historical capability phases below
+describe the wider product progression. The Project-first cutover is current,
+and its remaining internal workspace-identity gate is recorded in the
+[authoritative remaining-work roadmap](plans/remaining-work.md). Completed
+Recipe-first delivery remains historical implementation evidence only. Scale expansion, general
 certification, general production hardening, Odoo-source guarded updates,
-gateway, and hosted work remain deferred under the [authoritative
-remaining-work roadmap](plans/remaining-work.md).
+gateway, and hosted work remain deferred in that roadmap.
 
 ### Phase 1 — Source discovery
 

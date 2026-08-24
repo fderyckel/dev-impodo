@@ -92,6 +92,5 @@ the completed Phase 1 report records that subsequent implementation.
 
 - Phase 0 contracts and fixtures were removed by the later clean-root consolidation.
 - [Phase 1 implementation report](reusable-recipes-phase-1-mapping-contract-2026-08-18.md)
-- [Reusable recipes implementation plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md)
 - [Impodo remaining work](../plans/remaining-work.md)
 - [Architecture overview](../architecture/overview.md)

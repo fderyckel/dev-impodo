@@ -9,9 +9,7 @@ status: current
 ## Purpose
 
 Impodo is a local browser application that helps a data manager prepare,
-compare, and load governed data into Odoo 19. The Project-first lifecycle in
-[ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
-is the current browser and persistence architecture.
+compare, and load governed data into Odoo 19.
 
 A **Project** is the business and governance root. It can finish as one-off
 migration work with no Recipe, or it can contain separately versioned Recipes.
@@ -212,4 +210,3 @@ repository call per source row.
 - [Evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
 - [Python code map](python-code-map.md)
 - [Integrated run lifecycle](../developer/contracts/integrated-run-lifecycle.md)
-- [M4 implementation record](../plans/migration-projects-phase-m4-multi-recipe-runs.md)

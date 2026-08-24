@@ -1,8 +1,9 @@
 # Transformation scale implementation log
 
-This report tracks the implementation of
-`docs/plans/transformation-scale-architecture-plan.md`. It is deliberately
-separate from the Odoo source-import refactor. All measurements are from fresh
+This report retains the completed implementation and qualification evidence for
+the transformation-scale work. The unfinished outcome is summarized in the
+[remaining-work roadmap](../plans/remaining-work.md#2-qualify-related-and-mixed-preparation-at-100000-rows).
+It is deliberately separate from the Odoo source-import refactor. All measurements are from fresh
 child processes and contain counts, sizes, timings, routes, and hashes only—no
 source values.
 

@@ -76,7 +76,5 @@ mapping-v11 boundary.
 
 ## Related documentation
 
-- [Implementation plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md)
-- [Active Recipe-first R0 contracts](../plans/reusable-recipes-phase-r0-contracts.md)
 - [Workflow evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
 - [Impodo remaining work](../plans/remaining-work.md)

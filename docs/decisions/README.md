@@ -392,22 +392,22 @@ across environments.
 - all competing roadmap tracks remain deferred until the Recipe-first
   definition of done passes.
 
-The historical delivery sequence and acceptance gates are recorded in the
-[Recipe-first test-to-production implementation
-plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md) and
-the [Recipe-first Phase R0
-contracts](../plans/reusable-recipes-phase-r0-contracts.md). The replacement
-architecture is defined by ADR-014 and the active implementation plan below.
+The historical Recipe-first delivery evidence remains in the dated
+[implementation reports](../reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
+and Git history. The replacement architecture is defined by ADR-014 and the
+current lifecycle contracts.
 
 ## ADR-014 — Migration projects coordinate reusable Recipes and cutover plans
 
-**Status:** Accepted and implemented on 2026-08-23. Phases M0 through M7 are
-complete.
+**Status:** Accepted. Phases M0 through M6 are complete. M7 implemented the
+structural cutover on 2026-08-23, but final internal workspace-identity
+conformance remains open.
 
 **Supersedes:** ADR-012 and ADR-013 for aggregate ownership, DataVersion
 ownership, and cutover coordination.
 
-**Current implementation note:** Phase M7 passed on 2026-08-23. The browser
+**Current implementation note:** The structural M7 cutover passed on
+2026-08-23. The browser
 and active persistence path now use Project roots, Project-owned DataVersion
 source packages, runs, workspaces, optional Project-scoped Recipes, and
 integrated Test planning with isolated Recipe applications. Exact CutoverPlan
@@ -415,7 +415,11 @@ qualification and rollout-candidate selection are Project-owned. A selected
 plan now starts a fresh Production DataVersion, setup workspace, run-level
 target, and isolated applications without transferring Test credentials or
 evidence. Recipe-first ownership, schema migration, creation routes, and
-compatibility code are no longer part of the active implementation.
+compatibility code are no longer part of the active implementation. The
+retained workspace engine still uses `project_id` for its contained workspace
+identity and must resolve the genuine parent Project before Project-scoped
+authorization. ADR-014 is not fully implemented until that dual meaning is
+removed.
 
 **Decision:** `MigrationProject` is Impodo's operator-facing business identity
 and Project-level governance root. A Project owns its DataVersion,

@@ -112,4 +112,4 @@ yet available for that source mode.
 
 - [End-to-end training tutorial](../tutorials/end-to-end-training.md)
 - [Developer implementation: Source data](../../developer/workflow/01-source-data.md)
-- [Odoo source import and round-trip update plan](../../plans/odoo-source-import-plan.md)
+- [Remaining guarded Odoo-source update work](../../plans/remaining-work.md#5-complete-guarded-odoo-source-updates)

@@ -133,4 +133,3 @@ repository query per source row, or repeat application reads inside row loops.
 - [Cutover plan lifecycle contract](../contracts/cutover-plan-lifecycle.md)
 - [Integrated Test run contract](../contracts/integrated-run-lifecycle.md)
 - [Execution and reconciliation contract](../contracts/execution-and-reconciliation.md)
-- [M5 implementation record](../../plans/migration-projects-phase-m5-cutover-qualification.md)
