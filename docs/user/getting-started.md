@@ -93,6 +93,12 @@ If Impodo reports that a form is stale, reopen the current page and review the
 latest values. If the source mode is wrong, create a correctly scoped data project
 instead of reinterpreting existing evidence.
 
+After an Impodo update, the first Project or workspace open may update its
+saved database before showing the page. Impodo keeps the saved source data,
+Recipes, and evidence unchanged during a storage update. If the update is
+interrupted, Impodo rolls back that database and retries it on a later open.
+Impodo does not downgrade data created by a newer application.
+
 ## What makes this work stale
 
 The data project identity does not become stale when later evidence changes. A source

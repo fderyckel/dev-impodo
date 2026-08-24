@@ -8,12 +8,20 @@ import duckdb
 
 from ....data_versions import DataVersion
 from ....migration_foundation import MigrationStorageCompatibilityError
+from .forward_upgrades import (
+    SCHEMA_MIGRATION_COLUMNS,
+    ForwardSchemaUpgrade,
+    create_schema_migration_ledger,
+    ensure_current_schema,
+)
 
 
 DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-08-project-owned"
-DATA_VERSION_STORE_VERSION = 1
+DATA_VERSION_STORE_BASELINE_VERSION = 1
+DATA_VERSION_STORE_VERSION = 2
 EXPECTED_DATA_VERSION_STORE_COLUMNS = {
     "schema_version": ("singleton_id", "generation", "version"),
+    "schema_migration": SCHEMA_MIGRATION_COLUMNS,
     "data_version_identity": (
         "singleton_id",
         "data_version_id",
@@ -155,6 +163,7 @@ def initialize_data_version_store(
         );
         """
     )
+    create_schema_migration_ledger(connection)
     connection.execute(
         "INSERT INTO data_version_identity VALUES (1, ?, ?, ?, ?, ?, ?)",
         [
@@ -178,11 +187,22 @@ def ensure_data_version_store(
     data_version: DataVersion,
 ) -> None:
     try:
-        matches = _matches_exact_schema(connection)
+        ensure_current_schema(
+            connection,
+            expected_generation=DATA_VERSION_STORE_GENERATION,
+            baseline_version=DATA_VERSION_STORE_BASELINE_VERSION,
+            target_version=DATA_VERSION_STORE_VERSION,
+            upgrades=DATA_VERSION_STORE_UPGRADES,
+            validate_current=lambda: _validate_current_schema(
+                connection,
+                database_path,
+            ),
+            compatibility_error=lambda: _compatibility_error(database_path),
+        )
+    except MigrationStorageCompatibilityError:
+        raise
     except duckdb.Error as error:
         raise _compatibility_error(database_path) from error
-    if not matches:
-        raise _compatibility_error(database_path)
     row = connection.execute(
         """
         SELECT data_version_id, project_id, version_number
@@ -198,24 +218,40 @@ def ensure_data_version_store(
         raise _compatibility_error(database_path)
 
 
-def _matches_exact_schema(connection: duckdb.DuckDBPyConnection) -> bool:
+def _validate_current_schema(
+    connection: duckdb.DuckDBPyConnection,
+    database_path: Path,
+) -> None:
     if set(_tables(connection)) != set(EXPECTED_DATA_VERSION_STORE_COLUMNS):
-        return False
+        raise _compatibility_error(database_path)
     row = connection.execute(
         "SELECT generation, version FROM schema_version WHERE singleton_id = 1"
     ).fetchone()
     if row != (DATA_VERSION_STORE_GENERATION, DATA_VERSION_STORE_VERSION):
-        return False
-    return all(
-        tuple(
+        raise _compatibility_error(database_path)
+    for table, expected in EXPECTED_DATA_VERSION_STORE_COLUMNS.items():
+        actual = tuple(
             str(row[1])
             for row in connection.execute(
                 f"PRAGMA table_info('{table}')"
             ).fetchall()
         )
-        == expected
-        for table, expected in EXPECTED_DATA_VERSION_STORE_COLUMNS.items()
-    )
+        if actual != expected:
+            raise _compatibility_error(database_path)
+
+
+def _upgrade_data_version_store_v1_to_v2(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    create_schema_migration_ledger(connection)
+
+
+DATA_VERSION_STORE_UPGRADES = {
+    1: ForwardSchemaUpgrade(
+        migration_id="data-version-store-v1-to-v2-migration-ledger",
+        apply=_upgrade_data_version_store_v1_to_v2,
+    ),
+}
 
 
 def _tables(connection: duckdb.DuckDBPyConnection) -> tuple[str, ...]:

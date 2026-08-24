@@ -107,8 +107,9 @@ operator can establish what happened before retry.
 ## Odoo 19 and performance
 
 The exact registry generation is
-`impodo-migration-registry-2026-08-project-root`. Other development storage is
-rejected rather than upgraded.
+`impodo-migration-registry-2026-08-project-root`. Supported older versions in
+that generation upgrade transactionally before use. Other generations remain
+unchanged and fail closed.
 
 Project overview loads Production bindings with one registry query. Credential
 owner resolution is one joined registry query. Activation captures one

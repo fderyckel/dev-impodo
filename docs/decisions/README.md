@@ -412,8 +412,10 @@ parent Project before opening child stores or Odoo boundaries. Exact
 CutoverPlan qualification and rollout-candidate selection are Project-owned.
 A selected plan starts a fresh Production DataVersion, setup workspace,
 run-level target, and isolated applications without transferring Test
-credentials or evidence. Retired ownership, storage-upgrade, creation-route,
-and compatibility paths are absent from the active implementation.
+credentials or evidence. Retired ownership, creation, and compatibility
+routes are absent from the active implementation. ADR-015
+adds forward version upgrades inside each current storage generation without
+restoring those superseded ownership paths.
 
 **Decision:** `MigrationProject` is Impodo's operator-facing business identity
 and Project-level governance root. A Project owns its DataVersion,
@@ -503,10 +505,67 @@ execution.
   internal workspace.
 - Because the product is in development, the implementation uses new exact
   schema generations. Old Recipe-first storage fails closed and requires an
-  explicit developer reset. Runtime backfill, dual writes, Project shells,
-  lazy adoption, compatibility routes, and temporary type aliases are not
-  retained.
+  explicit developer reset. Supported older versions of the current
+  generations follow ADR-015. Runtime semantic backfill, dual writes, Project
+  shells, lazy adoption, compatibility routes, and temporary type aliases are
+  not retained.
 - Historical Recipe-first plans and reports remain labelled evidence. Current
   contracts, architecture, browser documentation, BPMN models, screenshots,
   code maps, and tests change with the implementation gate that changes their
   behavior.
+
+## ADR-015 — Current storage generations upgrade forward before use
+
+**Status:** Accepted and implemented.
+
+**Extends:** ADR-014 for release compatibility. It does not restore storage or
+ownership from ADR-012 or ADR-013.
+
+**Decision:** A storage generation identifies one ownership and semantic
+contract. A schema version identifies a structural shape within that
+generation. A newer Impodo release must provide every consecutive forward
+migration from the supported baseline to its current version before it may
+increase a store's version constant.
+
+On open, Impodo reads the database generation and version. For a supported
+older version in the current generation, it resolves the complete path before
+writing, applies all steps in one DuckDB transaction, records each step in the
+database, validates the exact current schema, and only then allows repository
+access. A failed step or failed validation rolls back that database.
+
+The Project registry, each DataVersion store, each MigrationWorkspace
+reference store, and each workspace engine own separate migration registries.
+They upgrade independently because they are separate database files. An
+interrupted Project may therefore contain both current and supported older
+database versions, but no operation uses an individual database until that
+database is fully current. A later open resumes the remaining upgrades.
+
+A different generation, a version below the supported baseline, a version
+newer than the running application, a missing step, or a malformed schema is
+rejected without mutation. Impodo has no downgrade, dual-read, dual-write,
+runtime alias, or per-row conversion branch.
+
+**Why:** Data managers must be able to update Impodo without discarding valid
+Projects created by an earlier supported release. Keeping migrations outside
+repositories preserves one current runtime model, while transactions prevent
+an interrupted structural change from leaving one database half upgraded.
+Separate store registries match the real ownership boundaries and avoid an
+N+1 source-row or Odoo migration path.
+
+**Consequences:**
+
+- a release gate fails when any store version increases without a contiguous
+  registered path from its baseline;
+- the v1 baseline shape of every current store is pinned by a deterministic
+  test fingerprint;
+- a successful upgrade preserves domain rows and adds deterministic migration
+  evidence once;
+- retrying a current database is read-only validation and does not reapply a
+  step;
+- an older application cannot open data written by a newer application;
+- generation changes remain explicit architecture decisions and need a
+  separately reviewed migration or preservation/reset policy; and
+- storage migration never rewrites hash-bound DataVersion packages, Recipe
+  revisions, snapshots, approvals, or execution evidence. A future semantic
+  payload change must retain an explicit decoder for supported old payloads or
+  create a new immutable successor revision.

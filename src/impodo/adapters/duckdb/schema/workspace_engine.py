@@ -5,10 +5,20 @@ from __future__ import annotations
 import duckdb
 
 from ....workspace_state import WorkspaceStateCompatibilityError
-from ..constants import SCHEMA_GENERATION, SCHEMA_VERSION
+from ..constants import (
+    SCHEMA_BASELINE_VERSION,
+    SCHEMA_GENERATION,
+    SCHEMA_VERSION,
+)
 from .advanced_coverage import create_advanced_coverage_schema
 from .derived_value_artifact import create_derived_value_artifact_schema
 from .execution import create_execution_schema
+from .forward_upgrades import (
+    SCHEMA_MIGRATION_COLUMNS,
+    ForwardSchemaUpgrade,
+    create_schema_migration_ledger,
+    ensure_current_schema,
+)
 from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
@@ -51,6 +61,7 @@ _AUDIT_EVENT_COLUMNS = (
     "actor_subject",
     "actor_display_name",
 )
+_SCHEMA_MIGRATION_COLUMNS = SCHEMA_MIGRATION_COLUMNS
 _WORKSPACE_ENGINE_TABLES = frozenset(
     {
         "audit_event", "canonical_prepared_projection", "canonical_staging_current",
@@ -82,7 +93,8 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "resolution_current", "resolution_decision", "resolution_finding",
         "resolution_policy_current", "resolution_policy_revision", "resolution_run",
         "retired_evidence", "schema_governance_current", "schema_governance_revision",
-        "schema_version", "source_accounting_entry", "source_accounting_link",
+        "schema_migration", "schema_version", "source_accounting_entry",
+        "source_accounting_link",
         "source_catalog", "source_configuration", "source_file", "source_selection",
         "source_snapshot_current", "source_snapshot_manifest",
         "supporting_lookup_current", "supporting_lookup_revision",
@@ -101,7 +113,7 @@ _UNSUPPORTED_WORKSPACE_MESSAGE = (
 
 
 class WorkspaceEngineSchemaMixin:
-    """Create the current schema and reject incompatible workspace databases."""
+    """Create or upgrade the current workspace-engine schema."""
 
     def _initialize_workspace_database(
         self,
@@ -667,6 +679,7 @@ class WorkspaceEngineSchemaMixin:
             CREATE SEQUENCE audit_event_sequence START 1;
             """
         )
+        create_schema_migration_ledger(connection)
         create_preflight_schema(connection)
         create_advanced_coverage_schema(connection)
         create_preparation_session_schema(connection)
@@ -682,23 +695,33 @@ class WorkspaceEngineSchemaMixin:
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
-        """Require the one exact schema generation supported by this build."""
+        """Upgrade the recognized generation, then require its exact schema."""
 
         try:
-            row = connection.execute(
-                """
-                SELECT generation, version
-                  FROM schema_version
-                 WHERE singleton_id = 1
-                """
-            ).fetchone()
+            ensure_current_schema(
+                connection,
+                expected_generation=SCHEMA_GENERATION,
+                baseline_version=SCHEMA_BASELINE_VERSION,
+                target_version=SCHEMA_VERSION,
+                upgrades=WORKSPACE_ENGINE_UPGRADES,
+                validate_current=lambda: self._validate_current_workspace_schema(
+                    connection
+                ),
+                compatibility_error=lambda: WorkspaceStateCompatibilityError(
+                    _UNSUPPORTED_WORKSPACE_MESSAGE
+                ),
+            )
+        except WorkspaceStateCompatibilityError:
+            raise
         except duckdb.Error as error:
-            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE) from error
-        if row is None or str(row[0]) != SCHEMA_GENERATION:
-            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
-        stored_version = int(row[1])
-        if stored_version != SCHEMA_VERSION:
-            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
+            raise WorkspaceStateCompatibilityError(
+                _UNSUPPORTED_WORKSPACE_MESSAGE
+            ) from error
+
+    def _validate_current_workspace_schema(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+    ) -> None:
         try:
             tables = frozenset(
                 str(item[0])
@@ -711,6 +734,7 @@ class WorkspaceEngineSchemaMixin:
         if tables != _WORKSPACE_ENGINE_TABLES:
             raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
         for table, expected in (
+            ("schema_migration", _SCHEMA_MIGRATION_COLUMNS),
             ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
             ("audit_event", _AUDIT_EVENT_COLUMNS),
         ):
@@ -729,3 +753,17 @@ class WorkspaceEngineSchemaMixin:
                 raise WorkspaceStateCompatibilityError(
                     _UNSUPPORTED_WORKSPACE_MESSAGE
                 )
+
+
+def _upgrade_workspace_engine_v1_to_v2(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    create_schema_migration_ledger(connection)
+
+
+WORKSPACE_ENGINE_UPGRADES = {
+    1: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v1-to-v2-migration-ledger",
+        apply=_upgrade_workspace_engine_v1_to_v2,
+    ),
+}

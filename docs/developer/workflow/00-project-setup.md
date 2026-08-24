@@ -18,8 +18,9 @@ ever publishing reusable rules.
 The operator has an authenticated local session and can create Projects. The
 new storage root must match the exact Project-root registry, Project-owned
 DataVersion store, reference-only MigrationWorkspace store, and workspace-owned
-engine generations; rejected retired
-storage requires the reviewed development reset rather than an upgrade.
+engine generations. Supported older versions within those generations upgrade
+transactionally before use. Retired generations require the reviewed
+development reset.
 
 ## Implementation flow
 
@@ -145,6 +146,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
 | Clean roots | [`MigrationProjectService`](../../../src/impodo/migration_projects.py), [`DataVersionService`](../../../src/impodo/data_versions.py), [`MigrationRunService`](../../../src/impodo/migration_runs.py), [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) |
 | Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/workspace_access.py) and [`MigrationFoundationRepository.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/migration_foundation_repository.py) |
+| Forward-only storage upgrades | [`ensure_current_schema`](../../../src/impodo/adapters/duckdb/schema/forward_upgrades.py) |
 | Workspace authorization middleware | [`WorkspaceAccessMiddleware`](../../../src/impodo/web/security.py) |
 | Workspace setup root | [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) and `MigrationWorkspaceService.complete_setup` |
 | Contained workbench | [`WorkspaceStateService`](../../../src/impodo/workspace_state.py) |
@@ -166,6 +168,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 - [`tests/test_workspace_access.py`](../../../tests/test_workspace_access.py)
 - [`tests/test_canonical_ownership.py`](../../../tests/test_canonical_ownership.py)
 - [`tests/test_workspace_evidence_storage.py`](../../../tests/test_workspace_evidence_storage.py)
+- [`tests/test_forward_upgrade_compatibility.py`](../../../tests/test_forward_upgrade_compatibility.py)
 - [`tests/test_concept_help.py`](../../../tests/test_concept_help.py)
 - [`tests/test_project_security.py`](../../../tests/test_project_security.py)
 - [`tests/test_odoo_connection_service.py`](../../../tests/test_odoo_connection_service.py)

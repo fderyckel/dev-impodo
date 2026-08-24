@@ -31,6 +31,12 @@ The current preparation limits are:
 
 This roadmap does not raise, remove, or reinterpret those limits.
 
+Recognized older versions of the current Project registry, DataVersion,
+MigrationWorkspace reference, and workspace-engine generations upgrade
+forward transactionally before use. Retired generations and newer unknown
+versions remain fail-closed. This implemented release boundary is not a
+deferred roadmap item.
+
 ## Deferred tracks
 
 Deferred work is recorded here so it remains visible, but it is not authorized

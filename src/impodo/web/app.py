@@ -78,6 +78,7 @@ from ..artifacts import GovernedArtifactStores, LocalArtifactStore
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
+from ..incompatible_project_storage import prepare_incompatible_project_storage
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import LocalOdooMetadataReader
 from ..local_stack import LocalStackService
@@ -264,6 +265,7 @@ def create_local_app(
     function opens no project and contacts no Odoo target while composing.
     """
 
+    unavailable_projects = prepare_incompatible_project_storage(project_root)
     foundation_database = MigrationFoundationDatabase(
         project_root,
         lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
@@ -621,6 +623,7 @@ def create_local_app(
             transformation_impact_repository,
             workspace_mapping_sources,
         ),
+        unavailable_projects=unavailable_projects,
         workspace_access=workspace_access,
         workspace_views=WorkspaceOwnerViewService(
             foundation_repository,
@@ -847,6 +850,7 @@ def create_local_app(
             request,
             "project_list.html",
             projects=context.migration_projects.list(actor=context.actor),
+            unavailable_projects=context.unavailable_projects,
             error=str(error),
             status_code=409,
         )

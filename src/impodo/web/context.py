@@ -61,6 +61,7 @@ from ..connectors import (
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
+from ..incompatible_project_storage import UnavailableProjectSummary
 from ..jobs import JobDispatcher
 from ..local_odoo_reader import (
     LocalOdooMetadataReader,
@@ -129,6 +130,7 @@ class WebContext:
     """
 
     queries: BrowserQueryService
+    unavailable_projects: tuple[UnavailableProjectSummary, ...]
     workspace_access: WorkspaceAccessService
     workspace_views: WorkspaceOwnerViewService
     migration_projects: MigrationProjectService

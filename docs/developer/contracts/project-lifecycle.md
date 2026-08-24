@@ -89,12 +89,30 @@ the verified job packet without reopening the registry.
 ## Persistence and performance
 
 The registry lists Projects and their bounded counts without opening one
-workspace database per list row. DataVersion and workspace databases use exact
-schema generations and exact linkage. Storage from the superseded Recipe-first
-generation is rejected without mutation.
+workspace database per list row. DataVersion and workspace databases use
+explicit schema generations, versions, and exact linkage. Impodo upgrades a
+supported older version within the current generation in one transaction,
+records each consecutive step, and validates the exact current shape before a
+repository can use that database. It does not run migrations per domain row
+and does not contact Odoo.
 
-Schema versions identify one exact persisted shape, including its metadata.
-Any different workspace-engine generation is rejected without mutation.
+Each database upgrades independently. If a process stops between databases,
+every committed database remains current and every untouched database remains
+a valid supported older version. The next authorized open resumes the
+remaining work. A failed database transaction keeps its prior version and
+data unchanged.
+
+A different generation, a version below the supported baseline, a version
+newer than the application, a missing migration step, or a malformed shape is
+rejected without mutation. Storage from the superseded Recipe-first generation
+still requires the reviewed development reset. Repositories contain no dual
+read, dual-write, alias, or downgrade path.
+
+Storage-schema migration does not rewrite hash-bound source packages, Recipe
+revisions, snapshots, approvals, or execution evidence. A future semantic
+payload change must retain an explicit decoder for supported old payloads or
+create a new immutable successor revision; changing a schema version alone
+cannot reinterpret that evidence.
 
 Preparation workers receive an exact authorized identity packet and verify the
 workspace and frozen DataVersion stores. The packet also binds the application
@@ -113,6 +131,7 @@ gives a Recipe ownership of a DataVersion.
 ## Verification
 
 - `tests/test_migration_foundation.py`
+- `tests/test_forward_upgrade_compatibility.py`
 - `tests/test_data_version_source_packages.py`
 - `tests/test_project_authoring.py`
 - `tests/test_integrated_recipe_runs.py`

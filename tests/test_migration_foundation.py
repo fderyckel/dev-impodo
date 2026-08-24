@@ -30,6 +30,7 @@ from impodo.adapters.duckdb.schema.data_version_store import (
 from impodo.adapters.duckdb.schema.migration_registry import (
     EXPECTED_REGISTRY_COLUMNS,
     MIGRATION_REGISTRY_GENERATION,
+    MIGRATION_REGISTRY_VERSION,
 )
 from impodo.adapters.duckdb.schema.migration_workspace_store import (
     EXPECTED_WORKSPACE_STORE_COLUMNS,
@@ -174,7 +175,10 @@ class MigrationFoundationTests(unittest.TestCase):
                 ).fetchall()
             }
         self.assertEqual(tables, set(EXPECTED_REGISTRY_COLUMNS))
-        self.assertEqual(generation, (MIGRATION_REGISTRY_GENERATION, 1))
+        self.assertEqual(
+            generation,
+            (MIGRATION_REGISTRY_GENERATION, MIGRATION_REGISTRY_VERSION),
+        )
         self.assertNotIn("project_registry", tables)
         self.assertNotIn("recipe_intent", tables)
         self.assertNotIn("current_data_version_id", recipe_columns)

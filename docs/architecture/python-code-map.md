@@ -51,6 +51,23 @@ services.
 
 The four identities are distinct and no Recipe row is created.
 
+## Forward storage upgrade trace
+
+1. A store opener reads only the `schema_version` identity.
+2. `schema/forward_upgrades.py` rejects another generation, a version outside
+   the supported range, or an incomplete version path before any write.
+3. The store-specific registry applies every consecutive structural step in
+   one DuckDB transaction and records it in `schema_migration`.
+4. The store's current validator checks the complete table and column shape
+   before the transaction commits.
+5. Normal repositories then use only the current schema. They contain no old
+   field branch, row conversion loop, Odoo call, downgrade, or dual write.
+
+The Project registry opens first. DataVersion, MigrationWorkspace reference,
+and workspace-engine databases upgrade when their authorized owner opens them.
+An interruption between databases is resumable because each database is
+independently either unchanged or fully current.
+
 The global `/concepts` page is intentionally outside this creation trace. It
 renders the static `ConceptHelp` registry and does not open the Project
 registry, workspace evidence, Recipe payloads, or Odoo. Contextual help uses
@@ -182,6 +199,7 @@ separate from read capability.
 
 - `tests/test_migration_project_contracts.py`
 - `tests/test_migration_foundation.py`
+- `tests/test_forward_upgrade_compatibility.py`
 - `tests/test_data_version_source_packages.py`
 - `tests/test_project_authoring.py`
 - `tests/test_integrated_recipe_runs.py`

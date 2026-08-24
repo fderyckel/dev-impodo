@@ -47,6 +47,7 @@ stages:
       - src/impodo/workspace_access.py::WorkspaceAccessService
       - src/impodo/web/security.py::WorkspaceAccessMiddleware
       - src/impodo/adapters/duckdb/migration_foundation_repository.py::MigrationFoundationRepository.resolve_workspace_access_context
+      - src/impodo/adapters/duckdb/schema/forward_upgrades.py::ensure_current_schema
       - src/impodo/application/recipe_publication_service.py::RecipePublicationService
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
       - src/impodo/adapters/duckdb/data_version_source_repository.py::DataVersionOwnedSourceRepository
@@ -65,6 +66,7 @@ stages:
       - tests/test_identity_semantics.py
       - tests/test_workspace_access.py
       - tests/test_canonical_ownership.py
+      - tests/test_forward_upgrade_compatibility.py
       - tests/test_workspace_evidence_storage.py
       - tests/test_project_security.py
       - tests/test_recipe_representative_shapes.py

@@ -202,11 +202,18 @@ facts; the historical filename is not a Project aggregate identity. Every
 workspace-store or engine open verifies the complete Project, workspace,
 DataVersion, run, and optional application linkage first.
 
-Impodo opens only the exact current registry, DataVersion, workspace-store,
-and `impodo-workspace-engine-2026-08-workspace-owned` engine generations. Earlier
-development, mixed-owner, or Recipe-first storage is rejected without
-mutation and requires the reviewed development reset. There is no upgrade,
-adoption, backfill, identity alias, or dual-write compatibility path.
+Impodo recognizes the current registry, DataVersion, workspace-store, and
+`impodo-workspace-engine-2026-08-workspace-owned` engine generations. When one
+of those databases has a supported older version, Impodo applies its complete
+forward-only migration path in one transaction, records the applied steps,
+and validates the exact current shape before normal repository access. An
+interruption rolls back that database; the next open can safely retry it.
+
+A different generation, a version below the supported baseline, a newer
+version, a missing migration step, or a malformed shape is rejected without
+mutation. Retired mixed-owner and Recipe-first generations still require the
+reviewed development reset. Runtime adoption, semantic backfill, identity
+aliases, dual reads, and dual writes remain absent.
 
 ## Odoo and performance boundaries
 
@@ -231,6 +238,7 @@ second registry read.
 | --- | --- |
 | Project, DataVersion, run, and workspace roots | `migration_projects.py`, `data_versions.py`, `migration_runs.py`, `migration_workspaces.py` |
 | Exact registry and isolated stores | `adapters/duckdb/migration_foundation_database.py`, `migration_foundation_repository.py` |
+| Forward-only storage upgrades | `adapters/duckdb/schema/forward_upgrades.py` plus one versioned registry in each store schema module |
 | Project-native creation | `application/migration_project_authoring_service.py` |
 | DataVersion source ownership | `data_version_sources.py`, `application/workspace_data_version_source_service.py` |
 | Mapping read projection | `application/workspace_source_projection.py` |

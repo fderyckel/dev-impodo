@@ -120,8 +120,9 @@ The exact registry generation is
 `impodo-migration-registry-2026-08-project-root`. The DataVersion generation is
 `impodo-data-version-store-2026-08-project-owned`; the MigrationWorkspace
 reference-store generation is
-`impodo-migration-workspace-2026-08-reference-only`. Other development storage
-is rejected rather than upgraded.
+`impodo-migration-workspace-2026-08-reference-only`. Supported older versions
+within those generations upgrade transactionally before use. Other
+generations remain unchanged and fail closed.
 
 Provisioning reads one Project outside the application loop and indexes
 workspaces by ID. Integrated progress and batch issues use bounded registry

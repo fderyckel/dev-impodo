@@ -15,8 +15,8 @@
     <a class="button primary new-project-button" href="/projects/new">New project</a>
   </section>
 
-  {% if projects %}
-    {% set project_count = projects|length %}
+  {% if projects or unavailable_projects %}
+    {% set project_count = projects|length + unavailable_projects|length %}
     <section class="project-list" aria-label="Data projects">
       <div class="project-list-heading" aria-hidden="true">
         <span>Data project</span><span>Status</span><span>Last updated</span><span>Recipes</span>
@@ -35,6 +35,22 @@
             <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
             <span>{{ project.recipe_count }}</span>
           </a>
+        {% endfor %}
+        {% for project in unavailable_projects %}
+          <div
+            class="project-row project-row-unavailable"
+            role="group"
+            aria-label="{{ project.display_name }} is unavailable"
+            data-unavailable-project
+          >
+            <div class="project-identity">
+              <strong>{{ project.display_name }}</strong>
+              <span class="project-unavailable-reason">{{ project.message }}</span>
+            </div>
+            <span class="status review">Unavailable</span>
+            <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
+            <span aria-label="Not available">&mdash;</span>
+          </div>
         {% endfor %}
       </div>
     </section>

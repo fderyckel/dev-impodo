@@ -7,10 +7,17 @@ from pathlib import Path
 import duckdb
 
 from ....migration_foundation import MigrationStorageCompatibilityError
+from .forward_upgrades import (
+    SCHEMA_MIGRATION_COLUMNS,
+    ForwardSchemaUpgrade,
+    create_schema_migration_ledger,
+    ensure_current_schema,
+)
 
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
-MIGRATION_REGISTRY_VERSION = 1
+MIGRATION_REGISTRY_BASELINE_VERSION = 1
+MIGRATION_REGISTRY_VERSION = 2
 
 
 EXPECTED_REGISTRY_COLUMNS = {
@@ -19,6 +26,7 @@ EXPECTED_REGISTRY_COLUMNS = {
         "generation",
         "version",
     ),
+    "schema_migration": SCHEMA_MIGRATION_COLUMNS,
     "migration_project_identity": ("project_id",),
     "migration_project": (
         "project_id",
@@ -371,21 +379,36 @@ def ensure_migration_registry_schema(
     connection: duckdb.DuckDBPyConnection,
     database_path: Path,
 ) -> None:
-    """Create the current empty registry or reject every other schema."""
+    """Create, upgrade, and exactly validate the current registry schema."""
 
     tables = _tables(connection)
     if not tables:
         _initialize_migration_registry(connection)
         return
-    if set(tables) != set(EXPECTED_REGISTRY_COLUMNS):
-        raise _compatibility_error(database_path)
     try:
-        row = connection.execute(
-            "SELECT generation, version FROM schema_version WHERE singleton_id = 1"
-        ).fetchone()
+        ensure_current_schema(
+            connection,
+            expected_generation=MIGRATION_REGISTRY_GENERATION,
+            baseline_version=MIGRATION_REGISTRY_BASELINE_VERSION,
+            target_version=MIGRATION_REGISTRY_VERSION,
+            upgrades=MIGRATION_REGISTRY_UPGRADES,
+            validate_current=lambda: _validate_current_registry_schema(
+                connection,
+                database_path,
+            ),
+            compatibility_error=lambda: _compatibility_error(database_path),
+        )
+    except MigrationStorageCompatibilityError:
+        raise
     except duckdb.Error as error:
         raise _compatibility_error(database_path) from error
-    if row != (MIGRATION_REGISTRY_GENERATION, MIGRATION_REGISTRY_VERSION):
+
+
+def _validate_current_registry_schema(
+    connection: duckdb.DuckDBPyConnection,
+    database_path: Path,
+) -> None:
+    if set(_tables(connection)) != set(EXPECTED_REGISTRY_COLUMNS):
         raise _compatibility_error(database_path)
     for table, expected in EXPECTED_REGISTRY_COLUMNS.items():
         actual = tuple(
@@ -396,6 +419,20 @@ def ensure_migration_registry_schema(
         )
         if actual != expected:
             raise _compatibility_error(database_path)
+
+
+def _upgrade_migration_registry_v1_to_v2(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    create_schema_migration_ledger(connection)
+
+
+MIGRATION_REGISTRY_UPGRADES = {
+    1: ForwardSchemaUpgrade(
+        migration_id="migration-registry-v1-to-v2-migration-ledger",
+        apply=_upgrade_migration_registry_v1_to_v2,
+    ),
+}
 
 
 def _initialize_migration_registry(
@@ -935,6 +972,7 @@ def _initialize_migration_registry(
             );
             """
         )
+        create_schema_migration_ledger(connection)
         connection.commit()
     except Exception:
         connection.rollback()
