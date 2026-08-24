@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Mapping
 from uuid import UUID, uuid4, uuid5
 
 from ..access import Actor, AuthorizationPolicy, Capability
@@ -15,8 +15,13 @@ from ..data_version_sources import (
     WorkspaceSourceProjectionService,
 )
 from ..data_versions import DataVersionPurpose, DataVersionService, DataVersionState
-from ..domain.serialization import content_hash
 from ..domain.coverage import ReferenceBundle
+from ..domain.serialization import content_hash
+from ..migration_cutover import (
+    PROJECT_SHARED_CONTROL_IDS,
+    CutoverPlanRevision,
+    CutoverWriteOwnership,
+)
 from ..migration_foundation import (
     FaultInjector,
     require_revision,
@@ -24,32 +29,27 @@ from ..migration_foundation import (
     required_text,
     utc_now,
 )
-from ..migration_cutover import (
-    CutoverPlanRevision,
-    CutoverWriteOwnership,
-    PROJECT_SHARED_CONTROL_IDS,
-)
-from ..migration_production import ProductionRunBinding, ProductionRunError
 from ..migration_production import (
+    ProductionRunBinding,
     ProductionRunBindingState,
+    ProductionRunError,
     activation_evidence_hash,
 )
-from ..models import OdooWriteIdentity
 from ..migration_projects import MigrationProjectService
 from ..migration_run_planning import (
     IntegratedRunBundle,
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
     MigrationRunPlanningError,
-    MigrationRunRequirementPlan,
     MigrationRunReferenceBundle,
+    MigrationRunRequirementPlan,
     MigrationRunTargetSchema,
     OdooModelRequirement,
     PlannedRecipeApplication,
     RecipeApplicationStatus,
     RecipeDependency,
-    ReferenceRequirement,
     RecipeRevisionSelection,
+    ReferenceRequirement,
     RunRecipeApplication,
     RunTargetBinding,
 )
@@ -59,9 +59,14 @@ from ..migration_workspaces import (
     MigrationWorkspace,
     MigrationWorkspaceState,
 )
+from ..models import OdooWriteIdentity
 from ..recipes import Recipe, RecipeService
-from ..workspace_state import WorkspaceStateNotFoundError, WorkspaceStateService, SourceMode
-from ..workspace_contracts import OdooSchemaCatalog, SourceSelection
+from ..workspace_contracts import OdooSchemaCatalog
+from ..workspace_state import (
+    SourceMode,
+    WorkspaceStateNotFoundError,
+    WorkspaceStateService,
+)
 from .recipe_application_service import (
     RecipeApplicationAssessment,
     RecipeApplicationService,

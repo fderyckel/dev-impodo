@@ -112,9 +112,8 @@ async def _probe_current_read_identity(
 
     if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None, "", None
-    credential_owner = context.production_runs.credential_workspace(
-        workspace_state.workspace_id,
-        actor=context.actor,
+    credential_owner = context.target_credential_workspace(
+        workspace_state.workspace_id
     )
     credential = get_target_credential(
         context.secret_store,
@@ -230,10 +229,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         status_code: int = 200,
     ):
         workspace_state = context.queries.get(workspace_id)
-        credential_owner = context.production_runs.credential_workspace(
-            workspace_id,
-            actor=context.actor,
-        )
+        credential_owner = context.target_credential_workspace(workspace_id)
         preview = context.execution.current_preview(workspace_id)
         if preview is None:
             return RedirectResponse(
@@ -475,10 +471,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        credential_owner = context.production_runs.credential_workspace(
-            workspace_id,
-            actor=context.actor,
-        )
+        credential_owner = context.target_credential_workspace(workspace_id)
         try:
             access_context = context.workspace_access.resolve(
                 workspace_id,
@@ -718,10 +711,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         workspace_state = context.queries.get(workspace_id)
-        credential_owner = context.production_runs.credential_workspace(
-            workspace_id,
-            actor=context.actor,
-        )
+        credential_owner = context.target_credential_workspace(workspace_id)
         try:
             context.workspace_access.resolve(
                 workspace_id,

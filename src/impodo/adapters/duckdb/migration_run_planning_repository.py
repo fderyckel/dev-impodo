@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from typing import Mapping
+from collections.abc import Mapping
+from datetime import datetime
 
 from ...access import Actor
-from ...domain.serialization import canonical_json, content_hash
 from ...domain.coverage import ReferenceBundle
+from ...domain.serialization import canonical_json, content_hash
 from ...migration_foundation import (
     FaultInjector,
     MigrationConflictError,
@@ -19,26 +19,26 @@ from ...migration_foundation import (
     require_uuid,
     utc_now,
 )
+from ...migration_production import ProductionRunBinding
 from ...migration_run_planning import (
     IntegratedRunBundle,
     IntegratedRunProgress,
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
-    MigrationRunRequirementPlan,
     MigrationRunReferenceBundle,
+    MigrationRunRequirementPlan,
     MigrationRunTargetSchema,
     OdooModelRequirement,
     PlannedRecipeApplication,
     RecipeApplicationStatus,
     RecipeDependency,
-    ReferenceRequirement,
     RecipeRevisionSelection,
+    ReferenceRequirement,
     RunRecipeApplication,
     RunTargetBinding,
 )
 from ...migration_runs import MigrationRun
 from ...migration_test import TestRunSetupBinding
-from ...migration_production import ProductionRunBinding
 from ...workspace_contracts import OdooSchemaCatalog
 from .migration_foundation_repository import MigrationFoundationRepository
 

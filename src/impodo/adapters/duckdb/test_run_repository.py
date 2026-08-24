@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from typing import Mapping
+from collections.abc import Mapping
 
 from ...access import Actor
 from ...domain.serialization import canonical_json
@@ -16,7 +15,6 @@ from ...migration_foundation import (
     require_hash,
     require_uuid,
 )
-from ...migration_run_planning import RecipeDependency, RecipeRevisionSelection
 from ...migration_test import TestRunSetupBinding
 from .migration_foundation_repository import MigrationFoundationRepository
 
@@ -222,9 +220,7 @@ class TestRunRepository:
         return cls._from_dict(
             {
                 **dict(value),
-                "selected_revisions": json.loads(
-                    str(value["selected_revisions_json"])
-                ),
+                "selected_revisions": json.loads(str(value["selected_revisions_json"])),
                 "dependencies": json.loads(str(value["dependencies_json"])),
             }
         )

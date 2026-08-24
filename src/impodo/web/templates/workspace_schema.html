@@ -2,13 +2,14 @@
 {% block title %}Odoo data · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
   {% set local_mode = workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == 'LOCAL' %}
+  {% set is_test_setup = migration_context.data_version_purpose == 'TEST' and not migration_context.migration_workspace.recipe_application_id %}
   {% set local_reader_ready = not local_mode or local_stack.profile %}
   {% set local_access_verified = not local_mode or local_stack.metadata_ready %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Stage {% if workspace_state.source_mode.value == 'ODOO' %}1{% else %}2{% endif %} of 6 · Odoo data</p>
-      <h1>{% if workspace_state.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
-      <p>Choose the kinds of Odoo information needed for this workspace_state.</p>
+      <h1>{% if is_test_setup %}Review the pre-production Odoo requirements{% elif workspace_state.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
+      <p>{% if is_test_setup %}Impodo selected the Odoo models required by the saved Recipe versions. Review them, then load their current fields and supporting lists once for this Test run.{% else %}Choose the kinds of Odoo information needed for this workspace.{% endif %}</p>
     </div>
     {% if schema %}
       <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' or schema.pending_refresh %}warning{% else %}registered{% endif %}">
@@ -318,6 +319,16 @@
   {% endif %}
 
   {% if schema %}
+    {% if is_test_setup and schema.origin.value != 'LOCAL_MANUAL' %}
+      <section class="next-action-card current">
+        <div>
+          <p class="eyebrow">Pre-production review complete</p>
+          <h2>Create the fresh Recipe work areas</h2>
+          <p>Impodo will validate this Odoo 19 evidence against the selected Recipe versions. You do not need to define the models or matching rules again in this shared setup workspace.</p>
+        </div>
+        <a class="button primary" href="/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/activate">Return to Test setup</a>
+      </section>
+    {% else %}
     {% if schema.origin.value == 'LOCAL_MANUAL' %}
       <div class="notice warning">
         This Odoo field list was entered manually for local development. Check it against Odoo with an authenticated live capture before confirming the field matches.
@@ -561,6 +572,7 @@
         {% endif %}
       </div>
     </form>
+    {% endif %}
     {% endif %}
   {% endif %}
 {% endblock %}

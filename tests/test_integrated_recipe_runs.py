@@ -64,7 +64,11 @@ from impodo.data_version_sources import (
     WorkspaceSourceProjectionService,
     source_column_contract_hash,
 )
-from impodo.data_versions import DataVersionPurpose, DataVersionService
+from impodo.data_versions import (
+    DataVersionPurpose,
+    DataVersionService,
+    DataVersionState,
+)
 from impodo.domain.serialization import content_hash
 from impodo.domain.coverage import (
     ReferenceBundle,
@@ -983,6 +987,14 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             service.get(setup.run.migration_run_id, actor=LOCAL_ACTOR).state.value,
             "ACTIVE",
         )
+        for application in activated.applications:
+            self.assertEqual(
+                service.credential_workspace(
+                    application.workspace_id,
+                    actor=LOCAL_ACTOR,
+                ).workspace_id,
+                setup.setup_workspace.workspace_id,
+            )
 
     def test_two_recipes_share_one_run_target_and_keep_isolated_workspaces(self):
         result = self._start()
@@ -1292,6 +1304,80 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertIn("Test with new data", planning.text)
         self.assertIn("Save at least one Recipe first", planning.text)
         self.assertEqual(self.client.get("/recipes").status_code, 404)
+
+        context = self.app.state.context
+        workspace = context.migration_workspaces.list_for_project(
+            project_id,
+            actor=context.actor,
+        )[0]
+        data_version = context.data_versions.get(
+            workspace.data_version_id,
+            actor=context.actor,
+        )
+        context.data_versions.repository.save_data_version(
+            replace(
+                data_version,
+                state=DataVersionState.FROZEN,
+                source_package_hash=content_hash({"delivery": "authoring"}),
+                updated_at=utc_now(),
+                frozen_at=utc_now(),
+            ),
+            expected_revision=data_version.optimistic_revision,
+            event_type="TEST_DATA_VERSION_FROZEN",
+            actor=context.actor,
+        )
+        publication = context.recipes.repository.publish_recipe(
+            project_id=project_id,
+            data_version_id=data_version.data_version_id,
+            workspace_id=workspace.workspace_id,
+            recipe_id=None,
+            expected_recipe_revision=None,
+            display_name="Customers",
+            business_purpose="Prepare customers from the newer delivery",
+            compiled_recipe={"contract_versions": {}},
+            compatibility_hints={},
+            compilation_provenance={},
+            operation_id=str(uuid4()),
+            request_hash=content_hash({"request": "browser Recipe"}),
+            actor=context.actor,
+        )
+
+        recipe_planning = self.client.get(f"/projects/{project_id}/test-runs/new")
+
+        self.assertEqual(recipe_planning.status_code, 200)
+        self.assertIn("Customers", recipe_planning.text)
+        self.assertIn("Create Test setup", recipe_planning.text)
+        self.assertNotIn("Reviewed Odoo evidence is required", recipe_planning.text)
+
+        csrf = re.search(
+            r'name="csrf_token" value="([^"]+)"', recipe_planning.text
+        ).group(1)
+        operation_id = re.search(
+            r'name="operation_id" value="([^"]+)"', recipe_planning.text
+        ).group(1)
+        expected_revision = re.search(
+            r'name="expected_workspace_revision" value="([^"]+)"',
+            recipe_planning.text,
+        ).group(1)
+        setup = self.client.post(
+            f"/projects/{project_id}/test-runs/new",
+            data={
+                "csrf_token": csrf,
+                "operation_id": operation_id,
+                "expected_workspace_revision": expected_revision,
+                "label": "Fresh customer Test",
+                "export_as_of": "2026-08-24 20:00 Bangkok time",
+                "recipe_revision": (
+                    f"{publication.recipe.recipe_id}:"
+                    f"{publication.revision.version}"
+                ),
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(setup.status_code, 303)
+        self.assertRegex(setup.headers["location"], r"^/workspaces/.+/files$")
 
 
 if __name__ == "__main__":

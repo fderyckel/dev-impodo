@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid5
 
 from ..access import Actor, AuthorizationPolicy, Capability
@@ -120,7 +120,10 @@ class TestRunSetupService:
         parent_package = self.source_packages.repository.get_source_package(
             parent.data_version_id
         )
-        if parent_package is None or parent_package.origin is not SourcePackageOrigin.FILE:
+        if (
+            parent_package is None
+            or parent_package.origin is not SourcePackageOrigin.FILE
+        ):
             raise MigrationFoundationError(
                 "Testing with a newer delivery currently requires a file-source Recipe"
             )
@@ -149,7 +152,7 @@ class TestRunSetupService:
                     catalogs=(),
                     configurations=(),
                     datasets=(),
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 ),
                 actor=actor,
                 expected_package_revision=None,
@@ -251,7 +254,9 @@ class TestRunSetupService:
 
     def list(self, project_id: str, *, actor: Actor) -> tuple[TestRunSetupBinding, ...]:
         project_id = require_uuid(project_id, "project_id")
-        self.authorization.require(actor, Capability.PROJECT_VIEW, project_id=project_id)
+        self.authorization.require(
+            actor, Capability.PROJECT_VIEW, project_id=project_id
+        )
         return self.test_runs.list_for_project(project_id)
 
     def required_models_for_workspace(
@@ -394,7 +399,16 @@ class TestRunSetupService:
             actor=actor,
         )
 
-    def _run(self, project_id, *, expected_workspace_revision, data_version_id, label, operation_id, actor):
+    def _run(
+        self,
+        project_id,
+        *,
+        expected_workspace_revision,
+        data_version_id,
+        label,
+        operation_id,
+        actor,
+    ):
         try:
             intent = self.runs.repository.get_operation_intent(operation_id)
         except MigrationNotFoundError:
@@ -414,9 +428,21 @@ class TestRunSetupService:
             actor=actor,
         )
 
-    def _workspace(self, project_id, *, expected_workspace_revision, data_version_id, migration_run_id, label, operation_id, actor):
+    def _workspace(
+        self,
+        project_id,
+        *,
+        expected_workspace_revision,
+        data_version_id,
+        migration_run_id,
+        label,
+        operation_id,
+        actor,
+    ):
         try:
-            intent = self.migration_workspaces.repository.get_operation_intent(operation_id)
+            intent = self.migration_workspaces.repository.get_operation_intent(
+                operation_id
+            )
         except MigrationNotFoundError:
             return self.migration_workspaces.create(
                 project_id,

@@ -189,3 +189,15 @@ class WebContext:
     odoo_connection_tests: OdooConnectionTestService
     remote_connections: RemoteConnectionStatusService
 
+    def target_credential_workspace(self, workspace_id: str) -> WorkspaceState:
+        """Resolve the shared Test or Production setup that owns target keys."""
+
+        test_owner = self.test_runs.credential_workspace(
+            workspace_id,
+            actor=self.actor,
+        )
+        return self.production_runs.credential_workspace(
+            test_owner.workspace_id,
+            actor=self.actor,
+        )
+

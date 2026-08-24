@@ -88,7 +88,9 @@ class TestRunSetupBinding:
 
     def to_dict(self, *, include_hash: bool = True) -> dict[str, object]:
         value: dict[str, object] = {
-            "activated_at": self.activated_at.isoformat() if self.activated_at else None,
+            "activated_at": self.activated_at.isoformat()
+            if self.activated_at
+            else None,
             "contract_version": self.contract_version,
             "created_at": self.created_at.isoformat(),
             "data_version_id": self.data_version_id,
@@ -106,7 +108,7 @@ class TestRunSetupBinding:
         return value
 
     @classmethod
-    def from_dict(cls, value: dict[str, object]) -> "TestRunSetupBinding":
+    def from_dict(cls, value: dict[str, object]) -> TestRunSetupBinding:
         selections = tuple(
             RecipeRevisionSelection(
                 recipe_id=str(item["recipe_id"]),

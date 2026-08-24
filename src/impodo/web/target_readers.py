@@ -243,7 +243,7 @@ async def _refresh_model_catalog(
     local_profile = _selected_local_profile(context, workspace_state)
     credential = get_target_credential(
         context.secret_store,
-        workspace_state,
+        context.target_credential_workspace(workspace_state.workspace_id),
         TargetCredentialRole.READ,
     )
     if local_profile is not None and credential is None:
@@ -485,7 +485,7 @@ def _read_readiness_snapshots(
         )
     credential = get_target_credential(
         context.secret_store,
-        workspace_state,
+        context.target_credential_workspace(workspace_state.workspace_id),
         TargetCredentialRole.READ,
     )
     if credential is None:
@@ -567,7 +567,7 @@ def _read_pinned_odoo_snapshots(
 
     credential = get_target_credential(
         context.secret_store,
-        workspace_state,
+        context.target_credential_workspace(workspace_state.workspace_id),
         TargetCredentialRole.READ,
     )
     if credential is None:
@@ -898,7 +898,7 @@ def _read_supporting_lookup_snapshots(
 
     credential = get_target_credential(
         context.secret_store,
-        workspace_state,
+        context.target_credential_workspace(workspace_state.workspace_id),
         TargetCredentialRole.READ,
     )
     if credential is None:

@@ -18,11 +18,6 @@
       <h2 id="recipes-required">Save at least one Recipe first</h2>
       <p>Finish the reusable mapping work in an Authoring workspace, then save it as a Recipe.</p>
     </section>
-  {% elif not target_workspaces %}
-    <section class="notice" aria-labelledby="target-required">
-      <h2 id="target-required">Reviewed Odoo evidence is required</h2>
-      <p>Capture Odoo 19 fields in an Authoring workspace before starting the integrated Test run.</p>
-    </section>
   {% else %}
     <form method="post" action="/projects/{{ project.project_id }}/test-runs/new" class="form-card">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

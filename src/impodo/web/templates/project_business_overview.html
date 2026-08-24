@@ -49,7 +49,7 @@
             <div class="overview-stage-number">{{ run.run_number }}</div>
             <div class="overview-stage-copy">
               <h3>{{ run.label }}</h3>
-              <p>{% if run.state.value == 'READY' %}Complete{% else %}Current{% endif %} · One shared Odoo target</p>
+              <p>{% if run.state.value == 'READY' %}Complete{% else %}Current{% endif %} &middot; {% if test_setup and test_setup.state.value == 'SETUP' %}Newer data and pre-production setup{% else %}One shared Odoo target{% endif %}</p>
               {% if test_setup and test_setup.state.value == 'SETUP' %}
                 <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/activate">Continue Test setup</a>
               {% else %}

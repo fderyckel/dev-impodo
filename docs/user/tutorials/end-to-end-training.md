@@ -129,10 +129,11 @@ save them as a Recipe version. Saving a Recipe does not move the
 data version, source files, Odoo credentials, comparison, approval, or load
 evidence into the Recipe.
 
-Applying one or several saved Recipe versions to an already accepted Test
-data version is available from **Plan integrated Test**. It creates fresh,
-isolated application drafts. Execution, qualification, rollout selection, and
-Production application are not part of that current Test-planning flow.
+Select **Test with new data** to apply one or several saved Recipe versions to
+a newer delivery and a pre-production Odoo server. Impodo first creates a
+fresh Test data version and setup workspace. After you accept the delivery and
+review the target, Impodo creates fresh, isolated Recipe work areas for
+preparation, comparison, confirmed loading, and verification.
 
 ## 2. Check and confirm the source files
 
