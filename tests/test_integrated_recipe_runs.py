@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -29,6 +30,7 @@ from impodo.adapters.duckdb.migration_workspace_state_repository import (
     MigrationWorkspaceStateRepository,
 )
 from impodo.adapters.duckdb.recipe_repository import RecipeRepository
+from impodo.adapters.duckdb.test_run_repository import TestRunRepository
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
 from impodo.adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
@@ -49,6 +51,7 @@ from impodo.application.recipe_publication_service import (
     RecipePublicationService,
 )
 from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
+from impodo.application.test_run_setup_service import TestRunSetupService
 from impodo.data_version_sources import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
@@ -885,6 +888,102 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             fault=fault,
         )
 
+    def test_guided_setup_pins_recipes_and_creates_fresh_test_evidence(self):
+        service = TestRunSetupService(
+            projects=self.projects,
+            data_versions=self.data_versions,
+            runs=self.runs,
+            migration_workspaces=self.workspaces,
+            source_packages=self.packages,
+            workspace_states=self.workspace_states,
+            recipes=self.recipe_service,
+            test_runs=TestRunRepository(self.foundation),
+            run_planning=self.planning,
+            authorization=self.authorization,
+        )
+        project = self.projects.get(
+            self.bundle.project.project_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        setup = service.start_setup(
+            project.project_id,
+            expected_workspace_revision=project.optimistic_revision,
+            recipe_revisions=(
+                (self.customer.recipe.recipe_id, 1),
+                (self.product.recipe.recipe_id, 1),
+            ),
+            dependencies=(
+                RecipeDependency(
+                    before_recipe_id=self.customer.recipe.recipe_id,
+                    after_recipe_id=self.product.recipe.recipe_id,
+                ),
+            ),
+            label="August pre-production rehearsal",
+            export_as_of="2026-08-24 18:00 Bangkok time",
+            operation_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(setup.data_version.purpose, DataVersionPurpose.TEST)
+        self.assertEqual(setup.data_version.state.value, "DRAFT")
+        self.assertEqual(setup.run.migration_run_id, setup.binding.migration_run_id)
+        self.assertEqual(
+            setup.setup_workspace.workspace_id,
+            setup.binding.setup_workspace_id,
+        )
+        self.assertEqual(
+            service.required_models_for_workspace(
+                setup.setup_workspace.workspace_id,
+                actor=LOCAL_ACTOR,
+            ),
+            ("product.template", "res.partner"),
+        )
+        self.assertEqual(
+            self.packages.repository.get_source_package(
+                setup.data_version.data_version_id
+            ).state,
+            SourcePackageState.DRAFT,
+        )
+        self._replace_and_freeze(
+            setup.data_version,
+            expected_package_revision=1,
+        )
+        setup_state = self.workspace_states.repository.get(
+            setup.setup_workspace.workspace_id
+        )
+        self.workspace_states.update_target(
+            setup.setup_workspace.workspace_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=setup_state.revision,
+            odoo_connection_mode="REMOTE",
+            odoo_base_url="https://preprod.example.test",
+            odoo_database="preprod",
+            intended_applications=(),
+            intended_models=("product.template", "res.partner"),
+        )
+        project = self.projects.get(project.project_id, actor=LOCAL_ACTOR)
+        activated = service.activate(
+            project.project_id,
+            setup.run.migration_run_id,
+            expected_workspace_revision=project.optimistic_revision,
+            target_schema=replace(
+                self.schema,
+                workspace_id=setup.setup_workspace.workspace_id,
+            ),
+            target_reference_bundle=None,
+            credential_generation=self.schema.read_credential_binding_hash,
+            operation_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(activated.run.migration_run_id, setup.run.migration_run_id)
+        self.assertEqual(len(activated.applications), 2)
+        self.assertEqual(len(activated.workspaces), 3)
+        self.assertEqual(
+            service.get(setup.run.migration_run_id, actor=LOCAL_ACTOR).state.value,
+            "ACTIVE",
+        )
+
     def test_two_recipes_share_one_run_target_and_keep_isolated_workspaces(self):
         result = self._start()
 
@@ -1190,8 +1289,8 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         planning = self.client.get(f"/projects/{project_id}/test-runs/new")
 
         self.assertEqual(planning.status_code, 200)
-        self.assertIn("Plan an integrated Test run", planning.text)
-        self.assertIn("An accepted Test data version is required", planning.text)
+        self.assertIn("Test with new data", planning.text)
+        self.assertIn("Save at least one Recipe first", planning.text)
         self.assertEqual(self.client.get("/recipes").status_code, 404)
 
 

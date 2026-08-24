@@ -17,7 +17,7 @@ from .forward_upgrades import (
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 2
+MIGRATION_REGISTRY_VERSION = 3
 
 
 EXPECTED_REGISTRY_COLUMNS = {
@@ -313,6 +313,21 @@ EXPECTED_REGISTRY_COLUMNS = {
         "selected_by_display_name",
         "selected_at",
     ),
+    "test_run_setup_binding": (
+        "test_run_setup_id",
+        "project_id",
+        "migration_run_id",
+        "data_version_id",
+        "setup_workspace_id",
+        "selected_revisions_json",
+        "dependencies_json",
+        "state",
+        "target_binding_id",
+        "content_hash",
+        "created_at",
+        "activated_at",
+        "contract_version",
+    ),
     "production_run_binding": (
         "production_run_binding_id",
         "project_id",
@@ -427,10 +442,46 @@ def _upgrade_migration_registry_v1_to_v2(
     create_schema_migration_ledger(connection)
 
 
+def _create_test_run_setup_binding(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE test_run_setup_binding (
+            test_run_setup_id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL REFERENCES
+                migration_project_identity(project_id),
+            migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
+                migration_run_identity(migration_run_id),
+            data_version_id VARCHAR NOT NULL REFERENCES
+                data_version_identity(data_version_id),
+            setup_workspace_id VARCHAR NOT NULL UNIQUE REFERENCES
+                migration_workspace_identity(workspace_id),
+            selected_revisions_json VARCHAR NOT NULL,
+            dependencies_json VARCHAR NOT NULL,
+            state VARCHAR NOT NULL CHECK (state IN ('SETUP', 'ACTIVE')),
+            target_binding_id VARCHAR REFERENCES target_binding(target_binding_id),
+            content_hash VARCHAR NOT NULL,
+            created_at VARCHAR NOT NULL,
+            activated_at VARCHAR,
+            contract_version INTEGER NOT NULL CHECK (contract_version = 1)
+        )
+        """
+    )
+
+
+def _upgrade_migration_registry_v2_to_v3(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    _create_test_run_setup_binding(connection)
+
+
 MIGRATION_REGISTRY_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="migration-registry-v1-to-v2-migration-ledger",
         apply=_upgrade_migration_registry_v1_to_v2,
+    ),
+    2: ForwardSchemaUpgrade(
+        migration_id="migration-registry-v2-to-v3-test-run-setup",
+        apply=_upgrade_migration_registry_v2_to_v3,
     ),
 }
 
@@ -893,6 +944,27 @@ def _initialize_migration_registry(
                 selected_at VARCHAR NOT NULL,
                 FOREIGN KEY (cutover_plan_id, cutover_plan_revision)
                     REFERENCES cutover_plan_revision(cutover_plan_id, version)
+            );
+
+            CREATE TABLE test_run_setup_binding (
+                test_run_setup_id VARCHAR PRIMARY KEY,
+                project_id VARCHAR NOT NULL REFERENCES
+                    migration_project_identity(project_id),
+                migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
+                    migration_run_identity(migration_run_id),
+                data_version_id VARCHAR NOT NULL REFERENCES
+                    data_version_identity(data_version_id),
+                setup_workspace_id VARCHAR NOT NULL UNIQUE REFERENCES
+                    migration_workspace_identity(workspace_id),
+                selected_revisions_json VARCHAR NOT NULL,
+                dependencies_json VARCHAR NOT NULL,
+                state VARCHAR NOT NULL CHECK (state IN ('SETUP', 'ACTIVE')),
+                target_binding_id VARCHAR REFERENCES
+                    target_binding(target_binding_id),
+                content_hash VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL,
+                activated_at VARCHAR,
+                contract_version INTEGER NOT NULL CHECK (contract_version = 1)
             );
 
             CREATE TABLE production_run_binding (

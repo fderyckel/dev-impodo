@@ -37,7 +37,7 @@
     <form method="post" action="/projects/{{ project.project_id }}/production-runs/{{ run.migration_run_id }}/activate" class="form-card">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="operation_id" value="{{ operation_id }}">
-      <input type="hidden" name="expected_project_revision" value="{{ project.optimistic_revision }}">
+      <input type="hidden" name="expected_workspace_revision" value="{{ project.optimistic_revision }}">
 
       {% if parameters %}<fieldset><legend>Values for this delivery</legend>{% for item in parameters %}<label>{{ item.recipe_name }} &middot; {{ item.definition.label or item.definition.logical_parameter_id }}<input name="{{ item.field_name }}" {% if item.definition.required %}required{% endif %}></label>{% endfor %}</fieldset>{% endif %}
       {% if controls %}<fieldset><legend>Recipe controls</legend>{% for item in controls %}<label>{{ item.recipe_name }} &middot; {{ item.definition.label or item.definition.logical_control_id }}<input name="{{ item.field_name }}" {% if item.definition.required %}required{% endif %}></label>{% endfor %}</fieldset>{% endif %}

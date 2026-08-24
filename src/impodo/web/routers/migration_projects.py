@@ -123,10 +123,17 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
-        _flash(
-            request,
-            f"Saved {published.recipe.display_name} as Recipe v{published.revision.version}.",
-        )
+        if recipe_id is not None and published.revision.version == int(expected):
+            message = (
+                f"{published.recipe.display_name} Recipe v"
+                f"{published.revision.version} already contains these rules."
+            )
+        else:
+            message = (
+                f"Saved {published.recipe.display_name} as Recipe v"
+                f"{published.revision.version}."
+            )
+        _flash(request, message)
         return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
     return router
@@ -154,6 +161,10 @@ def _render_project_overview(
     production_bindings = context.production_runs.production_runs.list_for_project(
         project_id
     )
+    test_bindings = {
+        item.migration_run_id: item
+        for item in context.test_runs.list(project_id, actor=context.actor)
+    }
     data_version_by_id = {
         item.data_version_id: item for item in data_versions
     }
@@ -197,6 +208,7 @@ def _render_project_overview(
         workspaces=workspaces,
         recipes=recipes,
         cutover_selection=cutover_selection,
+        test_bindings=test_bindings,
         production_bindings=production_bindings,
         production_data_versions=data_version_by_id,
         production_runs=run_by_id,

@@ -285,7 +285,7 @@
             <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
           {% endif %}
         {% elif review_workbook_ready %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
           <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button secondary" type="submit">Recreate review workbook</button>
@@ -293,7 +293,7 @@
         {% else %}
           <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit">Create review workbook</button>
+            <button class="button secondary" type="submit">Create review workbook</button>
           </form>
         {% endif %}
         {% if odoo_source and readiness.blocked_count %}

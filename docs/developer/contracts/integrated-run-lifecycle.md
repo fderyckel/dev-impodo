@@ -14,6 +14,12 @@ reviewed Odoo 19 target. Planning materializes those applications and binds
 the run to one exact CutoverPlan revision. Qualification accepts only complete,
 ordered execution and reconciliation evidence.
 
+The browser creates the Test run in a setup phase. A `TestRunSetupBinding`
+pins the selected Recipe revisions and dependency order while the data manager
+uploads and accepts the newer Test delivery and reviews the pre-production
+target. Activation adds the immutable run target and fresh application
+workspaces to that same run; it does not create a second Test run.
+
 ## Run-owned evidence
 
 The run owns one non-secret `TargetBinding`, one unioned Odoo requirement
@@ -28,7 +34,7 @@ references. It never copies source rows or another workspace database.
 
 ## Planning gate
 
-Before any run, application, or workspace is provisioned, the planner must:
+Before any application workspace is provisioned, the planner must:
 
 1. verify Project ownership, an accepted frozen Test package, and exact
    protected Recipe revisions;
@@ -37,6 +43,10 @@ Before any run, application, or workspace is provisioned, the planner must:
 3. reject missing dependencies, duplicate edges, self-dependencies, and
    cycles; and
 4. reject two Recipes that claim the same writable Odoo model field.
+
+The earlier setup operation may create only the draft Test DataVersion, draft
+run, shared setup workspace, and exact selection binding. It cannot create an
+application, target binding, CutoverPlan, approval, or execution evidence.
 
 The write contract has no last-writer-wins or implicit merge rule. A collision
 requires a Recipe-boundary or ownership correction.

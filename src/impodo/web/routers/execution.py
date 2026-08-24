@@ -525,7 +525,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             )
             if not submitted_key and saved_write_credential is None:
                 raise SecretStoreError(
-                    "Enter a separate Odoo write API key for this exact target"
+                    "Enter an Odoo API key approved for loading on this exact target"
                 )
             api_key = (
                 submitted_key
@@ -583,7 +583,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     )
                 if write_credential is None:
                     raise SecretStoreError(
-                        "Enter a separate Odoo write API key for this exact target"
+                        "Enter an Odoo API key approved for loading on this exact target"
                     )
                 read_credential_binding_hash = (
                     read_credential.binding_hash
@@ -749,7 +749,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 )
                 if write_credential is None:
                     raise SecretStoreError(
-                        "Enter a separate Odoo write API key for this exact target"
+                        "Enter an Odoo API key approved for loading on this exact target"
                     )
                 api_key = write_credential.secret
                 requested_persistence = False

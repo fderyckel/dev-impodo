@@ -327,6 +327,35 @@ class ProjectAuthoringTests(unittest.TestCase):
             bundle.project.project_id,
         )
 
+    def test_unchanged_successor_returns_current_recipe_revision(self) -> None:
+        bundle = self._bundle()
+        self._freeze_data_version(bundle)
+        first = self.publication.publish(
+            project_id=bundle.project.project_id,
+            data_version_id=bundle.data_version.data_version_id,
+            workspace_id=bundle.workspace.workspace_id,
+            display_name="Customers",
+            business_purpose="Prepare customers and contacts",
+            actor=LOCAL_ACTOR,
+        )
+
+        unchanged = self.publication.publish(
+            project_id=bundle.project.project_id,
+            data_version_id=bundle.data_version.data_version_id,
+            workspace_id=bundle.workspace.workspace_id,
+            recipe_id=first.recipe.recipe_id,
+            expected_recipe_revision=first.recipe.optimistic_revision,
+            display_name="Customers",
+            business_purpose="Prepare customers and contacts",
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(unchanged.revision.version, 1)
+        self.assertEqual(
+            self.recipe_repository.list_recipe_revisions(first.recipe.recipe_id),
+            (first.revision,),
+        )
+
 
 class ProjectAuthoringBrowserTests(unittest.TestCase):
     def setUp(self) -> None:

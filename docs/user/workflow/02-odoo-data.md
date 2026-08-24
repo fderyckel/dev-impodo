@@ -17,6 +17,12 @@ The current data-version target must be configured. A file-source data version
 also needs frozen source tables. Know the intended Odoo business records and
 agree stable business keys with the functional owner.
 
+When you connect a Remote Odoo target, enter the API key that Impodo should
+use for checking. You can keep it for checking only, or select **Use this key
+for checking and loading** when the same Odoo account is approved to write.
+Impodo keeps the checking and loading access separately even when they use the
+same secret. Production continues to require a separate limited write key.
+
 ## Steps in Impodo
 
 1. Open **Odoo data**. In an Odoo-source project this is shown first as
@@ -93,8 +99,10 @@ selection.
 
 This stage reads and stores target metadata for this data version. It does not
 create or update Odoo records, save a Recipe version, or reuse a Test
-credential in Production. Confirming a business key does not prove that every
-current value is unique; the later comparison checks current target evidence.
+credential in Production. Saving a key for later loading does not authorize a
+load; Stage 6 verifies its exact write access and requires explicit
+confirmation. Confirming a business key does not prove that every current
+value is unique; the later comparison checks current target evidence.
 
 ## Needs attention
 

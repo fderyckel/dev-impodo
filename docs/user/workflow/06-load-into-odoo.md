@@ -24,7 +24,9 @@ authority to another data project, data version, or future rollout.
 2. Confirm the target, exact snapshot, new and changed totals, field scope, and
    dependency order.
 3. Continue to **Confirm and load**.
-4. Enter the separate approved write API key when requested.
+4. If Stage 2 did not save a loading key, enter an API key approved for this
+   load. If a loading key is available, Impodo uses it without asking you to
+   enter it again.
 5. Read the explicit confirmation and select the single load action once.
 6. Wait for the execution result; do not resubmit an uncertain request.
 7. Open **Verify result** to read back the affected records.
@@ -33,7 +35,7 @@ authority to another data project, data version, or future rollout.
 
 ![Current Check changes screen with exact new, changed, up-to-date, and per-table totals.](../../images/user/17-load-preview.png)
 
-![Current Confirm and load screen with the separate write-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
+![Current Confirm and load screen with the optional loading-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
 
 ## How saving a Recipe relates to the verified outcome
 

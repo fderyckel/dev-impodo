@@ -1,24 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Plan integrated Test &middot; Impodo{% endblock %}
+{% block title %}Test with new data &middot; Impodo{% endblock %}
 {% block content %}
   {% from "_concept_help.html" import concept_help_link, concept_help_dialog with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{{ project.display_name }}</p>
       <div class="heading-with-help">
-        <h1>Plan an integrated Test run</h1>
+        <h1>Test with new data</h1>
         {{ concept_help_link("test-run", "Explain what an Integrated Test run proves") }}
       </div>
-      <p>Select the exact Recipe versions that should use one accepted Test data version and one reviewed Odoo target.</p>
+      <p>Select the saved Recipe versions to test. Impodo will create a fresh Test data version and a separate setup workspace for your newer delivery and pre-production Odoo server.</p>
     </div>
   </div>
 
-  {% if not data_versions %}
-    <section class="notice" aria-labelledby="test-data-required">
-      <h2 id="test-data-required">An accepted Test data version is required</h2>
-      <p>Create and accept the complete Test delivery before planning applications. Impodo will not treat the Authoring sample as Test evidence.</p>
-    </section>
-  {% elif not recipes %}
+  {% if not recipes %}
     <section class="notice" aria-labelledby="recipes-required">
       <h2 id="recipes-required">Save at least one Recipe first</h2>
       <p>Finish the reusable mapping work in an Authoring workspace, then save it as a Recipe.</p>
@@ -32,29 +27,16 @@
     <form method="post" action="/projects/{{ project.project_id }}/test-runs/new" class="form-card">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="operation_id" value="{{ operation_id }}">
-      <input type="hidden" name="expected_project_revision" value="{{ project.optimistic_revision }}">
+      <input type="hidden" name="expected_workspace_revision" value="{{ project.optimistic_revision }}">
       <label>
-        Run name
+        Test run name
         <input name="label" value="{{ label }}" required maxlength="200">
       </label>
 
       <label>
-        Accepted Test data version
-        <select name="data_version_id" required>
-          {% for version in data_versions %}
-            <option value="{{ version.data_version_id }}" {% if version.data_version_id == selected_data_version_id %}selected{% endif %}>{{ version.label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-
-      <label>
-        Reviewed Odoo evidence from
-        <select name="target_workspace_id" required>
-          {% for workspace in target_workspaces %}
-            <option value="{{ workspace.workspace_id }}" {% if workspace.workspace_id == selected_target_workspace_id %}selected{% endif %}>{{ workspace.display_name }}</option>
-          {% endfor %}
-        </select>
-        <span class="hint">Choose the workspace where the Odoo 19 fields and supporting lists were reviewed.</span>
+        Newer data cutoff
+        <input name="export_as_of" value="{{ export_as_of }}" required maxlength="100" placeholder="2026-08-24 18:00 Bangkok time">
+        <span class="hint">Use the business cutoff that all files in this Test delivery represent.</span>
       </label>
 
       <fieldset>
@@ -98,11 +80,11 @@
       {% endif %}
 
       <div class="notice">
-        <strong>One shared Odoo review</strong>
-        <p>Impodo will validate the union of required Odoo models and fields once. Reordering cannot resolve overlapping writes.</p>
+        <strong>What Impodo creates now</strong>
+        <p>Impodo creates one draft Test data version and one setup workspace. You will upload and accept the newer delivery, then connect the pre-production Odoo 19 server. The saved Recipe and original Authoring workspace remain unchanged.</p>
       </div>
       <div class="actions">
-        <button class="button primary" type="submit">Start integrated Test</button>
+        <button class="button primary" type="submit">Create Test setup</button>
         <a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a>
       </div>
     </form>

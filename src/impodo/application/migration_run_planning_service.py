@@ -54,6 +54,7 @@ from ..migration_run_planning import (
     RunTargetBinding,
 )
 from ..migration_runs import MigrationRun, MigrationRunPurpose, MigrationRunState
+from ..migration_test import TestRunSetupBinding, TestRunSetupState
 from ..migration_workspaces import (
     MigrationWorkspace,
     MigrationWorkspaceState,
@@ -642,6 +643,220 @@ class MigrationRunPlanningService:
             ready_event_type="INTEGRATED_TEST_RUN_READY",
             target_workspace_state=self.workspace_states.repository.get(
                 target_schema.workspace_id
+            ),
+            actor=actor,
+        )
+        self.cutover_plans.ensure_for_run(
+            project_id=project_id,
+            migration_run_id=committed.run.migration_run_id,
+            requirement_plan=committed.requirement_plan,
+            write_ownership=tuple(
+                sorted(
+                    CutoverWriteOwnership(
+                        recipe_id=item.selection.recipe_id,
+                        model=model,
+                        field=field,
+                    )
+                    for item in review.applications
+                    for model, field in item.write_claims
+                )
+            ),
+            operation_id=self._child_operation(operation_id, "cutover-plan"),
+            actor=actor,
+        )
+        return committed
+
+    def activate_test_run(
+        self,
+        project_id: str,
+        *,
+        expected_workspace_revision: int,
+        test_binding: TestRunSetupBinding,
+        target_schema: OdooSchemaCatalog,
+        target_reference_bundle: ReferenceBundle | None,
+        credential_generation: str,
+        operation_id: str,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> IntegratedRunBundle:
+        """Activate one fresh Test setup and create isolated Recipe work areas."""
+
+        project_id = require_uuid(project_id, "project_id")
+        operation_id = require_uuid(operation_id, "operation_id")
+        expected_workspace_revision = require_revision(
+            expected_workspace_revision,
+            "expected_workspace_revision",
+        )
+        credential_generation = required_text(
+            credential_generation,
+            "credential_generation",
+            maximum=300,
+        )
+        if credential_generation != target_schema.read_credential_binding_hash:
+            raise MigrationRunPlanningError(
+                "The Test schema belongs to another read credential generation"
+            )
+        if (
+            test_binding.project_id != project_id
+            or target_schema.workspace_id != test_binding.setup_workspace_id
+        ):
+            raise MigrationRunPlanningError(
+                "The reviewed pre-production evidence does not belong to this Test setup"
+            )
+        selected = tuple(
+            (item.recipe_id, item.recipe_revision)
+            for item in test_binding.selected_revisions
+        )
+        review = self.review_test_run(
+            project_id,
+            data_version_id=test_binding.data_version_id,
+            recipe_revisions=selected,
+            dependencies=test_binding.dependencies,
+            target_schema=target_schema,
+            target_reference_bundle=target_reference_bundle,
+            parameter_values=None,
+            control_values=None,
+            actor=actor,
+        )
+        if not review.can_start:
+            first = next(item for item in review.planning_issues if item.blocks)
+            raise MigrationRunPlanningError(
+                f"{first.message} {first.recovery_action}"
+            )
+        if test_binding.state is TestRunSetupState.ACTIVE:
+            resumed = self.repository.resume_test_activation(
+                operation_id,
+                actor=actor,
+                fault=fault,
+            )
+            return self._materialize_applications(
+                resumed,
+                review=review,
+                operation_id=operation_id,
+                ready_event_type="INTEGRATED_TEST_RUN_READY",
+                target_workspace_state=self.workspace_states.repository.get(
+                    test_binding.setup_workspace_id
+                ),
+                actor=actor,
+            )
+        current_run = self.repository.foundation.get_migration_run(
+            test_binding.migration_run_id
+        )
+        if (
+            current_run.project_id != project_id
+            or current_run.data_version_id != test_binding.data_version_id
+            or current_run.purpose is not MigrationRunPurpose.TEST
+            or current_run.target_binding_id is not None
+        ):
+            raise MigrationRunPlanningError(
+                "Test run changed before activation; reload its setup"
+            )
+        now = utc_now()
+        target_binding_id = self._child_operation(operation_id, "target-binding")
+        run = replace(
+            current_run,
+            target_binding_id=target_binding_id,
+            optimistic_revision=current_run.optimistic_revision + 1,
+            updated_at=now,
+        )
+        required_reference_names = {
+            item.name for item in review.reference_requirements
+        }
+        captured_reference_datasets = tuple(
+            item
+            for item in (
+                target_reference_bundle.datasets
+                if target_reference_bundle is not None
+                else ()
+            )
+            if item.name in required_reference_names
+        )
+        run_reference_bundle = (
+            MigrationRunReferenceBundle.capture(
+                run.migration_run_id,
+                target_reference_bundle,
+                captured_reference_datasets,
+            )
+            if captured_reference_datasets
+            else None
+        )
+        run_target_schema = MigrationRunTargetSchema.capture(
+            run.migration_run_id,
+            target_schema,
+            {item.model for item in review.model_requirements},
+        )
+        target = RunTargetBinding(
+            target_binding_id=target_binding_id,
+            project_id=project_id,
+            migration_run_id=run.migration_run_id,
+            environment="TEST",
+            connection_target_hash=target_schema.connection_target_hash,
+            credential_role="READ",
+            credential_generation=credential_generation,
+            principal_hash=target_schema.read_principal_hash,
+            permission_hash=target_schema.read_permission_hash,
+            context_hash=target_schema.read_context_hash,
+            schema_dependency_hash=run_target_schema.content_hash,
+            reference_snapshot_hashes=tuple(
+                item.content_hash for item in captured_reference_datasets
+            ),
+            created_at=now,
+        )
+        requirement_plan = MigrationRunRequirementPlan(
+            migration_run_id=run.migration_run_id,
+            project_id=project_id,
+            data_version_id=run.data_version_id,
+            target_binding_id=target_binding_id,
+            selected_revisions=tuple(
+                item.selection for item in review.applications
+            ),
+            dependencies=review.dependencies,
+            model_requirements=review.model_requirements,
+            reference_requirements=review.reference_requirements,
+            application_order=review.application_order,
+            created_at=now,
+        )
+        planned = tuple(
+            self._planned_application(item, run=run, target=target, now=now)
+            for item in review.applications
+        )
+        active_binding = replace(
+            test_binding,
+            state=TestRunSetupState.ACTIVE,
+            target_binding_id=target_binding_id,
+            activated_at=now,
+        )
+        bundle = self.repository.activate_test_run(
+            run=run,
+            test_binding=active_binding,
+            target_binding=target,
+            requirement_plan=requirement_plan,
+            applications=planned,
+            target_schema=run_target_schema,
+            reference_bundle=run_reference_bundle,
+            expected_workspace_revision=expected_workspace_revision,
+            operation_id=operation_id,
+            request_hash=content_hash(
+                {
+                    "reference_bundle": (
+                        run_reference_bundle.to_portable_dict()
+                        if run_reference_bundle is not None
+                        else None
+                    ),
+                    "target_schema_hash": run_target_schema.content_hash,
+                    "test_setup_hash": test_binding.content_hash,
+                }
+            ),
+            actor=actor,
+            fault=fault,
+        )
+        committed = self._materialize_applications(
+            bundle,
+            review=review,
+            operation_id=operation_id,
+            ready_event_type="INTEGRATED_TEST_RUN_READY",
+            target_workspace_state=self.workspace_states.repository.get(
+                test_binding.setup_workspace_id
             ),
             actor=actor,
         )

@@ -374,6 +374,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "intended_applications",
                 "read_api_key",
                 "read_api_key_storage",
+                "keep_api_key_for_loading",
                 "remember_read_api_key",
                 "api_key",
                 "remember_api_key",
@@ -413,6 +414,13 @@ def build_target_router(context: WebContext) -> APIRouter:
                 odoo_base_url=_text(form, "odoo_base_url"),
                 odoo_database=_text(form, "odoo_database"),
                 intended_applications=form.getlist("intended_applications"),
+                intended_models=(
+                    context.test_runs.required_models_for_workspace(
+                        workspace_id,
+                        actor=context.actor,
+                    )
+                    or None
+                ),
             )
             target_changed = (
                 target_read_credential_id(previous_workspace_state)
@@ -449,6 +457,21 @@ def build_target_router(context: WebContext) -> APIRouter:
                 form,
                 "api_key",
             )
+            keep_key_for_loading = "keep_api_key_for_loading" in form
+            if keep_key_for_loading:
+                access_context = context.workspace_access.resolve(
+                    workspace_id,
+                    actor=context.actor,
+                    capability=Capability.EXPORT_PLAN_EXECUTE,
+                )
+                data_version = context.data_versions.get(
+                    access_context.data_version_id,
+                    actor=context.actor,
+                )
+                if data_version.purpose.value == "PRODUCTION":
+                    raise SecretStoreError(
+                        "Production requires a separate limited write key"
+                    )
             if submitted_key:
                 context.remote_connections.clear(workspace_id)
                 read_credential = store_target_credential(
@@ -470,6 +493,25 @@ def build_target_router(context: WebContext) -> APIRouter:
                     context.secret_store,
                     workspace_state,
                     TargetCredentialRole.READ,
+                )
+            if keep_key_for_loading:
+                if read_credential is None:
+                    raise SecretStoreError(
+                        "Enter or save an Odoo API key before keeping it for loading"
+                    )
+                write_credential = store_target_credential(
+                    context.secret_store,
+                    workspace_state,
+                    TargetCredentialRole.WRITE,
+                    read_credential.secret,
+                    persistent=read_credential.persistent,
+                )
+                audit_stored_target_credential(
+                    context.workspace_states,
+                    workspace_state,
+                    TargetCredentialRole.WRITE,
+                    write_credential,
+                    actor=context.actor,
                 )
             if action == "test":
                 local_profile = _selected_local_profile(context, workspace_state)
@@ -667,6 +709,52 @@ def build_target_router(context: WebContext) -> APIRouter:
         _flash(
             request,
             "The read-only Odoo key was forgotten. Nothing was changed in Odoo.",
+        )
+        return RedirectResponse(
+            f"/workspaces/{workspace_id}/target#read-credential-status",
+            status_code=303,
+        )
+
+    @router.post("/workspaces/{workspace_id}/target/write-credential/delete")
+    async def forget_target_write_credential(request: Request, workspace_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        workspace_state = context.queries.get(workspace_id)
+        if workspace_state.status is WorkspaceStatus.CLOSED:
+            return RedirectResponse(
+                f"/workspaces/{workspace_state.workspace_id}/summary",
+                status_code=303,
+            )
+        try:
+            context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.EXPORT_PLAN_EXECUTE,
+            )
+            receipt = delete_target_credential(
+                context.secret_store,
+                workspace_state,
+                TargetCredentialRole.WRITE,
+                reason=TargetCredentialRemovalReason.USER_REQUESTED,
+            )
+            if receipt is not None:
+                audit_removed_target_credentials(
+                    context.workspace_states,
+                    workspace_state,
+                    (receipt,),
+                    actor=context.actor,
+                )
+        except SecretStoreError as error:
+            return _render_target(
+                request,
+                context,
+                workspace_state,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            "The Odoo loading key was forgotten. Nothing was changed in Odoo.",
         )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/target#read-credential-status",

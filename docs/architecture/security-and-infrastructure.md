@@ -211,8 +211,9 @@ only when all of these are true:
 - the per-preview API scope matches the exact captured models, lookup fields,
   readable fields, and writable fields;
 - no earlier run already consumed that snapshot; and
-- a separate target-bound write credential is supplied or already stored; the
-  setup read credential is never substituted; and
+- a separate target-bound write-role credential is supplied or already stored;
+  target setup may create it from the same explicitly approved secret, but the
+  setup read role is never substituted during execution; and
 - for remote execution, the write credential has read-back access to every
   scoped model and write access to every model with reviewed write fields, and
   its context matches the reviewed schema context; and

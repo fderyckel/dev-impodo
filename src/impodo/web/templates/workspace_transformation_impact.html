@@ -26,7 +26,7 @@
       <p>Impodo will apply your confirmed preparation choices locally and show changed values in groups of up to 100. It will not contact or change Odoo.</p>
       <form method="post" action="/workspaces/{{ workspace_id }}/mapping/transformation-impact/prepare" data-transformation-impact-prepare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button primary" type="submit" data-transformation-impact-button>Prepare preview</button>
+        <button class="button secondary" type="submit" data-transformation-impact-button>Prepare preview</button>
       </form>
       <p class="impact-preparing-status" data-transformation-impact-status role="status" aria-live="polite" hidden>
         <span class="activity-spinner" aria-hidden="true"></span>
@@ -136,7 +136,7 @@
           </form>
           <form method="post" action="/workspaces/{{ workspace_id }}/mapping/transformation-impact.csv">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit">Download all affected rows (.csv)</button>
+            <button class="button secondary" type="submit">Download all affected rows (.csv)</button>
           </form>
         </div>
       </div>

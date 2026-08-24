@@ -58,6 +58,7 @@ from ..application.cutover_plan_service import (
     WorkspaceIntegratedQualificationEvidenceReader,
 )
 from ..application.production_cutover_service import ProductionCutoverService
+from ..application.test_run_setup_service import TestRunSetupService
 from ..application.recipe_application_service import RecipeApplicationService
 from ..application.recipe_publication_service import RecipePublicationService
 from ..application.workspace_source_projection import (
@@ -100,6 +101,7 @@ from ..adapters.duckdb.migration_run_planning_repository import (
 )
 from ..adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from ..adapters.duckdb.production_run_repository import ProductionRunRepository
+from ..adapters.duckdb.test_run_repository import TestRunRepository
 from ..adapters.duckdb.run_aware_schema_repository import (
     RunAwareSchemaRepository,
 )
@@ -339,6 +341,7 @@ def create_local_app(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store),
     )
     production_run_repository = ProductionRunRepository(foundation_repository)
+    test_run_repository = TestRunRepository(foundation_repository)
     recipe_repository = RecipeRepository(
         foundation_repository,
         protected_recipe_store,
@@ -483,6 +486,18 @@ def create_local_app(
         cutover_plans=cutover_plan_repository,
         authorization=resolved_authorization,
     )
+    test_runs = TestRunSetupService(
+        projects=migration_projects,
+        data_versions=data_versions,
+        runs=migration_runs,
+        migration_workspaces=migration_workspaces,
+        source_packages=source_packages,
+        workspace_states=workspace_states,
+        recipes=recipes,
+        test_runs=test_run_repository,
+        run_planning=run_planning,
+        authorization=resolved_authorization,
+    )
     production_runs = ProductionCutoverService(
         projects=migration_projects,
         data_versions=data_versions,
@@ -535,8 +550,12 @@ def create_local_app(
     )
 
     def current_read_credential_binding(workspace_state: WorkspaceState) -> str:
-        credential_owner = production_runs.credential_workspace(
+        test_credential_owner = test_runs.credential_workspace(
             workspace_state.workspace_id,
+            actor=actor,
+        )
+        credential_owner = production_runs.credential_workspace(
+            test_credential_owner.workspace_id,
             actor=actor,
         )
         if credential_owner.odoo_connection_mode is OdooConnectionMode.LOCAL:
@@ -638,6 +657,7 @@ def create_local_app(
         recipe_publication=recipe_publication,
         run_planning=run_planning,
         cutover_plans=cutover_plans,
+        test_runs=test_runs,
         production_runs=production_runs,
         data_version_source_projection=data_version_source_projection,
         workspace_states=workspace_states,

@@ -8,37 +8,39 @@ status: current
 
 ## Goal
 
-Apply selected Recipe versions to one accepted Test data version and one
-reviewed Odoo 19 target. Impodo creates a separate working area for each
-Recipe, so their mappings and review evidence never overwrite one another.
+Test selected Recipe versions with a newer source delivery and a
+pre-production Odoo 19 server. Impodo keeps this work inside the same data
+project, but creates a fresh Test data version and a separate working area for
+each Recipe. The Authoring sample and saved Recipes remain unchanged.
 
-![The integrated Test form selects one accepted data version, one reviewed Odoo workspace, exact Recipe versions, and any required order.](../../images/user/03-integrated-test-plan.png)
+![The Test setup form selects exact Recipe versions, their required order, and the cutoff for the newer delivery.](../../images/user/03-integrated-test-plan.png)
 
 ## Before you start
 
-Your data project needs:
-
-- an accepted Test data version containing the complete current Test export;
-- at least one saved Recipe; and
-- an Authoring workspace with reviewed Odoo 19 fields and supporting lists.
-
-The current browser starts from an already accepted Test data version. If
-the form says that one is required, stop there: do not reuse the Authoring
-sample and do not treat independently uploaded files as one complete delivery.
-Accepting a new Test delivery is a separate browser step and is not added by
-this planning page.
+Your data project needs at least one saved Recipe from an accepted Authoring
+data version. Have the complete newer Test delivery and the pre-production
+Odoo connection details ready. Impodo will collect both as fresh Test evidence.
 
 ## Steps in Impodo
 
-1. Open the data project and select **Plan integrated Test**.
-2. Give the run a clear name.
-3. Select the accepted Test data version.
-4. Select the Authoring workspace where the Odoo target and supporting lists
-   were reviewed.
-5. Select the exact current Recipe versions to apply.
-6. Under **Required order**, select a dependency only when one Recipe must
+1. Open the data project and select **Test with new data**.
+2. Select the exact saved Recipe versions to test.
+3. Under **Required order**, select a dependency only when one Recipe must
    finish and reconcile before another can begin.
-7. Select **Start integrated Test**.
+4. Enter the newer data cutoff and select **Create Test setup**.
+5. Upload, review, and select **Accept Data version** for the complete newer
+   delivery.
+6. Connect the pre-production Odoo server. Impodo carries the selected
+   Recipes' required models into Odoo field discovery, so you do not select
+   the target model again.
+7. Return to the data project and select **Continue Test setup**.
+8. Review the newer data, pre-production Odoo review, read-only access, and
+   selected Recipe versions.
+9. Select **Create Recipe work areas**.
+10. Review current-data differences in each fresh Recipe work area.
+11. Prepare, compare, confirm the load, and verify the result.
+12. When every application has succeeded in the required order, qualify that
+    exact Test run as the Production candidate.
 
 Before creating Recipe work areas, Impodo checks that the Recipe order has no cycle
 and that two Recipes do not claim the same writable Odoo field. Reordering two
@@ -54,8 +56,10 @@ conflicting Recipes is not a safe repair; one Recipe must own that field.
 
 ## What Impodo creates
 
-The run uses one target review and one accepted source delivery. Each Recipe
-receives:
+**Create Test setup** creates one draft Test data version, one Test run, and
+one shared setup workspace. **Create Recipe work areas** activates that same
+run after you accept the newer delivery and review the pre-production target.
+Each selected Recipe then receives:
 
 - its exact saved version;
 - only the logical datasets it needs from the Test data version;
@@ -87,10 +91,11 @@ Planning alone does not call the Test result qualified.
 
 ## What changes and what does not
 
-Starting the plan creates one Test run and a new Recipe work area for
-each selected Recipe version. It does not change the accepted data version,
-saved Recipes, Authoring workspaces, Odoo data, credentials, or rollout
-authority.
+Starting setup creates fresh Test identities. Activating the setup creates one
+new Recipe work area for each selected version. Neither action changes the
+saved Recipes, Authoring data version, Authoring workspace, Odoo data, or
+rollout authority. Test credentials belong to the shared Test setup and never
+become Recipe content.
 
 ## Needs attention
 

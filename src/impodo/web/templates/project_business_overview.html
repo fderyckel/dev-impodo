@@ -29,10 +29,10 @@
     <section class="next-action-card">
       <div>
         <p class="eyebrow">Integrated Test</p>
-        <h2>Apply selected Recipes together</h2>
-        <p>Choose exact Recipe versions for one accepted Test data version. Impodo checks their required order and overlapping Odoo changes before it creates separate Recipe work areas.</p>
+        <h2>Test saved Recipes with newer data</h2>
+        <p>Choose exact Recipe versions. Impodo creates a fresh Test data version and setup workspace for the newer delivery and pre-production Odoo server.</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/new">Plan integrated Test</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/new">Test with new data</a>
     </section>
   {% endif %}
 
@@ -44,12 +44,17 @@
       </div>
       <ol class="overview-stages">
         {% for run in test_runs %}
+          {% set test_setup = test_bindings.get(run.migration_run_id) %}
           <li class="overview-stage {% if run.state.value == 'READY' %}complete{% else %}current{% endif %}">
             <div class="overview-stage-number">{{ run.run_number }}</div>
             <div class="overview-stage-copy">
               <h3>{{ run.label }}</h3>
               <p>{% if run.state.value == 'READY' %}Complete{% else %}Current{% endif %} · One shared Odoo target</p>
-              <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Test run</a>
+              {% if test_setup and test_setup.state.value == 'SETUP' %}
+                <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/activate">Continue Test setup</a>
+              {% else %}
+                <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Test run</a>
+              {% endif %}
             </div>
           </li>
         {% endfor %}

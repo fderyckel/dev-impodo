@@ -37,6 +37,7 @@ from ...migration_run_planning import (
     RunTargetBinding,
 )
 from ...migration_runs import MigrationRun
+from ...migration_test import TestRunSetupBinding
 from ...migration_production import ProductionRunBinding
 from ...workspace_contracts import OdooSchemaCatalog
 from .migration_foundation_repository import MigrationFoundationRepository
@@ -115,6 +116,123 @@ class MigrationRunPlanningRepository:
             self.foundation._set_pending_stage(
                 connection,
                 operation_id,
+                "APPLICATION_STORES_CREATED",
+            )
+        return self.get_bundle(stored[0].migration_run_id)
+
+    def activate_test_run(
+        self,
+        *,
+        run: MigrationRun,
+        test_binding: TestRunSetupBinding,
+        target_binding: RunTargetBinding,
+        requirement_plan: MigrationRunRequirementPlan,
+        applications: tuple[PlannedRecipeApplication, ...],
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
+        expected_workspace_revision: int,
+        operation_id: str,
+        request_hash: str,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> IntegratedRunBundle:
+        """Activate an existing setup-only Test run with fresh evidence."""
+
+        operation_id = require_uuid(operation_id, "operation_id")
+        detail = {
+            "applications": [self._planned_dict(item) for item in applications],
+            "reference_bundle": (
+                reference_bundle.to_portable_dict()
+                if reference_bundle is not None
+                else None
+            ),
+            "requirement_plan": requirement_plan.to_dict(),
+            "run": self.foundation._run_dict(run),
+            "target_binding": target_binding.to_dict(),
+            "target_schema_json": target_schema.to_json(),
+            "test_binding": test_binding.to_dict(),
+        }
+        intent = self.foundation._reserve_intent(
+            operation_id=operation_id,
+            project_id=run.project_id,
+            owner_kind="MIGRATION_RUN",
+            owner_id=run.migration_run_id,
+            kind=MigrationOperationKind.TEST_RUN_ACTIVATE,
+            request_hash=require_hash(request_hash, "request_hash"),
+            expected_revision=expected_workspace_revision,
+            detail=detail,
+            actor=actor,
+        )
+        return self._continue_test_activation(
+            intent,
+            stored=self._stored_plan(intent.detail),
+            stored_binding=TestRunSetupBinding.from_dict(
+                dict(intent.detail["test_binding"])
+            ),
+            actor=actor,
+            fault=fault,
+        )
+
+    def resume_test_activation(
+        self,
+        operation_id: str,
+        *,
+        actor: Actor,
+        fault: FaultInjector | None = None,
+    ) -> IntegratedRunBundle:
+        operation_id = require_uuid(operation_id, "operation_id")
+        intent = self.foundation.get_operation_intent(operation_id)
+        if (
+            intent.kind is not MigrationOperationKind.TEST_RUN_ACTIVATE
+            or intent.owner_kind != "MIGRATION_RUN"
+            or intent.actor.issuer != actor.identity.issuer
+            or intent.actor.subject_id != actor.identity.subject_id
+        ):
+            raise MigrationConflictError(
+                "Operation identity does not belong to this Test activation"
+            )
+        return self._continue_test_activation(
+            intent,
+            stored=self._stored_plan(intent.detail),
+            stored_binding=TestRunSetupBinding.from_dict(
+                dict(intent.detail["test_binding"])
+            ),
+            actor=actor,
+            fault=fault,
+        )
+
+    def _continue_test_activation(
+        self,
+        intent,
+        *,
+        stored,
+        stored_binding: TestRunSetupBinding,
+        actor: Actor,
+        fault: FaultInjector | None,
+    ) -> IntegratedRunBundle:
+        if intent.state is MigrationOperationState.COMMITTED:
+            return self.get_bundle(intent.owner_id)
+        self.foundation._fault(fault, "INTENT_RESERVED")
+        self._activate_test_registry(
+            run=stored[0],
+            test_binding=stored_binding,
+            target_binding=stored[1],
+            requirement_plan=stored[2],
+            applications=stored[3],
+            target_schema=stored[4],
+            reference_bundle=stored[5],
+            expected_workspace_revision=int(intent.expected_revision or 0),
+            operation_id=intent.operation_id,
+            actor=actor,
+        )
+        self.foundation._fault(fault, "REGISTRY_COMMITTED")
+        for item in stored[3]:
+            self.database.create_workspace_store(item.workspace)
+        self.foundation._fault(fault, "STORES_CREATED")
+        with self.database.connect(self.registry_path) as connection:
+            self.foundation._set_pending_stage(
+                connection,
+                intent.operation_id,
                 "APPLICATION_STORES_CREATED",
             )
         return self.get_bundle(stored[0].migration_run_id)
@@ -253,6 +371,7 @@ class MigrationRunPlanningRepository:
             intent.kind
             not in {
                 MigrationOperationKind.MIGRATION_RUN_PLAN,
+                MigrationOperationKind.TEST_RUN_ACTIVATE,
                 MigrationOperationKind.PRODUCTION_RUN_ACTIVATE,
             }
             or intent.owner_kind != "MIGRATION_RUN"
@@ -934,6 +1053,170 @@ class MigrationRunPlanningRepository:
                 raise MigrationConflictError(
                     "MigrationWorkspace does not match its RecipeApplication"
                 )
+
+    def _activate_test_registry(
+        self,
+        *,
+        run: MigrationRun,
+        test_binding: TestRunSetupBinding,
+        target_binding: RunTargetBinding,
+        requirement_plan: MigrationRunRequirementPlan,
+        applications: tuple[PlannedRecipeApplication, ...],
+        target_schema: MigrationRunTargetSchema,
+        reference_bundle: MigrationRunReferenceBundle | None,
+        expected_workspace_revision: int,
+        operation_id: str,
+        actor: Actor,
+    ) -> None:
+        with self.database.connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                current_target = connection.execute(
+                    "SELECT target_binding_id FROM migration_run "
+                    "WHERE migration_run_id = ?",
+                    [run.migration_run_id],
+                ).fetchone()
+                if current_target == (target_binding.target_binding_id,):
+                    self.foundation._set_pending_stage(
+                        connection,
+                        operation_id,
+                        "REGISTRY_COMMITTED",
+                    )
+                    connection.commit()
+                    return
+                self.foundation._assert_workspace_revision(
+                    connection,
+                    run.project_id,
+                    expected_workspace_revision,
+                )
+                current_run = connection.execute(
+                    "SELECT project_id, data_version_id, purpose, state, "
+                    "target_binding_id, cutover_selection_id, optimistic_revision "
+                    "FROM migration_run WHERE migration_run_id = ?",
+                    [run.migration_run_id],
+                ).fetchone()
+                if current_run != (
+                    run.project_id,
+                    run.data_version_id,
+                    "TEST",
+                    "DRAFT",
+                    None,
+                    None,
+                    run.optimistic_revision - 1,
+                ):
+                    raise MigrationConflictError(
+                        "Test run changed before activation"
+                    )
+                setup = connection.execute(
+                    "SELECT project_id, data_version_id, setup_workspace_id, "
+                    "state, target_binding_id FROM test_run_setup_binding "
+                    "WHERE migration_run_id = ?",
+                    [run.migration_run_id],
+                ).fetchone()
+                if setup != (
+                    test_binding.project_id,
+                    test_binding.data_version_id,
+                    test_binding.setup_workspace_id,
+                    "SETUP",
+                    None,
+                ):
+                    raise MigrationConflictError(
+                        "Test setup binding changed before activation"
+                    )
+                self._validate_context(
+                    connection,
+                    run,
+                    target_binding,
+                    requirement_plan,
+                    applications,
+                    target_schema,
+                    reference_bundle,
+                )
+                for identity in (
+                    target_binding.target_binding_id,
+                    *(item.application.application_id for item in applications),
+                    *(item.workspace.workspace_id for item in applications),
+                ):
+                    self.foundation._assert_identity_available(connection, identity)
+                connection.execute(
+                    "UPDATE migration_run SET state = ?, target_binding_id = ?, "
+                    "optimistic_revision = ?, updated_at = ? "
+                    "WHERE migration_run_id = ?",
+                    [
+                        run.state.value,
+                        target_binding.target_binding_id,
+                        run.optimistic_revision,
+                        run.updated_at.isoformat(),
+                        run.migration_run_id,
+                    ],
+                )
+                self._insert_planning_rows(
+                    connection,
+                    run=run,
+                    target_binding=target_binding,
+                    requirement_plan=requirement_plan,
+                    applications=applications,
+                    target_schema=target_schema,
+                    reference_bundle=reference_bundle,
+                )
+                connection.execute(
+                    "UPDATE test_run_setup_binding SET state = ?, "
+                    "target_binding_id = ?, content_hash = ?, activated_at = ? "
+                    "WHERE migration_run_id = ?",
+                    [
+                        test_binding.state.value,
+                        test_binding.target_binding_id,
+                        test_binding.content_hash,
+                        test_binding.activated_at.isoformat(),
+                        test_binding.migration_run_id,
+                    ],
+                )
+                project_revision = self.foundation._advance_project(
+                    connection,
+                    run.project_id,
+                    expected_workspace_revision,
+                    run.updated_at,
+                )
+                self.foundation._insert_event(
+                    connection,
+                    project_id=run.project_id,
+                    aggregate_kind="MIGRATION_RUN",
+                    aggregate_id=run.migration_run_id,
+                    aggregate_revision=run.optimistic_revision,
+                    event_type="TEST_RUN_ACTIVATED",
+                    detail={
+                        "application_count": len(applications),
+                        "project_revision": project_revision,
+                        "requirement_plan_hash": requirement_plan.content_hash,
+                    },
+                    actor=actor,
+                    occurred_at=run.updated_at,
+                )
+                for item in applications:
+                    self.foundation._insert_event(
+                        connection,
+                        project_id=run.project_id,
+                        aggregate_kind="RECIPE_APPLICATION",
+                        aggregate_id=item.application.application_id,
+                        aggregate_revision=1,
+                        event_type="TEST_RECIPE_APPLICATION_CREATED",
+                        detail={
+                            "recipe_id": item.application.recipe_id,
+                            "recipe_revision": item.application.recipe_revision,
+                            "workspace_id": item.workspace.workspace_id,
+                        },
+                        actor=actor,
+                        occurred_at=item.application.created_at,
+                    )
+                self.foundation._set_pending_stage(
+                    connection,
+                    operation_id,
+                    "REGISTRY_COMMITTED",
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def _activate_production_registry(
         self,

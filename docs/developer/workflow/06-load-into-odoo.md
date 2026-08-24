@@ -19,13 +19,21 @@ It does not provide a generic Odoo client or whole-migration rollback.
 The current final-review report must be `READY`; its execution snapshot,
 preflight hash, mapping, target fingerprint, writable fields, and dependency
 order must still match. The target must be explicitly allowed for the practical
-rehearsal path and the actor must provide the required write credential.
+rehearsal path and the actor must provide or have already stored the required
+write-role credential.
 
 ## Implementation flow
 
 `execution.py` renders the preview, accepts the hash-bound confirmation, builds
 the scoped executor, invokes `ExecutionService.execute`, and exposes
 reconciliation and fallout routes.
+
+The route resolves only the exact target-bound `WRITE` vault entry. Target
+setup may have created that entry from the same operator-approved secret as the
+`READ` entry, but execution never substitutes the read role. If no write entry
+exists, the confirmation page requires a key approved for loading. Remote
+execution probes the selected key against the exact reviewed readable and
+writable model scope before writer construction.
 
 `ExecutionService` validates the workspace evidence and API scope, starts a durable run,
 records planned rows before transport, executes datasets in dependency order,

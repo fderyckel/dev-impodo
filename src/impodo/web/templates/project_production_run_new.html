@@ -30,7 +30,7 @@
     <form method="post" action="/projects/{{ project.project_id }}/production-runs/new" class="form-card">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="operation_id" value="{{ operation_id }}">
-      <input type="hidden" name="expected_project_revision" value="{{ project.optimistic_revision }}">
+      <input type="hidden" name="expected_workspace_revision" value="{{ project.optimistic_revision }}">
       <input type="hidden" name="cutover_selection_id" value="{{ selection.cutover_selection_id }}">
       <label>
         Production run name

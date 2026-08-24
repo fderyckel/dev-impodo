@@ -21,26 +21,38 @@ authority.
 
 ## Entry conditions
 
-The Project must own one accepted frozen Test DataVersion, at least one exact
-protected Recipe revision, and an Authoring workspace with a reviewed live
-Odoo 19 schema and any required supporting references. The current browser
-does not yet create that Test package.
+The Project must own at least one exact protected Recipe revision from an
+accepted Authoring DataVersion. The browser then creates a fresh draft Test
+DataVersion, Test MigrationRun, and shared setup MigrationWorkspace before it
+accepts source or target evidence.
 
 ## Implementation flow
 
 ### Browser entry
 
-`GET /projects/{project_id}/test-runs/new` reads bounded Project, DataVersion,
-Recipe, run, and workspace registry projections. The data manager selects an
-accepted Test DataVersion, an Authoring workspace containing reviewed live
-Odoo 19 evidence, exact Recipe revisions, and any explicit dependency edges.
+`GET /projects/{project_id}/test-runs/new` reads the Project and its bounded
+Recipe projection. The data manager selects exact Recipe revisions, any
+explicit dependency edges, and the newer delivery cutoff.
 
-`POST /projects/{project_id}/test-runs/new` resolves the target workspace under
-the same Project, verifies the current read-credential generation, and invokes
-`MigrationRunPlanningService.start_test_run`. The result redirects to
-`/projects/{project_id}/runs/{migration_run_id}`. The run page reads integrated
-status and all application issues from the registry; it does not open every
-application workspace.
+`POST /projects/{project_id}/test-runs/new` invokes
+`TestRunSetupService.start_setup`. One restart-safe operation creates the draft
+Test DataVersion, draft Test MigrationRun, shared setup MigrationWorkspace,
+source package, and `TestRunSetupBinding`. The binding pins exact Recipe
+semantic hashes and dependency order before the browser redirects to source
+upload.
+
+When the data manager saves the Test target, the target route reads the setup
+binding and preselects the union of models declared by the selected Recipe
+revisions. It does not call Odoo once per Recipe. The normal schema capture
+performs the bounded Odoo 19 metadata read.
+
+`GET` and `POST /projects/{project_id}/test-runs/{migration_run_id}/activate`
+review and activate the same run. Activation requires the frozen Test package,
+live target evidence from the shared setup workspace, and the current
+read-credential generation. `MigrationRunPlanningService.activate_test_run`
+then stores the run target and plan atomically and creates one isolated
+application workspace per selected Recipe. The integrated run page continues
+to read bounded registry status without opening every application workspace.
 
 ### Planning and collision checks
 
@@ -65,24 +77,27 @@ stores only supporting reference datasets named by the selected Recipes.
 only one application's requirements into its workspace and reject per-
 application recapture.
 
-The current flow reuses one already reviewed live Authoring snapshot. It
-makes no Odoo call per Recipe or source row. A later target refresh must remain
-a run-owned batch operation; it must not reintroduce workspace-owned target
-capture.
+The current flow captures one fresh live pre-production snapshot in the shared
+Test setup workspace. It makes no Odoo call per Recipe or source row. A later
+target refresh remains a run-owned batch operation and must not reintroduce
+application-workspace target capture.
 
 ## Evidence and state
 
 ### Provisioning and recovery
 
-One operation intent stores the canonical run, TargetBinding, requirement
-plan, target schema, reference bundle, applications, workspaces, requirements,
-and initial issues. One registry transaction creates all identities and
-advances the Project revision once. Workspace stores are created afterward;
-the intent remains pending until every compiler attempt is recorded.
+The setup operation uses deterministic child identities for the DataVersion,
+run, setup workspace, and selection binding. The later activation operation
+stores the TargetBinding, requirement plan, target schema, reference bundle,
+applications, application workspaces, requirements, and initial issues. One
+activation transaction advances the Project revision. Application workspace
+stores are created afterward; the activation intent remains pending until
+every compiler attempt is recorded.
 
-Replaying the same operation after a registry or store fault reconstructs the
-stored identities and does not add a run, target binding, application, or
-workspace. A changed request under the same operation ID fails closed.
+Replaying either operation after a registry or store fault reconstructs its
+stored identities and does not add a data version, run, target binding,
+application, or workspace. A changed request under the same operation ID
+fails closed.
 
 ### Fresh compiler boundary
 
@@ -130,21 +145,17 @@ queries. Per-application source projection and compiler writes are required
 because mutable state is isolated; Odoo calls, Project lookups, and source-row
 queries must not scale with Recipe count.
 
-### Current limitation
-
-The planner consumes an already accepted Test DataVersion. It does not add the browser
-intake workflow that assembles and accepts a new Test package. Documentation
-and UI must disclose that prerequisite rather than suggest that the Authoring
-sample is valid Test evidence.
-
 ## Code references
 
 | Role | Code |
 | --- | --- |
 | Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/migration_run_planning.py) |
+| Test setup binding | [`migration_test.py`](../../../src/impodo/migration_test.py) |
+| Test setup coordinator | [`TestRunSetupService`](../../../src/impodo/application/test_run_setup_service.py) |
 | Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/migration_run_planning_service.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
+| Test setup persistence | [`TestRunRepository`](../../../src/impodo/adapters/duckdb/test_run_repository.py) |
 | Run-owned schema projection | [`RunAwareSchemaRepository`](../../../src/impodo/adapters/duckdb/run_aware_schema_repository.py) |
 | Run-owned reference projection | [`RunAwareAdvancedCoverageRepository`](../../../src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py) |
 | Browser routes | [`integrated_runs.py`](../../../src/impodo/web/routers/integrated_runs.py) |

@@ -1651,6 +1651,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         target_form = self.client.get(f"/workspaces/{workspace_id}/target")
         self.assertIn('name="read_api_key"', target_form.text)
         self.assertIn('name="read_api_key_storage"', target_form.text)
+        self.assertIn('name="keep_api_key_for_loading"', target_form.text)
+        self.assertIn("Use this key for checking and loading", target_form.text)
         self.assertIn('value="vault"', target_form.text)
         self.assertIn("Not available", target_form.text)
         self.assertNotIn('name="write_api_key"', target_form.text)
@@ -1687,7 +1689,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Checked during this Impodo session.", result.text)
         self.assertIn("Available this session", result.text)
         self.assertIn("Impodo will forget this key when Impodo closes.", result.text)
-        self.assertIn("Forget this key", result.text)
+        self.assertIn("Forget checking key", result.text)
         self.assertIn(">Check again</button>", result.text)
         self.assertRegex(result.text, r"data-local-stack-entry\s+hidden")
         self.assertNotIn("remote-secret-key", result.text)
@@ -1757,6 +1759,143 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('window.location.hash === "#remote-connection-status"', script.text)
         styles = self.client.get("/static/app.css")
         self.assertIn("[data-local-stack-entry][hidden]", styles.text)
+
+    def test_stage_two_can_keep_the_checking_key_for_loading(self) -> None:
+        context = self.app.state.context
+        created = _create_workspace(
+            context,
+            name="One approved Odoo key",
+            source_system="Other",
+        )
+        now = datetime.now(timezone.utc)
+        workspace_state = replace(
+            created,
+            status=WorkspaceStatus.REGISTERED,
+            revision=created.revision + 1,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.workspace_states.repository.save(
+            workspace_state,
+            expected_revision=created.revision,
+            event_type="WORKSPACE_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+        workspace_id = workspace_state.workspace_id
+
+        tested = self.client.post(
+            f"/workspaces/{workspace_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(workspace_state.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://edu-ucaps.odoo.com",
+                "odoo_database": "edu-ucaps",
+                "read_api_key": "approved-check-and-load-key",
+                "read_api_key_storage": "vault",
+                "keep_api_key_for_loading": "1",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(tested.status_code, 303, tested.text)
+        workspace_state = self.app.state.context.workspace_states.repository.get(
+            workspace_id
+        )
+        read_credential = get_target_credential(
+            self.secrets,
+            workspace_state,
+            TargetCredentialRole.READ,
+        )
+        write_credential = get_target_credential(
+            self.secrets,
+            workspace_state,
+            TargetCredentialRole.WRITE,
+        )
+        assert read_credential is not None
+        assert write_credential is not None
+        self.assertEqual(read_credential.secret, "approved-check-and-load-key")
+        self.assertEqual(write_credential.secret, "approved-check-and-load-key")
+        self.assertTrue(read_credential.persistent)
+        self.assertTrue(write_credential.persistent)
+        repository = self.app.state.context.workspace_states.repository
+        self.assertTrue(
+            repository.has_audit_event(
+                workspace_id,
+                "ODOO_READ_CREDENTIAL_STORED",
+            )
+        )
+        self.assertTrue(
+            repository.has_audit_event(
+                workspace_id,
+                "ODOO_WRITE_CREDENTIAL_STORED",
+            )
+        )
+
+        status_page = self.client.get(tested.headers["location"])
+        self.assertIn("Checking key: Saved on this computer", status_page.text)
+        self.assertIn(
+            "Loading key:</strong> Saved on this computer",
+            status_page.text,
+        )
+        self.assertIn(
+            "Stage 6 without asking you to enter it again",
+            status_page.text,
+        )
+        self.assertIn("Forget loading key", status_page.text)
+        self.assertNotIn("approved-check-and-load-key", status_page.text)
+
+        forgotten = self.client.post(
+            f"/workspaces/{workspace_id}/target/write-credential/delete",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(forgotten.status_code, 303)
+        self.assertIsNone(
+            get_target_credential(
+                self.secrets,
+                workspace_state,
+                TargetCredentialRole.WRITE,
+            )
+        )
+        self.assertIsNotNone(
+            get_target_credential(
+                self.secrets,
+                workspace_state,
+                TargetCredentialRole.READ,
+            )
+        )
+        forgotten_page = self.client.get(forgotten.headers["location"])
+        self.assertIn("The Odoo loading key was forgotten.", forgotten_page.text)
+
+        kept_again = self.client.post(
+            f"/workspaces/{workspace_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(workspace_state.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://edu-ucaps.odoo.com",
+                "odoo_database": "edu-ucaps",
+                "keep_api_key_for_loading": "1",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(kept_again.status_code, 303, kept_again.text)
+        current = self.app.state.context.workspace_states.repository.get(workspace_id)
+        restored_write = get_target_credential(
+            self.secrets,
+            current,
+            TargetCredentialRole.WRITE,
+        )
+        assert restored_write is not None
+        self.assertEqual(restored_write.secret, "approved-check-and-load-key")
+        self.assertTrue(restored_write.persistent)
 
     def test_summary_reconnects_missing_remote_key_without_losing_schema(
         self,
@@ -5039,7 +5178,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Advanced settings", confirmation_page.text)
         self.assertIn('name="write_api_key"', confirmation_page.text)
         self.assertIn('name="remember_write_api_key"', confirmation_page.text)
-        self.assertIn("setup read key is never reused here", confirmation_page.text)
+        self.assertIn("checking-only key is not reused here", confirmation_page.text)
 
         class FakeWriteExecutor:
             target_hash = load_preview.snapshot.target_hash
@@ -5157,7 +5296,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             headers=POST_HEADERS,
         )
         self.assertEqual(missing_write_key.status_code, 422)
-        self.assertIn("Enter a separate Odoo write API key", missing_write_key.text)
+        self.assertIn("Enter an Odoo API key approved for loading", missing_write_key.text)
         self.assertIn("Confirm the Odoo load", missing_write_key.text)
         self.assertEqual(write_factory_keys, [])
         self.assertEqual(readback_factory_keys, [])

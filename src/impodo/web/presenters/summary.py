@@ -76,6 +76,11 @@ def _render_target(
             workspace_state,
             TargetCredentialRole.READ,
         ),
+        write_credential_status=get_target_credential_status(
+            context.secret_store,
+            workspace_state,
+            TargetCredentialRole.WRITE,
+        ),
         local_stack_auto_open=open_local_stack,
         local_stack_dialog_error=None,
         local_stack_support_error=None,
@@ -667,4 +672,3 @@ def _require_local_stack_stop(
             status_code=403,
             detail="Not authorized to stop the local Odoo stack",
         ) from error
-

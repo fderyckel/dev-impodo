@@ -39,6 +39,7 @@ from ..application.migration_run_planning_service import (
 )
 from ..application.cutover_plan_service import CutoverPlanService
 from ..application.production_cutover_service import ProductionCutoverService
+from ..application.test_run_setup_service import TestRunSetupService
 from ..application.recipe_publication_service import RecipePublicationService
 from ..application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
@@ -143,6 +144,7 @@ class WebContext:
     recipe_publication: RecipePublicationService
     run_planning: MigrationRunPlanningService
     cutover_plans: CutoverPlanService
+    test_runs: TestRunSetupService
     production_runs: ProductionCutoverService
     data_version_source_projection: WorkspaceDataVersionSourceService
     workspace_states: WorkspaceStateService

@@ -13,7 +13,7 @@
     <p>
       This check confirms the address, database, Odoo 19 version, and read-only access. It does not discover models or fields, and nothing can be changed in Odoo.
       {% if is_odoo_source %}Impodo currently prepares updates for records in this same Odoo database. Moving records between two Odoo databases is not available yet.{% else %}Model and field discovery starts on the next screen and is reused instead of repeated unnecessarily.{% endif %}
-      {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% elif is_recipe_production %}Enter the current Production endpoint, database, and read-only API key. Test access is never reused, and the later write key is established separately at load confirmation.{% endif %}
+      {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% elif is_recipe_production %}Enter the current Production endpoint, database, and checking key. Test access is never reused, and Production requires a separate limited write key.{% endif %}
     </p>
     <section
       id="read-credential-status"
@@ -24,16 +24,25 @@
       aria-labelledby="read-credential-status-title"
     >
       <div>
-        <p class="eyebrow">Read-only key</p>
-        <h2 id="read-credential-status-title">{{ read_credential_status.label }}</h2>
+        <p class="eyebrow">Saved Odoo access</p>
+        <h2 id="read-credential-status-title">Checking key: {{ read_credential_status.label }}</h2>
         <p>{{ read_credential_status.guidance }}</p>
+        <p><strong>Loading key:</strong> {{ write_credential_status.label }}. {% if write_credential_status.available %}Impodo can use it at Stage 6 without asking you to enter it again.{% elif is_recipe_production %}Production requires a separate limited write key.{% else %}Choose the option below if the checking key is also approved for loading.{% endif %}</p>
       </div>
-      {% if read_credential_status.available %}
-        <form method="post" action="/workspaces/{{ workspace_id }}/target/read-credential/delete">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button secondary" type="submit">Forget this key</button>
-        </form>
-      {% endif %}
+      <div class="actions">
+        {% if read_credential_status.available %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/target/read-credential/delete">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary" type="submit">Forget checking key</button>
+          </form>
+        {% endif %}
+        {% if write_credential_status.available %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/target/write-credential/delete">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary" type="submit">Forget loading key</button>
+          </form>
+        {% endif %}
+      </div>
     </section>
     <form
       method="post"
@@ -89,9 +98,9 @@
         </label>
         <label data-api-key-entry data-show-local="{{ 'true' if workspace_state.source_mode.value == 'ODOO' else 'false' }}"
           {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "LOCAL" and workspace_state.source_mode.value != "ODOO" %}hidden{% endif %}>
-          {% if read_credential_status.available %}Replace the read-only Odoo API key{% else %}Read-only Odoo API key from your administrator{% endif %}
+          {% if read_credential_status.available %}Replace the Odoo checking API key{% else %}Odoo API key from your administrator{% endif %}
           <input type="password" name="read_api_key" autocomplete="off">
-          <small>{% if is_odoo_source %}Required to read and freeze the selected Odoo source records.{% else %}Used only for destination checks, metadata, and preflight reads.{% endif %} It is never used to load data and is not placed in the project data.</small>
+          <small>{% if is_odoo_source %}Impodo uses this key to read and freeze the selected Odoo source records.{% else %}Impodo uses this key for destination checks, metadata, and Final review.{% endif %} It is not placed in the project data.</small>
         </label>
       </div>
       <fieldset class="credential-storage-choice" data-api-key-entry data-show-local="{{ 'true' if workspace_state.source_mode.value == 'ODOO' else 'false' }}"
@@ -116,6 +125,20 @@
           </label>
         </div>
       </fieldset>
+
+      {% if not is_recipe_production %}
+        <fieldset class="credential-storage-choice" data-api-key-entry data-show-local="{{ 'true' if workspace_state.source_mode.value == 'ODOO' else 'false' }}"
+          {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "LOCAL" and workspace_state.source_mode.value != "ODOO" %}hidden{% endif %}>
+          <legend>Should Impodo also keep this key for loading?</legend>
+          <label class="checkbox-row">
+            <input type="checkbox" name="keep_api_key_for_loading" value="1">
+            <span>
+              <strong>Use this key for checking and loading</strong>
+              <small>Choose this only when the same Odoo account is approved to write. Impodo keeps separate checking and loading entries for this exact target. Stage 6 verifies the required write access and still asks you to confirm the load.</small>
+            </span>
+          </label>
+        </fieldset>
+      {% endif %}
 
       <section
         id="remote-connection-status"

@@ -163,6 +163,7 @@ class RecipeRepository:
                 "A first Recipe publication has no existing Recipe revision"
             )
 
+        semantic_hash = content_hash(compiled_recipe)
         with self.database.connect(self.foundation.registry_path) as connection:
             version = self._validate_publication_context(
                 connection,
@@ -172,6 +173,14 @@ class RecipeRepository:
                 recipe_id=recipe_id,
                 expected_recipe_revision=expected_recipe_revision,
             )
+            if recipe_id is not None:
+                existing = connection.execute(
+                    "SELECT version FROM recipe_revision "
+                    "WHERE recipe_id = ? AND semantic_hash = ?",
+                    [recipe_id, semantic_hash],
+                ).fetchone()
+                if existing is not None:
+                    return self._publication(recipe_id, int(existing[0]))
 
         proposed_recipe_id = recipe_id or str(uuid4())
         published_at = utc_now()
@@ -201,7 +210,6 @@ class RecipeRepository:
         stored_published_at = datetime.fromisoformat(
             str(intent.detail["published_at"])
         )
-        semantic_hash = content_hash(compiled_recipe)
         provenance = {
             **dict(compilation_provenance),
             "compiled_at": stored_published_at.isoformat(),

@@ -35,6 +35,15 @@ key governance. `SchemaWorkspaceService` coordinates these operations through
 separate ports for the model catalogue, schema catalogue, source selection,
 and mapping invalidation.
 
+For a non-Production target, the connection form can explicitly keep the same
+submitted or already stored secret for later loading. `target.py` writes two
+target-bound vault envelopes with distinct `READ` and `WRITE` roles and audits
+both credential generations. The option grants no write operation and performs
+no speculative write call. Stage 6 probes the saved `WRITE` role against the
+exact reviewed execution scope before constructing a writer. Production setup
+does not expose this option and continues to require a separate limited write
+key.
+
 The first capture publishes the selected target schema. A later **Check for
 Odoo changes** builds and validates a candidate before publication. The
 service compares its semantic fingerprint with the current catalogue:

@@ -195,7 +195,7 @@
         <label>
           Odoo write API key
           <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
-          <small>{% if has_stored_write_key %}A saved write key is available; leave this empty to use it.{% else %}Enter the separate write key for loading and verification on this exact target. The setup read key is never reused here.{% endif %}</small>
+          <small>{% if has_stored_write_key %}A saved loading key is available; leave this empty to use it.{% else %}Enter an Odoo key approved for loading and verification on this exact target. A checking-only key is not reused here.{% endif %}</small>
         </label>
         <label class="checkbox">
           <input type="checkbox" name="remember_write_api_key">
@@ -302,7 +302,7 @@
           <label>
             Odoo write API key
             <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
-            <small>{% if has_stored_write_key %}Leave empty to use the saved write key.{% else %}Enter the separate write key used for loading and verification; the setup read key is never reused here.{% endif %}</small>
+            <small>{% if has_stored_write_key %}Leave empty to use the saved loading key.{% else %}Enter an Odoo key approved for loading and verification; a checking-only key is not reused here.{% endif %}</small>
           </label>
           <label class="checkbox">
             <input type="checkbox" name="remember_write_api_key">
