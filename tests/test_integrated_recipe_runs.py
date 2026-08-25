@@ -61,6 +61,7 @@ from impodo.application.test_run_setup_service import (
     FreshDataRecipeRequirement,
     TestRunSetupService,
 )
+from impodo.connectors import MetadataSnapshot
 from impodo.data_version_sources import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
@@ -112,9 +113,21 @@ from impodo.migration_run_planning import (
 )
 from impodo.migration_runs import MigrationRunService
 from impodo.migration_workspaces import MigrationWorkspaceService
+from impodo.models import (
+    FieldMetadata,
+    ModelMetadata,
+    OdooReadIdentity,
+    TargetFingerprint,
+    target_identity_hash,
+)
 from impodo.recipes import RecipeService
 from impodo.secrets import MemorySecretStore
 from impodo.web.app import create_local_app
+from impodo.web.run_review import build_integrated_run_review
+from impodo.web.target_credentials import (
+    TargetCredentialRole,
+    store_target_credential,
+)
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -325,6 +338,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertEqual(name.source_column_key, "current:name")
         self.assertTrue(name.transform.trim)
         self.assertTrue(name.transform.collapse_whitespace)
+        self.assertEqual(datasets[0].approved_write_fields, ())
         self.assertEqual(
             {item.code for item in compiler._quality_issues(definition)},
             {"RECIPE_QUALITY_SCOPE_REVIEW_REQUIRED"},
@@ -332,10 +346,17 @@ class RecipeApplicationServiceTests(unittest.TestCase):
 
         class MappingState:
             draft = None
+            revision = None
+            validation = None
+            submission = None
 
             def get_mapping_revision(self, workspace_id):
                 del workspace_id
-                return None
+                return self.revision
+
+            def list_mapping_revisions(self, workspace_id):
+                del workspace_id
+                return (self.revision,) if self.revision is not None else ()
 
             def get_mapping_working_draft(self, workspace_id):
                 del workspace_id
@@ -351,6 +372,56 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             ):
                 del workspace_id, expected_version, actor
                 self.draft = draft
+
+            def save_mapping_revision(
+                self,
+                workspace_id,
+                revision,
+                *,
+                validation,
+                expected_parent_version,
+                expected_working_draft_version,
+                checked_draft,
+                actor,
+            ):
+                del (
+                    workspace_id,
+                    expected_parent_version,
+                    expected_working_draft_version,
+                    actor,
+                )
+                self.revision = revision
+                self.validation = validation
+                self.draft = checked_draft
+
+            def save_mapping_validation(
+                self,
+                workspace_id,
+                version,
+                validation,
+                *,
+                actor,
+            ):
+                del workspace_id, version, actor
+                self.validation = validation
+
+            def get_mapping_validation(self, workspace_id, version):
+                del workspace_id, version
+                return self.validation
+
+            def get_mapping_submission(self, workspace_id, version):
+                del workspace_id, version
+                return self.submission
+
+            def save_mapping_submission(
+                self,
+                workspace_id,
+                submission,
+                *,
+                actor,
+            ):
+                del workspace_id, actor
+                self.submission = submission
 
         governance_state = {"value": None}
 
@@ -384,7 +455,12 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             schemas,
             mapping_state,
             workspace_access_service(),
-            categorical_coverage=SimpleNamespace(),
+            categorical_coverage=SimpleNamespace(
+                collect=lambda *args: SimpleNamespace(
+                    issues=(),
+                    evidence=SimpleNamespace(to_dict=lambda: {}),
+                )
+            ),
         )
         quality_seed = {}
         materializing_compiler = RecipeApplicationService(
@@ -426,6 +502,25 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             {item.code for item in materialized.issues},
         )
         self.assertIsNotNone(mapping_state.draft)
+
+        definition["quality"]["rules"] = []
+        definition["mapping"]["datasets"][0]["relationships"] = []
+        definition["mapping"]["datasets"][0]["source_identity_column_ids"] = [
+            "column:customers.customer_code"
+        ]
+        ready = materializing_compiler.materialize(
+            workspace_id,
+            application_id=str(uuid4()),
+            recipe_id=str(uuid4()),
+            data_version_id=controls.data_version_id,
+            definition=definition,
+            assessment=assessment,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(ready.status, RecipeApplicationStatus.READY, ready.issues)
+        self.assertIsNotNone(mapping_state.revision)
+        self.assertIsNotNone(mapping_state.submission)
 
 
 class FreshDataRecipeMatchingTests(unittest.TestCase):
@@ -1688,6 +1783,62 @@ class IntegratedRecipeRunTests(unittest.TestCase):
         self.assertTrue(opened)
         self.assertTrue(all(path == self.foundation.registry_path for path in opened))
 
+    def test_review_projection_orders_recipes_without_workspace_open(self):
+        result = self._start()
+        opened = []
+        original = self.database.connect
+
+        def counted(path):
+            opened.append(path)
+            return original(path)
+
+        self.database.connect = counted
+        recipes = {
+            self.customer.recipe.recipe_id: self.customer.recipe,
+            self.product.recipe.recipe_id: self.product.recipe,
+        }
+        view = build_integrated_run_review(
+            SimpleNamespace(preparation_jobs=None, load_jobs=None),
+            result,
+            recipes=recipes,
+            issues={item.application_id: () for item in result.applications},
+        )
+
+        self.assertEqual(opened, [])
+        self.assertEqual(
+            tuple(card.recipe_name for card in view.cards),
+            ("Customers", "Product and BOM"),
+        )
+        self.assertEqual(
+            tuple(card.state for card in view.cards),
+            ("READY_TO_PREPARE", "WAITING"),
+        )
+
+    def test_failed_application_remains_the_next_recoverable_recipe(self):
+        result = self._start()
+        first = next(
+            item
+            for item in result.applications
+            if item.recipe_id == result.requirement_plan.application_order[0]
+        )
+        running = self.planning_repository.transition_application_status(
+            first.application_id,
+            expected_statuses=(RecipeApplicationStatus.READY,),
+            status=RecipeApplicationStatus.RUNNING,
+            actor=LOCAL_ACTOR,
+        )
+        failed = self.planning_repository.transition_application_status(
+            first.application_id,
+            expected_statuses=(running.status,),
+            status=RecipeApplicationStatus.FAILED,
+            actor=LOCAL_ACTOR,
+        )
+
+        progress = self.planning_repository.progress(result.run.migration_run_id)
+
+        self.assertEqual(failed.status, RecipeApplicationStatus.FAILED)
+        self.assertEqual(progress.next_application_id, first.application_id)
+
 
 class IntegratedRecipeRunBrowserTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -1895,6 +2046,12 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         )
         setup_location = setup.headers["location"]
         setup_run_id = setup_location.split("/")[4]
+        self.assertEqual(
+            self.client.get(
+                f"/projects/{project_id}/test-runs/{setup_run_id}/activate"
+            ).status_code,
+            404,
+        )
 
         fresh_data = self.client.get(setup_location)
         self.assertEqual(fresh_data.status_code, 200)
@@ -2087,6 +2244,98 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertIn("Check this Odoo", odoo_page.text)
         self.assertNotIn("Choose the Odoo data you need", odoo_page.text)
         self.assertNotIn("data-model-picker", odoo_page.text)
+
+        check_operation_id = re.search(
+            r'name="operation_id" value="([^"]+)"',
+            odoo_page.text,
+        ).group(1)
+        check_project_revision = re.search(
+            r'name="expected_workspace_revision" value="([^"]+)"',
+            odoo_page.text,
+        ).group(1)
+        missing_reader = self.client.post(
+            f"/projects/{project_id}/test-runs/{setup_run_id}/odoo/check",
+            data={
+                "csrf_token": fresh_csrf,
+                "expected_workspace_revision": check_project_revision,
+                "operation_id": check_operation_id,
+            },
+            headers={"Origin": "http://testserver"},
+        )
+        self.assertEqual(missing_reader.status_code, 422)
+        self.assertIn(
+            f'name="operation_id" value="{check_operation_id}"',
+            missing_reader.text,
+        )
+        setup_state = context.workspace_states.repository.get(setup_workspace_id)
+        credential = store_target_credential(
+            context.secret_store,
+            setup_state,
+            TargetCredentialRole.READ,
+            "test-read-key",
+            persistent=False,
+        )
+        target_hash = target_identity_hash(
+            connection_mode="REMOTE",
+            base_url=setup_state.odoo_base_url,
+            database=setup_state.odoo_database,
+        )
+        fingerprint = TargetFingerprint(
+            target_hash=target_hash,
+            connection_mode="REMOTE",
+            database=setup_state.odoo_database,
+            odoo_version="19.0",
+            snapshot_timestamp="2026-08-25T00:00:00Z",
+        )
+        context.schema_reader = lambda _state, _secret: MetadataSnapshot(
+            fingerprint=fingerprint,
+            models={
+                "res.partner": ModelMetadata(
+                    "res.partner",
+                    "Contacts",
+                    {
+                        "email": FieldMetadata("email", "char", label="Email"),
+                        "name": FieldMetadata("name", "char", label="Name"),
+                    },
+                )
+            },
+        )
+        context.read_identity_probe = lambda _state, secret, models: (
+            OdooReadIdentity(
+                target_hash=target_hash,
+                principal_hash=content_hash("test-reader"),
+                permission_hash=content_hash(tuple(sorted(models))),
+                context_hash=content_hash("test-context"),
+                readable_models=tuple(sorted(models)),
+                observed_at="2026-08-25T00:00:00Z",
+            )
+        )
+        activated_result = SimpleNamespace(applications=(SimpleNamespace(),))
+        with patch.object(
+            context.test_runs,
+            "activate",
+            return_value=activated_result,
+        ) as activate:
+            checked = self.client.post(
+                f"/projects/{project_id}/test-runs/{setup_run_id}/odoo/check",
+                data={
+                    "csrf_token": fresh_csrf,
+                    "expected_workspace_revision": check_project_revision,
+                    "operation_id": check_operation_id,
+                },
+                headers={"Origin": "http://testserver"},
+                follow_redirects=False,
+            )
+        self.assertEqual(checked.status_code, 303, checked.text)
+        self.assertEqual(
+            checked.headers["location"],
+            f"/projects/{project_id}/runs/{setup_run_id}",
+        )
+        activate.assert_called_once()
+        self.assertEqual(
+            activate.call_args.kwargs["credential_generation"],
+            credential.binding_hash,
+        )
 
         copied_setup_url = self.client.get(
             f"/workspaces/{setup_workspace_id}/schema",

@@ -2579,7 +2579,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             patch.object(
                 type(context.reconciliation),
                 "reconcile",
-                return_value=SimpleNamespace(),
+                return_value=SimpleNamespace(
+                    unknown_count=0,
+                    fallout_count=0,
+                ),
             ),
             patch.object(
                 type(context.cutover_plans),

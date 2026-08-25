@@ -13,38 +13,46 @@ See ``docs/architecture/python-code-map.md`` and
 """
 
 from __future__ import annotations
+
 from collections.abc import Iterator
-from fastapi import HTTPException, Request
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
+
 from ...access import Capability
-from ...artifacts import ArtifactStoreError
-from ...connectors import ConnectorError
-from ...workspace_state import OdooConnectionMode, WorkspaceStateError
-from ...domain.errors import ReadinessError
-from ...application.preflight_service import MANIFEST_NAME
 from ...application.odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
     classify_odoo_read_failure,
 )
+from ...application.preflight_service import MANIFEST_NAME
+from ...artifacts import ArtifactStoreError
+from ...connectors import ConnectorError
+from ...domain.errors import ReadinessError
+from ...migration_foundation import MigrationFoundationError
+from ...migration_runs import MigrationRunPurpose
 from ...reporting import (
     ReportGenerationError,
     WORKBOOK_NAME,
     write_review_workbook,
 )
 from ...secrets import SecretStoreError
-from ...workspace_errors import WorkspaceDatabaseBusyError, WorkspaceError
 from ...workspace_access import (
     WorkspaceAccessContext,
     bind_workspace_access_context,
 )
-from ..security import require_session
-from fastapi import APIRouter
+from ...workspace_errors import WorkspaceDatabaseBusyError, WorkspaceError
+from ...workspace_state import OdooConnectionMode, WorkspaceStateError
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.summary import _render_summary
+from ..run_review import (
+    publish_compared_application,
+    publish_reconciled_application,
+)
+from ..security import require_session
 from ..target_readers import (
     LocalOdooRecoveryRequired,
     _read_readiness_snapshots,
@@ -151,6 +159,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         workspace_state = context.queries.get(workspace_id)
         credential_owner = context.target_credential_workspace(workspace_id)
         verified_read_identity = None
+        completed_without_load = False
 
         def reader(requirements):
             return _read_readiness_snapshots(
@@ -161,7 +170,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
 
         try:
-            context.workspace_access.resolve(
+            access_context = context.workspace_access.resolve(
                 workspace_id,
                 actor=context.actor,
                 capability=Capability.PREFLIGHT_RUN,
@@ -207,6 +216,50 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 reader=reader,
                 actor=context.actor,
             )
+            preview = context.execution.current_preview(workspace_id)
+            run = context.migration_runs.get(
+                access_context.migration_run_id,
+                actor=context.actor,
+            )
+            if access_context.recipe_application_id is not None:
+                await run_in_threadpool(
+                    publish_compared_application,
+                    context,
+                    access_context.recipe_application_id,
+                    access_context.migration_run_id,
+                )
+            if (
+                access_context.recipe_application_id is not None
+                and run.purpose is MigrationRunPurpose.TEST
+                and preview is not None
+                and preview.can_complete_without_load
+            ):
+                completed = await run_in_threadpool(
+                    context.execution.complete_no_changes,
+                    workspace_id,
+                    expected_snapshot_hash=preview.snapshot.semantic_hash,
+                    actor=context.actor,
+                )
+                readback = context.readback_reader_factory(
+                    workspace_state,
+                    credential.secret if credential is not None else "",
+                    preview.api_scope,
+                )
+                verification = await run_in_threadpool(
+                    context.reconciliation.reconcile,
+                    workspace_id,
+                    expected_execution_run_id=completed.run_id,
+                    reader=readback,
+                    actor=context.actor,
+                )
+                if not verification.unknown_count and not verification.fallout_count:
+                    await run_in_threadpool(
+                        publish_reconciled_application,
+                        context,
+                        access_context.recipe_application_id,
+                        access_context.migration_run_id,
+                    )
+                    completed_without_load = True
         except LocalOdooRecoveryRequired as error:
             return _render_summary(
                 request,
@@ -223,6 +276,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         except (
             ArtifactStoreError,
             ConnectorError,
+            MigrationFoundationError,
             WorkspaceStateError,
             ReadinessError,
             SecretStoreError,
@@ -235,6 +289,16 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 comparison_failure=classify_odoo_read_failure(error),
                 status_code=422,
+            )
+        if completed_without_load:
+            _flash(
+                request,
+                "Odoo already matches this Recipe. No load confirmation was needed.",
+            )
+            return RedirectResponse(
+                f"/projects/{access_context.project_id}/runs/"
+                f"{access_context.migration_run_id}",
+                status_code=303,
             )
         _flash(request, "Prepared data compared with Odoo. Nothing was changed.")
         return RedirectResponse(

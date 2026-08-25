@@ -219,6 +219,7 @@ from .routers.sources import build_sources_router
 from .routers.summary import build_summary_router
 from .routers.target import build_target_router
 from .remote_connection import RemoteConnectionStatusService
+from .run_review import publish_load_progress, publish_preparation_progress
 from .security import (
     BuildConsistencyMiddleware,
     LoopbackSecurityMiddleware,
@@ -740,6 +741,14 @@ def create_local_app(
         ),
         remote_connections=RemoteConnectionStatusService(),
     )
+    if preparation_jobs is not None:
+        preparation_jobs.set_status_listener(
+            lambda job: publish_preparation_progress(context, job)
+        )
+    if load_jobs is not None:
+        load_jobs.set_status_listener(
+            lambda job: publish_load_progress(context, job)
+        )
 
     package_dir = Path(__file__).resolve().parent
     templates = Jinja2Templates(directory=package_dir / "templates")

@@ -104,6 +104,10 @@ class PreparationJobRegistryTests(unittest.TestCase):
         self.assertTrue(retry_created)
         self.assertEqual(retry.attempt, 2)
         self.assertNotEqual(retry.job_id, queued.job_id)
+        self.assertEqual(
+            self.registry.latest_many((self.workspace_id,))[self.workspace_id],
+            retry,
+        )
 
     def test_terminal_job_cannot_be_reopened_and_state_is_session_scoped(self) -> None:
         queued, _created = self.registry.enqueue(

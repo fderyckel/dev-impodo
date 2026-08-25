@@ -30,11 +30,28 @@ cannot recapture, rebind, or publish independent run target evidence.
 
 Before target capture, the Test setup bulk-reads the exact selected Recipe
 revisions and derives one read-only browser projection of required Odoo
-models, fields, and supporting-list names. This projection cannot be replaced
-through the setup model-scope form. The run-owned **Check Odoo** route and a
-copied setup schema URL resolve to the same shared setup evidence. Ordinary
-Authoring workspaces remain outside this rule and retain editable model
-selection.
+models, fields, and Recipe-owned relationship paths. Portable reference tables
+remain separate Recipe dependencies. This projection cannot be replaced
+through the setup model-scope or generic schema-capture forms. The run-owned
+**Check Odoo** route and a copied setup schema URL resolve to the same shared
+setup evidence. Ordinary Authoring workspaces remain outside this rule and
+retain editable model selection.
+
+**Check this Odoo** is one operation. It captures or compares the unioned Odoo
+19 schema, reads all authorized related value sets in one model-and-field
+batch, assesses the exact Recipe revisions, and activates the Test run when
+the assessment succeeds. Each related model request is limited to 2,001 rows;
+more than 2,000 values fails closed. The captured supporting choices contain
+portable business keys and labels, never Odoo numeric IDs or credentials.
+Target, principal, permission, access-context, Recipe, and completeness
+mismatches fail before activation.
+
+A changed schema remains a pending candidate until the data manager confirms
+that replacing the current details may retire dependent work. A recoverable
+failure retains the submitted activation operation ID. Browser Back, refresh,
+or retry therefore cannot create a second set of Recipe work areas. The former
+Test activation page and routes do not remain as a second decision or write
+path.
 
 The Test DataVersion owns the complete immutable source package. Each
 application workspace stores only its selected logical dataset and snapshot
@@ -82,7 +99,7 @@ content hash, stable actor identity, timestamp, and audit event. The repository
 checks the setup ID, Project, run, and editable setup state in the same write
 transaction. Accepted answers cannot change after the Test DataVersion is
 frozen; an older frozen Test delivery may add a missing answer record once.
-Activation reads the record once and validates it again against
+The combined Odoo check reads the record once and validates it again against
 the exact protected Recipe revisions. Changing these answers never changes a
 Recipe revision, Authoring evidence, source snapshot, target snapshot, or
 application workspace.
@@ -114,7 +131,14 @@ DataVersion, run, run target, Recipe revision, selected source datasets,
 requirements, and dependency position.
 
 The application compiler creates fresh governance, preparation, mapping, and
-quality evidence in that workspace. It may translate a portable text
+quality evidence in that workspace. A clean fresh mapping is checked and
+submitted through the normal mapping service before the application becomes
+`READY`; automatic preparation never runs from an unchecked draft. A new
+validation warning or invalid mapping blocks automatic submission and remains
+an application issue. File-based Recipe applications do not inherit the
+separate approved-field flag used only for protected captured-Odoo updates.
+The run target contract continues to own the fields a Recipe may write. The
+compiler may translate a portable text
 normalization into the normal scalar mapping transformation, but it must not
 copy authoring mappings, current pointers, approvals, journals, credentials,
 or source columns.
@@ -135,6 +159,15 @@ applications. The run is `READY` only when every application is `READY`.
 Opening the run page must not open every application workspace or call Odoo
 once per Recipe.
 
+Preparation and load workers publish only coarse application milestones to
+that registry: running, prepared, compared, executed, and reconciled. Detailed
+rows, comparisons, journals, and reconciliation remain in the isolated
+workspace. Active progress comes from one latest in-memory snapshot per
+requested workspace, collected in one pass. A restart may remove the live job
+snapshot, but the registry milestone and workspace evidence retain the safe
+recovery point. A failed preparation remains the next recoverable application;
+it does not unlock a dependent Recipe.
+
 ## Browser journey boundary
 
 Canonical workspace ownership determines the browser journey. An Authoring
@@ -151,6 +184,22 @@ shared Odoo refresh remains in the setup workspace, and application evidence
 remains in its isolated workspace. Fresh file matching and acceptance stay on
 the run-owned page. This compatibility seam must not create a second semantic
 implementation or retain an obsolete application-specific Authoring path.
+
+`GET /projects/{project_id}/runs/{migration_run_id}` is the canonical
+**Review and load** page. It presents applications in the saved dependency
+order and exposes one current action. A successful Test activation and a
+verified application may enqueue only the first unresolved compatible
+application. Downstream application entry fails closed until every earlier
+application is reconciled. `GET .../status` reads registry records and job
+snapshots only; it never opens an application workspace.
+
+Automatic work ends at preparation. **Check changes** remains a read-only
+comparison, **Confirm and load** remains an explicit data-manager decision,
+and **Verify result** remains required before the next dependent Recipe can
+start. An empty, unblocked comparison may journal a completed zero-row result
+without constructing or calling an Odoo writer. It becomes reconciled only
+after the unchanged snapshot, target, and empty execution journal match. No
+page view or polling request may confirm or repeat an Odoo write.
 
 `GET /projects/{project_id}/test-runs/{migration_run_id}/fresh-data` is the
 canonical Test source entry. Run-owned forms may add or remove files only

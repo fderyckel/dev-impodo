@@ -1,104 +1,144 @@
 {% extends "base.html" %}
 {% block title %}{{ bundle.run.label }} · Impodo{% endblock %}
 {% block content %}
-  {% from "_concept_help.html" import concept_help_link, concept_help_dialog with context %}
-  <div class="page-heading">
-    <div>
-      <p class="eyebrow">
-        {{ project.display_name }} ·
-        {% if bundle.run.purpose.value == 'PRODUCTION' %}Production rollout{% else %}Integrated Test{% endif %}
-      </p>
-      <h1>{{ bundle.run.label }}</h1>
-      <p>{{ progress.total_applications }} separate Recipe work area{% if progress.total_applications != 1 %}s{% endif %} use one accepted data version and one reviewed Odoo target.</p>
-    </div>
-    <span class="status {% if bundle.run.state.value == 'READY' %}registered{% else %}draft{% endif %}">{% if bundle.run.state.value == 'READY' %}Complete{% else %}Current{% endif %}</span>
-  </div>
-
-  <section class="form-card" aria-labelledby="run-context-title">
-    <div class="section-heading">
+  <div
+    class="integrated-run-review"
+    data-integrated-run-review
+    data-status-url="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/status"
+    data-view-hash="{{ review.view_hash }}"
+  >
+    <div class="page-heading">
       <div>
-        <p class="eyebrow">Shared run evidence</p>
-        <h2 id="run-context-title">One source delivery and one Odoo target</h2>
+        <p class="eyebrow">
+          {{ project.display_name }} ·
+          {% if bundle.run.purpose.value == 'PRODUCTION' %}Production run{% else %}Test run{% endif %}
+        </p>
+        <h1>Review and load</h1>
+        <p>{% if bundle.run.purpose.value == 'TEST' %}Impodo is applying the saved Recipes in their required order.{% else %}Continue through the approved Recipes in their required order.{% endif %} Open details only when a review or decision is needed.</p>
       </div>
+      <span class="status {% if review.completed_count == review.total_count %}registered{% elif review.active %}review{% else %}draft{% endif %}">
+        {% if review.completed_count == review.total_count %}Verified{% elif review.active %}In progress{% else %}Current{% endif %}
+      </span>
     </div>
-    <dl class="summary-list">
-      <div><dt>Target database</dt><dd>{{ target_schema.database }}</dd></div>
-      <div><dt>Odoo version</dt><dd>{{ target_schema.odoo_version }}</dd></div>
-      <div><dt>Required models</dt><dd>{{ bundle.requirement_plan.model_requirements|length }}</dd></div>
-      <div><dt>Recipe work areas</dt><dd>{{ progress.total_applications }}</dd></div>
-    </dl>
-  </section>
 
-  <section class="form-card" aria-labelledby="qualification-title">
-    <div class="section-heading">
-      <div>
-        <p class="eyebrow">Cutover plan version {{ plan_revision.version }}</p>
-        {% if bundle.run.purpose.value == 'PRODUCTION' %}
-          <h2 id="qualification-title">Tested plan selected for this rollout</h2>
-          <p>This Production run uses the exact selected Cutover plan and tested Recipe versions. Its data, Odoo target, credentials, comparison, approval, load, and verification remain fresh Production evidence.</p>
-        {% elif qualification %}
-          <h2 id="qualification-title">Integrated Test qualification</h2>
-          <p>This exact plan version and Test run are qualified{% if selection and selection.qualification_id == qualification.qualification_id %} and selected as the rollout candidate{% endif %}.</p>
-        {% else %}
-          <h2 id="qualification-title">Integrated Test qualification</h2>
-          <p>Review all Recipe work area outcomes together after every load has been verified in the required order.</p>
-        {% endif %}
+    <nav class="setup-steps" aria-label="Recipe run steps">
+      <a class="setup-step complete" href="{% if bundle.run.purpose.value == 'TEST' %}/projects/{{ project.project_id }}/test-runs/{{ bundle.run.migration_run_id }}/fresh-data{% else %}/projects/{{ project.project_id }}/production-runs/{{ bundle.run.migration_run_id }}/activate{% endif %}">1. Fresh data</a>
+      <a class="setup-step complete" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/odoo">2. Check Odoo</a>
+      <span class="setup-step current" aria-current="step">3. Review and load</span>
+    </nav>
+
+    {% if review.active %}
+      <div class="notice" role="status">
+        <strong>Impodo is working in the background.</strong>
+        <p>This page updates automatically. You may leave and return without starting another attempt.</p>
       </div>
-    </div>
-    {% if bundle.run.purpose.value != 'PRODUCTION' %}
-      <a class="button" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/qualification">Review integrated qualification</a>
     {% endif %}
-  </section>
 
-  <section class="overview-stage-list" aria-labelledby="application-order-title">
-    <div class="section-heading">
-      <div>
-        <p class="eyebrow">Validated order</p>
-        <div class="heading-with-help">
-          <h2 id="application-order-title">Recipe work areas</h2>
-          {{ concept_help_link("recipe-work-area", "Explain why each Recipe has a separate work area") }}
+    <section class="form-card" aria-labelledby="run-progress-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Run progress</p>
+          <h2 id="run-progress-title">{{ review.completed_count }} of {{ review.total_count }} Recipes verified</h2>
+          <p>Fresh data and the Odoo check are shared. Each Recipe keeps its own prepared rows, comparison, confirmation, and verification evidence.</p>
         </div>
-        <p>Each work area keeps its own mapping and evidence. A completed work area cannot silently change the next one.</p>
       </div>
-    </div>
-    <ol class="overview-stages">
-      {% for application in applications %}
-        {% set recipe = recipes[application.recipe_id] %}
-        {% set application_issues = issues[application.application_id] %}
-        <li class="overview-stage {% if application.status.value in ('READY', 'RECONCILED', 'QUALIFIED') %}complete{% else %}current{% endif %}">
-          <div class="overview-stage-number">{{ loop.index }}</div>
-          <div class="overview-stage-copy">
-            <h3>{{ recipe.display_name }} · Recipe v{{ application.recipe_revision }}</h3>
-            <p>{{ application.status.value|replace('_', ' ')|title }} · Separate Recipe work area</p>
-            {% if application_issues %}
-              <div class="notice">
-                <strong>{{ application_issues[0].message }}</strong>
-                <p>{{ application_issues[0].recovery_action }}</p>
+      <progress max="{{ review.total_count }}" value="{{ review.completed_count }}">{{ review.completed_count }} of {{ review.total_count }}</progress>
+    </section>
+
+    <section class="overview-stage-list" aria-labelledby="application-order-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Saved Recipe order</p>
+          <h2 id="application-order-title">What Impodo is doing</h2>
+          <p>The next Recipe stays waiting until the earlier Odoo result is verified.</p>
+        </div>
+      </div>
+      <ol class="overview-stages">
+        {% for card in review.cards %}
+          <li class="overview-stage {% if card.state == 'VERIFIED' %}complete{% elif card.current %}current{% endif %}">
+            <div class="overview-stage-number">{{ loop.index }}</div>
+            <div class="overview-stage-copy">
+              <div class="section-heading">
+                <div>
+                  <h3>{{ card.recipe_name }} · Recipe v{{ card.application.recipe_revision }}</h3>
+                  <p>{{ card.message }}</p>
+                </div>
+                <span class="status {{ card.status_class }}">{{ card.state_label }}</span>
               </div>
-            {% endif %}
-            <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/applications/{{ application.application_id }}">Continue review and load</a>
-          </div>
-        </li>
-      {% endfor %}
-    </ol>
-  </section>
 
-  <section class="form-card" aria-labelledby="requirements-title">
-    <div class="section-heading">
-      <div>
-        <p class="eyebrow">Shared Odoo review</p>
-        <h2 id="requirements-title">Combined Odoo requirements</h2>
-      </div>
+              {% if card.progress_percent is not none %}
+                <div class="run-card-progress">
+                  <progress max="100" value="{{ card.progress_percent }}">{{ card.progress_percent }}%</progress>
+                  <p class="muted">{{ card.progress_message }} · {{ card.progress_percent }}%</p>
+                </div>
+              {% endif %}
+
+              {% if card.issues %}
+                <details class="technical-details">
+                  <summary>Review {{ card.issues|length }} saved issue{% if card.issues|length != 1 %}s{% endif %}</summary>
+                  {% for issue in card.issues %}
+                    <div class="notice {% if issue.blocks %}blocked{% endif %}">
+                      <strong>{{ issue.message }}</strong>
+                      <p>{{ issue.recovery_action }}</p>
+                    </div>
+                  {% endfor %}
+                </details>
+              {% endif %}
+
+              {% if card.action_url %}
+                {% if card.action_method == 'post' %}
+                  <form method="post" action="{{ card.action_url }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="button primary" type="submit">{{ card.action_label }}</button>
+                  </form>
+                {% else %}
+                  <a class="button {% if card.current %}primary{% else %}secondary{% endif %}" href="{{ card.action_url }}">{{ card.action_label }}</a>
+                {% endif %}
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+
+    {% if review.completed_count == review.total_count %}
+      <section class="next-action-card ready" aria-labelledby="run-finished-title">
+        <div>
+          <p class="eyebrow">All Recipe loads verified</p>
+          {% if bundle.run.purpose.value == 'TEST' %}
+            <h2 id="run-finished-title">Review the complete Test run</h2>
+            <p>Impodo will qualify only the exact Recipe versions, dependency order, target, loads, and verification evidence shown in this run.</p>
+          {% else %}
+            <h2 id="run-finished-title">Production verification is complete</h2>
+            <p>Review any retained evidence or fallout before closing the run.</p>
+          {% endif %}
+        </div>
+        {% if bundle.run.purpose.value == 'TEST' %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/qualification">Review integrated qualification</a>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <details class="technical-details form-card">
+      <summary>Run evidence</summary>
+      <dl class="summary-list">
+        <div><dt>Odoo database</dt><dd>{{ target_schema.database }}</dd></div>
+        <div><dt>Odoo version reported by target</dt><dd>{{ target_schema.odoo_version }}</dd></div>
+        <div><dt>Cutover plan version</dt><dd>{{ plan_revision.version }}</dd></div>
+        <div><dt>Recipe applications</dt><dd>{{ review.total_count }}</dd></div>
+      </dl>
+      <details>
+        <summary>Odoo information required by the Recipes</summary>
+        <ul>
+          {% for requirement in bundle.requirement_plan.model_requirements %}
+            <li><strong>{{ requirement.model }}</strong>: {{ requirement.fields|join(', ') }}</li>
+          {% endfor %}
+        </ul>
+      </details>
+    </details>
+
+    <div class="actions">
+      <a class="button secondary" href="/projects/{{ project.project_id }}">Back to data project</a>
     </div>
-    <ul>
-      {% for requirement in bundle.requirement_plan.model_requirements %}
-        <li><strong>{{ requirement.model }}</strong>: {{ requirement.fields|join(', ') }}</li>
-      {% endfor %}
-    </ul>
-  </section>
-
-  <div class="actions">
-    <a class="button secondary" href="/projects/{{ project.project_id }}">Back to data project</a>
   </div>
-  {{ concept_help_dialog("recipe-work-area") }}
 {% endblock %}

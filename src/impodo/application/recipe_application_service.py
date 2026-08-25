@@ -26,6 +26,7 @@ from ..migration_run_planning import (
     RecipeApplicationStatus,
 )
 from ..workspace_contracts import OdooSchemaCatalog, SourceDatasetSet
+from ..workspace_errors import WorkspaceError
 from .recipe_application_compilation import RecipeApplicationCompiler
 
 
@@ -301,6 +302,39 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     ),
                     actor=actor,
                 )
+                if not any(item.blocks for item in issues):
+                    current_revision = (
+                        self.mappings.mappings.get_mapping_revision(workspace_id)
+                    )
+                    revision, _validation = self.mappings.check_definition(
+                        workspace_id,
+                        datasets=draft.definition.datasets,
+                        expected_parent_version=(
+                            current_revision.version
+                            if current_revision is not None
+                            else None
+                        ),
+                        expected_working_draft_version=draft.version,
+                        actor=actor,
+                    )
+                    checked_draft = (
+                        self.mappings.mappings.get_mapping_working_draft(
+                            workspace_id
+                        )
+                    )
+                    self.mappings.submit_current(
+                        workspace_id,
+                        datasets=revision.definition.datasets,
+                        expected_version=revision.version,
+                        expected_working_draft_version=(
+                            checked_draft.version
+                            if checked_draft is not None
+                            else None
+                        ),
+                        actor=actor,
+                    )
+                    mapping_id = revision.mapping_id
+                    mapping_hash = revision.definition.content_hash
                 return self._result(
                     (
                         RecipeApplicationStatus.BLOCKED
@@ -313,7 +347,13 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     application_id=application_id,
                     assessment=assessment,
                 )
-            except (KeyError, TypeError, ValueError, RecipeApplicationError) as error:
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                RecipeApplicationError,
+                WorkspaceError,
+            ) as error:
                 issues.append(
                     MigrationRunPlanIssue(
                         code="RECIPE_MAPPING_MATERIALIZATION_BLOCKED",

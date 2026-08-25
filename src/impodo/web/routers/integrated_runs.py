@@ -6,7 +6,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...inspection import SourceInspectionError
@@ -26,6 +26,7 @@ from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.schema import _render_schema
 from ..security import require_session
+from ..run_review import build_integrated_run_review, start_next_preparation
 from ..source_file_commands import accept_source_uploads, remove_source_file
 
 
@@ -421,28 +422,6 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         )
 
     @router.get(
-        "/projects/{project_id}/test-runs/{migration_run_id}/activate",
-        response_class=HTMLResponse,
-    )
-    async def test_run_activation_form(
-        request: Request,
-        project_id: str,
-        migration_run_id: str,
-    ):
-        require_session(request)
-        binding = context.test_runs.get(migration_run_id, actor=context.actor)
-        if binding.project_id != project_id:
-            raise MigrationFoundationError("Test run does not belong to this Project")
-        return RedirectResponse(
-            (
-                f"/projects/{project_id}/runs/{migration_run_id}"
-                if binding.state.value == "ACTIVE"
-                else f"/projects/{project_id}/runs/{migration_run_id}/odoo"
-            ),
-            status_code=303,
-        )
-
-    @router.get(
         "/projects/{project_id}/runs/{migration_run_id}",
         response_class=HTMLResponse,
     )
@@ -469,9 +448,17 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
         progress = context.run_planning.repository.progress(migration_run_id)
         issues = context.run_planning.repository.list_run_issues(migration_run_id)
+        recipe_reads = context.recipes.read_revisions(
+            project_id,
+            tuple(
+                (item.recipe_id, item.recipe_revision)
+                for item in bundle.applications
+            ),
+            actor=context.actor,
+        )
         recipes = {
-            item.recipe_id: item
-            for item in context.recipes.list(project_id, actor=context.actor)
+            recipe_id: item.recipe
+            for (recipe_id, _version), item in recipe_reads.items()
         }
         applications = {item.recipe_id: item for item in bundle.applications}
         ordered_applications = tuple(
@@ -493,6 +480,12 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             plan_binding.cutover_plan_revision,
         )
         selection = context.cutover_plans.repository.current_selection(project_id)
+        review = build_integrated_run_review(
+            context,
+            bundle,
+            recipes=recipes,
+            issues=issues,
+        )
         return _render(
             request,
             "project_integrated_run.html",
@@ -506,6 +499,70 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             plan_revision=plan_revision,
             qualification=(qualifications[0] if qualifications else None),
             selection=selection,
+            review=review,
+        )
+
+    @router.get("/projects/{project_id}/runs/{migration_run_id}/status")
+    async def integrated_run_status(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+    ):
+        """Poll the registry and job snapshots without opening child stores."""
+
+        require_session(request)
+        project = context.migration_projects.get(project_id, actor=context.actor)
+        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        if run.project_id != project.project_id or run.target_binding_id is None:
+            return JSONResponse({"detail": "MigrationRun not found"}, status_code=404)
+        bundle = context.run_planning.repository.get_bundle(migration_run_id)
+        issues = context.run_planning.repository.list_run_issues(migration_run_id)
+        review = build_integrated_run_review(
+            context,
+            bundle,
+            recipes={},
+            issues=issues,
+        )
+        return JSONResponse(
+            {
+                "active": review.active,
+                "completed_count": review.completed_count,
+                "total_count": review.total_count,
+                "view_hash": review.view_hash,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @router.post("/projects/{project_id}/runs/{migration_run_id}/prepare-next")
+    async def prepare_next_recipe(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+    ):
+        """Start only the next dependency-safe Recipe preparation."""
+
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = context.migration_projects.get(project_id, actor=context.actor)
+        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        if run.project_id != project.project_id:
+            return HTMLResponse("MigrationRun not found", status_code=404)
+        try:
+            job = await run_in_threadpool(
+                start_next_preparation,
+                context,
+                migration_run_id,
+            )
+        except WorkspaceError as error:
+            _flash(request, str(error))
+        else:
+            _flash(
+                request,
+                f"Preparation started: {job.message}",
+            )
+        return RedirectResponse(
+            f"/projects/{project_id}/runs/{migration_run_id}",
+            status_code=303,
         )
 
     @router.get(
@@ -535,8 +592,78 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         )
         if application is None or application.project_id != project.project_id:
             return HTMLResponse("Recipe application not found", status_code=404)
+        applications = {item.recipe_id: item for item in bundle.applications}
+        ordered = tuple(
+            applications[recipe_id]
+            for recipe_id in bundle.requirement_plan.application_order
+        )
+        first_unverified = next(
+            (
+                item
+                for item in ordered
+                if item.status.value not in {"RECONCILED", "QUALIFIED"}
+            ),
+            None,
+        )
+        if (
+            first_unverified is not None
+            and application.status.value not in {"RECONCILED", "QUALIFIED"}
+            and application.application_id != first_unverified.application_id
+        ):
+            _flash(
+                request,
+                "Finish and verify the earlier Recipe before continuing this one.",
+            )
+            return RedirectResponse(
+                f"/projects/{project_id}/runs/{migration_run_id}",
+                status_code=303,
+            )
+        preparation = (
+            context.preparation_jobs.latest_many((application.workspace_id,)).get(
+                application.workspace_id
+            )
+            if context.preparation_jobs is not None
+            else None
+        )
+        load = (
+            context.load_jobs.latest_many((application.workspace_id,)).get(
+                application.workspace_id
+            )
+            if context.load_jobs is not None
+            else None
+        )
+        if load is not None:
+            if load.active:
+                destination = (
+                    f"/workspaces/{application.workspace_id}/load/progress/"
+                    f"{load.job_id}"
+                )
+            elif load.status.value == "SUCCEEDED":
+                destination = f"/workspaces/{application.workspace_id}/load/outcome"
+            else:
+                destination = f"/workspaces/{application.workspace_id}/load/review"
+        elif preparation is not None:
+            if preparation.active:
+                destination = (
+                    f"/workspaces/{application.workspace_id}/preparation/"
+                    f"{preparation.job_id}"
+                )
+            elif preparation.status.value == "REVIEW_REQUIRED":
+                destination = f"/workspaces/{application.workspace_id}/resolution"
+            elif preparation.status.value == "SUCCEEDED":
+                destination = f"/workspaces/{application.workspace_id}/normalization"
+            else:
+                destination = f"/workspaces/{application.workspace_id}/prepare"
+        elif application.status.value == "EXECUTED":
+            destination = f"/workspaces/{application.workspace_id}/load/outcome"
+        elif application.status.value == "COMPARED":
+            destination = f"/workspaces/{application.workspace_id}/load/review"
+        elif application.status.value == "PREPARED":
+            destination = f"/workspaces/{application.workspace_id}/normalization"
+        else:
+            destination = f"/workspaces/{application.workspace_id}/prepare"
         return RedirectResponse(
-            f"/workspaces/{application.workspace_id}/prepare",
+            destination,
             status_code=303,
         )
 

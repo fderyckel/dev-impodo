@@ -256,6 +256,27 @@ body.sidebar-collapsed .app-shell {
   white-space: nowrap;
 }
 
+.integrated-run-review > .notice,
+.integrated-run-review > .form-card,
+.integrated-run-review > .overview-stage-list,
+.integrated-run-review > .next-action-card,
+.integrated-run-review > .technical-details {
+  margin-top: 1rem;
+}
+
+.integrated-run-review progress,
+.run-card-progress progress {
+  width: 100%;
+}
+
+.run-card-progress {
+  margin: .75rem 0 1rem;
+}
+
+.run-card-progress p {
+  margin: .35rem 0 0;
+}
+
 .sidebar-current-project-link {
   display: block;
   border-radius: 3px;

@@ -461,6 +461,38 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertEqual(executor.creates, [])
         self.assertEqual(executor.updates, [])
 
+    def test_zero_change_comparison_records_completed_run_without_target_io(self):
+        current = _snapshot()
+        snapshot = replace(
+            current,
+            rows=tuple(
+                replace(row, disposition="UNCHANGED", fields=())
+                for row in current.rows
+            ),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 0,
+                "UNCHANGED": len(current.rows),
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, journal = self._service(snapshot)
+
+        preview = service.current_preview(snapshot.workspace_id)
+        assert preview is not None
+        self.assertTrue(preview.can_complete_without_load)
+
+        run = service.complete_no_changes(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(run.total_count, 0)
+        self.assertEqual(journal.run, run)
+
     def test_rotated_read_generation_invalidates_remote_load_preview(self):
         snapshot = replace(
             _snapshot(),

@@ -40,6 +40,7 @@ from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_load_workspace_navigation
 from ..security import require_session
+from ..run_review import publish_reconciled_application
 from ..target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
@@ -628,7 +629,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                         api_key,
                         preview.api_scope,
                     )
-                    context.reconciliation.reconcile(
+                    verification = context.reconciliation.reconcile(
                         workspace_id,
                         expected_execution_run_id=run.run_id,
                         reader=reader,
@@ -648,7 +649,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 ):
                     verification_complete = False
                 else:
-                    verification_complete = True
+                    verification_complete = not (
+                        verification.unknown_count
+                        or verification.fallout_count
+                    )
                 return LoadJobResult(
                     execution_run_id=run.run_id,
                     verification_complete=verification_complete,
@@ -713,7 +717,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         workspace_state = context.queries.get(workspace_id)
         credential_owner = context.target_credential_workspace(workspace_id)
         try:
-            context.workspace_access.resolve(
+            access_context = context.workspace_access.resolve(
                 workspace_id,
                 actor=context.actor,
                 capability=Capability.EXPORT_PLAN_EXECUTE,
@@ -796,6 +800,17 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 step="outcome",
                 error=str(error),
                 status_code=422,
+            )
+        if (
+            access_context.recipe_application_id is not None
+            and not report.unknown_count
+            and not report.fallout_count
+        ):
+            await run_in_threadpool(
+                publish_reconciled_application,
+                context,
+                access_context.recipe_application_id,
+                access_context.migration_run_id,
             )
         _flash_reconciliation(request, report)
         return RedirectResponse(

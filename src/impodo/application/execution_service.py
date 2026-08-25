@@ -43,6 +43,7 @@ from .preflight_service import PreflightService
 
 
 DEFAULT_CREATE_BATCH_ROWS = 10
+NO_WRITE_ROWS_MESSAGE = "This preview has no rows to create or update"
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 ReadCredentialBindingProvider = Callable[[WorkspaceState], str]
 
@@ -106,6 +107,22 @@ class ExecutionPreview:
             and int(self.snapshot.counts.get("AMBIGUOUS", 0)) == 0
             and self.current_run is None
             and not self.scope_error
+        )
+
+    @property
+    def can_complete_without_load(self) -> bool:
+        return (
+            self.snapshot.write_count == 0
+            and int(self.snapshot.counts.get("BLOCKED", 0)) == 0
+            and int(self.snapshot.counts.get("AMBIGUOUS", 0)) == 0
+            and self.scope_error in {"", NO_WRITE_ROWS_MESSAGE}
+            and (
+                self.current_run is None
+                or (
+                    self.current_run.status is ExecutionRunStatus.COMPLETED
+                    and self.current_run.total_count == 0
+                )
+            )
         )
 
 
@@ -575,6 +592,70 @@ class ExecutionService:
         )
         report_progress(completed_run)
         return completed_run
+
+    def complete_no_changes(
+        self,
+        workspace_id: str,
+        *,
+        expected_snapshot_hash: str,
+        actor: Actor,
+    ) -> ExecutionRun:
+        """Record a reviewed zero-write comparison without contacting Odoo."""
+
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_EXECUTE,
+            workspace_id=workspace_id,
+        )
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.source_mode is SourceMode.ODOO:
+            raise WorkspaceError(
+                "Pinned Odoo loading is not available yet. No Odoo record was changed."
+            )
+        preview = self.current_preview(workspace_id)
+        if preview is None:
+            raise WorkspaceError("Compare the prepared data with Odoo first")
+        snapshot = preview.snapshot
+        if snapshot.semantic_hash != expected_snapshot_hash:
+            raise WorkspaceError("The comparison changed. Review it again.")
+        if preview.current_run is not None:
+            if (
+                preview.current_run.status is ExecutionRunStatus.COMPLETED
+                and preview.current_run.total_count == 0
+            ):
+                return preview.current_run
+            raise WorkspaceError(
+                "This comparison already has a load result. Review that result first."
+            )
+        if preview.scope_error and preview.scope_error != NO_WRITE_ROWS_MESSAGE:
+            raise WorkspaceError(preview.scope_error)
+        if not preview.can_complete_without_load:
+            raise WorkspaceError(
+                "Only a complete comparison with no proposed Odoo changes can finish here"
+            )
+        started_at = datetime.now(timezone.utc)
+        run = ExecutionRun(
+            run_id=str(uuid4()),
+            workspace_id=workspace_id,
+            snapshot_hash=snapshot.semantic_hash,
+            snapshot_root_hash=snapshot.root_hash,
+            preflight_run_id=snapshot.preflight_run_id,
+            target_hash=snapshot.target_hash,
+            target_database=snapshot.target_database,
+            batch_rows=DEFAULT_CREATE_BATCH_ROWS,
+            status=ExecutionRunStatus.RUNNING,
+            started_at=started_at,
+            started_by=actor.identity.display_name,
+            completed_at=None,
+            rows=(),
+        )
+        self.journal.start_run(workspace_id, run, actor=actor)
+        return self.journal.finish_run(
+            workspace_id,
+            run.run_id,
+            ExecutionRunStatus.COMPLETED,
+            actor=actor,
+        )
 
     @staticmethod
     def _validate_execution_scope(
@@ -1250,7 +1331,7 @@ def _execution_snapshot_error(
         return "The schema-bound load path requires Odoo 19"
     write_rows = tuple(row for row in snapshot.rows if row.fields)
     if not write_rows:
-        return "This preview has no rows to create or update"
+        return NO_WRITE_ROWS_MESSAGE
     datasets = {item.dataset: item for item in snapshot.datasets}
     rows_by_source = {
         (row.dataset, _portable_key(row.source_identity)): row

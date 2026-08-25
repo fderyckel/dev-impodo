@@ -987,6 +987,16 @@ def _capture_recipe_supporting_values(
             raise WorkspaceError(
                 f"Odoo did not return every required field for {item.relation_model}"
             )
+        returned_record_fields = set(
+            record_snapshot.requested_fields.get(item.relation_model, ())
+        )
+        if any(
+            field_name not in returned_record_fields
+            for field_name in item.requested_fields
+        ):
+            raise WorkspaceError(
+                f"Odoo did not return every required value for {item.relation_model}"
+            )
         records = record_snapshot.records.get(item.relation_model, ())
         if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:
             raise WorkspaceError(

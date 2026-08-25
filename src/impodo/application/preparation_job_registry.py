@@ -101,6 +101,29 @@ class PreparationJobRegistry:
         with self._lock:
             return self._active_locked(workspace_id)
 
+    def latest_many(
+        self,
+        workspace_ids: tuple[str, ...],
+    ) -> dict[str, PreparationJob]:
+        """Return one latest snapshot per requested workspace in one pass."""
+
+        requested = set(workspace_ids)
+        with self._lock:
+            latest: dict[str, PreparationJob] = {}
+            for job in self._jobs.values():
+                if job.workspace_id not in requested:
+                    continue
+                current = latest.get(job.workspace_id)
+                if current is None or (
+                    job.created_at,
+                    job.attempt,
+                ) > (
+                    current.created_at,
+                    current.attempt,
+                ):
+                    latest[job.workspace_id] = job
+            return latest
+
     def delete_workspace_history(self, workspace_id: str) -> None:
         with self._lock:
             if self._active_locked(workspace_id) is not None:

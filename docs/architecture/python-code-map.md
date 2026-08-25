@@ -29,6 +29,7 @@ then follow the service to its exact repository.
 | Publish optional Recipes | `RecipePublicationService` | `RecipeRepository`, protected Recipe store |
 | Plan an integrated Test run | `MigrationRunPlanningService` | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
+| Coordinate Review and load progress | `web/run_review.py` | bounded registry status plus latest preparation and load job snapshots |
 | Version and qualify an integrated plan | `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
 | Run selected meaning with latest data | `ProductionCutoverService` | `ProductionRunRepository`, Production run routes, shared workspace engine |
 
@@ -116,13 +117,16 @@ Project identity, workspace identity, run identity, or cutover authority.
 1. The Project route creates one Test setup over exact Recipe revisions and
    explicit dependencies, then accepts one fresh Test DataVersion.
 2. `TestRunSetupService.odoo_check_requirements_for_workspace` bulk-reads the
-   selected revisions and unions their Odoo models, fields, and supporting-list
-   names without contacting Odoo per Recipe.
+   selected revisions and unions their Odoo models, fields, and Recipe-owned
+   relationship paths without contacting Odoo per Recipe.
 3. The run-owned **Check Odoo** route presents that scope as read-only and
    delegates field capture to the existing shared schema service. A setup
    workspace schema URL redirects to the run; Authoring keeps the editable
-   schema route.
-4. `MigrationRunPlanningService.review_test_run` validates each revision once,
+   schema route. `_capture_recipe_supporting_values` unions related model fields
+   and performs one bounded supporting-value reader call for the run.
+4. The run-owned Odoo-check `POST` calls
+   `MigrationRunPlanningService.activate_test_run` after schema and supporting
+   values are current. The planner validates each revision once,
    rejects cycles and overlapping writable fields, and creates a canonical
    union requirement plan.
 5. One run-owned schema projection and supporting-reference bundle are
@@ -133,12 +137,17 @@ Project identity, workspace identity, run identity, or cutover authority.
 6. `MigrationRunPlanningRepository.provision_integrated_run` creates the run,
    target binding, applications, and distinct workspaces in one restart-safe
    operation.
-7. `RecipeApplicationService` selects each application's DataVersion
-   datasets and builds fresh mapping evidence through the existing mapping
-   service.
-8. The run page reads status and issues through bounded registry queries and
-   does not open every workspace.
-9. `CutoverPlanRepository.ensure_for_run` reuses unchanged plan meaning or
+7. `RecipeApplicationService` selects each application's DataVersion datasets,
+   builds fresh mapping evidence, and checks and submits a clean mapping through
+   the existing mapping service. A new warning or invalid result blocks.
+8. `run_review.py` starts only the first safe Test preparation and builds
+   ordered cards from bounded registry reads plus one latest-snapshot pass per
+   job manager. The run page and status poll do not open every workspace.
+9. Preparation and load workers publish coarse run milestones. Detailed
+   prepared rows, comparison, execution journal, and reconciliation remain in
+   each isolated workspace; only verified reconciliation unlocks the next
+   Recipe.
+10. `CutoverPlanRepository.ensure_for_run` reuses unchanged plan meaning or
    appends a new unqualified revision and binds the run exactly.
 
 ## Integrated qualification trace
@@ -192,7 +201,9 @@ Project identity, workspace identity, run identity, or cutover authority.
 ## Query and Odoo performance
 
 `MigrationFoundationRepository.list_projects`, run history, integrated
-progress, and application issues use bounded registry projections. The
+progress, and application issues use bounded registry projections. Review and
+load obtains latest preparation and load snapshots for all Recipe workspaces
+in one in-memory pass per manager. The
 Project overview's single Recipe-publication readiness check may open its one
 Authoring workspace; it must not grow into one workspace open per list row.
 Mapping, preparation, and comparison may stream or batch rows, but they must

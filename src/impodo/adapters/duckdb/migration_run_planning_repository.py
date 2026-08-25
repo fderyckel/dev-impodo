@@ -778,6 +778,76 @@ class MigrationRunPlanningRepository:
                 raise
         return self.get_application(application_id)
 
+    def transition_application_status(
+        self,
+        application_id: str,
+        *,
+        expected_statuses: tuple[RecipeApplicationStatus, ...],
+        status: RecipeApplicationStatus,
+        actor: Actor,
+    ) -> RunRecipeApplication:
+        """Advance one run summary without opening its application workspace.
+
+        Preparation, comparison, execution, and reconciliation keep their
+        detailed evidence in the isolated workspace. This registry transition
+        records only the coarse run-owned progress needed to order several
+        Recipe applications safely.
+        """
+
+        application_id = require_uuid(application_id, "application_id")
+        target = RecipeApplicationStatus(status)
+        expected = tuple(
+            sorted(
+                {RecipeApplicationStatus(item) for item in expected_statuses},
+                key=lambda item: item.value,
+            )
+        )
+        if not expected:
+            raise ValueError("Expected at least one Recipe application status")
+        now = utc_now()
+        with self.database.connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                row = connection.execute(
+                    "SELECT project_id, status FROM recipe_application "
+                    "WHERE application_id = ?",
+                    [application_id],
+                ).fetchone()
+                if row is None:
+                    self.foundation._raise_missing_identity(connection, application_id)
+                current = RecipeApplicationStatus(str(row[1]))
+                if current is target:
+                    connection.rollback()
+                    return self.get_application(application_id)
+                if current not in expected:
+                    raise MigrationConflictError(
+                        "Recipe application progress changed before this update"
+                    )
+                connection.execute(
+                    "UPDATE recipe_application SET status = ?, updated_at = ? "
+                    "WHERE application_id = ?",
+                    [target.value, now.isoformat(), application_id],
+                )
+                self.foundation._insert_event(
+                    connection,
+                    project_id=str(row[0]),
+                    aggregate_kind="RECIPE_APPLICATION",
+                    aggregate_id=application_id,
+                    aggregate_revision=1,
+                    event_type="RECIPE_APPLICATION_PROGRESS_CHANGED",
+                    detail={
+                        "from_status": current.value,
+                        "to_status": target.value,
+                    },
+                    actor=actor,
+                    occurred_at=now,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self.get_application(application_id)
+
     def progress(self, migration_run_id: str) -> IntegratedRunProgress:
         plan = self.get_requirement_plan(migration_run_id)
         applications = self.list_applications(migration_run_id)
@@ -794,7 +864,6 @@ class MigrationRunPlanningRepository:
                 not in {
                     RecipeApplicationStatus.RECONCILED,
                     RecipeApplicationStatus.QUALIFIED,
-                    RecipeApplicationStatus.FAILED,
                 }
             ),
             None,

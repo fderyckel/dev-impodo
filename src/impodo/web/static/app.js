@@ -3994,6 +3994,36 @@ document.addEventListener("DOMContentLoaded", () => {
     window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
   }
 
+  const integratedRun = document.querySelector("[data-integrated-run-review]");
+  if (integratedRun) {
+    const statusUrl = integratedRun.dataset.statusUrl || "";
+    const initialHash = integratedRun.dataset.viewHash || "";
+    let pollTimer;
+
+    const pollIntegratedRun = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Run progress is temporarily unavailable");
+        const status = await response.json();
+        if (status.view_hash && status.view_hash !== initialHash) {
+          window.location.reload();
+          return;
+        }
+        if (status.active) {
+          pollTimer = window.setTimeout(pollIntegratedRun, 1000);
+        }
+      } catch {
+        pollTimer = window.setTimeout(pollIntegratedRun, 2000);
+      }
+    };
+
+    if (statusUrl) pollIntegratedRun();
+    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+  }
+
   restoreMappingPosition();
   restoreNormalizationPosition();
   restoreSourceReviewPosition();

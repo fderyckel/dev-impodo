@@ -413,6 +413,7 @@ def _render_schema(
     support_error: str | None = None,
     status_code: int = 200,
     schema_load_failed: bool = False,
+    operation_id: str | None = None,
     key_drafts: Mapping[
         str,
         tuple[tuple[str, ...], tuple[str, ...], str],
@@ -506,7 +507,7 @@ def _render_schema(
         odoo_check_models=odoo_check_models,
         odoo_check_supporting_values=odoo_check_supporting_values,
         odoo_check_plan=odoo_check_plan,
-        operation_id=str(uuid4()),
+        operation_id=operation_id or str(uuid4()),
         focus_model_count=sum(
             1 for choice in model_choices if choice["in_focus"]
         ),

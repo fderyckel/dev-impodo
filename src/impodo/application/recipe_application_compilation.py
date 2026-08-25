@@ -785,6 +785,7 @@ class RecipeApplicationCompiler:
         for dataset in dict(definition["mapping"]).get("datasets", ()):
             logical_dataset = str(dataset["logical_dataset_id"])
             physical_dataset = bindings[logical_dataset]
+            mode = MappingTargetMode(str(dataset["mode"]).casefold())
             fields = tuple(self._field(item, bindings, reference_by_logical) for item in dataset.get("fields", ()))
             relationships = tuple(self._relationship(item, bindings) for item in dataset.get("relationships", ()))
             definitions = tuple(
@@ -807,7 +808,7 @@ class RecipeApplicationCompiler:
             result.append(DatasetMapping(
                 dataset_id=physical_dataset,
                 target_model=str(dataset["target_model"]),
-                mode=MappingTargetMode(str(dataset["mode"]).casefold()),
+                mode=mode,
                 on_existing=(str(dataset["on_existing"]) if dataset.get("on_existing") is not None else None),
                 source_identity_column_keys=tuple(bindings[str(value)] for value in dataset.get("source_identity_column_ids", ())),
                 target_identity=tuple(self._identity(item, bindings) for item in dataset.get("identity", ())),
@@ -815,7 +816,14 @@ class RecipeApplicationCompiler:
                 fields=fields,
                 relationships=relationships,
                 target_field_dispositions=tuple(TargetFieldDisposition(target_field=str(item["target_field"]), handling=TargetFieldHandling(str(item["handling"]))) for item in dataset.get("target_field_dispositions", ())),
-                approved_write_fields=tuple(str(item) for item in dataset.get("approved_write_fields", ())),
+                approved_write_fields=(
+                    tuple(
+                        str(item)
+                        for item in dataset.get("approved_write_fields", ())
+                    )
+                    if mode is MappingTargetMode.ODOO_PINNED_UPDATE
+                    else ()
+                ),
                 control_definitions=definitions,
                 control_expectations=expectations,
             ))

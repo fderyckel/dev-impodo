@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from multiprocessing.context import BaseContext
 from pathlib import Path
 from queue import Empty
 from threading import RLock, Thread
-from typing import Any
+from typing import Any, Callable
 
 import duckdb
 
@@ -57,6 +58,7 @@ class PreparationJobManager:
         process_context: BaseContext | None = None,
         max_workers: int = 1,
         build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
+        status_listener: Callable[[PreparationJob], None] | None = None,
     ) -> None:
         import multiprocessing
 
@@ -70,6 +72,15 @@ class PreparationJobManager:
         self._lock = RLock()
         self._workers: dict[str, _RunningWorker] = {}
         self._pending: dict[str, tuple[PreparationJob, Actor]] = {}
+        self._status_listener = status_listener
+
+    def set_status_listener(
+        self,
+        listener: Callable[[PreparationJob], None] | None,
+    ) -> None:
+        """Publish coarse run progress without coupling it to worker evidence."""
+
+        self._status_listener = listener
 
     def enqueue(
         self,
@@ -134,6 +145,12 @@ class PreparationJobManager:
     def active(self, workspace_id: str) -> PreparationJob | None:
         return self.registry.active(workspace_id)
 
+    def latest_many(
+        self,
+        workspace_ids: tuple[str, ...],
+    ) -> dict[str, PreparationJob]:
+        return self.registry.latest_many(workspace_ids)
+
     def delete_workspace_history(self, workspace_id: str) -> None:
         self.registry.delete_workspace_history(workspace_id)
 
@@ -146,6 +163,7 @@ class PreparationJobManager:
                 return job
             if self._pending.pop(job_id, None) is not None:
                 stopped = self.registry.mark_cancelled(job_id)
+                self._notify(stopped)
                 self._schedule_locked()
                 return stopped
         return job
@@ -228,10 +246,12 @@ class PreparationJobManager:
         except Exception:
             with self._lock:
                 self._workers.pop(job.job_id, None)
-            self.registry.mark_failed(
-                job.job_id,
-                "WORKER_START_FAILED",
-                "Impodo could not start preparation. Try again.",
+            self._notify(
+                self.registry.mark_failed(
+                    job.job_id,
+                    "WORKER_START_FAILED",
+                    "Impodo could not start preparation. Try again.",
+                )
             )
             raise
 
@@ -254,11 +274,13 @@ class PreparationJobManager:
             if not terminal_received:
                 current = self.registry.get_by_id(job_id)
                 if current.active:
-                    self.registry.mark_failed(
-                        job_id,
-                        "WORKER_EXITED",
-                        "Preparation stopped unexpectedly. Your previous saved "
-                        "evidence remains available; try again.",
+                    self._notify(
+                        self.registry.mark_failed(
+                            job_id,
+                            "WORKER_EXITED",
+                            "Preparation stopped unexpectedly. Your previous saved "
+                            "evidence remains available; try again.",
+                        )
                     )
         finally:
             events.close()
@@ -269,7 +291,7 @@ class PreparationJobManager:
     def _handle_event(self, job_id: str, event: tuple[Any, ...]) -> bool:
         kind = str(event[0])
         if kind == "started":
-            self.registry.mark_running(job_id)
+            self._notify(self.registry.mark_running(job_id))
             return False
         if kind == "progress":
             self.registry.update_progress(
@@ -281,18 +303,32 @@ class PreparationJobManager:
             )
             return False
         if kind == "succeeded":
-            self.registry.mark_succeeded(job_id, str(event[1]))
+            self._notify(self.registry.mark_succeeded(job_id, str(event[1])))
             return True
         if kind == "review_required":
-            self.registry.mark_review_required(job_id)
+            self._notify(self.registry.mark_review_required(job_id))
             return True
         if kind == "cancelled":
-            self.registry.mark_cancelled(job_id)
+            self._notify(self.registry.mark_cancelled(job_id))
             return True
         if kind == "failed":
-            self.registry.mark_failed(job_id, str(event[1]), str(event[2]))
+            self._notify(
+                self.registry.mark_failed(job_id, str(event[1]), str(event[2]))
+            )
             return True
         return False
+
+    def _notify(self, job: PreparationJob) -> None:
+        """Keep a projection failure from changing preparation truth."""
+
+        if self._status_listener is None:
+            return
+        try:
+            self._status_listener(job)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Could not publish Recipe preparation progress"
+            )
 
 
 def _run_preparation_worker(

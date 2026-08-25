@@ -40,25 +40,30 @@ evidence.
 8. Select **Use this fresh data**. This accepts the matched tables as the Test
    data version.
 9. Under **Check Odoo**, connect the Odoo target for this Test run.
-10. Review the Odoo record types, fields, and supporting lists taken from the
+10. Review the Odoo record types, fields, and current supporting values taken from the
     exact selected Recipe versions. You cannot replace them with other Odoo
     choices in this run, and you do not select related tables again.
-11. Select **Check this Odoo**. This first Phase 3 slice checks the required
-    Odoo field information through the existing read-only capture. A missing
-    current supporting list can still appear as an action-needed result during
-    activation until the combined supporting-list refresh is added.
-12. Select **Return to Test run setup**.
-13. Under **Review and load**, review the newer data, Odoo target review,
-    read-only access, and selected Recipe versions.
-14. Select **Create Recipe work areas**.
-15. On the run page, select **Continue review and load** for the next Recipe.
-16. Prepare, compare, confirm the load, and verify the result.
-17. When every application has succeeded in the required order, qualify that
-    exact Test run as the Production candidate.
+11. Select **Check this Odoo**. Impodo checks the required fields, refreshes
+    the related Odoo values in bounded groups, checks every selected Recipe,
+    and creates its separate Recipe work areas when everything is ready.
+12. Impodo takes you directly to **Review and load** and starts preparing the
+    first compatible Recipe. The page updates while Impodo works locally.
+13. If a card says **Action needed**, open only that card's named review. A
+    later Recipe stays waiting until the earlier result is verified.
+14. When a card says **Ready for review**, review its prepared rows, exclusions,
+    warnings, relationships, and proposed load. **Check changes** remains
+    read-only. If Odoo already matches every prepared row, Impodo records that
+    verified result and returns to **Review and load** without asking you to
+    confirm an empty load. Otherwise, **Confirm and load** remains your
+    explicit decision.
+15. Review **Verify result**. After successful verification, Impodo starts the
+    next compatible Recipe automatically. When every card is verified, review
+    and qualify that exact Test run as the Production candidate.
 
-Before creating Recipe work areas, Impodo checks that the Recipe order has no cycle
-and that two Recipes do not claim the same writable Odoo field. Reordering two
-conflicting Recipes is not a safe repair; one Recipe must own that field.
+Before creating Recipe work areas, the same Odoo check confirms that the
+Recipe order has no cycle and that two Recipes do not claim the same writable
+Odoo field. Reordering two conflicting Recipes is not a safe repair; one
+Recipe must own that field.
 
 ## What to check
 
@@ -73,8 +78,8 @@ conflicting Recipes is not a safe repair; one Recipe must own that field.
 ## What Impodo creates
 
 **Create Test setup** creates one draft Test data version, one Test run, and
-one shared setup workspace. **Create Recipe work areas** activates that same
-run after you accept the newer delivery and review the chosen Odoo target.
+one shared setup workspace. **Check this Odoo** activates that same run after
+you accept the newer delivery and check the chosen Odoo target.
 Before you add files, **Fresh data** reads the exact selected Recipe versions
 and shows their reusable source requirements. Archiving a Recipe later does
 not change the version already pinned to this run.
@@ -83,7 +88,8 @@ Each selected Recipe then receives:
 - its exact saved version;
 - only the logical datasets it needs from the Test data version;
 - only its required Odoo models, fields, and supporting lists;
-- a fresh mapping draft; and
+- a freshly checked mapping for this run, or a named issue that prevents its
+  automatic confirmation; and
 - its own issues and working evidence.
 
 The saved Recipe remains unchanged. No source table or prior workspace is
@@ -113,6 +119,18 @@ data**, supply the missing details, and continue to **Check Odoo**.
 After the details are accepted with the fresh data, they are read-only. Start a
 new Test run if an accepted answer needs to change.
 
+**Review and load** is the visible home from preparation through verification.
+It shows the saved Recipe order, one current action, background progress, and
+the verified count. A clean Recipe card stays compact. Open its detailed
+workspace only to review prepared data, compare changes, confirm a load, or
+resolve a named current-data issue. Returning to the run shows the next safe
+action.
+
+A card remembers whether preparation finished, Odoo changes were checked, or
+verification still needs attention. Restarting Impodo may clear an in-memory
+progress message, but it does not discard the saved Recipe application state
+or silently repeat an Odoo load.
+
 The setup and Recipe workspaces still keep the detailed evidence. Their browser
 navigation belongs to the run: setup permits fresh-data and Odoo-check pages,
 while an application permits only preparation, review, load, and verification.
@@ -122,8 +140,8 @@ and six-stage journey.
 
 ## Ready and Blocked
 
-**Ready** means the Recipe was rebound to the current source and target and a
-fresh mapping draft was created without a current blocker. It does not mean
+**Ready to prepare** means the Recipe was rebound to the current source and
+target and its fresh mapping passed the current checks. It does not mean
 the integrated run is executed or qualified for rollout.
 
 **Blocked** means the run page names the current difference and the next
@@ -151,8 +169,8 @@ become Recipe content.
 
 If planning stops before workspace creation, correct the named missing
 dataset, target field, supporting list, dependency cycle, or overlapping field
-owner. If a Recipe application is blocked after creation, return to the run
-and select **Continue review and load** for that Recipe. Do not enter its Source
+owner. If a Recipe application is blocked after creation, return to
+**Review and load** and open the one card marked **Action needed**. Do not enter its Source
 data, Odoo data, or Match data pages and do not save a new Recipe version merely
 to hide current-data drift.
 

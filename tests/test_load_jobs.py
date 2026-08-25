@@ -17,6 +17,7 @@ from impodo.domain.execution import (
     ExecutionRunStatus,
 )
 from impodo.migration_foundation import MigrationIdentifierConfusionError
+from impodo.load_jobs import LoadJobStatus
 from impodo.workspace_access import WorkspaceAccessContext
 
 
@@ -129,7 +130,8 @@ class LoadJobManagerTests(unittest.TestCase):
         manager.shutdown()
 
     def test_reports_only_saved_execution_outcomes_and_verification_state(self) -> None:
-        manager = LoadJobManager()
+        published = []
+        manager = LoadJobManager(status_listener=published.append)
 
         def work(access_context, report_writing, report_verifying):
             self.assertEqual(access_context, _access_context())
@@ -161,6 +163,14 @@ class LoadJobManagerTests(unittest.TestCase):
         self.assertEqual(finished.attention_count, 1)
         self.assertEqual(finished.progress_percent, 100)
         self.assertTrue(finished.verification_complete)
+        self.assertEqual(
+            [item.status for item in published],
+            [LoadJobStatus.RUNNING, LoadJobStatus.SUCCEEDED],
+        )
+        self.assertEqual(
+            manager.latest_many((WORKSPACE_ID,))[WORKSPACE_ID],
+            finished,
+        )
 
     def test_duplicate_submission_reuses_the_active_job(self) -> None:
         manager = LoadJobManager()

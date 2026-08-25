@@ -39,6 +39,7 @@ from ..presenters.mapping_forms import _business_key_id, _comma_values
 from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
 from ..security import require_session
+from ..run_review import start_next_preparation
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential,
@@ -210,8 +211,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
             if binding.project_id != project_id:
-                raise MigrationFoundationError(
-                    "Test run does not belong to this Project"
+                raise HTTPException(
+                    status_code=404,
+                    detail="Test run not found",
                 )
             if binding.state.value == "ACTIVE":
                 return RedirectResponse(
@@ -314,12 +316,26 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_id,
                 error=str(error),
+                operation_id=_text(form, "operation_id"),
                 status_code=422,
             )
         _flash(
             request,
             f"Odoo is ready. Impodo created {len(result.applications)} Recipe work areas.",
         )
+        if context.preparation_jobs is not None:
+            try:
+                await run_in_threadpool(
+                    start_next_preparation,
+                    context,
+                    migration_run_id,
+                )
+            except WorkspaceError as error:
+                _flash(
+                    request,
+                    "Odoo is ready. Review and load shows the next action: "
+                    f"{error}",
+                )
         return RedirectResponse(
             f"/projects/{project_id}/runs/{migration_run_id}",
             status_code=303,

@@ -325,17 +325,17 @@ internal setup and application workspaces after success.
 **Exit result:** the data manager chooses the target once; Impodo decides what
 must be refreshed and checked.
 
-**Implemented first slice:** the Test run now owns the canonical **Check
-Odoo** URL. It bulk-reads every exact selected Recipe revision once and shows
-the combined required Odoo record types, fields, and supporting-list names as
-read-only information. The general model picker is absent, a crafted scope
-change cannot replace the Recipe requirements, and copied setup schema links
-return to the run page. **Check this Odoo** reuses the existing governed schema
-capture and repairs older setup scopes from the pinned Recipe versions on that
-explicit action. Ordinary Authoring keeps its editable model picker and
-six-stage workflow. The remaining Phase 3 slice must refresh the supporting
-values in bounded groups, assess all Recipes in the same operation, and create
-the internal application workspaces automatically after success.
+**Implemented:** the Test run owns the canonical **Check Odoo** URL. It
+bulk-reads every exact selected Recipe revision once and shows the combined
+required Odoo record types, fields, and current supporting values as read-only
+information. The general model picker is absent, a crafted scope change cannot
+replace the Recipe requirements, and copied setup schema links return to the
+run page. **Check this Odoo** reuses the governed schema capture, repairs older
+setup scopes from the pinned Recipe versions, refreshes Recipe-owned related
+values in one bounded model-and-field batch, and assesses all Recipes. A clean
+result creates the internal application workspaces automatically and opens
+**Review and load**. A schema change still requires explicit confirmation.
+Ordinary Authoring keeps its editable model picker and six-stage workflow.
 
 ### Phase 4: build Review and load
 
@@ -346,6 +346,23 @@ rather than reopening every workspace.
 
 **Exit result:** the data manager stays on one page from automatic preparation
 to verified outcome.
+
+**Implemented:** a successful Test Odoo check starts the first compatible
+Recipe preparation automatically. **Review and load** is now the run home for
+ordered Recipe cards, background preparation progress, current issues, review,
+load progress, and verified outcomes. Only the first unresolved Recipe is
+available; the next one starts only after the earlier Odoo result is verified.
+The page polls one bounded registry and job-snapshot projection and does not
+open every application workspace. Detailed review still opens the isolated
+application evidence when the data manager asks for it. **Check changes**,
+**Confirm and load**, and **Verify result** retain their existing owners and
+explicit safety gates. A clean materialized Recipe mapping is checked and
+confirmed before automatic preparation; a new invalid result or warning stays
+fail closed as **Action needed**. The run records preparation, comparison,
+execution, and reconciliation milestones outside the isolated workspaces so a
+restart resumes the correct action. A clean comparison with zero proposed
+changes records and verifies a zero-row result without showing an empty load
+confirmation or contacting the Odoo write transport.
 
 ### Phase 5: apply the journey to Production
 

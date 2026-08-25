@@ -6,6 +6,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+import logging
 from threading import Condition, RLock, Thread
 from uuid import uuid4
 
@@ -53,13 +54,26 @@ LoadWork = Callable[
 class LoadJobManager:
     """Keep non-secret control state and serialize confirmed Odoo loads."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        status_listener: Callable[[LoadJob], None] | None = None,
+    ) -> None:
         self._lock = RLock()
         self._condition = Condition(self._lock)
         self._jobs: dict[str, LoadJob] = {}
         self._pending: deque[tuple[str, LoadWork]] = deque()
         self._stopping = False
         self._worker: Thread | None = None
+        self._status_listener = status_listener
+
+    def set_status_listener(
+        self,
+        listener: Callable[[LoadJob], None] | None,
+    ) -> None:
+        """Publish coarse run progress after governed load state changes."""
+
+        self._status_listener = listener
 
     def enqueue(
         self,
@@ -148,6 +162,20 @@ class LoadJobManager:
                 default=None,
             )
 
+    def latest_many(self, workspace_ids: tuple[str, ...]) -> dict[str, LoadJob]:
+        """Return one latest snapshot per requested workspace in one pass."""
+
+        requested = set(workspace_ids)
+        with self._lock:
+            latest: dict[str, LoadJob] = {}
+            for job in self._jobs.values():
+                if job.workspace_id not in requested:
+                    continue
+                current = latest.get(job.workspace_id)
+                if current is None or job.created_at >= current.created_at:
+                    latest[job.workspace_id] = job
+            return latest
+
     def shutdown(self) -> None:
         """Stop accepting work without interrupting an in-flight Odoo call."""
 
@@ -173,8 +201,9 @@ class LoadJobManager:
                 if self._stopping:
                     return
                 job_id, work = self._pending.popleft()
-                self._mark_running(job_id)
+                started = self._mark_running(job_id)
                 access_context = self._jobs[job_id].access_context
+            self._notify(started)
             try:
                 with bind_workspace_access_context(access_context):
                     result = work(
@@ -184,17 +213,21 @@ class LoadJobManager:
                     )
             except Exception as error:
                 with self._lock:
-                    self._finish_failed(job_id, _safe_failure_message(error))
+                    finished = self._finish_failed(
+                        job_id,
+                        _safe_failure_message(error),
+                    )
             else:
                 with self._lock:
-                    self._finish_succeeded(job_id, result)
+                    finished = self._finish_succeeded(job_id, result)
+            self._notify(finished)
 
-    def _mark_running(self, job_id: str) -> None:
+    def _mark_running(self, job_id: str) -> LoadJob:
         job = self._jobs[job_id]
         if job.status is not LoadJobStatus.QUEUED:
             raise LoadJobStateError("Odoo load is not queued")
         now = _now()
-        self._store(
+        return self._store(
             replace(
                 job,
                 status=LoadJobStatus.RUNNING,
@@ -205,6 +238,18 @@ class LoadJobManager:
                 updated_at=now,
             )
         )
+
+    def _notify(self, job: LoadJob) -> None:
+        """Keep a summary failure from changing the recorded Odoo outcome."""
+
+        if self._status_listener is None:
+            return
+        try:
+            self._status_listener(job)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Could not publish Recipe load progress"
+            )
 
     def _report_writing(self, job_id: str, run: ExecutionRun) -> None:
         with self._lock:
