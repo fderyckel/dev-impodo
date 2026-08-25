@@ -1518,13 +1518,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         if column_count < 4 or mapped_field_count < 4:
             self.fail("The related fixture requires at least four columns")
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        workspace_state = self.context.project_authoring.create(
+        authoring = self.context.project_authoring.create(
             actor=self.context.actor,
             display_name="96k related Product/BOM preparation benchmark",
             source_mode="FILE",
             creation_request_id=str(_benchmark_uuid("related-project-create")),
             source_system_identity="Deterministic related CSV fixtures",
-        ).workspace_state
+        )
+        workspace_state = authoring.workspace_state
 
         fixture_specs = (
             (
@@ -1556,7 +1557,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             file_id = str(_benchmark_uuid(f"{fixture_name}-source-file"))
             with source_path.open("rb") as stream:
                 stored = self.artifacts.store_source(
-                    workspace_state.workspace_id,
+                    authoring.data_version.data_version_id,
                     artifact_id=file_id,
                     suffix=".csv",
                     stream=stream,
@@ -1604,7 +1605,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         self.context.workspace_states.repository.save(
             registered_workspace_state,
             expected_revision=workspace_state.revision,
-            event_type="TEST_PROJECT_REGISTERED",
+            event_type="WORKSPACE_REGISTERED",
             event_detail="96k related Product/BOM preparation benchmark",
             actor=self.context.actor,
         )
@@ -1627,6 +1628,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 (sources[0].file_id, "csv"): "products",
                 (sources[1].file_id, "csv"): "bom_lines",
             },
+            actor=self.context.actor,
+        )
+        self.context.data_version_source_projection.accept_file_selection(
+            registered_workspace_state.workspace_id,
+            selection,
             actor=self.context.actor,
         )
         datasets = {item.name: item for item in selection.datasets}
@@ -1828,13 +1834,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         dirty: bool = False,
     ) -> tuple[str, str, int]:
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        workspace_state = self.context.project_authoring.create(
+        authoring = self.context.project_authoring.create(
             actor=self.context.actor,
             display_name="100k complete preparation benchmark",
             source_mode="FILE",
             creation_request_id=str(_benchmark_uuid("project-create")),
             source_system_identity="Deterministic CSV fixture",
-        ).workspace_state
+        )
+        workspace_state = authoring.workspace_state
         source_path = self.root / "preparation-scale-input.csv"
         headers = _headers(column_count, PREPARATION_SCALE_WORKLOAD)
         with source_path.open("w", encoding="utf-8", newline="") as stream:
@@ -1853,7 +1860,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         file_id = str(_benchmark_uuid("source-file"))
         with source_path.open("rb") as stream:
             stored = self.artifacts.store_source(
-                workspace_state.workspace_id,
+                authoring.data_version.data_version_id,
                 artifact_id=file_id,
                 suffix=".csv",
                 stream=stream,
@@ -1890,7 +1897,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         self.context.workspace_states.repository.save(
             registered_workspace_state,
             expected_revision=workspace_state.revision,
-            event_type="TEST_PROJECT_REGISTERED",
+            event_type="WORKSPACE_REGISTERED",
             event_detail="100k complete preparation benchmark",
             actor=self.context.actor,
         )
@@ -1918,6 +1925,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             dataset_names={
                 (source.file_id, "csv"): (_dataset_name(PREPARATION_SCALE_WORKLOAD))
             },
+            actor=self.context.actor,
+        )
+        self.context.data_version_source_projection.accept_file_selection(
+            registered_workspace_state.workspace_id,
+            selection,
             actor=self.context.actor,
         )
         dataset = selection.datasets[0]

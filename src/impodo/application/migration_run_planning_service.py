@@ -1452,6 +1452,7 @@ class MigrationRunPlanningService:
         )
         current_models = {model.name: model for model in current_schema.models}
         recovered: list[RunRecipeApplication] = []
+        refusal_reasons: list[str] = []
         for application in bundle.applications:
             if application.status is not RecipeApplicationStatus.BLOCKED:
                 continue
@@ -1468,6 +1469,10 @@ class MigrationRunPlanningService:
                 application.workspace_id
             )
             if frozen_projection is None:
+                refusal_reasons.append(
+                    "The saved Recipe work area no longer has its checked Odoo "
+                    "field evidence. Start a new Test run."
+                )
                 continue
             selected_models = tuple(
                 current_models[model.name]
@@ -1475,6 +1480,10 @@ class MigrationRunPlanningService:
                 if model.name in current_models
             )
             if len(selected_models) != len(frozen_projection.models):
+                refusal_reasons.append(
+                    "The current Odoo check did not cover every record type used "
+                    "by the saved Recipe. Check the run's Odoo requirements again."
+                )
                 continue
             projection = replace(
                 current_schema,
@@ -1522,12 +1531,36 @@ class MigrationRunPlanningService:
                     ),
                 }
             )
-            if (
-                assessment.blocked
-                or not assessment.target_default_fields
-                or application.physical_binding_hash
-                not in {assessment.physical_binding_hash, legacy_binding_hash}
-            ):
+            if not assessment.target_default_fields:
+                field_word = "field" if len(blockers) == 1 else "fields"
+                refusal_reasons.append(
+                    "Odoo did not return usable create defaults for the "
+                    f"{len(blockers)} required {field_word} added by installed "
+                    "apps. Publish a new Recipe revision that supplies these values."
+                )
+                continue
+            if assessment.blocked:
+                blocker = next(
+                    (item for item in assessment.issues if item.blocks),
+                    None,
+                )
+                refusal_reasons.append(
+                    (
+                        f"{blocker.message} {blocker.recovery_action}"
+                        if blocker is not None
+                        else "The checked Odoo defaults did not resolve every "
+                        "saved Recipe blocker. Review the run's saved issues."
+                    )
+                )
+                continue
+            if application.physical_binding_hash not in {
+                assessment.physical_binding_hash,
+                legacy_binding_hash,
+            }:
+                refusal_reasons.append(
+                    "The saved Recipe values no longer match this reassessment. "
+                    "Start a new Test run so Impodo can bind them again safely."
+                )
                 continue
             save_projection = getattr(
                 self.compiler.schemas,
@@ -1559,6 +1592,13 @@ class MigrationRunPlanningService:
                     evidence_hash=materialized.evidence_hash,
                     actor=actor,
                 )
+            )
+        if not recovered:
+            raise MigrationRunPlanningError(
+                refusal_reasons[0]
+                if refusal_reasons
+                else "This run has no required-field blocker that current Odoo "
+                "defaults can recover. Review the run's saved issues."
             )
         return tuple(recovered)
 

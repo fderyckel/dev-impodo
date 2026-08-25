@@ -200,7 +200,7 @@ class PinnedOdooComparisonTests(unittest.TestCase):
         row = self.compare(proposed="ALICE")
         artifact = OdooComparisonArtifact.create(
             run_id=str(uuid4()),
-            project_id=str(uuid4()),
+            workspace_id=str(uuid4()),
             capture_manifest_hash=HASH,
             frozen_input_hash=HASH,
             model="res.partner",
@@ -214,7 +214,7 @@ class PinnedOdooComparisonTests(unittest.TestCase):
         restored = OdooComparisonArtifact.from_json(artifact.to_json())
         repeated = OdooComparisonArtifact.create(
             run_id=artifact.run_id,
-            project_id=artifact.project_id,
+            workspace_id=artifact.workspace_id,
             capture_manifest_hash=HASH,
             frozen_input_hash=HASH,
             model="res.partner",

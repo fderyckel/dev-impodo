@@ -425,9 +425,14 @@ class Json2ConnectorTests(unittest.TestCase):
         fields_call = next(
             item for item in calls if item[0].endswith("/fields_get")
         )
+        defaults_call = next(
+            item for item in calls if item[0].endswith("/default_get")
+        )
         self.assertTrue(fields_call[0].endswith("/json/2/x.model/fields_get"))
         self.assertEqual(fields_call[1]["allfields"], ["name"])
         self.assertIn("attributes", fields_call[1])
+        self.assertEqual(defaults_call[1]["fields"], ["name"])
+        self.assertNotIn("fields_list", defaults_call[1])
         self.assertEqual(snapshot.create_defaults["x.model"]["name"], "New record")
 
     def test_schema_discovery_requests_all_fields_once_per_model(self) -> None:

@@ -515,8 +515,7 @@ def _validate_prepared_bindings(
         or (
             source is not None
             and (
-                prepared.workspace_id != source.workspace_id
-                or prepared.dataset_id != source.dataset_id
+                prepared.dataset_id != source.dataset_id
                 or prepared.dataset_name != source.dataset_name
                 or prepared.source_snapshot_hash != source.content_hash
                 or prepared.row_count != source.row_count

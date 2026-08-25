@@ -289,11 +289,6 @@ def build_schema_router(context: WebContext) -> APIRouter:
                             f"{'s' if len(recovered) != 1 else ''}."
                         ),
                     )
-                else:
-                    _flash(
-                        request,
-                        "No blocked Recipe could be recovered from these Odoo defaults.",
-                    )
                 return RedirectResponse(
                     f"/projects/{project_id}/runs/{migration_run_id}",
                     status_code=303,

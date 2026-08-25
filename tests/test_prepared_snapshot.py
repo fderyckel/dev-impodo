@@ -66,6 +66,8 @@ class PreparedSnapshotContractTests(unittest.TestCase):
         key = prepared_snapshot_storage_key(DATASET_ID, HASH_A, HASH_E)
         path = PureWindowsPath(
             r"C:\Users\12345678901234567890\AppData\Local\Impodo\projects",
+            "artifacts",
+            "ws",
             "00000000-0000-0000-0000-000000000000",
             *PurePosixPath(key).parts,
         )

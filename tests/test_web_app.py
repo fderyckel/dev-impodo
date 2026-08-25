@@ -3889,12 +3889,21 @@ class ProjectSetupWizardTests(unittest.TestCase):
             datasets.headers["location"],
             f"/workspaces/{workspace_id}/sources#table-choices",
         )
+        dataset_names: dict[str, str] = {}
+        for configuration in (
+            self.app.state.context.queries.get_source_configurations(workspace_id)
+        ):
+            for _table_key in configuration.selected_table_keys:
+                dataset_names[f"dataset_name_{len(dataset_names)}"] = (
+                    "customers"
+                    if configuration.file_id == customer_catalog.file_id
+                    else "products"
+                )
         frozen = self.client.post(
             f"/workspaces/{workspace_id}/datasets/freeze",
             data={
                 "csrf_token": self.csrf,
-                "dataset_name_0": "customers",
-                "dataset_name_1": "products",
+                **dataset_names,
             },
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -4007,21 +4016,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.app.state.context.sources.sources.get_source_selection(workspace_id)
         )
         self.assertIsNotNone(selection)
+        assert selection is not None
+        datasets_by_name = {item.name: item for item in selection.datasets}
+        customer_dataset = datasets_by_name["customers"]
+        product_dataset = datasets_by_name["products"]
         source_choices = _source_value_choices(
             self.app.state.context,
             workspace_id,
-            selection.datasets[0].dataset_id,
-            selection.datasets[0].columns[0].stable_key,
+            customer_dataset.dataset_id,
+            customer_dataset.columns[0].stable_key,
         )
         self.assertEqual(source_choices, ({"value": "C001", "count": 1},))
-        product_name = selection.datasets[1].columns[1]
-        product_code = selection.datasets[1].columns[0]
+        product_name = product_dataset.columns[1]
+        product_code = product_dataset.columns[0]
         related_preview = self.client.post(
             f"/workspaces/{workspace_id}/derived-entities/related/preview",
             data={
                 "csrf_token": self.csrf,
                 "expected_parent_version": "",
-                "source_dataset_id": selection.datasets[1].dataset_id,
+                "source_dataset_id": product_dataset.dataset_id,
                 "parent_dataset_name": "product_groups",
                 "child_dataset_name": "product_rows",
                 "parent_key_column_key": product_name.stable_key,
@@ -4039,7 +4052,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             data={
                 "csrf_token": self.csrf,
                 "expected_parent_version": "",
-                "source_dataset_id": selection.datasets[1].dataset_id,
+                "source_dataset_id": product_dataset.dataset_id,
                 "parent_dataset_name": "product_groups",
                 "child_dataset_name": "product_rows",
                 "parent_key_column_key": product_name.stable_key,
@@ -4077,7 +4090,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "csrf_token": self.csrf,
             "expected_parent_version": "2",
             "source_binding": (
-                f"{selection.datasets[1].dataset_id}|{product_name.stable_key}"
+                f"{product_dataset.dataset_id}|{product_name.stable_key}"
             ),
             "output_dataset_name": "product_names",
             "target_model": "res.partner",
@@ -4351,7 +4364,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('class="identity-pair"', mapping_page.text)
         self.assertIn("Use existing Odoo records only", mapping_page.text)
         self.assertIn("Source value, or backup when blank", mapping_page.text)
-        self.assertIn("Let Odoo choose", mapping_page.text)
+        self.assertNotIn("Let Odoo choose", mapping_page.text)
         self.assertIn("Choose what goes into each Odoo field", mapping_page.text)
         self.assertNotIn("Scalar target fields", mapping_page.text)
         self.assertIn("Find a field", mapping_page.text)
@@ -4470,7 +4483,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIsNotNone(selection)
         self.assertIsNotNone(schema_governance)
-        customer, product = selection.datasets
+        assert selection is not None
+        physical_datasets_by_name = {item.name: item for item in selection.datasets}
+        customer = physical_datasets_by_name["customers"]
+        product = physical_datasets_by_name["products"]
         customer_code, customer_name = customer.columns
         product_code, product_name = product.columns
         mapping_selection = (
@@ -4827,7 +4843,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.client,
             checked.headers["location"],
         )
-        self.assertEqual(completed_job["status"], "SUCCEEDED")
+        self.assertEqual(completed_job["status"], "SUCCEEDED", completed_job)
         manager = self.app.state.context.preparation_jobs
         assert manager is not None
         worker_deadline = time.monotonic() + 2.0
@@ -4948,6 +4964,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         source_artifact = (
             Path(self.temporary.name)
             / "artifacts"
+            / "dv"
             / workspace.data_version_id
             / "inbox"
             / package.files[0].storage_key
@@ -4988,7 +5005,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn(
             "The review workbook documents this data check. "
-            "It does not save or publish the rules.",
+            "It does not save the rules for reuse.",
             readiness_page.text,
         )
         self.assertIn("Odoo remains unchanged", readiness_page.text)
@@ -7557,7 +7574,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                "For Contact, choose each field only once. The matching fields "
+                "For res.partner, choose each field only once. The matching fields "
                 "and Within fields must be different."
             ),
             duplicate_simple.text,

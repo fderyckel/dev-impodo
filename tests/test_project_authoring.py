@@ -360,7 +360,7 @@ class ProjectAuthoringTests(unittest.TestCase):
 class ProjectAuthoringBrowserTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"project-authoring-browser-{uuid4()}"
+        self.root = ROOT / ".tmp" / f"pab-{uuid4().hex}"
         self.root.mkdir()
         self.app = create_local_app(
             self.root,

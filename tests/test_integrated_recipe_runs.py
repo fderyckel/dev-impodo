@@ -116,6 +116,7 @@ from impodo.migration_run_planning import (
     ReferenceRequirement,
 )
 from impodo.migration_runs import MigrationRunPurpose, MigrationRunService
+from impodo.migration_test import TestRunSetupState
 from impodo.migration_workspaces import MigrationWorkspaceService
 from impodo.models import (
     FieldMetadata,
@@ -915,6 +916,21 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
         self.assertEqual(projections[0][0], workspace_id)
         self.assertEqual(saved[0][1]["status"], RecipeApplicationStatus.BLOCKED)
         self.assertEqual(saved[0][1]["issues"], (review,))
+
+        compiler.assess = lambda **values: replace(
+            assessment,
+            target_default_fields=(),
+            issues=(old_blocker,),
+        )
+        with self.assertRaisesRegex(
+            MigrationRunPlanningError,
+            "Odoo did not return usable create defaults for the 1 required field",
+        ):
+            service.recover_blocked_test_run_defaults(
+                run_id,
+                current_schema=current,
+                actor=LOCAL_ACTOR,
+            )
 
     def test_run_projection_accepts_only_default_and_label_changes(self):
         workspace_id = str(uuid4())
@@ -2902,6 +2918,60 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             recovery_page.text,
         )
         self.assertNotIn("Back to Fresh data", recovery_page.text)
+
+        saved_setup_binding = context.test_runs.get(
+            setup_run_id,
+            actor=context.actor,
+        )
+        active_setup_binding = replace(
+            saved_setup_binding,
+            state=TestRunSetupState.ACTIVE,
+            target_binding_id=str(uuid4()),
+            activated_at=datetime.now(timezone.utc),
+        )
+        with (
+            patch.object(
+                context.test_runs,
+                "get",
+                return_value=active_setup_binding,
+            ),
+            patch.object(
+                context.test_runs,
+                "setup_binding_for_workspace",
+                return_value=active_setup_binding,
+            ),
+            patch.object(
+                context.run_planning.repository,
+                "list_run_issues",
+                return_value={"application": (required_default_issue,)},
+            ),
+            patch.object(
+                context.run_planning,
+                "recover_blocked_test_run_defaults",
+                side_effect=MigrationRunPlanningError(
+                    "Odoo did not return a usable create default for this field."
+                ),
+            ),
+        ):
+            refused_recovery = self.client.post(
+                f"/projects/{project_id}/test-runs/{setup_run_id}/odoo/check",
+                data={
+                    "csrf_token": fresh_csrf,
+                    "expected_workspace_revision": check_project_revision,
+                    "operation_id": str(uuid4()),
+                },
+                headers={"Origin": "http://testserver"},
+                follow_redirects=False,
+            )
+        self.assertEqual(refused_recovery.status_code, 422)
+        self.assertIn(
+            "Odoo did not return a usable create default for this field.",
+            refused_recovery.text,
+        )
+        self.assertNotIn(
+            "No blocked Recipe could be recovered",
+            refused_recovery.text,
+        )
 
         copied_setup_url = self.client.get(
             f"/workspaces/{setup_workspace_id}/schema",

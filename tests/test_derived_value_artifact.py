@@ -75,7 +75,7 @@ class DerivedValueArtifactContractTests(unittest.TestCase):
         base = _logical_arguments()
         original = derived_value_artifact_logical_hash(**base)
         changes = (
-            ("project_id", "another-project"),
+            ("workspace_id", "another-workspace"),
             ("dataset_id", "derived:01234567-89ab-cdef-0123-456789abcdef"),
             ("dataset_name", "another_output"),
             ("derivation_kind", DerivedValueKind.GROUP),
@@ -111,11 +111,13 @@ class DerivedValueArtifactContractTests(unittest.TestCase):
         )
         parts = PurePosixPath(key).parts
 
-        self.assertEqual(parts[:3], ("snapshots", "derived", "v1"))
+        self.assertEqual(parts[:3], ("snapshots", "derived", "v2"))
         self.assertEqual(len(parts[3]), 24)
         self.assertNotIn(DATASET_ID, key)
         path = PureWindowsPath(
             r"C:\Users\12345678901234567890\AppData\Local\Impodo\projects",
+            "artifacts",
+            "ws",
             "00000000-0000-0000-0000-000000000000",
             *parts,
         )
@@ -147,7 +149,7 @@ class DerivedValueArtifactContractTests(unittest.TestCase):
 
 def _logical_arguments() -> dict[str, object]:
     return {
-        "project_id": "project",
+        "workspace_id": "workspace",
         "dataset_id": DATASET_ID,
         "dataset_name": "grouped_output",
         "derivation_kind": DerivedValueKind.JOIN,

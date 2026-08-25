@@ -269,6 +269,8 @@ class SourceSnapshotManifestTests(unittest.TestCase):
         key = source_snapshot_storage_key(DATASET_ID, HASH_A, HASH_B)
         path = PureWindowsPath(
             r"C:\Users\12345678901234567890\AppData\Local\Impodo\projects",
+            "artifacts",
+            "dv",
             "00000000-0000-0000-0000-000000000000",
             *PurePosixPath(key).parts,
         )

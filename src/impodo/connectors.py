@@ -1029,7 +1029,7 @@ class Json2ReadConnector:
                     request.model,
                     "default_get",
                     {
-                        "fields_list": list(required_scalar_fields),
+                        "fields": list(required_scalar_fields),
                         "context": dict(self._config.context),
                     },
                 )
