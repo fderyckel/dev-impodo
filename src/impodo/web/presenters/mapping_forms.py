@@ -1091,9 +1091,28 @@ def _standard_reference_business_key(
     )
 
 
+def _supporting_name_business_key(
+    model: str | None,
+) -> BusinessKeyDefinition | None:
+    """Offer an explicit, bounded name match for an uncaptured related model."""
+
+    if not model:
+        return None
+    return BusinessKeyDefinition(
+        key_id=_business_key_id(model, ("name",), ()),
+        model=model,
+        key_fields=("name",),
+        scope_fields=(),
+        description="Odoo record name",
+        status=BusinessKeyStatus.CANDIDATE,
+    )
+
+
 def _related_business_keys(
     definitions: Iterable[BusinessKeyDefinition],
     model: str | None,
+    *,
+    include_supporting_name: bool = True,
 ) -> tuple[BusinessKeyDefinition, ...]:
     confirmed = tuple(
         item
@@ -1101,13 +1120,25 @@ def _related_business_keys(
         if item.model == model and item.status is BusinessKeyStatus.CONFIRMED
     )
     standard = _standard_reference_business_key(model)
-    if standard is None or any(
+    available = list(confirmed)
+    if standard is not None and not any(
         item.key_fields == standard.key_fields
         and item.scope_fields == standard.scope_fields
-        for item in confirmed
+        for item in available
     ):
-        return confirmed
-    return (*confirmed, standard)
+        available.append(standard)
+    supporting_name = (
+        _supporting_name_business_key(model)
+        if include_supporting_name
+        else None
+    )
+    if supporting_name is not None and not any(
+        item.key_fields == supporting_name.key_fields
+        and item.scope_fields == supporting_name.scope_fields
+        for item in available
+    ):
+        available.append(supporting_name)
+    return tuple(available)
 
 
 def _available_mapping_business_keys(
@@ -1122,14 +1153,18 @@ def _available_mapping_business_keys(
         if item.status is BusinessKeyStatus.CONFIRMED
     )
     keys = {item.key_id: item for item in confirmed}
-    related_models = {
-        field.relation
+    related_fields = {
+        (field.relation, field.type)
         for model in schema.models
         for field in model.fields
         if field.relation
     }
-    for related_model in related_models:
-        for key in _related_business_keys(confirmed, related_model):
+    for related_model, relationship_type in related_fields:
+        for key in _related_business_keys(
+            confirmed,
+            related_model,
+            include_supporting_name=relationship_type == "many2one",
+        ):
             keys.setdefault(key.key_id, key)
     return keys
 
@@ -1164,7 +1199,14 @@ def _target_catalog_resolver(
 
 def _resolver_business_key(resolver, candidates):
     if resolver is None or resolver.origin is not ResolverOrigin.TARGET_CATALOG:
-        return candidates[0] if candidates else None
+        return next(
+            (
+                item
+                for item in candidates
+                if item.status is BusinessKeyStatus.CONFIRMED
+            ),
+            None,
+        )
     key_fields = tuple(item.target_field for item in resolver.key_mappings)
     scope_fields = tuple(item.target_field for item in resolver.scope_mappings)
     return next(
@@ -1174,7 +1216,14 @@ def _resolver_business_key(resolver, candidates):
             if item.key_fields == key_fields
             and item.scope_fields == scope_fields
         ),
-        candidates[0] if candidates else None,
+        next(
+            (
+                item
+                for item in candidates
+                if item.status is BusinessKeyStatus.CONFIRMED
+            ),
+            None,
+        ),
     )
 
 

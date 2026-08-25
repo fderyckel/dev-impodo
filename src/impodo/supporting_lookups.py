@@ -14,11 +14,14 @@ import re
 from uuid import uuid4
 
 from .domain.serialization import canonical_json, content_hash
-from .reference_keys import REFERENCE_POLICY_HASH
+from .reference_keys import (
+    REFERENCE_POLICY_HASH,
+    StandardReferenceFieldContract,
+)
 
 
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
-SUPPORTING_LOOKUP_CONTRACT_VERSION = 3
+SUPPORTING_LOOKUP_CONTRACT_VERSION = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +81,7 @@ class SupportingLookupSnapshot:
     key_fields: tuple[str, ...]
     scope_fields: tuple[str, ...]
     display_field: str
+    field_contracts: tuple[StandardReferenceFieldContract, ...]
     target_hash: str
     read_credential_binding_hash: str
     read_principal_hash: str
@@ -100,6 +104,7 @@ class SupportingLookupSnapshot:
         key_fields: tuple[str, ...],
         scope_fields: tuple[str, ...],
         display_field: str,
+        field_contracts: tuple[StandardReferenceFieldContract, ...],
         target_hash: str,
         read_credential_binding_hash: str,
         read_principal_hash: str,
@@ -136,14 +141,37 @@ class SupportingLookupSnapshot:
                 key=str.casefold,
             )
         )
+        requested_fields = set((*key_fields, *scope_fields, display_field))
+        contracts_by_name = {item.name: item for item in field_contracts}
+        if set(contracts_by_name) != requested_fields:
+            raise ValueError(
+                "Supporting lookup field contracts must match its requested fields"
+            )
+        normalized_contracts = tuple(
+            contracts_by_name[name] for name in sorted(contracts_by_name)
+        )
+        for contract in normalized_contracts:
+            _validate_technical_name(contract.name, "related field")
+            if contract.relation_model is not None:
+                _validate_technical_name(contract.relation_model, "related model")
         semantic = {
-            "contract": "supporting-lookup-snapshot-v3",
+            "contract": "supporting-lookup-snapshot-v4",
             "workspace_id": normalized_workspace_id,
             "lookup_key": lookup_key,
             "relation_model": relation_model,
             "key_fields": key_fields,
             "scope_fields": scope_fields,
             "display_field": display_field,
+            "field_contracts": [
+                {
+                    "name": item.name,
+                    "field_type": item.field_type,
+                    "required": item.required,
+                    "readonly": item.readonly,
+                    "relation_model": item.relation_model,
+                }
+                for item in normalized_contracts
+            ],
             "target_hash": target_hash,
             "read_credential_binding_hash": read_credential_binding_hash,
             "read_principal_hash": read_principal_hash,
@@ -164,6 +192,7 @@ class SupportingLookupSnapshot:
             key_fields=key_fields,
             scope_fields=scope_fields,
             display_field=display_field,
+            field_contracts=normalized_contracts,
             target_hash=target_hash,
             read_credential_binding_hash=read_credential_binding_hash,
             read_principal_hash=read_principal_hash,
@@ -191,6 +220,16 @@ class SupportingLookupSnapshot:
                 "key_fields": self.key_fields,
                 "scope_fields": self.scope_fields,
                 "display_field": self.display_field,
+                "field_contracts": [
+                    {
+                        "name": item.name,
+                        "field_type": item.field_type,
+                        "required": item.required,
+                        "readonly": item.readonly,
+                        "relation_model": item.relation_model,
+                    }
+                    for item in self.field_contracts
+                ],
                 "target_hash": self.target_hash,
                 "read_credential_binding_hash": self.read_credential_binding_hash,
                 "read_principal_hash": self.read_principal_hash,
@@ -216,6 +255,7 @@ class SupportingLookupSnapshot:
         expected_fields = {
             "snapshot_id", "contract_version", "workspace_id", "lookup_key",
             "relation_model", "key_fields", "scope_fields", "display_field",
+            "field_contracts",
             "target_hash", "read_credential_binding_hash", "read_principal_hash",
             "read_permission_hash", "read_context_hash", "reference_policy_hash",
             "captured_at", "captured_by", "choices", "ambiguous_values",
@@ -235,6 +275,20 @@ class SupportingLookupSnapshot:
             key_fields=tuple(str(item) for item in payload["key_fields"]),
             scope_fields=tuple(str(item) for item in payload["scope_fields"]),
             display_field=str(payload["display_field"]),
+            field_contracts=tuple(
+                StandardReferenceFieldContract(
+                    name=str(item["name"]),
+                    field_type=str(item["field_type"]),
+                    required=bool(item["required"]),
+                    readonly=bool(item["readonly"]),
+                    relation_model=(
+                        str(item["relation_model"])
+                        if item["relation_model"] is not None
+                        else None
+                    ),
+                )
+                for item in payload["field_contracts"]
+            ),
             target_hash=str(payload["target_hash"]),
             read_credential_binding_hash=str(
                 payload["read_credential_binding_hash"]
@@ -274,6 +328,16 @@ class SupportingLookupSnapshot:
             "key_fields": restored.key_fields,
             "scope_fields": restored.scope_fields,
             "display_field": restored.display_field,
+            "field_contracts": [
+                {
+                    "name": item.name,
+                    "field_type": item.field_type,
+                    "required": item.required,
+                    "readonly": item.readonly,
+                    "relation_model": item.relation_model,
+                }
+                for item in restored.field_contracts
+            ],
             "target_hash": restored.target_hash,
             "read_credential_binding_hash": restored.read_credential_binding_hash,
             "read_principal_hash": restored.read_principal_hash,

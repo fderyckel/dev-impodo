@@ -11,7 +11,10 @@ from ..supporting_lookups import (
     SupportingLookupSnapshot,
     supporting_lookup_key,
 )
-from ..reference_keys import REFERENCE_POLICY_HASH
+from ..reference_keys import (
+    REFERENCE_POLICY_HASH,
+    StandardReferenceFieldContract,
+)
 
 
 class SupportingLookupRepositoryPort(Protocol):
@@ -102,6 +105,7 @@ class SupportingLookupService:
         key_fields: tuple[str, ...],
         scope_fields: tuple[str, ...],
         display_field: str,
+        field_contracts: tuple[StandardReferenceFieldContract, ...],
         target_hash: str,
         read_credential_binding_hash: str,
         read_principal_hash: str,
@@ -125,6 +129,7 @@ class SupportingLookupService:
             key_fields=key_fields,
             scope_fields=scope_fields,
             display_field=display_field,
+            field_contracts=field_contracts,
             target_hash=target_hash,
             read_credential_binding_hash=read_credential_binding_hash,
             read_principal_hash=read_principal_hash,

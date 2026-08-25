@@ -9,7 +9,7 @@ from typing import Iterable, Protocol
 from .domain.serialization import content_hash
 
 
-REFERENCE_POLICY_VERSION = 1
+REFERENCE_POLICY_VERSION = 2
 
 
 class ReferenceReadPurpose(StrEnum):
@@ -27,6 +27,7 @@ class ReferenceEvidenceKind(StrEnum):
 
     CAPTURED_GOVERNED = "CAPTURED_GOVERNED"
     REVIEWED_STANDARD = "REVIEWED_STANDARD"
+    BOUNDED_MATCH_PROBE = "BOUNDED_MATCH_PROBE"
 
 
 class ReferencePolicyDenial(StrEnum):
@@ -178,6 +179,13 @@ REFERENCE_POLICY_HASH = content_hash(
     {
         "contract": "governed-reference-policy",
         "version": REFERENCE_POLICY_VERSION,
+        "bounded_match_probe": {
+            "purpose": ReferenceReadPurpose.MATCH_CHOICES,
+            "relationship_type": "many2one",
+            "key_fields": ("name",),
+            "scope_fields": (),
+            "requested_fields": ("name",),
+        },
         "references": [
             {
                 "model": item.model,
@@ -203,6 +211,41 @@ REFERENCE_POLICY_HASH = content_hash(
         ],
     }
 )
+
+
+def authorize_supporting_match_probe(
+    request: GovernedReferenceRequest,
+) -> GovernedReferenceDecision:
+    """Authorize one minimal metadata-and-values probe for a Many2one name.
+
+    This is deliberately narrower than normal reference authorization.  It
+    lets Stage 3 inspect only ``name`` on the exact related model named by a
+    captured parent field.  The returned metadata must still pass
+    ``authorize_governed_reference`` before any choices become evidence.
+    """
+
+    accepted = bool(
+        request.purpose is ReferenceReadPurpose.MATCH_CHOICES
+        and request.relationship_type == "many2one"
+        and request.relationship_model == request.related_model
+        and bool(request.parent_model)
+        and bool(request.relationship_field)
+        and request.key_fields == ("name",)
+        and request.scope_fields == ()
+        and request.requested_fields == ("name",)
+        and request.governed_key
+        and not request.write_use
+        and not request.all_fields
+        and not request.include_unique_constraints
+    )
+    return GovernedReferenceDecision(
+        accepted=accepted,
+        evidence_kind=(
+            ReferenceEvidenceKind.BOUNDED_MATCH_PROBE if accepted else None
+        ),
+        policy_hash=REFERENCE_POLICY_HASH,
+        denial=(None if accepted else ReferencePolicyDenial.MODEL_NOT_REVIEWED),
+    )
 
 
 def standard_reference_key(model: str) -> StandardReferenceKey | None:

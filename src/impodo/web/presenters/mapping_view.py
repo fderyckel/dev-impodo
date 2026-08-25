@@ -979,6 +979,9 @@ def _mapping_dataset_views(
                 related_keys = _related_business_keys(
                     confirmed,
                     metadata.relation if metadata is not None else None,
+                    include_supporting_name=(
+                        metadata is not None and metadata.type == "many2one"
+                    ),
                 )
                 standard_related_key = _standard_reference_business_key(
                     metadata.relation if metadata is not None else None
@@ -1288,6 +1291,7 @@ def _mapping_dataset_views(
             related_keys = _related_business_keys(
                 confirmed,
                 field.relation,
+                include_supporting_name=field.type == "many2one",
             )
             standard_related_key = _standard_reference_business_key(
                 field.relation

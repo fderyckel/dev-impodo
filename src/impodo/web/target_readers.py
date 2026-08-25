@@ -41,6 +41,7 @@ from ..reference_keys import (
     GovernedReferenceRequest,
     ReferenceReadPurpose,
     authorize_governed_reference,
+    authorize_supporting_match_probe,
     captured_reference_field_contracts,
     standard_reference_key,
 )
@@ -695,27 +696,36 @@ def _relationship_value_choices(
         odoo_major_version = int(str(schema.odoo_version).split(".", 1)[0])
     except ValueError:
         odoo_major_version = -1
-    decision = authorize_governed_reference(
-        GovernedReferenceRequest(
-            parent_model=parent_model,
-            relationship_field=field.name,
-            relationship_type=field.type,
-            relationship_model=field.relation,
-            related_model=field.relation or "",
-            key_fields=key.key_fields,
-            scope_fields=key.scope_fields,
-            requested_fields=requested_fields,
-            purpose=ReferenceReadPurpose.MATCH_CHOICES,
-            odoo_major_version=odoo_major_version,
-            governed_key=True,
-        ),
-        captured_fields=(
-            captured_reference_field_contracts(related_model.fields)
-            if related_model is not None
-            else None
-        ),
+    reference_request = GovernedReferenceRequest(
+        parent_model=parent_model,
+        relationship_field=field.name,
+        relationship_type=field.type,
+        relationship_model=field.relation,
+        related_model=field.relation or "",
+        key_fields=key.key_fields,
+        scope_fields=key.scope_fields,
+        requested_fields=requested_fields,
+        purpose=ReferenceReadPurpose.MATCH_CHOICES,
+        odoo_major_version=odoo_major_version,
+        governed_key=True,
     )
-    if not decision.accepted:
+    captured_contracts = (
+        captured_reference_field_contracts(related_model.fields)
+        if related_model is not None
+        else None
+    )
+    decision = authorize_governed_reference(
+        reference_request,
+        captured_fields=captured_contracts,
+    )
+    probe_decision = (
+        authorize_supporting_match_probe(reference_request)
+        if related_model is None and not decision.accepted
+        else None
+    )
+    if not decision.accepted and not (
+        probe_decision is not None and probe_decision.accepted
+    ):
         raise WorkspaceError(
             "The linked Odoo choices no longer match the governed reference policy"
         )
@@ -749,6 +759,14 @@ def _relationship_value_choices(
             actor=context.actor,
         )
         if current is not None:
+            cached_decision = authorize_governed_reference(
+                reference_request,
+                captured_fields=current.field_contracts,
+            )
+            if not cached_decision.accepted:
+                raise WorkspaceError(
+                    "The saved Odoo choices no longer match the governed reference policy"
+                )
             return (
                 tuple(
                     {"value": item.value, "label": item.label}
@@ -784,6 +802,17 @@ def _relationship_value_choices(
         raise WorkspaceError(
             "Quick matching currently supports text-based Odoo keys"
         )
+    returned_contracts = captured_reference_field_contracts(
+        returned_fields[name] for name in requested_fields
+    )
+    returned_decision = authorize_governed_reference(
+        reference_request,
+        captured_fields=returned_contracts,
+    )
+    if not returned_decision.accepted:
+        raise WorkspaceError(
+            "The linked Odoo fields do not authorize these matching choices"
+        )
 
     records = record_snapshot.records.get(field.relation, ())
     if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:
@@ -818,6 +847,7 @@ def _relationship_value_choices(
         key_fields=key.key_fields,
         scope_fields=key.scope_fields,
         display_field=display_field,
+        field_contracts=returned_contracts,
         target_hash=expected_target_hash,
         read_credential_binding_hash=access.credential_binding_hash,
         read_principal_hash=access.principal_hash,
@@ -1028,6 +1058,10 @@ def _capture_recipe_supporting_values(
                 key_fields=item.key_fields,
                 scope_fields=item.scope_fields,
                 display_field=item.display_field,
+                field_contracts=captured_reference_field_contracts(
+                    returned_model.fields[name]
+                    for name in item.requested_fields
+                ),
                 target_hash=expected_target_hash,
                 read_credential_binding_hash=access.credential_binding_hash,
                 read_principal_hash=access.principal_hash,

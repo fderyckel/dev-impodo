@@ -13,6 +13,7 @@ from impodo.reference_keys import (
     ReferenceReadPurpose,
     StandardReferenceFieldContract,
     authorize_governed_reference,
+    authorize_supporting_match_probe,
     standard_reference_key,
 )
 
@@ -158,6 +159,36 @@ class GovernedReferencePolicyTests(unittest.TestCase):
             accepted.evidence_kind,
             ReferenceEvidenceKind.CAPTURED_GOVERNED,
         )
+
+    def test_many2one_name_probe_is_bounded_to_stage_three_choices(self):
+        request = GovernedReferenceRequest(
+            parent_model="product.template",
+            relationship_field="uom_id",
+            relationship_type="many2one",
+            relationship_model="uom.uom",
+            related_model="uom.uom",
+            key_fields=("name",),
+            scope_fields=(),
+            requested_fields=("name",),
+            purpose=ReferenceReadPurpose.MATCH_CHOICES,
+            governed_key=True,
+        )
+
+        accepted = authorize_supporting_match_probe(request)
+        wrong_field = authorize_supporting_match_probe(
+            replace(request, requested_fields=("name", "category_id"))
+        )
+        wrong_purpose = authorize_supporting_match_probe(
+            replace(request, purpose=ReferenceReadPurpose.PREFLIGHT)
+        )
+
+        self.assertTrue(accepted.accepted)
+        self.assertEqual(
+            accepted.evidence_kind,
+            ReferenceEvidenceKind.BOUNDED_MATCH_PROBE,
+        )
+        self.assertFalse(wrong_field.accepted)
+        self.assertFalse(wrong_purpose.accepted)
 
 
 if __name__ == "__main__":

@@ -466,6 +466,7 @@ def create_local_app(
         mapping_repository,
         workspace_access,
         categorical_coverage=categorical_coverage,
+        supporting_lookups=supporting_lookup_repository,
     )
     recipe_application_service = RecipeApplicationService(
         sources=workspace_mapping_sources,

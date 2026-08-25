@@ -366,6 +366,13 @@ def _validate_resolver(
     resolver_scope_fields = tuple(
         item.target_field for item in resolver.scope_mappings
     )
+    supporting_contracts = context.supporting_reference_contracts.get(
+        (
+            resolver.model,
+            resolver_key_fields,
+            resolver_scope_fields,
+        )
+    )
     try:
         odoo_major_version = int(
             str(context.schema_catalog.odoo_version).split(".", 1)[0]
@@ -393,7 +400,7 @@ def _validate_resolver(
         captured_fields=(
             captured_reference_field_contracts(model.fields)
             if model is not None
-            else None
+            else supporting_contracts
         ),
     )
     if (
@@ -420,6 +427,8 @@ def _validate_resolver(
         model_fields.update(reference_decision.contract.key_fields)
         model_fields.update(reference_decision.contract.scope_fields)
         model_fields.add(reference_decision.contract.display_field)
+    if supporting_contracts is not None:
+        model_fields.update(item.name for item in supporting_contracts)
     if not resolver.key_mappings:
         issues.append(
             _issue(
@@ -496,7 +505,24 @@ def _validate_resolver(
             resolver.model,
             {},
         ).get(key_field)
-        if key_metadata is not None and key_metadata.type not in {
+        supporting_key_metadata = next(
+            (
+                item
+                for item in (supporting_contracts or ())
+                if item.name == key_field
+            ),
+            None,
+        )
+        key_type = (
+            key_metadata.type
+            if key_metadata is not None
+            else (
+                supporting_key_metadata.field_type
+                if supporting_key_metadata is not None
+                else None
+            )
+        )
+        if key_type is not None and key_type not in {
             "char",
             "text",
             "selection",

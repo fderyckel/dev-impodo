@@ -11,7 +11,7 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from ...odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...source_binding import OdooSourceBinding, SourceOriginKind
@@ -30,6 +30,7 @@ from .context import (
     SourceSelectionView,
     ValidationContext,
 )
+from ....supporting_lookups import SupportingLookupSnapshot
 from .control_totals import _validate_control_totals
 from .dependencies import _validate_dependencies
 from .evidence import (
@@ -93,6 +94,7 @@ class MappingSemanticValidator:
         source_selection: SourceSelectionView,
         schema_catalog: SchemaCatalogView,
         schema_governance: SchemaGovernance | None,
+        supporting_references: Sequence[SupportingLookupSnapshot] = (),
     ) -> MappingValidationResult:
         """Validate exact source/schema bindings and every declared dataset rule."""
 
@@ -102,6 +104,7 @@ class MappingSemanticValidator:
             source_selection,
             schema_catalog,
             schema_governance,
+            supporting_references,
         )
         issues: list[MappingValidationIssue] = []
         coverage: list[Mapping[str, Any]] = []

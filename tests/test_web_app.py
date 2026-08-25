@@ -5915,11 +5915,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
                                 name="code",
                                 type="char",
                                 label="Country Code",
+                                required=True,
                             ),
                             "name": FieldMetadata(
                                 name="name",
                                 type="char",
                                 label="Country Name",
+                                required=True,
                             ),
                         },
                     )
@@ -6087,7 +6089,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 self.assertIn(label, page.text)
                 self.assertNotIn("No matching rule available", page.text)
 
-    def test_relationship_without_matching_rule_has_clear_disabled_state(
+    def test_uncaptured_many2one_offers_an_explicit_name_matching_rule(
         self,
     ) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
@@ -6099,12 +6101,162 @@ class ProjectSetupWizardTests(unittest.TestCase):
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
-        self.assertIn("No matching rule available", page.text)
-        self.assertIn(
-            "Choose a matching rule before matching values.",
+        self.assertIn("Odoo record name", page.text)
+        self.assertIn("confirm", page.text)
+        self.assertIn("Match values", page.text)
+        self.assertNotIn('name="relation_key_0_0" disabled', page.text)
+        self.assertNotIn("No matching rule available", page.text)
+
+    def test_product_uom_choices_are_fetched_as_bounded_supporting_data(
+        self,
+    ) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="uom.uom",
+            target_model="product.template",
+            relationship_field_names=("uom_id",),
+        )
+        source_identity, source_uom = dataset.columns
+        context = self.app.state.context
+        calls = []
+
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
+            calls.append((metadata_requests, record_requests))
+            available = _browser_schema(workspace_state)
+            metadata = replace(
+                available,
+                models={
+                    "uom.uom": ModelMetadata(
+                        model="uom.uom",
+                        description="Unit of Measure",
+                        fields={
+                            "name": FieldMetadata(
+                                name="name",
+                                type="char",
+                                label="Unit of Measure",
+                                required=True,
+                            ),
+                        },
+                    )
+                },
+            )
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={
+                    "uom.uom": (
+                        TargetRecord("uom.uom", 41, {"name": "Units"}),
+                        TargetRecord("uom.uom", 42, {"name": "kg"}),
+                        TargetRecord("uom.uom", 43, {"name": "Hours"}),
+                    )
+                },
+                requested_fields={"uom.uom": ("name",)},
+            )
+
+        context.readiness_reader = readiness_reader
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        candidate = re.search(
+            r'<option value="([^"]+)"[^>]*>\s*Odoo record name',
             page.text,
         )
-        self.assertIn('name="relation_key_0_0" disabled', page.text)
+        self.assertIsNotNone(candidate, page.text)
+        candidate_key_id = candidate.group(1)
+        self.assertNotIn(f'value="{candidate_key_id}" selected', page.text)
+
+        with patch(
+            "impodo.web.routers.mapping._source_value_choices",
+            return_value=({"value": "Unit", "count": 3},),
+        ):
+            choices = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/value-choices",
+                data={
+                    "csrf_token": self.csrf,
+                    "kind": "relationship",
+                    "dataset_id": dataset.dataset_id,
+                    "source_column_key": source_uom.stable_key,
+                    "target_model": "product.template",
+                    "target_field": "uom_id",
+                    "business_key_id": candidate_key_id,
+                },
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(choices.status_code, 200, choices.text)
+        self.assertEqual(
+            choices.json()["target_choices"],
+            [
+                {"value": "Hours", "label": "Hours"},
+                {"value": "kg", "label": "kg"},
+                {"value": "Units", "label": "Units"},
+            ],
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][0].model, "uom.uom")
+        self.assertEqual(calls[0][0][0].fields, ("name",))
+        self.assertEqual(calls[0][1][0].fields, ("name",))
+        self.assertEqual(calls[0][1][0].limit, 2001)
+        self.assertNotIn("odoo_id", choices.text)
+        self.assertNotIn("41", choices.text)
+
+        saved = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json={
+                "entries": [
+                    ["csrf_token", self.csrf],
+                    ["action", "save_progress"],
+                    ["expected_parent_version", ""],
+                    ["expected_working_draft_version", ""],
+                    ["editable_dataset_id", dataset.dataset_id],
+                    ["target_model_0", "product.template"],
+                    ["mode_0", "upsert"],
+                    ["on_existing_0", "block"],
+                    ["source_identity_0", source_identity.stable_key],
+                    ["business_key_0", business_key.key_id],
+                    ["identity_source_0_0", source_identity.stable_key],
+                    ["visible_relation_target_0", "uom_id"],
+                    ["relation_source_0_0", source_uom.stable_key],
+                    ["relation_origin_0_0", "target_catalog"],
+                    ["relation_key_0_0", candidate_key_id],
+                    ["relation_operation_0_0", "replace"],
+                    ["relation_compare_0_0", "1"],
+                    ["relation_missing_0_0", "error"],
+                    ["relation_ambiguous_0_0", "error"],
+                    ["relation_null_0_0", "distinct"],
+                    ["relation_separator_0_0", ";"],
+                    [
+                        "relation_value_matches_0_0",
+                        '[{"source_value":"Unit","target_value":"Units"}]',
+                    ],
+                ]
+            },
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(saved.status_code, 200, saved.text)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            workspace_id
+        )
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        governance = context.queries.get_schema_governance(workspace_id)
+        selection = context.queries.get_mapping_source_selection(workspace_id)
+        supporting = context.mapping_workspace._current_supporting_references(
+            workspace_id,
+            working.definition,
+            schema,
+        )
+        validation = context.mapping_workspace.validator.validate(
+            working.definition,
+            selection,
+            schema,
+            governance,
+            supporting,
+        )
+        codes = {item.code for item in validation.issues}
+        self.assertEqual(len(supporting), 1)
+        self.assertEqual(supporting[0].relation_model, "uom.uom")
+        self.assertEqual(supporting[0].field_contracts[0].name, "name")
+        self.assertNotIn("MAPPING_TARGET_MODEL_UNKNOWN", codes)
+        self.assertNotIn("MAPPING_BUSINESS_KEY_NOT_GOVERNED", codes)
 
     def test_relationship_catalog_is_searchable_and_progressively_disclosed(
         self,
@@ -7599,6 +7751,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         required_relationship_indexes: tuple[int, ...] = (),
         relationship_field_type: str = "many2one",
         business_key_description: str = "Unique reference",
+        target_model: str = "res.partner",
+        relationship_field_names: tuple[str, ...] | None = None,
     ):
         context = self.app.state.context
         created = _create_workspace(
@@ -7612,7 +7766,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_local",
-            intended_models=("res.partner",),
+            intended_models=(target_model,),
             status=WorkspaceStatus.REGISTERED,
             revision=2,
             updated_at=now,
@@ -7740,8 +7894,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     file_id=source_file_id,
                     catalog_hash=package_catalog.content_hash,
                     payload={
+                        "file_id": source_file_id,
+                        "source_sha256": source_hash,
+                        "catalog_hash": package_catalog.content_hash,
                         "encoding": "utf-8",
-                        "selected_tables": ["large_contacts"],
+                        "delimiter": ",",
+                        "selected_table_keys": ["contacts"],
+                        "warnings_acknowledged": False,
+                        "confirmed_at": now.isoformat(),
+                        "confirmed_by": context.actor.identity.display_name,
                     },
                 ),
             ),
@@ -7824,7 +7985,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ),
             *(
                 SchemaField(
-                    name=f"relation_{index:04d}",
+                    name=(
+                        relationship_field_names[index]
+                        if relationship_field_names is not None
+                        else f"relation_{index:04d}"
+                    ),
                     label=f"Linked Field {index:04d}",
                     type=relationship_field_type,
                     required=index in required_relationship_indexes,
@@ -7844,7 +8009,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             connection_mode=registered.odoo_connection_mode.value,
             database=registered.odoo_database,
             odoo_version="19.0",
-            models=(SchemaModel("res.partner", "Contact", fields),),
+            models=(SchemaModel(target_model, target_model, fields),),
             content_hash="sha256:" + "4" * 64,
             origin=SchemaOrigin.LIVE_API,
             read_credential_binding_hash="sha256:" + "1" * 64,
@@ -7859,8 +8024,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
             actor=context.actor,
         )
         business_key = BusinessKeyDefinition(
-            key_id="res.partner:ref",
-            model="res.partner",
+            key_id=f"{target_model}:ref",
+            model=target_model,
             key_fields=("ref",),
             description=business_key_description,
             status=BusinessKeyStatus.CONFIRMED,
@@ -7870,7 +8035,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             version=1,
             workspace_id=registered.workspace_id,
             catalog_hash=schema.content_hash,
-            permitted_models=("res.partner",),
+            permitted_models=(target_model,),
             business_keys=(business_key,),
             recorded_at=now,
             recorded_by=context.actor.identity.display_name,

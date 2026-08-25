@@ -15,6 +15,7 @@ from impodo.adapters.duckdb.supporting_lookup_repository import (
 )
 from impodo.application.supporting_lookup_service import SupportingLookupService
 from impodo.models import target_identity_hash
+from impodo.reference_keys import StandardReferenceFieldContract
 from impodo.workspace_state import WorkspaceState, OdooConnectionMode
 from impodo.supporting_lookups import SupportingLookupChoice
 
@@ -63,6 +64,10 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
             key_fields=("code",),
             scope_fields=(),
             display_field="name",
+            field_contracts=(
+                StandardReferenceFieldContract("code", "char", True, False),
+                StandardReferenceFieldContract("name", "char", True, False),
+            ),
             target_hash=self.target_hash,
             read_credential_binding_hash="sha256:" + "1" * 64,
             read_principal_hash="sha256:" + "2" * 64,
@@ -121,6 +126,10 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
             key_fields=("code",),
             scope_fields=(),
             display_field="name",
+            field_contracts=(
+                StandardReferenceFieldContract("code", "char", True, False),
+                StandardReferenceFieldContract("name", "char", True, False),
+            ),
             target_hash=self.target_hash,
             read_credential_binding_hash="binding",
             read_principal_hash="principal",

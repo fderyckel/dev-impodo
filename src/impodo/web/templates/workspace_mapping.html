@@ -221,7 +221,7 @@
                             <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                             {% for key in row.related_keys %}
                               <option value="{{ key.key_id }}" {% if row.selected_related_key and key.key_id == row.selected_related_key.key_id %}selected{% endif %}>
-                                {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% endif %}
+                                {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% elif key.status.value == 'CANDIDATE' %} — confirm{% endif %}
                               </option>
                             {% endfor %}
                           </select>
@@ -907,7 +907,7 @@
                         <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                         {% for key in row.related_keys %}
                           <option value="{{ key.key_id }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
-                            {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_key_id %} — recommended{% endif %}
+                            {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_key_id %} — recommended{% elif key.status.value == 'CANDIDATE' %} — confirm{% endif %}
                           </option>
                         {% endfor %}
                       </select>

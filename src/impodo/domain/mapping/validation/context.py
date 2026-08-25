@@ -10,6 +10,8 @@ from ...schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
+from ....reference_keys import StandardReferenceFieldContract
+from ....supporting_lookups import SupportingLookupSnapshot
 from ..contracts import DatasetMapping, MappingDefinition
 
 
@@ -86,6 +88,10 @@ class ValidationContext:
     datasets_by_id: Mapping[str, DatasetMapping]
     dataset_targets: Mapping[str, str]
     governed_key_signatures: frozenset[BusinessKeySignature]
+    supporting_reference_contracts: Mapping[
+        BusinessKeySignature,
+        tuple[StandardReferenceFieldContract, ...],
+    ]
 
     @classmethod
     def build(
@@ -94,6 +100,7 @@ class ValidationContext:
         source_selection: SourceSelectionView,
         schema_catalog: SchemaCatalogView,
         schema_governance: SchemaGovernance | None,
+        supporting_references: Sequence[SupportingLookupSnapshot] = (),
     ) -> "ValidationContext":
         """Index every source, schema, mapping, and confirmed-key lookup once."""
 
@@ -110,6 +117,14 @@ class ValidationContext:
             )
             if item.status is BusinessKeyStatus.CONFIRMED
         )
+        supporting_contracts = {
+            (
+                item.relation_model,
+                item.key_fields,
+                item.scope_fields,
+            ): item.field_contracts
+            for item in supporting_references
+        }
         datasets_by_id: dict[str, DatasetMapping] = {}
         for item in definition.datasets:
             datasets_by_id.setdefault(item.dataset_id, item)
@@ -130,9 +145,18 @@ class ValidationContext:
                 for item in definition.datasets
             },
             governed_key_signatures=frozenset(
-                (item.model, item.key_fields, item.scope_fields)
-                for item in governed_keys
+                (
+                    (
+                        item.model,
+                        item.key_fields,
+                        item.scope_fields,
+                    )
+                    for item in governed_keys
+                )
+            ).union(
+                supporting_contracts
             ),
+            supporting_reference_contracts=supporting_contracts,
         )
 
     def has_governed_key(

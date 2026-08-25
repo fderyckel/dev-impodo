@@ -25,6 +25,7 @@ from ..domain.schema.governance import SchemaGovernance
 from ..domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
+    ResolverOrigin,
     TargetFieldDisposition,
     TargetFieldHandling,
 )
@@ -39,7 +40,11 @@ from ..domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from ..domain.mapping.validation.validator import MappingSemanticValidator
-from ..reference_keys import REFERENCE_POLICY_HASH
+from ..reference_keys import REFERENCE_POLICY_HASH, standard_reference_key
+from ..supporting_lookups import (
+    SupportingLookupSnapshot,
+    supporting_lookup_key,
+)
 from .categorical_coverage_service import CategoricalCoverageService
 from ..workspace_contracts import (
     MappingWorkingDraft,
@@ -166,6 +171,16 @@ class MappingWorkspaceRepository(Protocol):
         ...
 
 
+class MappingSupportingLookupRepository(Protocol):
+    """Return current bounded reference evidence used by Stage 3 validation."""
+
+    def get_current(
+        self,
+        workspace_id: str,
+        lookup_key: str,
+    ) -> SupportingLookupSnapshot | None: ...
+
+
 class MappingWorkspaceService:
     """Own Stage D concurrency, evidence binding, and submission gates.
 
@@ -182,12 +197,14 @@ class MappingWorkspaceService:
         mappings: MappingWorkspaceRepository,
         authorization: AuthorizationPolicy,
         categorical_coverage: CategoricalCoverageService,
+        supporting_lookups: MappingSupportingLookupRepository | None = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
         self.mappings = mappings
         self.authorization = authorization
         self.categorical_coverage = categorical_coverage
+        self.supporting_lookups = supporting_lookups
         self.validator = MappingSemanticValidator()
 
     def save_working_draft(
@@ -757,6 +774,11 @@ class MappingWorkspaceService:
             selection,
             schema,
             governance,
+            self._current_supporting_references(
+                workspace_id,
+                definition,
+                schema,
+            ),
         )
         collected = self.categorical_coverage.collect(
             workspace_id,
@@ -790,3 +812,79 @@ class MappingWorkspaceService:
             issues=issues,
             categorical_coverage=collected.evidence,
         )
+
+    def _current_supporting_references(
+        self,
+        workspace_id: str,
+        definition: MappingDefinition,
+        schema: OdooSchemaCatalog,
+    ) -> tuple[SupportingLookupSnapshot, ...]:
+        """Load each distinct related-model lookup once for semantic checks."""
+
+        if self.supporting_lookups is None:
+            return ()
+        primary_models = {item.name for item in schema.models}
+        lookup_keys: set[str] = set()
+        resolvers = []
+        for dataset in definition.datasets:
+            resolvers.extend(
+                component.resolver
+                for component in (
+                    *dataset.target_identity,
+                    *dataset.target_scope,
+                )
+                if component.resolver is not None
+            )
+            resolvers.extend(
+                relationship.resolver
+                for relationship in dataset.relationships
+            )
+        for resolver in resolvers:
+            if (
+                resolver.origin is not ResolverOrigin.TARGET_CATALOG
+                or not resolver.model
+                or resolver.model in primary_models
+            ):
+                continue
+            key_fields = tuple(
+                item.target_field for item in resolver.key_mappings
+            )
+            scope_fields = tuple(
+                item.target_field for item in resolver.scope_mappings
+            )
+            if not key_fields:
+                continue
+            standard = standard_reference_key(resolver.model)
+            display_field = (
+                standard.display_field
+                if standard is not None
+                and standard.key_fields == key_fields
+                and standard.scope_fields == scope_fields
+                else key_fields[0]
+            )
+            lookup_key = supporting_lookup_key(
+                relation_model=resolver.model,
+                key_fields=key_fields,
+                scope_fields=scope_fields,
+                display_field=display_field,
+            )
+            lookup_keys.add(lookup_key)
+
+        snapshots = []
+        for lookup_key in sorted(lookup_keys):
+            snapshot = self.supporting_lookups.get_current(
+                workspace_id,
+                lookup_key,
+            )
+            if (
+                snapshot is not None
+                and snapshot.target_hash == schema.connection_target_hash
+                and snapshot.read_credential_binding_hash
+                == schema.read_credential_binding_hash
+                and snapshot.read_principal_hash == schema.read_principal_hash
+                and snapshot.read_permission_hash == schema.read_permission_hash
+                and snapshot.read_context_hash == schema.read_context_hash
+                and snapshot.reference_policy_hash == REFERENCE_POLICY_HASH
+            ):
+                snapshots.append(snapshot)
+        return tuple(snapshots)
