@@ -101,11 +101,34 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            "Created a fresh Test data version and Odoo target setup workspace.",
+            "Created a fresh Test data version from the selected Recipe requirements.",
         )
         return RedirectResponse(
-            f"/workspaces/{result.setup_workspace.workspace_id}/files",
+            f"/projects/{project_id}/test-runs/"
+            f"{result.run.migration_run_id}/fresh-data",
             status_code=303,
+        )
+
+    @router.get(
+        "/projects/{project_id}/test-runs/{migration_run_id}/fresh-data",
+        response_class=HTMLResponse,
+    )
+    async def test_run_fresh_data(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+    ):
+        """Show the exact Recipe-owned source needs for this Test delivery."""
+
+        require_session(request)
+        return _render(
+            request,
+            "project_test_run_fresh_data.html",
+            **_test_fresh_data_view(
+                context,
+                project_id,
+                migration_run_id,
+            ),
         )
 
     @router.get(
@@ -416,9 +439,7 @@ def _test_activation_view(context, project_id, migration_run_id):
         target_error = ""
     if data_version.state.value != "FROZEN":
         setup_destination = (
-            f"/workspaces/{setup_workspace.workspace_id}/files"
-            if setup_state.status.value == "DRAFT"
-            else f"/workspaces/{setup_workspace.workspace_id}/sources"
+            f"/projects/{project_id}/test-runs/{migration_run_id}/fresh-data"
         )
         setup_action_label = "Continue fresh data"
     elif not target_ready:
@@ -442,4 +463,50 @@ def _test_activation_view(context, project_id, migration_run_id):
         "setup_workspace": setup_workspace,
         "target_error": target_error,
         "target_ready": target_ready,
+    }
+
+
+def _test_fresh_data_view(context, project_id, migration_run_id):
+    project = context.migration_projects.get(project_id, actor=context.actor)
+    binding = context.test_runs.get(migration_run_id, actor=context.actor)
+    if binding.project_id != project.project_id:
+        raise MigrationFoundationError("Test run does not belong to this Project")
+    run = context.migration_runs.get(migration_run_id, actor=context.actor)
+    data_version = context.data_versions.get(
+        binding.data_version_id,
+        actor=context.actor,
+    )
+    setup_workspace = context.migration_workspaces.get(
+        binding.setup_workspace_id,
+        actor=context.actor,
+    )
+    setup_state = context.workspace_states.repository.get(
+        binding.setup_workspace_id
+    )
+    accepted = data_version.state.value == "FROZEN"
+    if accepted:
+        action_href = f"/projects/{project_id}/runs/{migration_run_id}/odoo"
+        action_label = "Continue to Check Odoo"
+    elif setup_state.status.value == "DRAFT":
+        action_href = f"/workspaces/{setup_workspace.workspace_id}/files"
+        action_label = (
+            "Review fresh files" if setup_state.source_files else "Add fresh files"
+        )
+    else:
+        action_href = f"/workspaces/{setup_workspace.workspace_id}/sources"
+        action_label = "Review detected tables"
+    return {
+        "accepted": accepted,
+        "action_href": action_href,
+        "action_label": action_label,
+        "binding": binding,
+        "data_version": data_version,
+        "project": project,
+        "requirements": context.test_runs.fresh_data_requirements(
+            migration_run_id,
+            actor=context.actor,
+        ),
+        "run": run,
+        "setup_state": setup_state,
+        "setup_workspace": setup_workspace,
     }

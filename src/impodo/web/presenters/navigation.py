@@ -1057,10 +1057,16 @@ def _recipe_run_setup_navigation(
         f"/projects/{workspace_view.project_id}/{run_kind}/"
         f"{workspace_view.migration_run_id}/activate"
     )
+    fresh_home = (
+        f"/projects/{workspace_view.project_id}/test-runs/"
+        f"{workspace_view.migration_run_id}/fresh-data"
+        if purpose == "TEST"
+        else None
+    )
     fresh_complete = workspace_view.data_version.state.value == "FROZEN"
     source_stage = _find_stage(navigation.stages, "source")
     odoo_stage = _find_stage(navigation.stages, "odoo")
-    fresh_href = (
+    fresh_href = fresh_home or (
         f"/workspaces/{workspace_id}/datasets#tables-ready"
         if fresh_complete
         else (

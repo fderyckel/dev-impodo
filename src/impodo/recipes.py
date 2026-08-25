@@ -131,6 +131,15 @@ class RecipePublication:
     revision: RecipeRevision
 
 
+@dataclass(frozen=True, slots=True)
+class RecipeRevisionRead:
+    """Return one exact Recipe identity, revision, and verified definition."""
+
+    recipe: Recipe
+    revision: RecipeRevision
+    envelope: Mapping[str, object]
+
+
 class RecipeRepository(Protocol):
     def get_recipe(self, recipe_id: str) -> Recipe: ...
 
@@ -146,6 +155,12 @@ class RecipeRepository(Protocol):
         recipe_id: str,
         version: int,
     ) -> Mapping[str, object]: ...
+
+    def read_recipe_revisions(
+        self,
+        project_id: str,
+        selections: tuple[tuple[str, int], ...],
+    ) -> Mapping[tuple[str, int], RecipeRevisionRead]: ...
 
     def publish_recipe(
         self,
@@ -223,3 +238,30 @@ class RecipeService:
             recipe_id,
             require_revision(version, "version"),
         )
+
+    def read_revisions(
+        self,
+        project_id: str,
+        selections: tuple[tuple[str, int], ...],
+        *,
+        actor: Actor,
+    ) -> Mapping[tuple[str, int], RecipeRevisionRead]:
+        """Read exact Project-owned revisions with one bounded registry query."""
+
+        project_id = require_uuid(project_id, "project_id")
+        normalized = tuple(
+            (
+                require_uuid(recipe_id, "recipe_id"),
+                require_revision(version, "version"),
+            )
+            for recipe_id, version in selections
+        )
+        if len(set(normalized)) != len(normalized):
+            raise RecipeError("Select each Recipe version only once")
+        self.authorization.require(actor, Capability.RECIPE_VIEW)
+        self.authorization.require(
+            actor,
+            Capability.RECIPE_VIEW,
+            project_id=project_id,
+        )
+        return self.repository.read_recipe_revisions(project_id, normalized)

@@ -32,6 +32,13 @@ The Test DataVersion owns the complete immutable source package. Each
 application workspace stores only its selected logical dataset and snapshot
 references. It never copies source rows or another workspace database.
 
+Before file intake, the run may read the exact selected Recipe envelopes and
+present their logical source tables and columns as one Fresh data projection.
+This read must include a Recipe identity that was archived after selection,
+because the run pins the exact revision rather than the active Recipe list.
+It must use a bounded registry operation rather than one registry query per
+Recipe.
+
 ## Planning gate
 
 Before any application workspace is provisioned, the planner must:
@@ -96,6 +103,12 @@ shared Odoo refresh remains in the setup workspace, and application evidence
 remains in its isolated workspace. This compatibility seam must not create a
 second semantic implementation or retain an obsolete application-specific
 Authoring path.
+
+`GET /projects/{project_id}/test-runs/{migration_run_id}/fresh-data` is the
+canonical Test source entry. It may delegate file intake and detailed physical
+table review to the shared setup workspace. It must not ask the data manager
+to redefine the logical tables or columns already supplied by the selected
+Recipe revisions.
 
 ## Qualification boundary
 

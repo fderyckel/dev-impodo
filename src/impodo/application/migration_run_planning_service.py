@@ -680,6 +680,7 @@ class MigrationRunPlanningService:
         target_schema: OdooSchemaCatalog,
         target_reference_bundle: ReferenceBundle | None,
         credential_generation: str,
+        parameter_values: Mapping[str, Mapping[str, object]] | None,
         operation_id: str,
         actor: Actor,
         fault: FaultInjector | None = None,
@@ -719,7 +720,7 @@ class MigrationRunPlanningService:
             dependencies=test_binding.dependencies,
             target_schema=target_schema,
             target_reference_bundle=target_reference_bundle,
-            parameter_values=None,
+            parameter_values=parameter_values,
             control_values=None,
             actor=actor,
         )
@@ -850,6 +851,7 @@ class MigrationRunPlanningService:
                     ),
                     "target_schema_hash": run_target_schema.content_hash,
                     "test_setup_hash": test_binding.content_hash,
+                    "parameter_values": parameter_values or {},
                 }
             ),
             actor=actor,

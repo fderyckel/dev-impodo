@@ -10,6 +10,7 @@ import re
 import shutil
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from uuid import UUID, uuid4, uuid5
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
@@ -422,6 +423,7 @@ class IntegratedRecipeCompiler:
         self.model = "res.partner"
         self.fields = ("name",)
         self.reference_requirement = None
+        self.assessed_parameter_values = []
 
     def compile_workspace(self, workspace_id):
         del workspace_id
@@ -478,7 +480,17 @@ class IntegratedRecipeCompiler:
                     }
                 ]
             },
-            "parameter_definitions": {"parameters": []},
+            "parameter_definitions": {
+                "parameters": [
+                    {
+                        "logical_parameter_id": "parameter:export_as_of_date",
+                        "label": "Data date",
+                        "type": "date",
+                        "required": True,
+                        "constraints": {"not_after_application_date": True},
+                    }
+                ]
+            },
             "source_preparation": {"rules": []},
             "mapping": {
                 "datasets": [
@@ -554,8 +566,8 @@ class IntegratedRecipeCompiler:
             else ()
         )
 
-    @staticmethod
     def assess(
+        self,
         *,
         recipe_id,
         definition,
@@ -565,7 +577,8 @@ class IntegratedRecipeCompiler:
         parameter_values,
         control_values,
     ):
-        del target_schema, reference_bundle, parameter_values, control_values
+        del target_schema, reference_bundle, control_values
+        self.assessed_parameter_values.append(dict(parameter_values))
         shape = definition["source_shape"]["datasets"][0]
         dataset = next(
             (item for item in source_selection.datasets if item.name == shape["logical_name"]),
@@ -924,7 +937,7 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 ),
             ),
             label="August integrated rehearsal",
-            export_as_of="2026-08-24 18:00 Bangkok time",
+            export_as_of="2026-08-24",
             operation_id=str(uuid4()),
             actor=LOCAL_ACTOR,
         )
@@ -942,6 +955,24 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             ),
             ("product.template", "res.partner"),
+        )
+        requirements = service.fresh_data_requirements(
+            setup.run.migration_run_id,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(
+            tuple(item.display_name for item in requirements),
+            ("Customers", "Product and BOM"),
+        )
+        self.assertEqual(
+            tuple(item.inputs[0].label for item in requirements),
+            ("Customers", "Products"),
+        )
+        self.assertTrue(
+            all(
+                item.parameters[0].supplied_value == "2026-08-24"
+                for item in requirements
+            )
         )
         self.assertEqual(
             self.packages.repository.get_source_package(
@@ -984,6 +1015,13 @@ class IntegratedRecipeRunTests(unittest.TestCase):
         self.assertEqual(len(activated.applications), 2)
         self.assertEqual(len(activated.workspaces), 3)
         self.assertEqual(
+            self.compiler.assessed_parameter_values[-2:],
+            [
+                {"parameter:export_as_of_date": "2026-08-24"},
+                {"parameter:export_as_of_date": "2026-08-24"},
+            ],
+        )
+        self.assertEqual(
             service.get(setup.run.migration_run_id, actor=LOCAL_ACTOR).state.value,
             "ACTIVE",
         )
@@ -995,6 +1033,70 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 ).workspace_id,
                 setup.setup_workspace.workspace_id,
             )
+
+    def test_selected_recipe_revisions_use_one_registry_connection(self):
+        opened = []
+        original_connect = self.database.connect
+
+        def counted(path):
+            opened.append(path)
+            return original_connect(path)
+
+        with patch.object(self.database, "connect", side_effect=counted):
+            revisions = self.recipe_service.read_revisions(
+                self.bundle.project.project_id,
+                self._selected(),
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertEqual(set(revisions), set(self._selected()))
+        self.assertEqual(opened, [self.database.registry_path])
+
+    def test_fresh_data_keeps_the_pinned_revision_after_recipe_archive(self):
+        service = TestRunSetupService(
+            projects=self.projects,
+            data_versions=self.data_versions,
+            runs=self.runs,
+            migration_workspaces=self.workspaces,
+            source_packages=self.packages,
+            workspace_states=self.workspace_states,
+            recipes=self.recipe_service,
+            test_runs=TestRunRepository(self.foundation),
+            run_planning=self.planning,
+            authorization=self.authorization,
+        )
+        project = self.projects.get(
+            self.bundle.project.project_id,
+            actor=LOCAL_ACTOR,
+        )
+        setup = service.start_setup(
+            project.project_id,
+            expected_workspace_revision=project.optimistic_revision,
+            recipe_revisions=self._selected(),
+            dependencies=(),
+            label="Pinned Recipe rehearsal",
+            export_as_of="2026-08-24",
+            operation_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
+        with self.database.connect(self.foundation.registry_path) as connection:
+            connection.execute(
+                "UPDATE recipe SET archived_at = ? WHERE recipe_id = ?",
+                [
+                    utc_now().isoformat(),
+                    self.customer.recipe.recipe_id,
+                ],
+            )
+
+        requirements = service.fresh_data_requirements(
+            setup.run.migration_run_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(
+            {item.display_name for item in requirements},
+            {"Customers", "Product and BOM"},
+        )
 
     def test_two_recipes_share_one_run_target_and_keep_isolated_workspaces(self):
         result = self._start()
@@ -1348,7 +1450,37 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             expected_recipe_revision=None,
             display_name="Customers",
             business_purpose="Prepare customers from the newer delivery",
-            compiled_recipe={"contract_versions": {}},
+            compiled_recipe={
+                "contract_versions": {},
+                "source_shape": {
+                    "datasets": [
+                        {
+                            "logical_dataset_id": "dataset:customers",
+                            "logical_name": "Customers",
+                            "required": True,
+                            "columns": [
+                                {
+                                    "logical_column_id": "column:customers.name",
+                                    "source_name": "Customer name",
+                                    "candidate_type_hint": "STRING",
+                                    "required_by": ["mapping"],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "parameter_definitions": {
+                    "parameters": [
+                        {
+                            "logical_parameter_id": "parameter:export_as_of_date",
+                            "label": "Data date",
+                            "type": "date",
+                            "required": True,
+                            "constraints": {"not_after_application_date": True},
+                        }
+                    ]
+                },
+            },
             compatibility_hints={},
             compilation_provenance={},
             operation_id=str(uuid4()),
@@ -1383,7 +1515,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
                 "operation_id": operation_id,
                 "expected_workspace_revision": expected_revision,
                 "label": "Fresh customer Test",
-                "export_as_of": "2026-08-24 20:00 Bangkok time",
+                "export_as_of": "2026-08-24",
                 "recipe_revision": (
                     f"{publication.recipe.recipe_id}:"
                     f"{publication.revision.version}"
@@ -1394,24 +1526,37 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         )
 
         self.assertEqual(setup.status_code, 303)
-        self.assertRegex(setup.headers["location"], r"^/workspaces/.+/files$")
+        self.assertRegex(
+            setup.headers["location"],
+            rf"^/projects/{project_id}/test-runs/.+/fresh-data$",
+        )
         setup_location = setup.headers["location"]
-        setup_workspace_id = setup_location.split("/")[2]
-        setup_run_id = context.workspace_views.get(
-            setup_workspace_id,
-            actor=context.actor,
-        ).migration_run_id
+        setup_run_id = setup_location.split("/")[4]
 
         fresh_data = self.client.get(setup_location)
         self.assertEqual(fresh_data.status_code, 200)
-        self.assertIn("Recipe run", fresh_data.text)
         self.assertIn("Fresh data", fresh_data.text)
         self.assertIn("Check Odoo", fresh_data.text)
         self.assertIn("Review and load", fresh_data.text)
+        self.assertIn("Customers", fresh_data.text)
+        self.assertIn("Customer name", fresh_data.text)
+        self.assertIn("Recipe v1", fresh_data.text)
+        self.assertIn("2026-08-24", fresh_data.text)
+        self.assertIn("Add fresh files", fresh_data.text)
         self.assertNotIn("Match data", fresh_data.text)
         self.assertNotIn("Prepare data", fresh_data.text)
         self.assertNotIn("Final review", fresh_data.text)
         self.assertNotIn("Load into Odoo", fresh_data.text)
+
+        file_entry = self.client.get(
+            re.search(r'href="([^"]+)">Add fresh files', fresh_data.text).group(1)
+        )
+        self.assertEqual(file_entry.status_code, 200)
+        self.assertIn("Recipe run", file_entry.text)
+        setup_workspace_id = re.search(
+            r'action="/workspaces/([^/]+)/files"',
+            file_entry.text,
+        ).group(1)
 
         for stale_path in ("overview", "mapping", "summary", "load"):
             stale = self.client.get(

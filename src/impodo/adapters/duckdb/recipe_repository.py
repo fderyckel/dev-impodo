@@ -25,6 +25,7 @@ from ...recipes import (
     Recipe,
     RecipeError,
     RecipeRevision,
+    RecipeRevisionRead,
     RecipePublication,
 )
 from .migration_foundation_repository import MigrationFoundationRepository
@@ -97,7 +98,83 @@ class RecipeRepository:
         if not rows:
             self.get_recipe(recipe_id)
             raise MigrationNotFoundError("Recipe revision not found")
-        revision = self._revision_from_row(rows[0])
+        return self._read_revision_envelope(self._revision_from_row(rows[0]))
+
+    def read_recipe_revisions(
+        self,
+        project_id: str,
+        selections: tuple[tuple[str, int], ...],
+    ) -> Mapping[tuple[str, int], RecipeRevisionRead]:
+        """Read selected envelopes after one Project-scoped registry query."""
+
+        project_id = require_uuid(project_id, "project_id")
+        normalized = tuple(
+            (
+                require_uuid(recipe_id, "recipe_id"),
+                require_revision(version, "version"),
+            )
+            for recipe_id, version in selections
+        )
+        if not normalized:
+            return {}
+        if len(set(normalized)) != len(normalized):
+            raise RecipeError("Select each Recipe version only once")
+        conditions = " OR ".join(
+            "(revision.recipe_id = ? AND revision.version = ?)"
+            for _item in normalized
+        )
+        parameters: list[object] = [project_id]
+        for recipe_id, version in normalized:
+            parameters.extend((recipe_id, version))
+        with self.database.connect(self.foundation.registry_path) as connection:
+            self.foundation._require_project(connection, project_id)
+            rows = self.foundation._rows(
+                connection,
+                "SELECT revision.* FROM recipe_revision revision "
+                "JOIN recipe ON recipe.recipe_id = revision.recipe_id "
+                "WHERE recipe.project_id = ? AND (" + conditions + ")",
+                parameters,
+            )
+            recipe_rows = self.foundation._rows(
+                connection,
+                "SELECT * FROM recipe WHERE project_id = ? AND recipe_id IN ("
+                + ", ".join("?" for _item in normalized)
+                + ")",
+                [project_id, *(recipe_id for recipe_id, _version in normalized)],
+            )
+        revisions = {
+            (revision.recipe_id, revision.version): revision
+            for revision in (self._revision_from_row(row) for row in rows)
+        }
+        missing = tuple(item for item in normalized if item not in revisions)
+        if missing:
+            raise MigrationNotFoundError(
+                "A selected Recipe revision is unavailable in this Project"
+            )
+        recipes = {
+            recipe.recipe_id: recipe
+            for recipe in (self._recipe_from_row(row) for row in recipe_rows)
+        }
+        if any(recipe_id not in recipes for recipe_id, _version in normalized):
+            raise MigrationNotFoundError(
+                "A selected Recipe is unavailable in this Project"
+            )
+        return {
+            item: RecipeRevisionRead(
+                recipe=recipes[item[0]],
+                revision=revisions[item],
+                envelope=self._read_revision_envelope(revisions[item]),
+            )
+            for item in normalized
+        }
+
+    def _read_revision_envelope(
+        self,
+        revision: RecipeRevision,
+    ) -> Mapping[str, object]:
+        """Verify one protected Recipe envelope against its registry identity."""
+
+        recipe_id = revision.recipe_id
         payload = self.store.read(
             recipe_id,
             storage_key=revision.storage_key,

@@ -1083,7 +1083,7 @@ class MigrationFoundationRepository:
             row = connection.execute(
                 """
                 SELECT w.project_id, w.workspace_id, w.data_version_id,
-                       w.migration_run_id, w.recipe_application_id
+                       w.migration_run_id, w.recipe_application_id, r.purpose
                   FROM migration_workspace w
                   JOIN migration_project p
                     ON p.project_id = w.project_id
@@ -1118,6 +1118,7 @@ class MigrationFoundationRepository:
             data_version_id=str(row[2]),
             migration_run_id=str(row[3]),
             recipe_application_id=str(row[4]) if row[4] else None,
+            run_purpose=str(row[5]),
         )
 
     def list_migration_workspaces(

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Fresh data &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ project.display_name }} &middot; {{ run.label }}</p>
+      <h1>Fresh data</h1>
+      <p>The selected Recipe versions already define the source tables and columns this Test run needs. Add the current files; you do not need to choose the Recipe relationships again.</p>
+    </div>
+    <span class="status {% if accepted %}registered{% else %}draft{% endif %}">{% if accepted %}Complete{% else %}Current{% endif %}</span>
+  </div>
+
+  <nav class="steps steps-3" aria-label="Recipe run steps">
+    <span class="setup-step {% if accepted %}complete{% else %}current{% endif %}" {% if not accepted %}aria-current="step"{% endif %}>1. Fresh data</span>
+    {% if accepted %}
+      <a class="setup-step current" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}/odoo">2. Check Odoo</a>
+    {% else %}
+      <span class="setup-step locked" aria-disabled="true">2. Check Odoo</span>
+    {% endif %}
+    <span class="setup-step locked" aria-disabled="true">3. Review and load</span>
+  </nav>
+
+  <section class="form-card" aria-labelledby="delivery-title">
+    <div class="section-heading">
+      <div><p class="eyebrow">This delivery</p><h2 id="delivery-title">Files supplied for {{ data_version.export_as_of }}</h2></div>
+    </div>
+    {% if setup_state.source_files %}
+      <div class="file-list">
+        {% for file in setup_state.source_files %}
+          <div class="file-row"><div><strong>{{ file.display_name }}</strong><span>{{ file.size_bytes }} bytes</span></div><span>Added to this Test data version</span></div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>No fresh files have been added yet.</p>
+    {% endif %}
+    <div class="actions"><a class="button primary" href="{{ action_href }}">{{ action_label }}</a></div>
+  </section>
+
+  <section class="overview-stage-list" aria-labelledby="recipe-inputs-title">
+    <div class="section-heading"><div><p class="eyebrow">Known from the Recipe</p><h2 id="recipe-inputs-title">Required source inputs</h2><p>These requirements come from the exact saved versions selected for this run. They are read-only here.</p></div></div>
+    {% for requirement in requirements %}
+      <article class="form-card">
+        <p class="eyebrow">Recipe v{{ requirement.recipe_revision }}</p>
+        <h3>{{ requirement.display_name }}</h3>
+        <p>{{ requirement.business_purpose }}</p>
+        {% if requirement.inputs %}
+          <dl class="summary-list">
+            {% for input in requirement.inputs %}
+              <div>
+                <dt>{{ input.label }}</dt>
+                <dd>
+                  Required table
+                  {% if input.columns %}
+                    <details><summary>{{ input.columns|length }} required column{% if input.columns|length != 1 %}s{% endif %}</summary><p>{{ input.columns|join(', ') }}</p></details>
+                  {% endif %}
+                </dd>
+              </div>
+            {% endfor %}
+          </dl>
+        {% else %}
+          <p>This saved Recipe does not declare a source table.</p>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </section>
+
+  <div class="actions"><a class="button secondary" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/activate">Review Test setup</a></div>
+{% endblock %}

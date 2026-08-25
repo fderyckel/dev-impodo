@@ -2,7 +2,7 @@
 
 ## Status and decision
 
-**Status:** Approved design direction and implementation plan, 2026-08-25.
+**Status:** Phase 1 implemented. Phase 2 is in progress as of 2026-08-25.
 
 This plan combines two ideas:
 
@@ -256,11 +256,21 @@ This refactor preserves the current ownership and evidence:
 
 Introduce Recipe-run navigation and return rules. Hide the six-stage
 navigation in setup and Recipe-application workspaces. Route every existing
-blocker to its owning run page. Keep the underlying pages temporarily where
-necessary, but make the run feel like one journey.
+blocker to its owning run page. Reuse shared Authoring capabilities only when
+the Recipe run actively needs them. Do not keep a second Recipe-run navigation
+branch for compatibility; one central route rule returns old saved links to
+their owning run.
 
 **Exit result:** a data manager cannot accidentally re-enter Recipe authoring
 while using a Recipe.
+
+**Implemented result:** Test and Production setup workspaces and Recipe
+application workspaces now show **Fresh data**, **Check Odoo**, and **Review
+and load**. Recipe application entry and Odoo recovery are owned by the run.
+Stale or crafted links to another stage return to the owning run before a GET
+or POST route can change data. The normal Authoring workspace retains its six
+stages. The rule is resolved from the same bounded workspace-lineage read, so
+it does not add another registry request or reopen a worker-held database.
 
 ### Phase 2: build Fresh data
 
@@ -271,6 +281,19 @@ for standard date needs unless a Recipe explicitly requires another value.
 
 **Exit result:** fresh data is supplied once, and related source inputs are
 requested from Recipe knowledge rather than rediscovered by the user.
+
+**Implemented slice:** a Test run now opens a run-owned **Fresh data** page.
+The page shows the exact selected Recipe versions, their logical source tables
+and required columns, the delivery cutoff, and files already supplied. Recipe
+cards follow dependency order. All selected Recipe identities and revision
+rows use one bounded registry connection, while each protected envelope is
+still verified. The common export-as-of date is supplied automatically during
+activation when a Recipe declares it.
+
+**Still planned in Phase 2:** accept files directly on the run page, match
+physical tables to logical Recipe inputs using explainable content evidence,
+store those explicit matches, collect other Recipe-owned run values, and ask
+the data manager only about missing or ambiguous inputs.
 
 ### Phase 3: build Check Odoo
 
@@ -324,6 +347,43 @@ many repeated requests.
 - Keep the Odoo connection boundary aligned with Odoo 19 conventions and the
   currently supported load operations. A Recipe cannot make an unsupported
   Odoo business action safe merely by naming it.
+
+## Guardrails for the remaining phases
+
+The shorter journey must not hide decisions that change business meaning.
+The following risks remain explicit design constraints for Phases 2 to 5:
+
+- **Exact Recipe version:** each run uses the approved Recipe revision selected
+  for that run. It never silently changes to the newest revision.
+- **Meaning of the fresh data:** the run records whether the files represent a
+  full replacement, additions and changes, or a dated balance. This is
+  especially important for stock and transactions.
+- **Explainable source matching:** Impodo shows why each table matched a Recipe
+  input and asks when more than one match is credible. A familiar file name is
+  not enough evidence by itself.
+- **Odoo differences beyond field names:** target checks include the access,
+  company choices, supporting values, archived records, and business settings
+  that the Recipe actually relies on.
+- **Current supporting values:** knowing that a related Odoo table is required
+  does not mean its current records are known. Impodo refreshes only the
+  Recipe-owned supporting values and explains why they are needed.
+- **Object-specific load boundaries:** customer, product, bill-of-material,
+  stock, and transactional Recipes share the journey but keep their supported
+  Odoo operation, dependency order, and business checks.
+- **Partial work and safe recovery:** a stopped preparation, uncertain load, or
+  partial rejection resumes from its saved evidence. Retrying must not create
+  duplicate Odoo work.
+- **Evidence age and target identity:** automatic completion is allowed only
+  for evidence that is current for the exact Odoo target and Recipe
+  requirements.
+- **Several Recipes together:** shared inputs and Odoo checks are combined,
+  while conflicting rules and dependency cycles remain visible decisions.
+- **A focused final page:** **Review and load** groups issues by their business
+  owner and opens detail progressively. It must not become one long technical
+  exception list.
+- **Separate Production authority:** Production may reuse approved Recipe
+  meaning, but it creates fresh target evidence and requires its own access,
+  comparison, confirmation, and verification.
 
 ## Verification examples
 

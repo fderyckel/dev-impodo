@@ -38,8 +38,22 @@ explicit dependency edges, and the newer delivery cutoff.
 `TestRunSetupService.start_setup`. One restart-safe operation creates the draft
 Test DataVersion, draft Test MigrationRun, shared setup MigrationWorkspace,
 source package, and `TestRunSetupBinding`. The binding pins exact Recipe
-semantic hashes and dependency order before the browser redirects to source
-upload.
+semantic hashes and dependency order before the browser redirects to
+`GET /projects/{project_id}/test-runs/{migration_run_id}/fresh-data`.
+
+The run-owned **Fresh data** page calls
+`TestRunSetupService.fresh_data_requirements`. It shows the logical source
+tables and columns declared by each exact Recipe revision, ordered by the
+run's dependencies. `RecipeService.read_revisions` reads the selected Recipe
+and revision rows through one registry connection, including archived Recipe
+identities, then verifies each protected envelope. The number of registry
+connections does not grow with the number of Recipes. Protected envelope
+reads remain one per exact selected revision.
+
+The page shows files already attached to the Test DataVersion and enters the
+existing setup workspace only for file intake and detailed table review. That
+shared intake path remains current until the later logical-input matching
+slice moves the physical-table decision into the run page.
 
 When the data manager saves the Test target, the target route reads the setup
 binding and preselects the union of models declared by the selected Recipe
@@ -53,6 +67,9 @@ read-credential generation. `MigrationRunPlanningService.activate_test_run`
 then stores the run target and plan atomically and creates one isolated
 application workspace per selected Recipe. The integrated run page continues
 to read bounded registry status without opening every application workspace.
+Activation supplies the date portion of the Test delivery cutoff to every
+selected file Recipe that declares the standard export-as-of parameter. Other
+Recipe-owned run values remain part of the later Fresh data input slice.
 
 ### Planning and collision checks
 
@@ -136,6 +153,9 @@ The run page enters an application through
 Odoo recovery enters the one shared setup workspace through
 `GET /projects/{project_id}/runs/{migration_run_id}/odoo`. These run-owned
 routes prevent application pages from becoming a second Authoring workflow.
+The run enters its source contract through
+`GET /projects/{project_id}/test-runs/{migration_run_id}/fresh-data`; workspace
+file and table pages are supporting detail rather than another run home.
 
 ## Invalidation and recovery
 
@@ -173,6 +193,7 @@ queries must not scale with Recipe count.
 | Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/migration_run_planning.py) |
 | Test setup binding | [`migration_test.py`](../../../src/impodo/migration_test.py) |
 | Test setup coordinator | [`TestRunSetupService`](../../../src/impodo/application/test_run_setup_service.py) |
+| Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/recipes.py) |
 | Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/migration_run_planning_service.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |

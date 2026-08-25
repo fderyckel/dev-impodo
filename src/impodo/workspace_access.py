@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from .access import Actor, AuthorizationPolicy, Capability
@@ -29,6 +29,7 @@ class WorkspaceAccessContext:
     data_version_id: str
     migration_run_id: str
     recipe_application_id: str | None = None
+    run_purpose: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -40,6 +41,8 @@ class WorkspaceAccessContext:
             require_uuid(value, name)
         if self.recipe_application_id is not None:
             require_uuid(self.recipe_application_id, "recipe_application_id")
+        if self.run_purpose not in {None, "AUTHORING", "TEST", "PRODUCTION"}:
+            raise ValueError("run_purpose must name one supported MigrationRun purpose")
 
 
 _BOUND_WORKSPACE_ACCESS: ContextVar[WorkspaceAccessContext | None] = ContextVar(

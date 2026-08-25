@@ -28,19 +28,22 @@ evidence.
 2. Select the exact saved Recipe versions to test.
 3. Under **Required order**, select a dependency only when one Recipe must
    finish and reconcile before another can begin.
-4. Enter the newer data cutoff and select **Create Test setup**.
-5. Under **Fresh data**, upload, review, and select **Accept Data version** for
-   the complete newer delivery.
-6. Under **Check Odoo**, connect the Odoo target for this Test run. Impodo carries the selected
+4. Enter the newer data cutoff and select **Create Test setup**. Impodo opens
+   **Fresh data** for this run.
+5. Review the exact Recipe versions and their required source tables. Expand a
+   table only when you need to see its required columns.
+6. Select **Add fresh files**, upload the complete newer delivery, review the
+   detected tables, and select **Accept Data version**.
+7. Under **Check Odoo**, connect the Odoo target for this Test run. Impodo carries the selected
    Recipes' required models into Odoo field discovery, so you do not select
    the target model again.
-7. Select **Return to Test run setup**.
-8. Under **Review and load**, review the newer data, Odoo target review, read-only access, and
+8. Select **Return to Test run setup**.
+9. Under **Review and load**, review the newer data, Odoo target review, read-only access, and
    selected Recipe versions.
-9. Select **Create Recipe work areas**.
-10. On the run page, select **Continue review and load** for the next Recipe.
-11. Prepare, compare, confirm the load, and verify the result.
-12. When every application has succeeded in the required order, qualify that
+10. Select **Create Recipe work areas**.
+11. On the run page, select **Continue review and load** for the next Recipe.
+12. Prepare, compare, confirm the load, and verify the result.
+13. When every application has succeeded in the required order, qualify that
     exact Test run as the Production candidate.
 
 Before creating Recipe work areas, Impodo checks that the Recipe order has no cycle
@@ -51,6 +54,8 @@ conflicting Recipes is not a safe repair; one Recipe must own that field.
 
 - The Test data version represents one complete, accepted delivery.
 - Every selected Recipe version is the intended saved version.
+- The required source tables shown under **Fresh data** match the business
+  content you expect for each Recipe.
 - Dependencies describe real business order, not a workaround for a collision.
 - The reviewed Odoo workspace belongs to this data project and target.
 - The selected Recipe versions declare non-overlapping writable Odoo fields.
@@ -60,6 +65,9 @@ conflicting Recipes is not a safe repair; one Recipe must own that field.
 **Create Test setup** creates one draft Test data version, one Test run, and
 one shared setup workspace. **Create Recipe work areas** activates that same
 run after you accept the newer delivery and review the chosen Odoo target.
+Before you add files, **Fresh data** reads the exact selected Recipe versions
+and shows their reusable source requirements. Archiving a Recipe later does
+not change the version already pinned to this run.
 Each selected Recipe then receives:
 
 - its exact saved version;
@@ -70,6 +78,11 @@ Each selected Recipe then receives:
 
 The saved Recipe remains unchanged. No source table or prior workspace is
 copied.
+
+The current **Fresh data** page explains what the Recipes require and returns
+you to the run after file work. The detailed source review still detects and
+confirms the physical tables in the shared setup workspace. Automatic table
+matching on the same page is a later part of this refactor.
 
 The setup and Recipe workspaces still keep the detailed evidence. Their browser
 navigation belongs to the run: setup permits fresh-data and Odoo-check pages,

@@ -68,6 +68,11 @@ specific revision verifies both the protected artifact hash and logical
 payload hash before returning the envelope. List rendering must not open a
 workspace, protected payload, or Odoo connection per Recipe row.
 
+A run that needs several exact revisions reads their Recipe identities and
+revision rows through one Project-scoped registry connection. It then verifies
+one protected envelope per selected revision. This bulk read includes archived
+Recipe identities because an existing run keeps its pinned revision.
+
 ## Current application boundary
 
 An integrated Test run applies several exact Recipe revisions inside one

@@ -186,6 +186,7 @@ class WorkspaceAccessTests(unittest.TestCase):
             )
 
         self.assertEqual(actual, expected)
+        self.assertEqual(actual.run_purpose, "AUTHORING")
         connect.assert_called_once_with(self.database.registry_path)
         ensure_workspace_store.assert_not_called()
 

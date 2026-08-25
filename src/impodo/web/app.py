@@ -828,18 +828,15 @@ def create_local_app(
             # Progress/status requests keep using their verified job packet and
             # do not reopen the registry merely to confirm an allowed route.
             return None
-        run = context.migration_runs.get(
-            access_context.migration_run_id,
-            actor=context.actor,
-        )
-        if (
-            run.project_id != access_context.project_id
-            or run.data_version_id != access_context.data_version_id
-        ):
+        if access_context.run_purpose is None:
             raise MigrationIdentifierConfusionError(
-                "Workspace route owners do not describe one verified lineage"
+                "Workspace route ownership is missing its MigrationRun purpose"
             )
-        return enforce_workspace_journey(request, access_context, run.purpose)
+        return enforce_workspace_journey(
+            request,
+            access_context,
+            access_context.run_purpose,
+        )
 
     app.add_middleware(
         WorkspaceAccessMiddleware,
