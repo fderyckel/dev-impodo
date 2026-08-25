@@ -169,11 +169,15 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
         trusted_context_resolver: (
             Callable[[str, str], WorkspaceAccessContext | None] | None
         ) = None,
+        route_policy: (
+            Callable[[Request, WorkspaceAccessContext], Response | None] | None
+        ) = None,
     ) -> None:
         super().__init__(app)
         self.access = access
         self.actor = actor if callable(actor) else lambda: actor
         self.trusted_context_resolver = trusted_context_resolver
+        self.route_policy = route_policy
 
     async def dispatch(self, request: Request, call_next) -> Response:
         """Resolve one safe Project-owned context or return an opaque 404."""
@@ -207,6 +211,13 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
             return PlainTextResponse("Workspace not found", status_code=404)
         request.state.workspace_access_context = context
         with bind_workspace_access_context(context):
+            try:
+                if self.route_policy is not None:
+                    policy_response = self.route_policy(request, context)
+                    if policy_response is not None:
+                        return policy_response
+            except (AuthorizationError, MigrationFoundationError):
+                return PlainTextResponse("Workspace not found", status_code=404)
             response = await call_next(request)
         body_iterator = getattr(response, "body_iterator", None)
         if body_iterator is None:

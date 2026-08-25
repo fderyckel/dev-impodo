@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 1 of 6 · Source data</p>
+      <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}Fresh data · Confirm source tables{% else %}Stage 1 of 6 · Source data{% endif %}</p>
       {% if selection %}
         <h1>Saved source tables</h1>
         <p>Impodo will prepare the tables saved for this data version.</p>

@@ -8,8 +8,8 @@ status: current
 
 ## Goal
 
-Test selected Recipe versions with a newer source delivery and a
-pre-production Odoo 19 server. Impodo keeps this work inside the same data
+Test selected Recipe versions with a newer source delivery and the Odoo target
+you choose for this Test run. Impodo keeps this work inside the same data
 project, but creates a fresh Test data version and a separate working area for
 each Recipe. The Authoring sample and saved Recipes remain unchanged.
 
@@ -18,8 +18,9 @@ each Recipe. The Authoring sample and saved Recipes remain unchanged.
 ## Before you start
 
 Your data project needs at least one saved Recipe from an accepted Authoring
-data version. Have the complete newer Test delivery and the pre-production
-Odoo connection details ready. Impodo will collect both as fresh Test evidence.
+data version. Have the complete newer Test delivery and the connection details
+for your chosen Odoo target ready. Impodo will collect both as fresh Test
+evidence.
 
 ## Steps in Impodo
 
@@ -28,16 +29,16 @@ Odoo connection details ready. Impodo will collect both as fresh Test evidence.
 3. Under **Required order**, select a dependency only when one Recipe must
    finish and reconcile before another can begin.
 4. Enter the newer data cutoff and select **Create Test setup**.
-5. Upload, review, and select **Accept Data version** for the complete newer
-   delivery.
-6. Connect the pre-production Odoo server. Impodo carries the selected
+5. Under **Fresh data**, upload, review, and select **Accept Data version** for
+   the complete newer delivery.
+6. Under **Check Odoo**, connect the Odoo target for this Test run. Impodo carries the selected
    Recipes' required models into Odoo field discovery, so you do not select
    the target model again.
-7. Return to the data project and select **Continue Test setup**.
-8. Review the newer data, pre-production Odoo review, read-only access, and
+7. Select **Return to Test run setup**.
+8. Under **Review and load**, review the newer data, Odoo target review, read-only access, and
    selected Recipe versions.
 9. Select **Create Recipe work areas**.
-10. Review current-data differences in each fresh Recipe work area.
+10. On the run page, select **Continue review and load** for the next Recipe.
 11. Prepare, compare, confirm the load, and verify the result.
 12. When every application has succeeded in the required order, qualify that
     exact Test run as the Production candidate.
@@ -58,7 +59,7 @@ conflicting Recipes is not a safe repair; one Recipe must own that field.
 
 **Create Test setup** creates one draft Test data version, one Test run, and
 one shared setup workspace. **Create Recipe work areas** activates that same
-run after you accept the newer delivery and review the pre-production target.
+run after you accept the newer delivery and review the chosen Odoo target.
 Each selected Recipe then receives:
 
 - its exact saved version;
@@ -69,6 +70,12 @@ Each selected Recipe then receives:
 
 The saved Recipe remains unchanged. No source table or prior workspace is
 copied.
+
+The setup and Recipe workspaces still keep the detailed evidence. Their browser
+navigation belongs to the run: setup permits fresh-data and Odoo-check pages,
+while an application permits only preparation, review, load, and verification.
+A saved or copied workspace link that belongs to Authoring returns you to the
+owning run without changing saved work.
 
 ## Ready and Blocked
 
@@ -101,9 +108,10 @@ become Recipe content.
 
 If planning stops before workspace creation, correct the named missing
 dataset, target field, supporting list, dependency cycle, or overlapping field
-owner. If a Recipe work area is blocked after creation, open only that work
-area's issue and fresh draft; do not save a new Recipe version merely to
-hide current-data drift.
+owner. If a Recipe application is blocked after creation, return to the run
+and select **Continue review and load** for that Recipe. Do not enter its Source
+data, Odoo data, or Match data pages and do not save a new Recipe version merely
+to hide current-data drift.
 
 ## What makes this work stale
 
@@ -113,8 +121,8 @@ plan. Earlier Ready status does not transfer.
 
 ## Next stage
 
-Complete matching, preparation, comparison, load, and verified read-back in
-each Recipe work area. Follow dependency order, then
+Complete preparation, comparison, load, and verified read-back from **Review
+and load** for each Recipe. Follow dependency order, then
 [qualify the integrated Test](qualify-integrated-test.md).
 
 ## Related documentation

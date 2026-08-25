@@ -3,8 +3,8 @@
 This documentation is for the data manager preparing and reviewing an Odoo 19
 migration in the Impodo browser.
 
-Start with [Create a data project](getting-started.md),
-then follow the six stages shown in the workspace sidebar:
+Start with [Create a data project](getting-started.md). When you create or
+change the rules in an Authoring workspace, follow its six stages:
 
 1. [Source data](workflow/01-source-data.md)
 2. [Odoo data](workflow/02-odoo-data.md)
@@ -12,6 +12,11 @@ then follow the six stages shown in the workspace sidebar:
 4. [Prepare data](workflow/04-prepare-data.md)
 5. [Final review](workflow/05-final-review.md)
 6. [Load into Odoo](workflow/06-load-into-odoo.md)
+
+When you use saved Recipes with fresh data, the Recipe run instead shows
+**Fresh data**, **Check Odoo**, and **Review and load**. The saved Recipe
+provides the matching and preparation rules, so the run does not send you back
+through the six Authoring stages.
 
 For a guided practice migration using fictional customers, products,
 categories, and bills of materials, use the

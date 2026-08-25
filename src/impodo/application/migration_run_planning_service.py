@@ -706,7 +706,7 @@ class MigrationRunPlanningService:
             or target_schema.workspace_id != test_binding.setup_workspace_id
         ):
             raise MigrationRunPlanningError(
-                "The reviewed pre-production evidence does not belong to this Test setup"
+                "The reviewed Odoo target evidence does not belong to this Test setup"
             )
         selected = tuple(
             (item.recipe_id, item.recipe_revision)

@@ -33,17 +33,18 @@ Production check.
 
 1. Open the data project and select **Start Production setup**.
 2. Name the rollout and enter the latest export cutoff.
-3. In the new setup workspace, add the complete latest file delivery.
+3. Under **Fresh data**, add the complete latest file delivery.
 4. Review every required file and table, then accept the Production data
    version.
-5. Connect the Production Odoo 19 database with the read-only key and capture
+5. Under **Check Odoo**, connect the Production Odoo 19 database with the read-only key and capture
    its current fields and supporting lists.
-6. Return to the data project and select **Continue Production setup**.
+6. Select **Return to Production run setup**.
 7. Enter any values or controls required for this delivery.
 8. Enter the separate Production write key and select **Create Production work
    areas**.
-9. Open each Recipe work area in the shown dependency order. Prepare, compare,
-   approve, load, and verify it as fresh work.
+9. On the Production run, select **Continue review and load** for each Recipe
+   in the shown dependency order. Prepare, compare, approve, load, and verify
+   it as fresh work.
 
 Impodo creates one Recipe work area for each Recipe in the selected plan.
 They share the accepted Production data version and reviewed target identity,
@@ -106,9 +107,9 @@ back to Test evidence.
 
 ## Next stage
 
-Open the Production run and work through its Recipe work areas in the shown
-order. For each work area, complete the normal workspace stages from source
-review through verified load outcome.
+Open the Production run and work through its Recipes in the shown order. For
+each Recipe, use **Review and load** through the verified load outcome. The
+normal six-stage workspace remains the Authoring journey.
 
 ## Related documentation
 

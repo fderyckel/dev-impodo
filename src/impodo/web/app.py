@@ -224,6 +224,11 @@ from .security import (
     LoopbackSecurityMiddleware,
     WorkspaceAccessMiddleware,
 )
+from .workspace_journeys import (
+    WorkspaceJourney,
+    enforce_workspace_journey,
+    workspace_route_is_allowed,
+)
 
 
 def create_local_app(
@@ -809,11 +814,39 @@ def create_local_app(
             return None
         return None
 
+    def workspace_route_policy(request, access_context):
+        """Keep Recipe-run workspaces inside their owning run journey."""
+
+        if (
+            access_context.recipe_application_id is not None
+            and workspace_route_is_allowed(
+                WorkspaceJourney.RECIPE_APPLICATION,
+                request.url.path,
+                access_context.workspace_id,
+            )
+        ):
+            # Progress/status requests keep using their verified job packet and
+            # do not reopen the registry merely to confirm an allowed route.
+            return None
+        run = context.migration_runs.get(
+            access_context.migration_run_id,
+            actor=context.actor,
+        )
+        if (
+            run.project_id != access_context.project_id
+            or run.data_version_id != access_context.data_version_id
+        ):
+            raise MigrationIdentifierConfusionError(
+                "Workspace route owners do not describe one verified lineage"
+            )
+        return enforce_workspace_journey(request, access_context, run.purpose)
+
     app.add_middleware(
         WorkspaceAccessMiddleware,
         access=context.workspace_access,
         actor=lambda: context.actor,
         trusted_context_resolver=trusted_job_context,
+        route_policy=workspace_route_policy,
     )
     app.add_middleware(
         SessionMiddleware,

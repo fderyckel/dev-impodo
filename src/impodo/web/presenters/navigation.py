@@ -16,7 +16,12 @@ from ...load_jobs import LoadJob
 from ...preparation_jobs import PreparationJob
 from ...workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
 from ...workspace_errors import WorkspaceError
+from ...workspace_views import WorkspaceOwnerView
 from ..context import WebContext
+from ..workspace_journeys import (
+    WorkspaceJourney,
+    classify_workspace_journey,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +71,10 @@ class WorkspaceNavigation:
     viewed_stage_id: str
     viewed_page_label: str
     stages: tuple[WorkflowStage, ...]
+    journey: str = WorkspaceJourney.AUTHORING.value
+    journey_label: str = "Workspace"
+    overview_label: str = "Data version overview"
+    current_work_label: str = "Current data-version work"
 
     @property
     def current_stage(self) -> WorkflowStage | None:
@@ -132,8 +141,47 @@ def build_workspace_navigation(
     *,
     current_path: str = "",
     migration_project_name: str | None = None,
+    workspace_view: WorkspaceOwnerView | None = None,
 ) -> WorkspaceNavigation:
-    """Return one request-scoped workflow snapshot for the rendered page."""
+    """Return the one user journey allowed by canonical workspace ownership."""
+
+    navigation = _build_six_stage_workspace_navigation(
+        context,
+        workspace_state,
+        template_name,
+        current_path=current_path,
+        migration_project_name=migration_project_name,
+    )
+    if workspace_view is None:
+        return navigation
+    journey = classify_workspace_journey(
+        workspace_view.migration_run.purpose,
+        workspace_view.migration_workspace.recipe_application_id,
+    )
+    if journey is WorkspaceJourney.AUTHORING:
+        return navigation
+    if journey is WorkspaceJourney.RECIPE_RUN_SETUP:
+        return _recipe_run_setup_navigation(
+            navigation,
+            workspace_view,
+            template_name=template_name,
+        )
+    return _recipe_application_navigation(
+        navigation,
+        project_id=workspace_view.project_id,
+        migration_run_id=workspace_view.migration_run_id,
+    )
+
+
+def _build_six_stage_workspace_navigation(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    template_name: str,
+    *,
+    current_path: str = "",
+    migration_project_name: str | None = None,
+) -> WorkspaceNavigation:
+    """Build the normal six-stage Authoring evidence projection."""
 
     current_workspace_state = context.queries.get(workspace_state.workspace_id)
     navigation_name = migration_project_name or current_workspace_state.name
@@ -994,6 +1042,197 @@ def _navigation(
     )
 
 
+def _recipe_run_setup_navigation(
+    navigation: WorkspaceNavigation,
+    workspace_view: WorkspaceOwnerView,
+    *,
+    template_name: str,
+) -> WorkspaceNavigation:
+    """Present fresh data and Odoo review as one run-owned setup journey."""
+
+    workspace_id = workspace_view.workspace_id
+    purpose = workspace_view.migration_run.purpose.value
+    run_kind = "test-runs" if purpose == "TEST" else "production-runs"
+    run_home = (
+        f"/projects/{workspace_view.project_id}/{run_kind}/"
+        f"{workspace_view.migration_run_id}/activate"
+    )
+    fresh_complete = workspace_view.data_version.state.value == "FROZEN"
+    source_stage = _find_stage(navigation.stages, "source")
+    odoo_stage = _find_stage(navigation.stages, "odoo")
+    fresh_href = (
+        f"/workspaces/{workspace_id}/datasets#tables-ready"
+        if fresh_complete
+        else (
+            source_stage.href
+            if navigation.registered and source_stage is not None and source_stage.href
+            else navigation.setup_href
+        )
+    )
+    fresh = WorkflowStage(
+        stage_id="fresh",
+        number=1,
+        label="Fresh data",
+        href=fresh_href,
+        status="complete" if fresh_complete else "current",
+        status_label="Complete" if fresh_complete else "Current",
+    )
+    if not fresh_complete:
+        odoo_status = "locked"
+        odoo_label = "Accept fresh data first"
+        odoo_href = None
+    elif odoo_stage is None or odoo_stage.status == "locked":
+        odoo_status = "current"
+        odoo_label = "Current"
+        odoo_href = f"/workspaces/{workspace_id}/schema"
+    else:
+        odoo_status = odoo_stage.status
+        odoo_label = odoo_stage.status_label
+        odoo_href = f"/workspaces/{workspace_id}/schema"
+    odoo = WorkflowStage(
+        stage_id="odoo",
+        number=2,
+        label="Check Odoo",
+        href=odoo_href,
+        status=odoo_status,
+        status_label=odoo_label,
+    )
+    odoo_complete = odoo.status == "complete"
+    review = WorkflowStage(
+        stage_id="review",
+        number=3,
+        label="Review and load",
+        href=run_home if fresh_complete and odoo_complete else None,
+        status="current" if fresh_complete and odoo_complete else "locked",
+        status_label=(
+            "Current" if fresh_complete and odoo_complete else "Finish Odoo check first"
+        ),
+    )
+    if template_name in {"workspace_files.html", "workspace_sources.html", "workspace_datasets.html", "workspace_derived_entities.html"}:
+        viewed_stage_id = "fresh"
+    elif template_name in {"workspace_schema.html", "workspace_target.html"}:
+        viewed_stage_id = "odoo"
+    else:
+        viewed_stage_id = "review"
+    current_stage_id = (
+        "fresh"
+        if not fresh_complete
+        else "odoo"
+        if not odoo_complete
+        else "review"
+    )
+    stages = _activate_run_stages((fresh, odoo, review), viewed_stage_id)
+    return WorkspaceNavigation(
+        workspace_id=workspace_id,
+        migration_project_name=navigation.migration_project_name,
+        registered=True,
+        setup_active=False,
+        setup_href=fresh_href,
+        overview_href=run_home,
+        overview_active=False,
+        current_stage_id=current_stage_id,
+        current_stage_label=next(
+            stage.label for stage in stages if stage.stage_id == current_stage_id
+        ),
+        viewed_stage_id=viewed_stage_id,
+        viewed_page_label=navigation.viewed_page_label,
+        stages=stages,
+        journey=WorkspaceJourney.RECIPE_RUN_SETUP.value,
+        journey_label="Recipe run",
+        overview_label="Run setup",
+        current_work_label="Current run work",
+    )
+
+
+def _recipe_application_navigation(
+    navigation: WorkspaceNavigation,
+    *,
+    project_id: str,
+    migration_run_id: str,
+) -> WorkspaceNavigation:
+    """Collapse an application workspace into the run's review-and-load step."""
+
+    run_home = f"/projects/{project_id}/runs/{migration_run_id}"
+    review_stages = tuple(
+        stage
+        for stage in navigation.stages
+        if stage.stage_id in {"prepare", "review", "load"}
+    )
+    if review_stages and all(stage.status == "complete" for stage in review_stages):
+        review_status = "complete"
+        review_label = "Complete"
+    elif any(stage.status == "attention" for stage in review_stages):
+        review_status = "attention"
+        review_label = "Needs attention"
+    else:
+        review_status = "current"
+        review_label = "Current"
+    stages = _activate_run_stages(
+        (
+            WorkflowStage(
+                stage_id="fresh",
+                number=1,
+                label="Fresh data",
+                href=run_home,
+                status="complete",
+                status_label="Complete",
+            ),
+            WorkflowStage(
+                stage_id="odoo",
+                number=2,
+                label="Check Odoo",
+                href=f"{run_home}/odoo",
+                status="complete",
+                status_label="Complete",
+            ),
+            WorkflowStage(
+                stage_id="review",
+                number=3,
+                label="Review and load",
+                href=f"/workspaces/{navigation.workspace_id}/prepare",
+                status=review_status,
+                status_label=review_label,
+            ),
+        ),
+        "review",
+    )
+    return WorkspaceNavigation(
+        workspace_id=navigation.workspace_id,
+        migration_project_name=navigation.migration_project_name,
+        registered=True,
+        setup_active=False,
+        setup_href=run_home,
+        overview_href=run_home,
+        overview_active=False,
+        current_stage_id="review",
+        current_stage_label="Review and load",
+        viewed_stage_id="review",
+        viewed_page_label=navigation.viewed_page_label,
+        stages=stages,
+        journey=WorkspaceJourney.RECIPE_APPLICATION.value,
+        journey_label="Recipe run",
+        overview_label="Run overview",
+        current_work_label="Current run work",
+    )
+
+
+def _find_stage(
+    stages: tuple[WorkflowStage, ...],
+    stage_id: str,
+) -> WorkflowStage | None:
+    return next((stage for stage in stages if stage.stage_id == stage_id), None)
+
+
+def _activate_run_stages(
+    stages: tuple[WorkflowStage, ...],
+    viewed_stage_id: str,
+) -> tuple[WorkflowStage, ...]:
+    return tuple(
+        replace(stage, active=stage.stage_id == viewed_stage_id)
+        for stage in stages
+    )
+
+
 def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavigation:
     """Build Stage-4 navigation entirely from the in-memory job snapshot."""
 
@@ -1050,7 +1289,7 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
         ),
         *_locked_stages(workspace_id, after="prepare"),
     )
-    return WorkspaceNavigation(
+    navigation = WorkspaceNavigation(
         workspace_id=workspace_id,
         migration_project_name=job.migration_project_name,
         registered=True,
@@ -1063,6 +1302,13 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
         viewed_stage_id="prepare",
         viewed_page_label="Preparation progress",
         stages=stages,
+    )
+    if job.workspace.recipe_application_id is None:
+        return navigation
+    return _recipe_application_navigation(
+        navigation,
+        project_id=job.workspace.project_id,
+        migration_run_id=job.workspace.migration_run_id,
     )
 
 
@@ -1166,7 +1412,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
         ),
         active=True,
     )
-    return WorkspaceNavigation(
+    navigation = WorkspaceNavigation(
         workspace_id=workspace_id,
         migration_project_name=job.migration_project_name,
         registered=True,
@@ -1179,6 +1425,13 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
         viewed_stage_id="load",
         viewed_page_label="Confirm and load",
         stages=(*prior_stages, load_stage),
+    )
+    if job.access_context.recipe_application_id is None:
+        return navigation
+    return _recipe_application_navigation(
+        navigation,
+        project_id=job.access_context.project_id,
+        migration_run_id=job.access_context.migration_run_id,
     )
 
 

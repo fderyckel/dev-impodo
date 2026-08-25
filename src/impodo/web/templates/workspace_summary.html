@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
+  {% set is_recipe_application = workspace_navigation.journey == 'RECIPE_APPLICATION' %}
+  {% set run_odoo_url = '/projects/' ~ migration_context.project_id ~ '/runs/' ~ migration_context.migration_run_id ~ '/odoo' %}
   {% set odoo_source = workspace_state.source_mode.value == 'ODOO' %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 5 of 6 · Final review</p>
+      <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Final review{% else %}Stage 5 of 6 · Final review{% endif %}</p>
       <h1>Review and compare</h1>
       {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
         <p>Possible duplicate records need your decision before the prepared-data checks can continue.</p>
@@ -74,7 +76,7 @@
         {% if normalization.frozen %}
           {% if local_odoo_recovery_needed %}
             <div>
-              <button class="button primary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+              {% if is_recipe_application %}<a class="button primary" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button primary" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
               <small class="muted">Required for this Impodo session before comparing data.</small>
             </div>
           {% elif comparison_recovery_needed %}
@@ -277,7 +279,7 @@
           {% endif %}
         {% elif load_preview and load_preview.scope_error %}
           {% if load_preview.credential_refresh_required %}
-            <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo data</a>
+            <a class="button primary" href="{% if is_recipe_application %}{{ run_odoo_url }}{% else %}/workspaces/{{ workspace_id }}/schema{% endif %}">{% if is_recipe_application %}Return to Check Odoo{% else %}Refresh Odoo data{% endif %}</a>
           {% else %}
             <a class="button primary" href="/workspaces/{{ workspace_id }}/load">Review load availability</a>
           {% endif %}
@@ -298,7 +300,7 @@
         {% endif %}
         {% if odoo_source and readiness.blocked_count %}
         {% elif local_odoo_recovery_needed %}
-          <button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+          {% if is_recipe_application %}<a class="button secondary" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
         {% elif comparison_recovery_needed %}
           <a class="button secondary" href="#comparison-recovery">Resolve Odoo check</a>
         {% else %}
@@ -578,7 +580,7 @@
             </form>
           {% endif %}
           {% if local_odoo_recovery_needed %}
-            <button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+            {% if is_recipe_application %}<a class="button secondary" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
           {% elif comparison_recovery_needed %}
             <a class="button secondary" href="#comparison-recovery">Resolve Odoo check</a>
           {% else %}

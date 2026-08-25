@@ -9,7 +9,7 @@
   >
     <section class="page-heading">
       <div>
-        <p class="eyebrow">Stage 4 of 6 · Prepare data</p>
+        <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Preparing fresh data{% else %}Stage 4 of 6 · Prepare data{% endif %}</p>
         <h1>Preparing {{ job.migration_project_name }}</h1>
         <p>Impodo is working locally. You can leave this page and return without losing the job.</p>
       </div>

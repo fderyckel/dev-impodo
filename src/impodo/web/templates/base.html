@@ -42,7 +42,7 @@
     <div class="app-shell">
       <aside class="site-sidebar" id="app-sidebar" aria-label="Migration workspace">
         <div class="sidebar-heading">
-          <span class="sidebar-heading-label">Workspace</span>
+          <span class="sidebar-heading-label">{{ navigation.journey_label if navigation else "Workspace" }}</span>
           <button
             class="sidebar-toggle"
             type="button"
@@ -115,7 +115,7 @@
                 title="Data version overview"
               >
                 {{ app_icon("speedometer2") }}
-                <span class="nav-label">Data version overview</span>
+                <span class="nav-label">{{ navigation.overview_label }}</span>
               </a>
             {% endif %}
 
@@ -203,7 +203,7 @@
               {% if migration_context is defined %}
                 <a href="/projects/{{ migration_context.project_id }}">{{ navigation.migration_project_name }}</a>
                 <span aria-hidden="true">/</span>
-                <a href="{{ navigation.overview_href }}">Data version {{ migration_context.data_version_number }}</a>
+                <a href="{{ navigation.overview_href }}">{{ navigation.overview_label }}</a>
               {% else %}
                 <a href="{{ navigation.overview_href }}">{{ navigation.migration_project_name }}</a>
               {% endif %}
@@ -219,7 +219,7 @@
             {% if navigation.viewed_stage and navigation.current_stage and navigation.viewed_stage_id != navigation.current_stage_id %}
               <div class="workflow-location-notice" role="status">
                 You are viewing {{ navigation.viewed_stage.label }}.
-                Current data-version work: <a href="{{ navigation.current_stage.href }}">Stage {{ navigation.current_stage.number }} · {{ navigation.current_stage.label }}</a>.
+                {{ navigation.current_work_label }}: <a href="{{ navigation.current_stage.href }}">Step {{ navigation.current_stage.number }} · {{ navigation.current_stage.label }}</a>.
               </div>
             {% endif %}
           {% endif %}

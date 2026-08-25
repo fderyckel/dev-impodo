@@ -76,7 +76,7 @@
                 <p>{{ application_issues[0].recovery_action }}</p>
               </div>
             {% endif %}
-            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open Recipe work area</a>
+            <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/applications/{{ application.application_id }}">Continue review and load</a>
           </div>
         </li>
       {% endfor %}

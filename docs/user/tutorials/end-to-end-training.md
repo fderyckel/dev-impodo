@@ -111,7 +111,8 @@ not ask for the Odoo destination yet; connect it when the workflow reaches
 **Odoo data**. The files are registered, but the individual tables are not yet
 frozen.
 
-The six stages are the data manager's main route:
+The six stages are the data manager's route when creating or changing rules in
+the Authoring workspace:
 
 1. Source data
 2. Odoo data
@@ -130,10 +131,10 @@ data version, source files, Odoo credentials, comparison, approval, or load
 evidence into the Recipe.
 
 Select **Test with new data** to apply one or several saved Recipe versions to
-a newer delivery and a pre-production Odoo server. Impodo first creates a
-fresh Test data version and setup workspace. After you accept the delivery and
-review the target, Impodo creates fresh, isolated Recipe work areas for
-preparation, comparison, confirmed loading, and verification.
+a newer delivery and the Odoo target you choose for this Test run. Impodo first
+creates a fresh Test data version and setup workspace. After you accept the
+delivery and review the target, Impodo creates fresh, isolated Recipe work
+areas for preparation, comparison, confirmed loading, and verification.
 
 ## 2. Check and confirm the source files
 

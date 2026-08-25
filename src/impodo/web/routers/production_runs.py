@@ -280,6 +280,7 @@ def _render_activation(
         request,
         "project_production_activation.html",
         **view,
+        workspace_state=view["setup_state"],
         operation_id=operation_id or str(uuid4()),
         error=error,
         status_code=status_code,
@@ -363,6 +364,21 @@ def _activation_view(context, project_id, migration_run_id):
     else:
         target_ready = True
         target_error = ""
+    if data_version.state.value != "FROZEN":
+        setup_destination = (
+            f"/workspaces/{setup_workspace.workspace_id}/files"
+            if setup_state.status.value == "DRAFT"
+            else f"/workspaces/{setup_workspace.workspace_id}/sources"
+        )
+        setup_action_label = "Continue fresh data"
+    elif not target_ready:
+        setup_destination = f"/workspaces/{setup_workspace.workspace_id}/schema"
+        setup_action_label = "Continue Odoo check"
+    else:
+        setup_destination = (
+            f"/projects/{project_id}/production-runs/{migration_run_id}/activate"
+        )
+        setup_action_label = "Review Production setup"
     return {
         "binding": binding,
         "controls": tuple(controls),
@@ -373,6 +389,8 @@ def _activation_view(context, project_id, migration_run_id):
         "read_status": read_status,
         "run": run,
         "setup_state": setup_state,
+        "setup_action_label": setup_action_label,
+        "setup_destination": setup_destination,
         "setup_workspace": setup_workspace,
         "target_error": target_error,
         "target_ready": target_ready,

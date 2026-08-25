@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
@@ -139,6 +141,44 @@ class SourceInspectionTests(unittest.TestCase):
             ),
         )
         self.assertEqual(overridden.tables[0].header_row, 3)
+
+    def test_xlsx_inventory_streams_a_sheet_without_declared_dimensions(self) -> None:
+        source = self.directory / "customers-with-dimensions.xlsx"
+        path = self.directory / "customers-without-dimensions.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Customers"
+        worksheet.append(["Code", "Name"])
+        worksheet.append(["C001", "First customer"])
+        worksheet.append(["C002", "Second customer"])
+        workbook.save(source)
+        workbook.close()
+
+        removed_dimension = False
+        with ZipFile(source) as reader, ZipFile(
+            path,
+            mode="w",
+            compression=ZIP_DEFLATED,
+        ) as writer:
+            for member in reader.infolist():
+                payload = reader.read(member.filename)
+                if member.filename == "xl/worksheets/sheet1.xml":
+                    payload, count = re.subn(
+                        rb"<dimension[^>]*/>",
+                        b"",
+                        payload,
+                        count=1,
+                    )
+                    removed_dimension = count == 1
+                writer.writestr(member, payload)
+        self.assertTrue(removed_dimension)
+
+        catalog = inspect_source_file(path, source_file=_source_evidence(path))
+
+        self.assertEqual(catalog.tables[0].header_row, 1)
+        self.assertEqual(catalog.tables[0].row_count, 2)
+        self.assertEqual(catalog.tables[0].column_count, 2)
+        self.assertEqual(catalog.tables[0].preview_rows[0], ("C001", "First customer"))
 
     def test_xlsx_inventory_keeps_a_distinct_named_table_as_an_option(self) -> None:
         path = self.directory / "distinct-table.xlsx"

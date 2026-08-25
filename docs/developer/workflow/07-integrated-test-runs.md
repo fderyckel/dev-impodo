@@ -77,10 +77,10 @@ stores only supporting reference datasets named by the selected Recipes.
 only one application's requirements into its workspace and reject per-
 application recapture.
 
-The current flow captures one fresh live pre-production snapshot in the shared
-Test setup workspace. It makes no Odoo call per Recipe or source row. A later
-target refresh remains a run-owned batch operation and must not reintroduce
-application-workspace target capture.
+The current flow captures one fresh live snapshot of the Odoo target chosen
+for the Test run in the shared setup workspace. It makes no Odoo call per
+Recipe or source row. A later target refresh remains a run-owned batch
+operation and must not reintroduce application-workspace target capture.
 
 ## Evidence and state
 
@@ -121,6 +121,22 @@ owning issues and any safe draft. Neither state implies execution,
 qualification, rollout selection, or Production authority. The run page links
 to the separate qualification review.
 
+Workspace ownership selects one browser journey through
+`classify_workspace_journey`. An Authoring workspace keeps the six-stage
+navigation. A Test setup workspace exposes only **Fresh data**, **Check Odoo**,
+and the activation review. A `RecipeApplication` workspace exposes only the
+preparation, review, load, and verification routes grouped under **Review and
+load**. `WorkspaceAccessMiddleware` applies this policy after resolving the
+verified workspace lineage and before a route opens child state. A stale GET or
+POST for an incompatible workspace area redirects to the owning run without
+executing that route.
+
+The run page enters an application through
+`GET /projects/{project_id}/runs/{migration_run_id}/applications/{application_id}`.
+Odoo recovery enters the one shared setup workspace through
+`GET /projects/{project_id}/runs/{migration_run_id}/odoo`. These run-owned
+routes prevent application pages from becoming a second Authoring workflow.
+
 ## Invalidation and recovery
 
 Changing the DataVersion, Recipe selection or revision, dependency graph,
@@ -130,6 +146,11 @@ resume a faulted operation; changed meaning under the same operation ID is
 rejected.
 
 ## Odoo 19 and performance
+
+The current implementation accepts Odoo 19. Supporting a later Odoo major
+version requires extending and testing the compatibility policy. The browser
+describes the selected destination as a supported Odoo target so its labels do
+not need to change for each newly supported major version.
 
 The exact registry generation is
 `impodo-migration-registry-2026-08-project-root`. The DataVersion generation is
@@ -159,10 +180,13 @@ queries must not scale with Recipe count.
 | Run-owned schema projection | [`RunAwareSchemaRepository`](../../../src/impodo/adapters/duckdb/run_aware_schema_repository.py) |
 | Run-owned reference projection | [`RunAwareAdvancedCoverageRepository`](../../../src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py) |
 | Browser routes | [`integrated_runs.py`](../../../src/impodo/web/routers/integrated_runs.py) |
+| Workspace journey policy | [`workspace_journeys.py`](../../../src/impodo/web/workspace_journeys.py) |
+| Journey-aware navigation | [`navigation.py`](../../../src/impodo/web/presenters/navigation.py) |
 
 ## Verification
 
 - [`tests/test_integrated_recipe_runs.py`](../../../tests/test_integrated_recipe_runs.py)
+- [`tests/test_workspace_journeys.py`](../../../tests/test_workspace_journeys.py)
 - [`tests/test_project_authoring.py`](../../../tests/test_project_authoring.py)
 - [`tests/test_data_version_source_packages.py`](../../../tests/test_data_version_source_packages.py)
 

@@ -51,7 +51,7 @@
   {% if load_step == 'review' %}
     <div class="page-heading">
       <div>
-        <p class="eyebrow">Stage 6 of 6 &middot; Check changes</p>
+        <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Check changes{% else %}Stage 6 of 6 &middot; Check changes{% endif %}</p>
         <h1>Check what will change in Odoo</h1>
         <p>This is the exact create-and-update set from the latest completed comparison. Nothing is written from this page.</p>
       </div>
@@ -159,7 +159,7 @@
   {% elif load_step == 'confirm' %}
     <div class="page-heading">
       <div>
-        <p class="eyebrow">Stage 6 of 6 &middot; Confirm and load</p>
+        <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Confirm and load{% else %}Stage 6 of 6 &middot; Confirm and load{% endif %}</p>
         <h1>Confirm the Odoo load</h1>
         <p>Check the target and exact record count once more before allowing Impodo to write.</p>
       </div>
@@ -220,7 +220,7 @@
   {% else %}
     <div class="page-heading">
       <div>
-        <p class="eyebrow">Stage 6 of 6 &middot; Verify result</p>
+        <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Verify result{% else %}Stage 6 of 6 &middot; Verify result{% endif %}</p>
         <h1>Verify the Odoo result</h1>
         <p>The API receipt is saved. Verification checks the actual Odoo records before this load is considered complete.</p>
       </div>

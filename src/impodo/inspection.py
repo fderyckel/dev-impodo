@@ -588,12 +588,21 @@ def _inspect_xlsx(
         tables: list[SourceTableCatalog] = []
         workbook_warnings: list[str] = []
         for worksheet in workbook.worksheets:
-            if worksheet.max_column > MAX_SOURCE_COLUMNS:
+            # Some exporters omit the optional worksheet dimension. In
+            # read-only mode openpyxl then exposes None even though iter_rows
+            # can stream the cells; the bounded scan below remains authoritative.
+            if (
+                worksheet.max_column is not None
+                and worksheet.max_column > MAX_SOURCE_COLUMNS
+            ):
                 raise SourceInspectionError(
                     f"Worksheet {worksheet.title!r} exceeds "
                     f"{MAX_SOURCE_COLUMNS} columns"
                 )
-            if worksheet.max_row > MAX_SOURCE_ROWS + HEADER_SCAN_ROW_LIMIT:
+            if (
+                worksheet.max_row is not None
+                and worksheet.max_row > MAX_SOURCE_ROWS + HEADER_SCAN_ROW_LIMIT
+            ):
                 raise SourceInspectionError(
                     f"Worksheet {worksheet.title!r} exceeds "
                     f"{MAX_SOURCE_ROWS} possible data rows"

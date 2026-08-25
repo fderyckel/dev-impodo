@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 1 of 6 · Optional source organization</p>
+      <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}Fresh data · Source organization{% else %}Stage 1 of 6 · Optional source organization{% endif %}</p>
       <h1>Separate combined information</h1>
       <p>Use this when one source table contains more than one kind of business record.</p>
     </div>

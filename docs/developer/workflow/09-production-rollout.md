@@ -77,10 +77,12 @@ offer a second Production qualification action.
 ## Completion and navigation
 
 The Project overview offers **Start Production setup** after rollout selection.
-Setup first navigates to the source or Odoo-source workspace. **Continue
+Setup first navigates to **Fresh data**, then **Check Odoo**. **Continue
 Production setup** opens the activation review. After activation, the
 Production run page lists applications in the qualified dependency order and
-links to each normal workspace.
+enters each one through **Review and load**. Authoring retains the normal six
+stages; Production setup and application workspaces cannot expose that
+Authoring journey.
 
 `ACTIVE` means application workspaces exist and their current compiler results
 are retained. It is readiness to begin fresh Production comparison work, not a

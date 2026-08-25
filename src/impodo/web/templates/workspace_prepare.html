@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 4 of 6 · Prepare data</p>
+      <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Prepare fresh data{% else %}Stage 4 of 6 · Prepare data{% endif %}</p>
       <h1>Prepare all source rows</h1>
       <p>Impodo will apply the confirmed field rules, run data checks and pause for any decisions that need you.</p>
     </div>

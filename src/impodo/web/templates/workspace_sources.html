@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading" data-source-review-page data-source-position-key="{{ workspace_id }}">
     <div>
-      <p class="eyebrow">Stage 1 of 6 · Source data</p>
+      <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}Fresh data · Check source files{% else %}Stage 1 of 6 · Source data{% endif %}</p>
       <h1>Check your source files</h1>
       <p>Confirm the tables and columns Impodo found in {{ migration_project.display_name }}.</p>
     </div>

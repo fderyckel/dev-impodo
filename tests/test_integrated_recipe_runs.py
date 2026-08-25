@@ -923,7 +923,7 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                     after_recipe_id=self.product.recipe.recipe_id,
                 ),
             ),
-            label="August pre-production rehearsal",
+            label="August integrated rehearsal",
             export_as_of="2026-08-24 18:00 Bangkok time",
             operation_id=str(uuid4()),
             actor=LOCAL_ACTOR,
@@ -1310,6 +1310,20 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             project_id,
             actor=context.actor,
         )[0]
+        authoring_page = self.client.get(
+            f"/workspaces/{workspace.workspace_id}/files"
+        )
+        self.assertEqual(authoring_page.status_code, 200)
+        for stage_label in (
+            "Source data",
+            "Odoo data",
+            "Match data",
+            "Prepare data",
+            "Final review",
+            "Load into Odoo",
+        ):
+            self.assertIn(stage_label, authoring_page.text)
+        self.assertNotIn("Recipe run", authoring_page.text)
         data_version = context.data_versions.get(
             workspace.data_version_id,
             actor=context.actor,
@@ -1347,6 +1361,9 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertEqual(recipe_planning.status_code, 200)
         self.assertIn("Customers", recipe_planning.text)
         self.assertIn("Create Test setup", recipe_planning.text)
+        self.assertIn("Odoo target you choose for this Test run", recipe_planning.text)
+        self.assertNotIn("pre-production", recipe_planning.text)
+        self.assertNotIn("Odoo 19", recipe_planning.text)
         self.assertNotIn("Reviewed Odoo evidence is required", recipe_planning.text)
 
         csrf = re.search(
@@ -1378,6 +1395,34 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
 
         self.assertEqual(setup.status_code, 303)
         self.assertRegex(setup.headers["location"], r"^/workspaces/.+/files$")
+        setup_location = setup.headers["location"]
+        setup_workspace_id = setup_location.split("/")[2]
+        setup_run_id = context.workspace_views.get(
+            setup_workspace_id,
+            actor=context.actor,
+        ).migration_run_id
+
+        fresh_data = self.client.get(setup_location)
+        self.assertEqual(fresh_data.status_code, 200)
+        self.assertIn("Recipe run", fresh_data.text)
+        self.assertIn("Fresh data", fresh_data.text)
+        self.assertIn("Check Odoo", fresh_data.text)
+        self.assertIn("Review and load", fresh_data.text)
+        self.assertNotIn("Match data", fresh_data.text)
+        self.assertNotIn("Prepare data", fresh_data.text)
+        self.assertNotIn("Final review", fresh_data.text)
+        self.assertNotIn("Load into Odoo", fresh_data.text)
+
+        for stale_path in ("overview", "mapping", "summary", "load"):
+            stale = self.client.get(
+                f"/workspaces/{setup_workspace_id}/{stale_path}",
+                follow_redirects=False,
+            )
+            self.assertEqual(stale.status_code, 303)
+            self.assertEqual(
+                stale.headers["location"],
+                f"/projects/{project_id}/test-runs/{setup_run_id}/activate",
+            )
 
 
 if __name__ == "__main__":

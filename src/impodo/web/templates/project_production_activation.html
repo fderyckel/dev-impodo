@@ -28,7 +28,7 @@
     {% if not target_ready %}
       <div class="notice"><strong>Production Odoo evidence needs attention.</strong><p>{{ target_error }}</p></div>
     {% endif %}
-    <div class="actions"><a class="button secondary" href="/workspaces/{{ setup_workspace.workspace_id }}/overview">Open setup workspace</a></div>
+    <div class="actions"><a class="button secondary" href="{{ setup_destination }}">{{ setup_action_label }}</a></div>
   </section>
 
   {% if binding.state.value == 'ACTIVE' %}

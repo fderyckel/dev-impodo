@@ -10,15 +10,15 @@ status: current
 
 One Project-owned Test `MigrationRun` coordinates several exact
 `RecipeRevision` applications over one accepted Test `DataVersion` and one
-reviewed Odoo 19 target. Planning materializes those applications and binds
-the run to one exact CutoverPlan revision. Qualification accepts only complete,
-ordered execution and reconciliation evidence.
+reviewed, supported Odoo target. Planning materializes those applications and
+binds the run to one exact CutoverPlan revision. Qualification accepts only
+complete, ordered execution and reconciliation evidence.
 
 The browser creates the Test run in a setup phase. A `TestRunSetupBinding`
 pins the selected Recipe revisions and dependency order while the data manager
-uploads and accepts the newer Test delivery and reviews the pre-production
-target. Activation adds the immutable run target and fresh application
-workspaces to that same run; it does not create a second Test run.
+uploads and accepts the newer Test delivery and reviews the Odoo target chosen
+for that Test run. Activation adds the immutable run target and fresh
+application workspaces to that same run; it does not create a second Test run.
 
 ## Run-owned evidence
 
@@ -80,6 +80,23 @@ applications. The run is `READY` only when every application is `READY`.
 Opening the run page must not open every application workspace or call Odoo
 once per Recipe.
 
+## Browser journey boundary
+
+Canonical workspace ownership determines the browser journey. An Authoring
+workspace may expose the six editable stages. A Test setup workspace may
+expose fresh-source and shared-target setup only. A Recipe application
+workspace may expose preparation, review, load, and verification only; it must
+not expose editable source, target-schema, mapping, or relationship-authoring
+pages. A stale or crafted URL for the wrong journey must return to the owning
+run before the requested route reads or changes child evidence.
+
+Run-owned navigation may redirect to an existing workspace route while the
+three-page refactor is delivered. The redirect does not transfer ownership:
+shared Odoo refresh remains in the setup workspace, and application evidence
+remains in its isolated workspace. This compatibility seam must not create a
+second semantic implementation or retain an obsolete application-specific
+Authoring path.
+
 ## Qualification boundary
 
 `READY` means planning produced compatible fresh application drafts. It is not
@@ -94,6 +111,7 @@ operation. Neither Test qualification nor selection is Production authority.
 ## Verification
 
 - `tests/test_integrated_recipe_runs.py`
+- `tests/test_workspace_journeys.py`
 - `tests/test_cutover_qualification.py`
 - `tests/test_project_authoring.py`
 - `tests/test_data_version_source_packages.py`

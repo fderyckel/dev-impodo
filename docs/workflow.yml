@@ -140,8 +140,10 @@ stages:
       - src/impodo/migration_run_planning.py::MigrationRunReferenceBundle
       - src/impodo/adapters/duckdb/run_aware_schema_repository.py::RunAwareSchemaRepository
       - src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py::RunAwareAdvancedCoverageRepository
+      - src/impodo/web/workspace_journeys.py::enforce_workspace_journey
     tests:
       - tests/test_integrated_recipe_runs.py
+      - tests/test_workspace_journeys.py
     contracts:
       - docs/developer/contracts/integrated-run-lifecycle.md
       - docs/developer/contracts/project-lifecycle.md

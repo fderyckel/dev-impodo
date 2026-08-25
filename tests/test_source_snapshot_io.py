@@ -4,10 +4,12 @@ from dataclasses import replace
 from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from impodo.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
@@ -689,6 +691,22 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             datetime(2026, 8, 9, 14, 30, 15),
         )
 
+    def test_xlsx_without_declared_dimensions_round_trips_through_parquet(self) -> None:
+        workspace_state, source_file, catalog, selection = self._registered_xlsx(
+            declared_dimensions=False,
+        )
+
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            workspace_state,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+
+        self.assertEqual(snapshot.row_count, 1)
+        self.assertEqual(len(snapshot.schema.columns), 6)
+
     def test_snapshot_hash_mismatch_and_truncation_fail_closed(self) -> None:
         workspace_state, source_file, catalog = self._registered_csv(b"Code\nC1\n")
         selection = _selection_for(workspace_state, source_file, catalog)
@@ -944,6 +962,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
 
     def _registered_xlsx(
         self,
+        *,
+        declared_dimensions: bool = True,
     ):
         from openpyxl import Workbook
         from impodo.application.source_workspace_service import (
@@ -974,6 +994,27 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         content = BytesIO()
         workbook.save(content)
         workbook.close()
+        source_bytes = content.getvalue()
+        if not declared_dimensions:
+            rewritten = BytesIO()
+            with ZipFile(BytesIO(source_bytes)) as reader, ZipFile(
+                rewritten,
+                mode="w",
+                compression=ZIP_DEFLATED,
+            ) as writer:
+                for member in reader.infolist():
+                    payload = reader.read(member.filename)
+                    if member.filename == "xl/worksheets/sheet1.xml":
+                        payload, count = re.subn(
+                            rb"<dimension[^>]*/>",
+                            b"",
+                            payload,
+                            count=1,
+                        )
+                        if count != 1:
+                            raise AssertionError("XLSX fixture has no dimension")
+                    writer.writestr(member, payload)
+            source_bytes = rewritten.getvalue()
         now = datetime.now(timezone.utc)
         workspace_state = WorkspaceState(
             workspace_id=str(uuid4()),
@@ -987,7 +1028,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             _data_version_id(workspace_state.workspace_id),
             artifact_id=str(uuid4()),
             suffix=".xlsx",
-            stream=BytesIO(content.getvalue()),
+            stream=BytesIO(source_bytes),
             maximum_bytes=1024 * 1024,
             chunk_bytes=101,
             validator=lambda _path: None,

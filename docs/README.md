@@ -70,10 +70,13 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
-- [Impodo remaining work](plans/remaining-work.md) — the authoritative
-  forward-looking delivery roadmap. The separate browser-language proposal is
-  active design work; completed delivery history belongs in reports and Git
-  history.
+- [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
+  delivery roadmap.
+- [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
+  the approved plan for applying an existing Recipe to fresh data and an Odoo
+  target without repeating the six authoring stages.
+- The separate browser-language proposal is active design work; completed
+  delivery history belongs in reports and Git history.
 
 ## Historical implementation evidence
 

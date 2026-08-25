@@ -101,7 +101,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            "Created a fresh Test data version and pre-production setup workspace.",
+            "Created a fresh Test data version and Odoo target setup workspace.",
         )
         return RedirectResponse(
             f"/workspaces/{result.setup_workspace.workspace_id}/files",
@@ -157,7 +157,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
             if read_credential is None:
                 raise SecretStoreError(
-                    "Enter and verify the pre-production read-only Odoo key first"
+                    "Enter and verify the read-only Odoo key for this Test run first"
                 )
             result = context.test_runs.activate(
                 project_id,
@@ -262,6 +262,67 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             selection=selection,
         )
 
+    @router.get(
+        "/projects/{project_id}/runs/{migration_run_id}/applications/{application_id}"
+    )
+    async def continue_recipe_application(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+        application_id: str,
+    ):
+        """Enter one application through the run-owned review-and-load step."""
+
+        require_session(request)
+        project = context.migration_projects.get(project_id, actor=context.actor)
+        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        if run.project_id != project.project_id:
+            return HTMLResponse("MigrationRun not found", status_code=404)
+        bundle = context.run_planning.repository.get_bundle(migration_run_id)
+        application = next(
+            (
+                item
+                for item in bundle.applications
+                if item.application_id == application_id
+            ),
+            None,
+        )
+        if application is None or application.project_id != project.project_id:
+            return HTMLResponse("Recipe application not found", status_code=404)
+        return RedirectResponse(
+            f"/workspaces/{application.workspace_id}/prepare",
+            status_code=303,
+        )
+
+    @router.get("/projects/{project_id}/runs/{migration_run_id}/odoo")
+    async def continue_run_odoo_check(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+    ):
+        """Return target recovery to the run's one shared setup workspace."""
+
+        require_session(request)
+        project = context.migration_projects.get(project_id, actor=context.actor)
+        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        if run.project_id != project.project_id:
+            return HTMLResponse("MigrationRun not found", status_code=404)
+        bundle = context.run_planning.repository.get_bundle(migration_run_id)
+        setup_workspace = next(
+            (
+                item
+                for item in bundle.workspaces
+                if item.recipe_application_id is None
+            ),
+            None,
+        )
+        if setup_workspace is None:
+            return HTMLResponse("Run setup not found", status_code=404)
+        return RedirectResponse(
+            f"/workspaces/{setup_workspace.workspace_id}/schema",
+            status_code=303,
+        )
+
     return router
 
 
@@ -305,10 +366,12 @@ def _render_test_activation(
     status_code=200,
     operation_id=None,
 ):
+    view = _test_activation_view(context, project_id, migration_run_id)
     return _render(
         request,
         "project_test_run_activation.html",
-        **_test_activation_view(context, project_id, migration_run_id),
+        **view,
+        workspace_state=view["setup_state"],
         operation_id=operation_id or str(uuid4()),
         error=error,
         status_code=status_code,
@@ -339,7 +402,7 @@ def _test_activation_view(context, project_id, migration_run_id):
         TargetCredentialRole.READ,
     )
     target_ready = False
-    target_error = "Capture the pre-production Odoo 19 fields and supporting lists."
+    target_error = "Capture the Odoo fields and supporting lists for this Test run."
     try:
         context.run_planning.target_evidence_from_workspace(
             project_id,
@@ -351,6 +414,21 @@ def _test_activation_view(context, project_id, migration_run_id):
     else:
         target_ready = True
         target_error = ""
+    if data_version.state.value != "FROZEN":
+        setup_destination = (
+            f"/workspaces/{setup_workspace.workspace_id}/files"
+            if setup_state.status.value == "DRAFT"
+            else f"/workspaces/{setup_workspace.workspace_id}/sources"
+        )
+        setup_action_label = "Continue fresh data"
+    elif not target_ready:
+        setup_destination = f"/workspaces/{setup_workspace.workspace_id}/schema"
+        setup_action_label = "Continue Odoo check"
+    else:
+        setup_destination = (
+            f"/projects/{project_id}/test-runs/{migration_run_id}/activate"
+        )
+        setup_action_label = "Review Test setup"
     return {
         "binding": binding,
         "data_version": data_version,
@@ -359,6 +437,8 @@ def _test_activation_view(context, project_id, migration_run_id):
         "recipes": recipes,
         "run": run,
         "setup_state": setup_state,
+        "setup_action_label": setup_action_label,
+        "setup_destination": setup_destination,
         "setup_workspace": setup_workspace,
         "target_error": target_error,
         "target_ready": target_ready,

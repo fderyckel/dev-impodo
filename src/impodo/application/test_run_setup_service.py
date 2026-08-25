@@ -172,7 +172,7 @@ class TestRunSetupService:
             expected_workspace_revision=project.optimistic_revision,
             data_version_id=data_version.data_version_id,
             migration_run_id=run.migration_run_id,
-            label=f"{clean_label} data and pre-production setup",
+            label=f"{clean_label} data and Odoo target setup",
             operation_id=self._child_operation(operation_id, "test-setup-workspace"),
             actor=actor,
         )

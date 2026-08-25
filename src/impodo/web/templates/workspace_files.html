@@ -49,7 +49,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
         <div class="actions">
-          <a class="button secondary" href="/projects/{{ migration_context.project_id }}">Save and exit</a>
+          <a class="button secondary" href="{{ workspace_navigation.overview_href or '/projects/' ~ migration_context.project_id }}">Save and exit</a>
           <button class="button primary" type="submit">Use these files and continue</button>
         </div>
       </form>

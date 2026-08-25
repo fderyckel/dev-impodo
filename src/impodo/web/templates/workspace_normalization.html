@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading" data-normalization-review data-normalization-position-key="{{ workspace_id }}">
     <div>
-      <p class="eyebrow">Stage 4 of 6 · Prepare data</p>
+      <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Approve prepared data{% else %}Stage 4 of 6 · Prepare data{% endif %}</p>
       <h1>Review what Impodo prepared</h1>
       <p>Check the changes made by your field rules before comparing this data with Odoo.</p>
     </div>

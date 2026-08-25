@@ -72,9 +72,11 @@ addresses, API keys, numeric Odoo record IDs, approvals, or load results.
 When several saved Recipes must be checked together, start an
 [integrated Test run](guides/integrated-test-runs.md) from the data project
 overview by selecting **Test with new data**. Impodo creates a fresh Test data
-version and pre-production setup workspace. After you accept the newer
-delivery and review the target, Impodo creates one separate Recipe work area
-per selected Recipe.
+version and Odoo target setup workspace. After you accept the newer delivery
+and review the target for this Test run, Impodo creates one separate Recipe
+work area per selected Recipe. The Recipe run shows **Fresh data**, **Check
+Odoo**, and **Review and load** instead of the Authoring workspace's six
+stages.
 
 ## What Complete means
 

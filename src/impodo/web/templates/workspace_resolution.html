@@ -4,7 +4,7 @@
   {% set restricted = migration_project.data_classification.value == 'RESTRICTED' %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 4 of 6 · Prepare data</p>
+      <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Review possible duplicates{% else %}Stage 4 of 6 · Prepare data{% endif %}</p>
       <h1>Review possible duplicates</h1>
       <p>Scores only identify records worth checking. Nothing is merged until you confirm it here.</p>
     </div>

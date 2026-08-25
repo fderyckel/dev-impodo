@@ -576,12 +576,21 @@ def _open_xlsx_rows(
                 raise SourceLoadError(
                     f"named-table header changed since inspection: {path.name}#{sheet}"
                 )
-        if maximum_column - minimum_column + 1 > MAX_SOURCE_COLUMNS:
+        # Some XLSX exporters omit the optional worksheet dimension. In that
+        # case openpyxl exposes None while its read-only iterator can still
+        # stream the cells; header and row limits below remain authoritative.
+        if (
+            maximum_column is not None
+            and maximum_column - minimum_column + 1 > MAX_SOURCE_COLUMNS
+        ):
             raise SourceLoadError(
                 f"worksheet {sheet!r} exceeds {MAX_SOURCE_COLUMNS} columns"
             )
         selected_maximum_row = maximum_row or worksheet.max_row
-        if selected_maximum_row - header_row > MAX_SOURCE_ROWS:
+        if (
+            selected_maximum_row is not None
+            and selected_maximum_row - header_row > MAX_SOURCE_ROWS
+        ):
             raise SourceLoadError(
                 f"worksheet {sheet!r} exceeds {MAX_SOURCE_ROWS} possible data rows"
             )
