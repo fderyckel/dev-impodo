@@ -30,8 +30,8 @@
 
       <label>
         Newer data cutoff
-        <input name="export_as_of" value="{{ export_as_of }}" required maxlength="100" placeholder="2026-08-24 18:00 Bangkok time">
-        <span class="hint">Use the business cutoff that all files in this Test delivery represent.</span>
+        <input type="date" name="export_as_of" value="{{ export_as_of }}" required>
+        <span class="hint">Choose the business date that all files in this Test delivery represent. Impodo suggests today.</span>
       </label>
 
       <fieldset>

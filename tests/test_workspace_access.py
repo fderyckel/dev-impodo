@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import asyncio
 import shutil
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, StreamingResponse
+
 from impodo.access import (
+    LOCAL_ACTOR,
     Actor,
     ActorIdentity,
     AuthorizationError,
     Capability,
     CapabilityAuthorizationPolicy,
-    LOCAL_ACTOR,
 )
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
@@ -23,6 +27,7 @@ from impodo.adapters.duckdb.migration_foundation_database import (
 from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
+from impodo.artifacts import LocalArtifactStore
 from impodo.data_versions import DataVersionService
 from impodo.migration_foundation import (
     MigrationFoundationError,
@@ -32,15 +37,13 @@ from impodo.migration_foundation import (
 from impodo.migration_projects import MigrationProjectService
 from impodo.migration_runs import MigrationRunService
 from impodo.migration_workspaces import MigrationWorkspaceService
+from impodo.web.routers.preflight import _report_chunks
+from impodo.web.security import WorkspaceAccessMiddleware
 from impodo.workspace_access import (
     WorkspaceAccessContext,
     WorkspaceAccessService,
 )
 from impodo.workspace_state import WorkspaceStateService
-from impodo.web.security import WorkspaceAccessMiddleware
-from starlette.requests import Request
-from starlette.responses import PlainTextResponse, StreamingResponse
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -436,6 +439,75 @@ class WorkspaceAccessTests(unittest.TestCase):
 
         self.assertEqual(status_code, 200)
         self.assertEqual(body, b"protected evidence")
+        registry_resolver.assert_called_once_with(alpha.workspace_id)
+
+    def test_sync_report_stream_reuses_the_verified_request_context(self) -> None:
+        alpha = self._create_workspace("Synchronous report")
+        policy = ProjectMembershipPolicy({alpha.project_id})
+        access = WorkspaceAccessService(self.repository, policy)
+        actor = Actor(
+            identity=ActorIdentity(
+                issuer="urn:impodo:test",
+                subject_id="report-reader",
+                display_name="Report reader",
+            ),
+            capabilities=frozenset(
+                {
+                    Capability.PROJECT_VIEW,
+                    Capability.PROTECTED_EVIDENCE_READ,
+                }
+            ),
+        )
+        middleware = WorkspaceAccessMiddleware(
+            _unused_asgi_app,
+            access=access,
+            actor=actor,
+        )
+        artifacts = LocalArtifactStore(self.root / "artifacts")
+        report_content = b"protected evidence" * 5_000
+        artifacts.write_report(
+            alpha.workspace_id,
+            alpha.migration_run_id,
+            "report.json",
+            report_content,
+        )
+        web_context = SimpleNamespace(artifacts=artifacts)
+
+        async def stream_boundary(_request):
+            self.assertEqual(
+                access.resolve(
+                    alpha.workspace_id,
+                    actor=actor,
+                    capability=Capability.PROTECTED_EVIDENCE_READ,
+                ),
+                alpha,
+            )
+            return StreamingResponse(
+                _report_chunks(
+                    web_context,
+                    alpha.workspace_id,
+                    alpha.migration_run_id,
+                    "report.json",
+                )
+            )
+
+        async def exercise_stream() -> tuple[int, bytes]:
+            response = await middleware.dispatch(
+                _workspace_request(alpha.workspace_id),
+                stream_boundary,
+            )
+            chunks = [chunk async for chunk in response.body_iterator]
+            return response.status_code, b"".join(chunks)
+
+        with patch.object(
+            self.repository,
+            "resolve_workspace_access_context",
+            wraps=self.repository.resolve_workspace_access_context,
+        ) as registry_resolver:
+            status_code, body = asyncio.run(exercise_stream())
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(body, report_content)
         registry_resolver.assert_called_once_with(alpha.workspace_id)
 
     def test_verified_job_packet_avoids_a_second_registry_read(self) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -25,8 +26,8 @@ from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.schema import _render_schema
-from ..security import require_session
 from ..run_review import build_integrated_run_review, start_next_preparation
+from ..security import require_session
 from ..source_file_commands import accept_source_uploads, remove_source_file
 
 
@@ -748,7 +749,7 @@ def _render_test_run_form(
     selected_values: tuple[str, ...] = (),
     dependency_values: tuple[str, ...] = (),
     label: str = "Integrated Test run",
-    export_as_of: str = "",
+    export_as_of: str | None = None,
     operation_id: str | None = None,
 ):
     project = context.migration_projects.get(project_id, actor=context.actor)
@@ -762,7 +763,11 @@ def _render_test_run_form(
         selected_values=set(selected_values),
         dependency_values=set(dependency_values),
         label=label,
-        export_as_of=export_as_of,
+        export_as_of=(
+            export_as_of
+            if export_as_of is not None
+            else datetime.now(UTC).astimezone().date().isoformat()
+        ),
         error=error,
         status_code=status_code,
     )

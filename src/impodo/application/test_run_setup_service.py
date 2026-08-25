@@ -345,11 +345,7 @@ class TestRunSetupService:
             "expected_workspace_revision",
         )
         clean_label = required_text(label, "label", maximum=200)
-        clean_export_as_of = required_text(
-            export_as_of,
-            "export_as_of",
-            maximum=100,
-        )
+        clean_export_as_of = self._export_date(export_as_of)
         self.authorization.require(
             actor,
             Capability.MIGRATION_RUN_CREATE,

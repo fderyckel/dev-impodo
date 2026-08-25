@@ -2011,6 +2011,11 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertNotIn("pre-production", recipe_planning.text)
         self.assertNotIn("Odoo 19", recipe_planning.text)
         self.assertNotIn("Reviewed Odoo evidence is required", recipe_planning.text)
+        today = datetime.now(UTC).astimezone().date().isoformat()
+        self.assertIn(
+            f'<input type="date" name="export_as_of" value="{today}" required>',
+            recipe_planning.text,
+        )
 
         csrf = re.search(
             r'name="csrf_token" value="([^"]+)"', recipe_planning.text
@@ -2022,6 +2027,25 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             r'name="expected_workspace_revision" value="([^"]+)"',
             recipe_planning.text,
         ).group(1)
+        invalid_setup = self.client.post(
+            f"/projects/{project_id}/test-runs/new",
+            data={
+                "csrf_token": csrf,
+                "operation_id": operation_id,
+                "expected_workspace_revision": expected_revision,
+                "label": "Fresh customer Test",
+                "export_as_of": "206-08-24",
+                "recipe_revision": (
+                    f"{publication.recipe.recipe_id}:"
+                    f"{publication.revision.version}"
+                ),
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(invalid_setup.status_code, 422)
+        self.assertIn("must start with a year-month-day date", invalid_setup.text)
+
         setup = self.client.post(
             f"/projects/{project_id}/test-runs/new",
             data={

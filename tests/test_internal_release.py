@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -16,6 +17,7 @@ from scripts.internal_release import (
     ReleaseGateError,
     _release_manifest,
     _require_locked_runtime_environment,
+    _run_secret_gate,
     _unexpected_secret_candidates,
     _validate_lock,
     _validate_wheel_contents,
@@ -77,6 +79,146 @@ class InternalReleaseGateTests(unittest.TestCase):
         baseline["results"]["tests/example.py"][0]["is_secret"] = True
         unexpected = _unexpected_secret_candidates(scan, baseline)
         self.assertEqual(unexpected[0]["filename"], "tests\\example.py")
+
+    def test_secret_gate_rejects_new_candidate_without_mutating_baseline(self) -> None:
+        candidate = {
+            "type": "Secret Keyword",
+            "hashed_secret": "fixture-fingerprint",
+            "line_number": 4,
+        }
+        scan = {"results": {"settings.py": [candidate]}}
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            source = Path(temporary)
+            baseline_path = source / ".secrets.baseline"
+            baseline_bytes = b'{"results": {}}\n'
+            baseline_path.write_bytes(baseline_bytes)
+            completed = subprocess.CompletedProcess(
+                args=("detect-secrets",),
+                returncode=0,
+                stdout=json.dumps(scan),
+                stderr="",
+            )
+            with (
+                patch(
+                    "scripts.internal_release._tool",
+                    return_value=Path("detect-secrets"),
+                ),
+                patch(
+                    "scripts.internal_release._run",
+                    return_value=completed,
+                ) as run,
+                self.assertRaisesRegex(ReleaseGateError, "unreviewed candidates"),
+            ):
+                _run_secret_gate({}, source)
+
+            self.assertEqual(baseline_path.read_bytes(), baseline_bytes)
+            command = run.call_args.args
+            self.assertNotIn("--baseline", command)
+            self.assertIn("--all-files", command)
+            exclude_offset = command.index("--exclude-files")
+            self.assertEqual(
+                command[exclude_offset + 1],
+                r"(^|[\\/])\.secrets\.baseline$",
+            )
+
+    def test_secret_gate_preserves_reviewed_baseline_and_reports_candidates(
+        self,
+    ) -> None:
+        candidate = {
+            "type": "Secret Keyword",
+            "hashed_secret": "fixture-fingerprint",
+            "line_number": 4,
+        }
+        scan = {"results": {"settings.py": [candidate]}}
+        baseline = {
+            "results": {
+                "settings.py": [{**candidate, "is_secret": False}],
+            }
+        }
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            source = Path(temporary)
+            baseline_path = source / ".secrets.baseline"
+            baseline_bytes = (json.dumps(baseline) + "\n").encode("utf-8")
+            baseline_path.write_bytes(baseline_bytes)
+            completed = subprocess.CompletedProcess(
+                args=("detect-secrets",),
+                returncode=0,
+                stdout=json.dumps(scan),
+                stderr="",
+            )
+            with (
+                patch(
+                    "scripts.internal_release._tool",
+                    return_value=Path("detect-secrets"),
+                ),
+                patch("scripts.internal_release._run", return_value=completed),
+            ):
+                report = _run_secret_gate({}, source)
+
+            self.assertEqual(baseline_path.read_bytes(), baseline_bytes)
+            self.assertEqual(report["candidate_count"], 1)
+            self.assertEqual(
+                report["reviewed_baseline_sha256"],
+                hashlib.sha256(baseline_bytes).hexdigest(),
+            )
+
+    def test_secret_gate_rejects_missing_evidence_and_baseline_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            source = Path(temporary)
+            baseline_path = source / ".secrets.baseline"
+            baseline_bytes = b'{"results": {}}\n'
+            baseline_path.write_bytes(baseline_bytes)
+            completed = subprocess.CompletedProcess(
+                args=("detect-secrets",),
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+            with (
+                patch(
+                    "scripts.internal_release._tool",
+                    return_value=Path("detect-secrets"),
+                ),
+                patch("scripts.internal_release._run", return_value=completed),
+                self.assertRaisesRegex(ReleaseGateError, "no JSON evidence"),
+            ):
+                _run_secret_gate({}, source)
+            self.assertEqual(baseline_path.read_bytes(), baseline_bytes)
+
+            completed.stdout = "not-json"
+            with (
+                patch(
+                    "scripts.internal_release._tool",
+                    return_value=Path("detect-secrets"),
+                ),
+                patch("scripts.internal_release._run", return_value=completed),
+                self.assertRaisesRegex(ReleaseGateError, "invalid JSON"),
+            ):
+                _run_secret_gate({}, source)
+            self.assertEqual(baseline_path.read_bytes(), baseline_bytes)
+
+            def mutating_scan(
+                *_args: str,
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                baseline_path.write_text('{"results": {"changed.py": []}}\n')
+                return subprocess.CompletedProcess(
+                    args=("detect-secrets",),
+                    returncode=0,
+                    stdout='{"results": {}}',
+                    stderr="",
+                )
+
+            baseline_path.write_bytes(baseline_bytes)
+            with (
+                patch(
+                    "scripts.internal_release._tool",
+                    return_value=Path("detect-secrets"),
+                ),
+                patch("scripts.internal_release._run", side_effect=mutating_scan),
+                self.assertRaisesRegex(ReleaseGateError, "modified reviewed"),
+            ):
+                _run_secret_gate({}, source)
 
     def test_release_manifest_hashes_each_promoted_artifact(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:

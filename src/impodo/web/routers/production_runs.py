@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from secrets import compare_digest
 from uuid import uuid4
 
@@ -11,8 +12,8 @@ from starlette.concurrency import run_in_threadpool
 
 from ...connectors import ConnectorError
 from ...migration_foundation import MigrationFoundationError
-from ...workspace_state import SourceMode
 from ...secrets import SecretStoreError
+from ...workspace_state import SourceMode
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -239,7 +240,7 @@ def _render_new(
     error=None,
     status_code=200,
     label="Production rollout",
-    export_as_of="",
+    export_as_of=None,
     operation_id=None,
 ):
     project = context.migration_projects.get(project_id, actor=context.actor)
@@ -258,7 +259,11 @@ def _render_new(
         selection=selection,
         qualification=qualification,
         label=label,
-        export_as_of=export_as_of,
+        export_as_of=(
+            export_as_of
+            if export_as_of is not None
+            else datetime.now(UTC).astimezone().date().isoformat()
+        ),
         operation_id=operation_id or str(uuid4()),
         error=error,
         status_code=status_code,

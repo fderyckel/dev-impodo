@@ -335,23 +335,53 @@ def _run_secret_gate(
     baseline_path = source / SECRETS_BASELINE.name
     if not baseline_path.is_file():
         raise ReleaseGateError("reviewed .secrets.baseline is missing")
-    completed = _run(
-        str(_tool("detect-secrets")),
-        "scan",
-        "--baseline",
-        str(baseline_path),
-        "--force-use-all-plugins",
-        "--no-verify",
-        ".",
-        capture=True,
-        cwd=source,
-        environment=environment,
-    )
+
     try:
-        scan = json.loads(completed.stdout or "{}")
-        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        baseline_bytes = baseline_path.read_bytes()
+        baseline = json.loads(baseline_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ReleaseGateError(
+            f"reviewed .secrets.baseline is unreadable or invalid: {error}"
+        ) from error
+    _require_secret_results(baseline, "reviewed .secrets.baseline")
+
+    try:
+        completed = _run(
+            str(_tool("detect-secrets")),
+            "scan",
+            "--force-use-all-plugins",
+            "--no-verify",
+            "--all-files",
+            "--exclude-files",
+            r"(^|[\\/])\.secrets\.baseline$",
+            ".",
+            capture=True,
+            cwd=source,
+            environment=environment,
+        )
+    finally:
+        try:
+            current_baseline_bytes = baseline_path.read_bytes()
+        except OSError as error:
+            raise ReleaseGateError(
+                "secret scanner made the reviewed .secrets.baseline unreadable: "
+                f"{error}"
+            ) from error
+        if current_baseline_bytes != baseline_bytes:
+            raise ReleaseGateError(
+                "secret scanner modified reviewed .secrets.baseline"
+            )
+
+    output = (completed.stdout or "").strip()
+    if not output:
+        raise ReleaseGateError("secret scanner returned no JSON evidence")
+    try:
+        scan = json.loads(output)
     except json.JSONDecodeError as error:
-        raise ReleaseGateError(f"secret scanner returned invalid JSON: {error}") from error
+        raise ReleaseGateError(
+            f"secret scanner returned invalid JSON: {error}"
+        ) from error
+    results = _require_secret_results(scan, "secret scanner output")
     unexpected = _unexpected_secret_candidates(scan, baseline)
     if unexpected:
         locations = ", ".join(
@@ -361,14 +391,12 @@ def _run_secret_gate(
         raise ReleaseGateError(
             f"secret scan found unreviewed candidates: {locations}"
         )
-    candidate_count = sum(
-        len(candidates) for candidates in scan.get("results", {}).values()
-    )
+    candidate_count = sum(len(candidates) for candidates in results.values())
     return {
         "tool": "detect-secrets",
         "status": "passed",
         "candidate_count": candidate_count,
-        "reviewed_baseline_sha256": _sha256(baseline_path),
+        "reviewed_baseline_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
     }
 
 
@@ -452,6 +480,23 @@ def _unexpected_secret_candidates(
         for candidate in candidates
         if _secret_fingerprint(filename, candidate) not in reviewed
     ]
+
+
+def _require_secret_results(
+    document: dict[str, Any],
+    label: str,
+) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(document, dict):
+        raise ReleaseGateError(f"{label} is not a JSON object")
+    results = document.get("results")
+    if not isinstance(results, dict) or any(
+        not isinstance(filename, str)
+        or not isinstance(candidates, list)
+        or any(not isinstance(candidate, dict) for candidate in candidates)
+        for filename, candidates in results.items()
+    ):
+        raise ReleaseGateError(f"{label} has invalid secret results")
+    return results
 
 
 def _secret_fingerprint(filename: str, candidate: dict[str, Any]) -> tuple[str, str, str]:

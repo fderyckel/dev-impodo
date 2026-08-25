@@ -33,15 +33,12 @@ from ...domain.errors import ReadinessError
 from ...migration_foundation import MigrationFoundationError
 from ...migration_runs import MigrationRunPurpose
 from ...reporting import (
-    ReportGenerationError,
     WORKBOOK_NAME,
+    ReportGenerationError,
     write_review_workbook,
 )
 from ...secrets import SecretStoreError
-from ...workspace_access import (
-    WorkspaceAccessContext,
-    bind_workspace_access_context,
-)
+from ...workspace_access import bind_workspace_access_context
 from ...workspace_errors import WorkspaceDatabaseBusyError, WorkspaceError
 from ...workspace_state import OdooConnectionMode, WorkspaceStateError
 from ..context import WebContext
@@ -53,15 +50,15 @@ from ..run_review import (
     publish_reconciled_application,
 )
 from ..security import require_session
-from ..target_readers import (
-    LocalOdooRecoveryRequired,
-    _read_readiness_snapshots,
-)
 from ..target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
     get_target_credential,
     store_target_credential,
+)
+from ..target_readers import (
+    LocalOdooRecoveryRequired,
+    _read_readiness_snapshots,
 )
 
 
@@ -127,18 +124,14 @@ def _report_chunks(
     workspace_id: str,
     run_id: str,
     filename: str,
-    *,
-    access_context: WorkspaceAccessContext,
 ) -> Iterator[bytes]:
     """Stream a protected report artifact without loading it all in memory."""
 
-    with bind_workspace_access_context(access_context):
-        with context.artifacts.materialize_report(
-            workspace_id, run_id, filename
-        ) as path:
-            with path.open("rb") as report:
-                while chunk := report.read(64 * 1024):
-                    yield chunk
+    with context.artifacts.materialize_report(
+        workspace_id, run_id, filename
+    ) as path, path.open("rb") as report:
+        while chunk := report.read(64 * 1024):
+            yield chunk
 
 
 def build_preflight_router(context: WebContext) -> APIRouter:
@@ -309,7 +302,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/summary/manifest")
     async def download_readiness_manifest(request: Request, workspace_id: str):
         require_session(request)
-        access_context = context.workspace_access.resolve(
+        context.workspace_access.resolve(
             workspace_id,
             actor=context.actor,
             capability=Capability.PROTECTED_EVIDENCE_READ,
@@ -334,7 +327,6 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 report.run_id,
                 MANIFEST_NAME,
-                access_context=access_context,
             ),
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
@@ -395,14 +387,16 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
 
         def write_package() -> None:
-            with bind_workspace_access_context(access_context):
-                with context.artifacts.materialize_report(
+            with (
+                bind_workspace_access_context(access_context),
+                context.artifacts.materialize_report(
                     workspace_id, report.run_id, MANIFEST_NAME
-                ) as manifest_path:
-                    with context.artifacts.prepare_report(
-                        workspace_id, report.run_id, WORKBOOK_NAME
-                    ) as workbook_path:
-                        write_review_workbook(manifest_path, workbook_path)
+                ) as manifest_path,
+                context.artifacts.prepare_report(
+                    workspace_id, report.run_id, WORKBOOK_NAME
+                ) as workbook_path,
+            ):
+                write_review_workbook(manifest_path, workbook_path)
 
         try:
             await run_in_threadpool(write_package)
@@ -423,7 +417,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/summary/workbook")
     async def download_readiness_workbook(request: Request, workspace_id: str):
         require_session(request)
-        access_context = context.workspace_access.resolve(
+        context.workspace_access.resolve(
             workspace_id,
             actor=context.actor,
             capability=Capability.PROTECTED_EVIDENCE_READ,
@@ -448,7 +442,6 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 report.run_id,
                 WORKBOOK_NAME,
-                access_context=access_context,
             ),
             media_type=(
                 "application/vnd.openxmlformats-officedocument."

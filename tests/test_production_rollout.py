@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -334,6 +335,9 @@ class ProductionRolloutTests(unittest.TestCase):
                 303,
             )
             response = client.get(f"/projects/{setup.run.project_id}")
+            new_setup = client.get(
+                f"/projects/{setup.run.project_id}/production-runs/new"
+            )
             activation = client.get(
                 f"/projects/{setup.run.project_id}/production-runs/"
                 f"{setup.run.migration_run_id}/activate"
@@ -341,6 +345,12 @@ class ProductionRolloutTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Production rollout", response.text)
         self.assertIn("separate", response.text.casefold())
+        self.assertEqual(new_setup.status_code, 200)
+        today = datetime.now(UTC).astimezone().date().isoformat()
+        self.assertIn(
+            f'<input type="date" name="export_as_of" value="{today}" required>',
+            new_setup.text,
+        )
         self.assertEqual(activation.status_code, 200)
         self.assertIn("Review Production readiness", activation.text)
         self.assertIn("Production Odoo evidence needs attention", activation.text)
