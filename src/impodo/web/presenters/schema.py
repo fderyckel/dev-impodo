@@ -422,6 +422,7 @@ def _render_schema(
     key_errors: Mapping[str, str] | None = None,
 ):
     workspace_state = context.queries.get(workspace_id)
+    selection = context.queries.get_source_selection(workspace_id)
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     model_choices = _schema_model_choices(workspace_state, model_catalog)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
@@ -497,16 +498,21 @@ def _render_schema(
         key_drafts=key_drafts,
         key_errors=key_errors,
     )
+    local_stack = context.local_stack.get(workspace_id)
     return _render(
         request,
         "workspace_schema.html",
         workspace_state=workspace_state,
-        selection=context.queries.get_source_selection(workspace_id),
+        selection=selection,
         model_catalog=model_catalog,
         model_choices=model_choices,
         odoo_check_models=odoo_check_models,
         odoo_check_supporting_values=odoo_check_supporting_values,
         odoo_check_plan=odoo_check_plan,
+        recipe_run_recovery=_recipe_run_recovery_view(
+            context,
+            workspace_id,
+        ),
         operation_id=operation_id or str(uuid4()),
         focus_model_count=sum(
             1 for choice in model_choices if choice["in_focus"]
@@ -520,7 +526,7 @@ def _render_schema(
         governance=governance,
         governed_by_model=governed_by_model,
         key_views=key_views,
-        local_stack=context.local_stack.get(workspace_id),
+        local_stack=local_stack,
         manual_schema_by_model=(
             {model.name: model for model in schema.models}
             if schema and schema.origin is SchemaOrigin.LOCAL_MANUAL
@@ -531,6 +537,33 @@ def _render_schema(
         schema_load_failed=schema_load_failed,
         status_code=status_code,
     )
+
+
+def _recipe_run_recovery_view(
+    context: WebContext,
+    workspace_id: str,
+) -> dict[str, object]:
+    """Explain the one active-run recovery action from one bounded issue read."""
+
+    binding = context.test_runs.setup_binding_for_workspace(
+        workspace_id,
+        actor=context.actor,
+    )
+    if binding is None or binding.state.value != "ACTIVE":
+        return {"active": False, "required_default_count": 0}
+    issues = context.run_planning.repository.list_run_issues(
+        binding.migration_run_id
+    )
+    required_defaults = tuple(
+        issue
+        for application_issues in issues.values()
+        for issue in application_issues
+        if issue.blocks and issue.code == "RECIPE_TARGET_NEW_REQUIRED_FIELD"
+    )
+    return {
+        "active": True,
+        "required_default_count": len(required_defaults),
+    }
 
 
 def _schema_key_views(

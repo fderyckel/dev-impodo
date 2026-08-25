@@ -2847,6 +2847,62 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             credential.binding_hash,
         )
 
+        required_default_issue = MigrationRunPlanIssue(
+            code="RECIPE_TARGET_NEW_REQUIRED_FIELD",
+            level=MigrationRunPlanIssueLevel.BLOCKER,
+            message="Odoo added one required field.",
+            recovery_action="Check Odoo defaults.",
+            recipe_ids=(publication.recipe.recipe_id,),
+        )
+        active_binding_view = SimpleNamespace(
+            migration_run_id=setup_run_id,
+            state=SimpleNamespace(value="ACTIVE"),
+        )
+        with (
+            patch.object(
+                context.test_runs,
+                "setup_binding_for_workspace",
+                return_value=active_binding_view,
+            ),
+            patch.object(
+                context.run_planning.repository,
+                "list_run_issues",
+                return_value={
+                    "application": (
+                        required_default_issue,
+                        required_default_issue,
+                        required_default_issue,
+                    )
+                },
+            ),
+        ):
+            recovery_page = self.client.get(odoo_url)
+        self.assertEqual(recovery_page.status_code, 200)
+        self.assertIn(
+            "Check whether Odoo can supply the missing values",
+            recovery_page.text,
+        )
+        self.assertIn("One check remains.", recovery_page.text)
+        self.assertIn(
+            "waiting for 3 required Odoo fields",
+            recovery_page.text,
+        )
+        self.assertRegex(
+            recovery_page.text,
+            r'class="button primary"\s+type="submit"\s*>\s*'
+            r"Check Odoo defaults and continue",
+        )
+        self.assertNotRegex(
+            recovery_page.text,
+            r"<button[^>]*disabled[^>]*>\s*"
+            r"Check Odoo defaults and continue",
+        )
+        self.assertIn(
+            f'href="/projects/{project_id}/runs/{setup_run_id}"',
+            recovery_page.text,
+        )
+        self.assertNotIn("Back to Fresh data", recovery_page.text)
+
         copied_setup_url = self.client.get(
             f"/workspaces/{setup_workspace_id}/schema",
             follow_redirects=False,

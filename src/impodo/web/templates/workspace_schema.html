@@ -6,11 +6,13 @@
   {% set run_kind = 'Test run' %}
   {% set local_reader_ready = not local_mode or local_stack.profile %}
   {% set local_access_verified = not local_mode or local_stack.metadata_ready %}
+  {% set is_recipe_run_recovery = recipe_run_recovery.active and recipe_run_recovery.required_default_count %}
+  {% set odoo_check_disabled = (workspace_state.source_mode.value == 'FILE' and not selection) or (not is_recipe_run_setup and not workspace_state.intended_models) or (is_recipe_run_setup and (not odoo_check_models or (schema and schema.pending_refresh))) or not local_reader_ready %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{% if is_recipe_run_setup %}Check Odoo · Target requirements{% else %}Stage {% if workspace_state.source_mode.value == 'ODOO' %}1{% else %}2{% endif %} of 6 · Odoo data{% endif %}</p>
-      <h1>{% if is_recipe_run_setup %}Review the Odoo requirements for this {{ run_kind }}{% elif workspace_state.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
-      <p>{% if is_recipe_run_setup %}Impodo selected the Odoo information required by the saved Recipe versions. Review it, then check the current fields once for this {{ run_kind }}.{% else %}Choose the kinds of Odoo information needed for this workspace.{% endif %}</p>
+      <h1>{% if is_recipe_run_recovery %}Check whether Odoo can supply the missing values{% elif is_recipe_run_setup %}Review the Odoo requirements for this {{ run_kind }}{% elif workspace_state.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
+      <p>{% if is_recipe_run_recovery %}Installed Odoo apps added required fields after this Recipe was saved. Check their current create defaults to continue this run.{% elif is_recipe_run_setup %}Impodo selected the Odoo information required by the saved Recipe versions. Review it, then check the current fields once for this {{ run_kind }}.{% else %}Choose the kinds of Odoo information needed for this workspace.{% endif %}</p>
     </div>
     {% if schema %}
       <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' or schema.pending_refresh %}warning{% else %}registered{% endif %}">
@@ -21,6 +23,40 @@
 
   <section class="form-card">
     {% if is_recipe_run_setup %}
+      {% if is_recipe_run_recovery %}
+        <div class="notice" role="status">
+          <strong>One check remains.</strong>
+          <p>
+            This run is waiting for {{ recipe_run_recovery.required_default_count }} required Odoo field{% if recipe_run_recovery.required_default_count != 1 %}s{% endif %} added by installed apps.
+            You cannot change the saved Recipe on this page. Select <strong>Check Odoo defaults and continue</strong> below.
+          </p>
+          <p>
+            Impodo will either show the current Odoo values for your confirmation or explain which field still needs a new Recipe value.
+          </p>
+          <form method="post" action="/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/odoo/check">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="expected_workspace_revision" value="{{ migration_project.optimistic_revision }}">
+            <input type="hidden" name="operation_id" value="{{ operation_id }}">
+            <button class="button primary" type="submit" {% if odoo_check_disabled %}disabled{% endif %}>
+              Check Odoo defaults and continue
+            </button>
+          </form>
+          {% if odoo_check_disabled %}
+            <p>
+              <strong>Why this action is unavailable:</strong>
+              {% if workspace_state.source_mode.value == 'FILE' and not selection %}
+                the accepted fresh data is unavailable. Return to Fresh data and accept it again.
+              {% elif not odoo_check_models %}
+                the selected Recipe requirements are unavailable. Return to the run and review its saved Recipe versions.
+              {% elif schema and schema.pending_refresh %}
+                review the detected Odoo changes below first.
+              {% elif not local_reader_ready %}
+                reconnect the saved local Odoo installation below first.
+              {% endif %}
+            </p>
+          {% endif %}
+        </div>
+      {% endif %}
       <div class="section-heading">
         <div>
           <p class="eyebrow">Selected by the Recipes</p>
@@ -296,7 +332,7 @@
         {% endif %}
       </details>
     {% endif %}
-    {% if is_recipe_run_setup or schema_load_failed or schema or (not model_catalog and workspace_state.intended_models) %}
+    {% if not is_recipe_run_recovery and (is_recipe_run_setup or schema_load_failed or schema or (not model_catalog and workspace_state.intended_models)) %}
       <form method="post" action="{% if is_recipe_run_setup %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/odoo/check{% else %}/workspaces/{{ workspace_id }}/schema/capture{% endif %}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if is_recipe_run_setup %}
@@ -305,9 +341,9 @@
         {% endif %}
         <div class="actions">
           <button
-            class="button {% if schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}secondary{% else %}primary{% endif %}"
+            class="button {% if not schema or schema.origin.value == 'LOCAL_MANUAL' or schema_load_failed %}primary{% else %}secondary{% endif %}"
             type="submit"
-            {% if (workspace_state.source_mode.value == 'FILE' and not selection) or (not is_recipe_run_setup and not workspace_state.intended_models) or (is_recipe_run_setup and (not odoo_check_models or (schema and schema.pending_refresh))) or not local_reader_ready %}disabled{% endif %}
+            {% if odoo_check_disabled %}disabled{% endif %}
           >
             {% if is_recipe_run_setup %}
               Check this Odoo
@@ -324,15 +360,33 @@
             {% endif %}
           </button>
         </div>
-        {% if schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
+        {% if odoo_check_disabled %}
+          <div class="notice warning">
+            {% if workspace_state.source_mode.value == 'FILE' and not selection %}
+              The accepted fresh data is unavailable. Return to Fresh data and accept it before checking Odoo.
+            {% elif is_recipe_run_setup and not odoo_check_models %}
+              The selected Recipe requirements are unavailable. Return to the run and review the saved Recipe versions.
+            {% elif schema and schema.pending_refresh %}
+              Review the detected Odoo changes above before checking these defaults.
+            {% elif not local_reader_ready %}
+              Reconnect the saved local Odoo installation before checking these defaults.
+            {% endif %}
+          </div>
+        {% elif schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
           <small>{% if is_recipe_run_setup %}Impodo will check the fields and current supporting values, then create the Recipe work areas when everything is ready.{% else %}Checking does not replace current work unless Odoo changed and you confirm the replacement.{% endif %}</small>
         {% elif local_mode and workspace_state.intended_models and not local_stack.profile %}
           <small>The saved choices remain available. Find local Odoo before loading their details.</small>
         {% endif %}
       </form>
     {% endif %}
+    {% if is_recipe_run_setup and local_mode and not local_reader_ready %}
+      <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button primary" type="submit">Reconnect local Odoo</button>
+      </form>
+    {% endif %}
     <div class="actions">
-      <a class="button secondary" href="{% if is_recipe_run_setup %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/fresh-data{% else %}/workspaces/{{ workspace_id }}/{% if workspace_state.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}{% endif %}">{% if is_recipe_run_setup %}Back to Fresh data{% elif workspace_state.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
+      <a class="button secondary" href="{% if is_recipe_run_recovery %}/projects/{{ migration_context.project_id }}/runs/{{ migration_context.migration_run_id }}{% elif is_recipe_run_setup %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/fresh-data{% else %}/workspaces/{{ workspace_id }}/{% if workspace_state.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}{% endif %}">{% if is_recipe_run_recovery %}Back to run{% elif is_recipe_run_setup %}Back to Fresh data{% elif workspace_state.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
     </div>
   </section>
 
