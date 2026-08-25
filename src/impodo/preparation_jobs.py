@@ -9,7 +9,7 @@ from enum import StrEnum
 from .build_contract import ApplicationBuildContract
 from .data_versions import DataVersion, DataVersionPurpose, DataVersionState
 from .migration_foundation import MigrationFoundationError, require_uuid
-from .migration_runs import MigrationRun
+from .migration_runs import MigrationRun, MigrationRunPurpose
 from .migration_workspaces import MigrationWorkspace, MigrationWorkspaceState
 
 
@@ -76,6 +76,7 @@ class PreparationWorkspace:
     data_version_number: int
     data_version_purpose: DataVersionPurpose
     migration_run_id: str
+    migration_run_purpose: MigrationRunPurpose
     workspace_id: str
     recipe_application_id: str | None = None
 
@@ -92,6 +93,11 @@ class PreparationWorkspace:
             self,
             "data_version_purpose",
             DataVersionPurpose(self.data_version_purpose),
+        )
+        object.__setattr__(
+            self,
+            "migration_run_purpose",
+            MigrationRunPurpose(self.migration_run_purpose),
         )
 
     @classmethod
@@ -127,6 +133,7 @@ class PreparationWorkspace:
             data_version_number=data_version.version_number,
             data_version_purpose=data_version.purpose,
             migration_run_id=run.migration_run_id,
+            migration_run_purpose=run.purpose,
             workspace_id=workspace.workspace_id,
             recipe_application_id=workspace.recipe_application_id,
         )

@@ -25,6 +25,7 @@ from impodo.application.preparation_job_service import _run_preparation_worker
 from impodo.application.preparation_service import PreparationService
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.data_versions import DataVersionPurpose
+from impodo.migration_runs import MigrationRunPurpose
 from impodo.preparation_jobs import (
     PreparationJobStatus,
     PreparationPhase,
@@ -47,6 +48,7 @@ def _workspace() -> PreparationWorkspace:
         data_version_number=1,
         data_version_purpose=DataVersionPurpose.AUTHORING,
         migration_run_id=str(uuid4()),
+        migration_run_purpose=MigrationRunPurpose.AUTHORING,
         workspace_id=str(uuid4()),
     )
 

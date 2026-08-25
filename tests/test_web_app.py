@@ -7691,6 +7691,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 actor=context.actor,
             ),
         )
+        self.assertEqual(workspace.migration_run_purpose.value, "AUTHORING")
         manager = context.preparation_jobs
         assert manager is not None
         root = Path(self.temporary.name)

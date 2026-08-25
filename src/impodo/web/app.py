@@ -804,6 +804,7 @@ def create_local_app(
                     data_version_id=job.workspace.data_version_id,
                     migration_run_id=job.workspace.migration_run_id,
                     recipe_application_id=job.workspace.recipe_application_id,
+                    run_purpose=job.workspace.migration_run_purpose.value,
                 )
             if (
                 len(parts) >= 5
