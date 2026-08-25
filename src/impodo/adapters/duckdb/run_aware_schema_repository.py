@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from ...migration_run_planning import MigrationRunPlanningError
 from .migration_run_planning_repository import MigrationRunPlanningRepository
 
@@ -88,3 +90,55 @@ class RunAwareSchemaRepository:
             governance,
             actor=actor,
         )
+
+    def save_run_default_projection(self, workspace_id, catalog, *, actor):
+        """Store supplemental defaults only when run schema structure matches."""
+
+        frozen = self.runs.get_workspace_target_schema(workspace_id)
+        if frozen is None:
+            raise MigrationRunPlanningError(
+                "Recipe application target evidence is unavailable"
+            )
+        target_matches = all(
+            (
+                catalog.connection_target_hash == frozen.connection_target_hash,
+                catalog.policy_hash == frozen.policy_hash,
+                catalog.connection_mode == frozen.connection_mode,
+                catalog.database == frozen.database,
+                catalog.odoo_version == frozen.odoo_version,
+                catalog.read_principal_hash == frozen.read_principal_hash,
+                catalog.read_permission_hash == frozen.read_permission_hash,
+                catalog.read_context_hash == frozen.read_context_hash,
+                _model_structure(catalog.models) == _model_structure(frozen.models),
+            )
+        )
+        if not target_matches:
+            raise MigrationRunPlanningError(
+                "Current Odoo details changed beyond create defaults; start a "
+                "new run after reviewing the target change"
+            )
+        self.local.save_odoo_schema_catalog(workspace_id, catalog, actor=actor)
+
+
+def _model_structure(models):
+    """Compare target behavior while excluding labels and create defaults."""
+
+    result = []
+    for model in sorted(models, key=lambda item: item.name):
+        fields = []
+        for field in sorted(model.fields, key=lambda item: item.name):
+            value = asdict(field)
+            value.pop("label", None)
+            value.pop("create_default_present", None)
+            value.pop("create_default_value", None)
+            fields.append(value)
+        result.append(
+            {
+                "name": model.name,
+                "fields": fields,
+                "unique_constraints": [
+                    asdict(item) for item in model.unique_constraints
+                ],
+            }
+        )
+    return result

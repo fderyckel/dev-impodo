@@ -147,6 +147,23 @@ Source, target, and reference incompatibility prevent mapping creation.
 Reviewable current-data quality or categorical issues may retain a fresh
 mapping draft while the application remains `BLOCKED`.
 
+A required writable scalar field added by the current Odoo target follows the
+same create-field policy as an Authoring workspace. A target-bound
+`default_get` value creates a `REVIEW` issue and a fresh mapping disposition;
+it does not change portable Recipe meaning. The application remains `BLOCKED`
+until the data manager confirms all displayed defaults together. Missing,
+relational, malformed, or context-mismatched defaults remain blockers. New
+read-only fields are ignored as inputs, while a Recipe-owned write field that
+became read-only remains incompatible.
+
+An activated Test run created before default evidence was captured may recheck
+the shared setup target. Recovery requires identical target, principal,
+permission, context, model, field, selection, and constraint behavior after
+create-default facts are excluded. A derived application projection may then
+supplement the immutable run target with those defaults. It must reproduce the
+original physical binding hash, retain the saved Recipe revision, and stop if
+parameters, controls, or any other blocker cannot be reconstructed exactly.
+
 ## Recovery and status
 
 Provisioning is one restart-safe operation. One registry transaction creates

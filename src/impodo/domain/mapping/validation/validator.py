@@ -30,6 +30,10 @@ from .context import (
     SourceSelectionView,
     ValidationContext,
 )
+from ..create_field_policy import (
+    CreateFieldCoverage,
+    evaluate_create_field,
+)
 from ....supporting_lookups import SupportingLookupSnapshot
 from .control_totals import _validate_control_totals
 from .dependencies import _validate_dependencies
@@ -548,12 +552,12 @@ class MappingSemanticValidator:
                         )
                     )
                     continue
-                if (
-                    disposition.handling is TargetFieldHandling.ODOO_MANAGED
-                    and metadata.type not in {"one2many", "many2many"}
-                    and metadata.computed is not True
-                    and metadata.related is not True
-                ):
+                assessment = evaluate_create_field(
+                    metadata,
+                    provided=False,
+                    handling=disposition.handling,
+                )
+                if assessment.coverage is CreateFieldCoverage.ODOO_MANAGED_INVALID:
                     issues.append(
                         _issue(
                             "MAPPING_TARGET_FIELD_DISPOSITION_INVALID",
@@ -574,23 +578,23 @@ class MappingSemanticValidator:
                     continue
                 intentionally_omitted.add(disposition.target_field)
                 if disposition.handling is TargetFieldHandling.ODOO_DEFAULT:
-                    issues.append(
-                        _issue(
-                            "MAPPING_ODOO_DEFAULT_UNVERIFIED",
-                            path,
-                            (
-                                f"{disposition.target_field} will be omitted so "
-                                "Odoo can apply its runtime default."
-                            ),
-                            (
-                                "Acknowledge this warning and verify the default "
-                                "on the target."
-                            ),
-                            severity="warning",
-                            dataset=dataset,
-                            target_field=disposition.target_field,
+                    if assessment.coverage is CreateFieldCoverage.DEFAULT_UNVERIFIED:
+                        issues.append(
+                            _issue(
+                                "MAPPING_ODOO_DEFAULT_UNVERIFIED",
+                                path,
+                                (
+                                    f"{disposition.target_field} has no verified "
+                                    "Odoo create default for this target context."
+                                ),
+                                (
+                                    "Provide a value or refresh Odoo details and "
+                                    "review an available default."
+                                ),
+                                dataset=dataset,
+                                target_field=disposition.target_field,
+                            )
                         )
-                    )
                 else:
                     issues.append(
                         _issue(
@@ -616,23 +620,49 @@ class MappingSemanticValidator:
             ):
                 for target_field in sorted(fields):
                     metadata = fields[target_field]
+                    assessment = evaluate_create_field(
+                        metadata,
+                        provided=target_field in provided,
+                        handling=None,
+                    )
                     if (
-                        metadata.required
-                        and not metadata.readonly
-                        and target_field not in provided
+                        assessment.coverage
+                        in {
+                            CreateFieldCoverage.DEFAULT_AVAILABLE,
+                            CreateFieldCoverage.REQUIRED_VALUE_MISSING,
+                        }
                         and target_field not in intentionally_omitted
                     ):
+                        default_available = (
+                            assessment.coverage
+                            is CreateFieldCoverage.DEFAULT_AVAILABLE
+                        )
                         issues.append(
                             _issue(
-                                "MAPPING_REQUIRED_FIELD_UNMAPPED",
+                                (
+                                    "MAPPING_ODOO_DEFAULT_AVAILABLE"
+                                    if default_available
+                                    else "MAPPING_REQUIRED_FIELD_UNMAPPED"
+                                ),
                                 f"{base}/target_model",
                                 (
                                     f"Required target field {dataset.target_model}."
-                                    f"{target_field} has no value provider."
+                                    f"{target_field} has a verified Odoo default "
+                                    "that has not been confirmed."
+                                    if default_available
+                                    else (
+                                        f"Required target field {dataset.target_model}."
+                                        f"{target_field} has no value provider."
+                                    )
                                 ),
                                 (
-                                    "Choose incoming data, one fixed value, an "
-                                    "Odoo default, or an Odoo-managed field decision."
+                                    "Review and confirm this Odoo default, or "
+                                    "provide a value."
+                                    if default_available
+                                    else (
+                                        "Choose incoming data, one fixed value, "
+                                        "or a supported Odoo-managed field decision."
+                                    )
                                 ),
                                 dataset=dataset,
                                 target_field=target_field,

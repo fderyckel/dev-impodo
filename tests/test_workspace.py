@@ -158,7 +158,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def _capture_authenticated_schema(self):
+    def _capture_authenticated_schema(self, snapshot=None):
         self.schemas.discover_models(
             self.workspace_state.workspace_id,
             _model_catalog_snapshot(),
@@ -180,7 +180,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         return self.schemas.capture(
             self.workspace_state.workspace_id,
-            _metadata_snapshot(),
+            snapshot or _metadata_snapshot(),
             read_credential_binding_hash="sha256:" + "8" * 64,
             read_identity=_read_identity(("res.partner",)),
             actor=LOCAL_ACTOR,
@@ -418,6 +418,35 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         self.assertEqual(rebound.content_hash, schema.content_hash)
         self.assertEqual(rebound.models, schema.models)
+
+    def test_schema_capture_keeps_only_usable_required_scalar_defaults(
+        self,
+    ) -> None:
+        snapshot = _metadata_snapshot(
+            create_defaults={
+                "res.partner": {
+                    "name": "New contact",
+                    "display_name": "Ignored readonly value",
+                    "active": True,
+                }
+            }
+        )
+
+        schema = self._capture_authenticated_schema(snapshot)
+        fields = {field.name: field for field in schema.models[0].fields}
+
+        self.assertTrue(fields["name"].create_default_present)
+        self.assertEqual(fields["name"].create_default_value, "New contact")
+        self.assertFalse(fields["display_name"].create_default_present)
+        self.assertFalse(fields["active"].create_default_present)
+        restored = type(schema).from_json(schema.to_json())
+        restored_fields = {
+            field.name: field for field in restored.models[0].fields
+        }
+        self.assertEqual(
+            restored_fields["name"].create_default_value,
+            "New contact",
+        )
 
     def test_schema_access_rebind_blocks_field_drift_without_invalidation(
         self,
@@ -1355,7 +1384,10 @@ def _catalog(
     )
 
 
-def _metadata_snapshot() -> MetadataSnapshot:
+def _metadata_snapshot(
+    *,
+    create_defaults=None,
+) -> MetadataSnapshot:
     return MetadataSnapshot(
         fingerprint=TargetFingerprint(
             target_hash=target_identity_hash(
@@ -1394,6 +1426,7 @@ def _metadata_snapshot() -> MetadataSnapshot:
                 },
             )
         },
+        create_defaults=create_defaults or {},
     )
 
 

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Review Odoo defaults &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ recipe.display_name }} &middot; Recipe v{{ application.recipe_revision }}</p>
+      <h1>Review Odoo defaults</h1>
+      <p>These values come from this exact Odoo target and company context. Impodo will leave the fields out of the create request so Odoo can apply them.</p>
+    </div>
+    <span class="status review">Review</span>
+  </div>
+
+  <section class="form-card" aria-labelledby="odoo-defaults-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Required values added by Odoo</p>
+        <h2 id="odoo-defaults-title">Confirm {{ defaults|length }} value{% if defaults|length != 1 %}s{% endif %} together</h2>
+        <p>If one value is not right, update the Recipe instead of confirming this group.</p>
+      </div>
+    </div>
+    <dl class="summary-list">
+      {% for item in defaults %}
+        <div>
+          <dt>{{ item.field.label }}</dt>
+          <dd><strong>{{ item.value }}</strong></dd>
+        </div>
+      {% endfor %}
+    </dl>
+    <details class="technical-details">
+      <summary>Support details</summary>
+      <ul>
+        {% for item in defaults %}
+          <li><code>{{ item.model }}.{{ item.field.name }}</code></li>
+        {% endfor %}
+      </ul>
+    </details>
+  </section>
+
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="actions">
+      <button class="button primary" type="submit">Use these Odoo defaults</button>
+      <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
+    </div>
+  </form>
+{% endblock %}

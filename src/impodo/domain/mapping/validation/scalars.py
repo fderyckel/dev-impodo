@@ -23,6 +23,11 @@ from ..contracts import (
     ScalarFieldMapping,
     ScalarValueSource,
     SelectionConditionOperator,
+    TargetFieldHandling,
+)
+from ..create_field_policy import (
+    CreateFieldCoverage,
+    evaluate_create_field,
 )
 from ..scalar_values import (
     ScalarValueError,
@@ -276,20 +281,28 @@ def _validate_scalar(
             )
         )
     if field_mapping.value_source is ScalarValueSource.ODOO_DEFAULT:
-        issues.append(
-            _issue(
-                "MAPPING_ODOO_DEFAULT_UNVERIFIED",
-                path,
-                (
-                    f"{field_mapping.target_field} will be omitted so Odoo "
-                    "can apply its runtime default."
-                ),
-                "Acknowledge this warning and verify the default on the target.",
-                severity="warning",
-                dataset=dataset,
-                target_field=field_mapping.target_field,
-            )
+        default_assessment = evaluate_create_field(
+            metadata,
+            provided=False,
+            handling=TargetFieldHandling.ODOO_DEFAULT,
         )
+        if default_assessment.coverage is CreateFieldCoverage.DEFAULT_UNVERIFIED:
+            issues.append(
+                _issue(
+                    "MAPPING_ODOO_DEFAULT_UNVERIFIED",
+                    path,
+                    (
+                        f"{field_mapping.target_field} has no verified Odoo "
+                        "create default for this target context."
+                    ),
+                    (
+                        "Provide a value or refresh Odoo details and review "
+                        "an available default."
+                    ),
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
     if field_mapping.null_policy not in _NULL_POLICIES:
         issues.append(
             _issue(

@@ -25,9 +25,14 @@ from ..domain.schema.governance import SchemaGovernance
 from ..domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
+    MappingTargetMode,
     ResolverOrigin,
     TargetFieldDisposition,
     TargetFieldHandling,
+)
+from ..domain.mapping.create_field_policy import (
+    CreateFieldCoverage,
+    evaluate_create_field,
 )
 from ..domain.mapping.artifacts import (
     MappingRevision,
@@ -425,6 +430,16 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "The captured Odoo details do not identify this field as Odoo-managed"
             )
+        if handling is TargetFieldHandling.ODOO_DEFAULT:
+            assessment = evaluate_create_field(
+                metadata,
+                provided=False,
+                handling=handling,
+            )
+            if assessment.coverage is not CreateFieldCoverage.DEFAULT_CONFIRMED:
+                raise WorkspaceError(
+                    "Odoo did not provide a verified create default for this field"
+                )
 
         dispositions = {
             item.target_field: item
@@ -457,6 +472,87 @@ class MappingWorkspaceService:
             expected_version=expected_version,
             actor=actor,
         )
+
+    def confirm_available_odoo_defaults(
+        self,
+        workspace_id: str,
+        *,
+        expected_version: int | None,
+        actor: Actor,
+    ) -> tuple[MappingWorkingDraft, int]:
+        """Confirm every currently uncovered verified create default together."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            workspace_id=workspace_id,
+        )
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        existing = self.mappings.get_mapping_working_draft(workspace_id)
+        if schema is None or existing is None:
+            raise WorkspaceError(
+                "Load the current matching draft and Odoo fields first"
+            )
+        if expected_version != existing.version:
+            raise WorkspaceError(
+                "The working draft was modified by another request; reload it"
+            )
+        models = {model.name: model for model in schema.models}
+        updated: list[DatasetMapping] = []
+        confirmed_count = 0
+        for dataset in existing.definition.datasets:
+            if dataset.mode in {
+                MappingTargetMode.REFERENCE,
+                MappingTargetMode.ODOO_PINNED_UPDATE,
+            }:
+                updated.append(dataset)
+                continue
+            supplied = {
+                item.target_field
+                for item in (*dataset.fields, *dataset.relationships)
+            }
+            supplied.update(
+                target
+                for component in (*dataset.target_identity, *dataset.target_scope)
+                for target in component.target_fields
+            )
+            dispositions = {
+                item.target_field: item
+                for item in dataset.target_field_dispositions
+            }
+            model = models.get(dataset.target_model)
+            for field in model.fields if model is not None else ():
+                if field.name in dispositions:
+                    continue
+                assessment = evaluate_create_field(
+                    field,
+                    provided=field.name in supplied,
+                    handling=None,
+                )
+                if assessment.coverage is not CreateFieldCoverage.DEFAULT_AVAILABLE:
+                    continue
+                dispositions[field.name] = TargetFieldDisposition(
+                    target_field=field.name,
+                    handling=TargetFieldHandling.ODOO_DEFAULT,
+                )
+                confirmed_count += 1
+            updated.append(
+                replace(
+                    dataset,
+                    target_field_dispositions=tuple(
+                        dispositions[name] for name in sorted(dispositions)
+                    ),
+                )
+            )
+        if not confirmed_count:
+            raise WorkspaceError("No verified Odoo defaults are waiting for review")
+        draft = self.save_working_draft(
+            workspace_id,
+            datasets=updated,
+            expected_version=expected_version,
+            actor=actor,
+        )
+        return draft, confirmed_count
 
     def check_definition(
         self,

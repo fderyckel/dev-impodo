@@ -407,6 +407,8 @@ class Json2ConnectorTests(unittest.TestCase):
             calls.append((url, payload))
             if url.endswith("/web/version"):
                 return 200, {"version": "19.0"}
+            if url.endswith("/default_get"):
+                return 200, {"name": "New record"}
             return 200, {
                 "name": {
                     "type": "char",
@@ -420,10 +422,13 @@ class Json2ConnectorTests(unittest.TestCase):
             [MetadataRequest("x.model", ("name",))]
         )
         self.assertEqual(snapshot.models["x.model"].fields["name"].type, "char")
-        fields_call = calls[-1]
+        fields_call = next(
+            item for item in calls if item[0].endswith("/fields_get")
+        )
         self.assertTrue(fields_call[0].endswith("/json/2/x.model/fields_get"))
         self.assertEqual(fields_call[1]["allfields"], ["name"])
         self.assertIn("attributes", fields_call[1])
+        self.assertEqual(snapshot.create_defaults["x.model"]["name"], "New record")
 
     def test_schema_discovery_requests_all_fields_once_per_model(self) -> None:
         calls = []
@@ -434,6 +439,8 @@ class Json2ConnectorTests(unittest.TestCase):
             calls.append((url, payload))
             if url.endswith("/web/version"):
                 return 200, {"version": "19.0"}
+            if url.endswith("/default_get"):
+                return 200, {"name": "New record"}
             return 200, {
                 "name": {
                     "string": "Name",
@@ -453,7 +460,9 @@ class Json2ConnectorTests(unittest.TestCase):
             [MetadataRequest("x.model", (), all_fields=True)]
         )
 
-        fields_call = calls[-1]
+        fields_call = next(
+            item for item in calls if item[0].endswith("/fields_get")
+        )
         self.assertEqual(fields_call[1]["allfields"], [])
         self.assertEqual(
             set(snapshot.models["x.model"].fields),
@@ -463,6 +472,10 @@ class Json2ConnectorTests(unittest.TestCase):
             snapshot.models["x.model"].fields["name"].label,
             "Name",
         )
+        default_calls = [
+            item for item in calls if item[0].endswith("/default_get")
+        ]
+        self.assertEqual(len(default_calls), 1)
 
     def test_schema_constraint_evidence_is_batched_for_all_models(self) -> None:
         calls = []

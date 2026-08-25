@@ -60,9 +60,10 @@ service compares its semantic fingerprint with the current catalogue:
 
 The semantic fingerprint binds technical target identity, selected model
 scope, field types and flags, relationship metadata, selection codes,
-constraints, origin, and read-access meaning. It excludes capture/check times,
-actors, credential generations, and translated display labels. Those facts are
-freshness, access provenance, or presentation rather than schema structure.
+constraints, usable required scalar create defaults, origin, and read-access
+meaning. It excludes capture/check times, actors, credential generations, and
+translated display labels. Those facts are freshness, access provenance, or
+presentation rather than schema structure.
 
 Local capture uses the isolated local reader. Remote capture uses the narrow
 JSON-2 read connector. Both normalize metadata into the same domain catalogue
@@ -78,9 +79,11 @@ related models are never silently added to the permitted scope.
 Field capture records the effective inherited Odoo 19 field set. For each
 field, it records requirements, read-only state, relationships, inverse fields,
 and selection codes. It performs one `fields_get` request per selected model,
-never per field or source row. Impodo fetches optional uniqueness metadata in
-one bounded model batch. If it cannot read that metadata, it does not present a
-recommendation as confirmed governance.
+then at most one `default_get` request for that model's required writable scalar
+fields; neither request runs per field or source row. Relational defaults and
+unusable scalar values are not retained as default evidence. Impodo fetches
+optional uniqueness metadata in one bounded model batch. If it cannot read
+that metadata, it does not present a recommendation as confirmed governance.
 
 Business keys are explicit, versioned, and actor-confirmed. A recommendation
 may come from one exact supported rule or one unambiguous Odoo uniqueness
@@ -148,9 +151,10 @@ model. Never call `fields_get`, selection providers, or relationship catalogues
 inside a source-row loop.
 
 A schema check performs the same bounded metadata read as an initial capture:
-one `fields_get` request per selected model plus the bounded constraint batch.
-Candidate comparison and confirmation run locally. Confirmation does not call
-Odoo again and introduces no per-field or per-row requests.
+one `fields_get` request and at most one `default_get` request per selected
+model, plus the bounded constraint batch. Candidate comparison and confirmation
+run locally. Confirmation does not call Odoo again and introduces no per-field
+or per-row requests.
 
 Odoo 19 inherited fields and dynamic selections must come from the connected
 database. Do not hard-code a standard-only catalogue when custom modules are in

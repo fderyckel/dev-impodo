@@ -36,6 +36,10 @@ from ..domain.mapping.contracts import (
     TargetFieldHandling,
     ValueMapping,
 )
+from ..domain.mapping.create_field_policy import (
+    CreateFieldCoverage,
+    evaluate_create_field,
+)
 from ..domain.recipe_applications import (
     RecipeApplicationError,
     RecipeApplicationIssue,
@@ -218,10 +222,13 @@ class RecipeApplicationCompiler:
             for field in dataset.get("relationships", ())
         )
         dispositions = {
-            (str(dataset["target_model"]), str(item["target_field"]))
+            (str(dataset["target_model"]), str(item["target_field"])): (
+                TargetFieldHandling(str(item["handling"]))
+            )
             for dataset in dict(definition["mapping"]).get("datasets", ())
             for item in dataset.get("target_field_dispositions", ())
         }
+        available_defaults: list[tuple[str, str]] = []
         for required_model in contract.get("models", ()):
             model_name = str(required_model["model"])
             model = actual_models.get(model_name)
@@ -396,12 +403,52 @@ class RecipeApplicationCompiler:
                     model_name in contract.get("approved_write_fields", {})
                     and field.required
                     and not field.readonly
-                    and (model_name, field.name)
-                    not in provider_fields | dispositions
+                    and (model_name, field.name) not in provider_fields
                 ):
-                    issues.append(self._block("RECIPE_TARGET_NEW_REQUIRED_FIELD", f"Odoo now requires {model_name}.{field.name}, but this Recipe provides no value.", "Add a provider/default or publish and retest a new Recipe revision.", f"{model_name}.{field.name}"))
+                    handling = dispositions.get((model_name, field.name))
+                    assessment = evaluate_create_field(
+                        field,
+                        provided=False,
+                        handling=handling,
+                    )
+                    if assessment.coverage in {
+                        CreateFieldCoverage.DEFAULT_CONFIRMED,
+                        CreateFieldCoverage.ODOO_MANAGED_CONFIRMED,
+                    }:
+                        continue
+                    if assessment.coverage is CreateFieldCoverage.DEFAULT_AVAILABLE:
+                        available_defaults.append((model_name, field.name))
+                        issues.append(
+                            self._review(
+                                "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+                                (
+                                    f"Odoo can provide {model_name}.{field.name} "
+                                    "when it creates the record."
+                                ),
+                                (
+                                    "Review the current Odoo value and confirm "
+                                    "it for this run."
+                                ),
+                                f"{model_name}.{field.name}",
+                            )
+                        )
+                        continue
+                    issues.append(
+                        self._block(
+                            "RECIPE_TARGET_NEW_REQUIRED_FIELD",
+                            (
+                                f"Odoo now requires {model_name}.{field.name}, "
+                                "but this Recipe provides no value."
+                            ),
+                            (
+                                "Provide a value in a new Recipe revision; Impodo "
+                                "could not verify an Odoo create default."
+                            ),
+                            f"{model_name}.{field.name}",
+                        )
+                    )
         assessment_hash = content_hash({"contract": contract, "current_dependencies": dependency_projection})
-        return assessment_hash, issues
+        return assessment_hash, issues, tuple(sorted(available_defaults))
 
 
     def _reference_issues(self, definition, project_id):
@@ -772,7 +819,15 @@ class RecipeApplicationCompiler:
                 bindings[logical_column] = column.stable_key
         return bindings
 
-    def _mapping_datasets(self, definition, bindings, selection, controls, references):
+    def _mapping_datasets(
+        self,
+        definition,
+        bindings,
+        selection,
+        controls,
+        references,
+        target_default_fields=(),
+    ):
         reference_by_logical = {}
         if references:
             by_name = {item.name: item for item in references.datasets}
@@ -805,6 +860,27 @@ class RecipeApplicationCompiler:
                 for item in definitions
                 if controls is not None and item.control_id in controls.values
             )
+            dispositions = {
+                str(item["target_field"]): TargetFieldDisposition(
+                    target_field=str(item["target_field"]),
+                    handling=TargetFieldHandling(str(item["handling"])),
+                )
+                for item in dataset.get("target_field_dispositions", ())
+            }
+            scalar_defaults = {
+                item.target_field
+                for item in fields
+                if item.value_source is ScalarValueSource.ODOO_DEFAULT
+            }
+            for model_name, field_name in target_default_fields:
+                if (
+                    model_name == str(dataset["target_model"])
+                    and field_name not in scalar_defaults
+                ):
+                    dispositions[field_name] = TargetFieldDisposition(
+                        target_field=field_name,
+                        handling=TargetFieldHandling.ODOO_DEFAULT,
+                    )
             result.append(DatasetMapping(
                 dataset_id=physical_dataset,
                 target_model=str(dataset["target_model"]),
@@ -815,7 +891,9 @@ class RecipeApplicationCompiler:
                 target_scope=tuple(self._identity(item, bindings) for item in dataset.get("scope", ())),
                 fields=fields,
                 relationships=relationships,
-                target_field_dispositions=tuple(TargetFieldDisposition(target_field=str(item["target_field"]), handling=TargetFieldHandling(str(item["handling"]))) for item in dataset.get("target_field_dispositions", ())),
+                target_field_dispositions=tuple(
+                    dispositions[name] for name in sorted(dispositions)
+                ),
                 approved_write_fields=(
                     tuple(
                         str(item)
@@ -960,6 +1038,16 @@ class RecipeApplicationCompiler:
     @staticmethod
     def _info(code, message, recovery, logical_id=""):
         return RecipeApplicationIssue(code, RecipeApplicationIssueLevel.INFORMATION, message, recovery, logical_id)
+
+    @staticmethod
+    def _review(code, message, recovery, logical_id=""):
+        return RecipeApplicationIssue(
+            code,
+            RecipeApplicationIssueLevel.REVIEW,
+            message,
+            recovery,
+            logical_id,
+        )
 
 
 def _recipe_token(value: str) -> str:

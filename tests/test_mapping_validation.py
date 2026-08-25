@@ -1131,7 +1131,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             <= {item.code for item in result.issues}
         )
 
-    def test_odoo_default_is_explicit_and_requires_warning_acknowledgement(
+    def test_odoo_default_requires_verified_target_evidence(
         self,
     ) -> None:
         definition = _valid_definition(self.selection, self.governance)
@@ -1146,21 +1146,44 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             datasets=(replace(company, fields=(odoo_default,)), partner),
         )
 
-        result = self.validator.validate(
+        unverified = self.validator.validate(
             definition,
             self.selection,
             self.schema,
             self.governance,
         )
-
-        self.assertEqual(
-            result.status,
-            MappingValidationStatus.VALID_WITH_WARNINGS,
+        default_schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    model,
+                    fields=tuple(
+                        replace(
+                            field,
+                            create_default_present=True,
+                            create_default_value="Odoo company",
+                        )
+                        if model.name == "res.company" and field.name == "name"
+                        else field
+                        for field in model.fields
+                    ),
+                )
+                for model in self.schema.models
+            ),
         )
+        verified = self.validator.validate(
+            definition,
+            self.selection,
+            default_schema,
+            self.governance,
+        )
+
+        self.assertEqual(unverified.status, MappingValidationStatus.INVALID)
         self.assertEqual(
-            [item.code for item in result.issues],
+            [item.code for item in unverified.issues],
             ["MAPPING_ODOO_DEFAULT_UNVERIFIED"],
         )
+        self.assertEqual(verified.status, MappingValidationStatus.VALID)
 
     def test_required_field_can_be_explicitly_left_to_odoo(self) -> None:
         definition = _valid_definition(self.selection, self.governance)
@@ -1182,21 +1205,34 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             ),
         )
 
+        default_schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    model,
+                    fields=tuple(
+                        replace(
+                            field,
+                            create_default_present=True,
+                            create_default_value="Odoo company",
+                        )
+                        if model.name == "res.company" and field.name == "name"
+                        else field
+                        for field in model.fields
+                    ),
+                )
+                for model in self.schema.models
+            ),
+        )
         result = self.validator.validate(
             definition,
             self.selection,
-            self.schema,
+            default_schema,
             self.governance,
         )
 
-        self.assertEqual(
-            result.status,
-            MappingValidationStatus.VALID_WITH_WARNINGS,
-        )
-        self.assertEqual(
-            [item.code for item in result.issues],
-            ["MAPPING_ODOO_DEFAULT_UNVERIFIED"],
-        )
+        self.assertEqual(result.status, MappingValidationStatus.VALID)
+        self.assertEqual(result.issues, ())
         restored = MappingDefinition.from_json(definition.to_json())
         self.assertEqual(
             restored.datasets[0].target_field_dispositions,

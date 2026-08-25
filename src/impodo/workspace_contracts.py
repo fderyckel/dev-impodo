@@ -256,6 +256,8 @@ class SchemaField:
     exportable: bool | None = None
     digits: tuple[int, int] | None = None
     currency_field: str | None = None
+    create_default_present: bool = False
+    create_default_value: bool | int | float | str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,24 +506,28 @@ def _schema_field_from_payload(value: object) -> SchemaField:
         relation=value["relation"],
         relation_field=value["relation_field"],
         selection=tuple(tuple(item) for item in value["selection"]),
-        stored=_optional_bool(value["stored"]),
-        computed=_optional_bool(value["computed"]),
-        has_inverse=_optional_bool(value["has_inverse"]),
-        related=_optional_bool(value["related"]),
-        translated=_optional_bool(value["translated"]),
-        company_dependent=_optional_bool(value["company_dependent"]),
-        searchable=_optional_bool(value["searchable"]),
-        sortable=_optional_bool(value["sortable"]),
-        exportable=_optional_bool(value["exportable"]),
+        stored=_optional_bool(value.get("stored")),
+        computed=_optional_bool(value.get("computed")),
+        has_inverse=_optional_bool(value.get("has_inverse")),
+        related=_optional_bool(value.get("related")),
+        translated=_optional_bool(value.get("translated")),
+        company_dependent=_optional_bool(value.get("company_dependent")),
+        searchable=_optional_bool(value.get("searchable")),
+        sortable=_optional_bool(value.get("sortable")),
+        exportable=_optional_bool(value.get("exportable")),
         digits=(
             tuple(int(item) for item in value["digits"])
-            if value["digits"] is not None
+            if value.get("digits") is not None
             else None
         ),
         currency_field=(
             str(value["currency_field"])
-            if value["currency_field"] is not None
+            if value.get("currency_field") is not None
             else None
+        ),
+        create_default_present=bool(value.get("create_default_present", False)),
+        create_default_value=_create_default_from_payload(
+            value.get("create_default_value")
         ),
     )
 
@@ -578,6 +584,14 @@ def _optional_bool(value: object) -> bool | None:
     if not isinstance(value, bool):
         raise ValueError("Stored schema boolean metadata is invalid")
     return value
+
+
+def _create_default_from_payload(
+    value: object,
+) -> bool | int | float | str | None:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    raise ValueError("Stored Odoo create default is invalid")
 
 
 @dataclass(frozen=True, slots=True)

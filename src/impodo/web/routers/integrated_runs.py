@@ -12,8 +12,9 @@ from starlette.concurrency import run_in_threadpool
 
 from ...inspection import SourceInspectionError
 from ...migration_foundation import MigrationFoundationError
-from ...migration_run_planning import RecipeDependency
+from ...migration_run_planning import MigrationRunPlanningError, RecipeDependency
 from ...migration_runs import MigrationRunPurpose
+from ...domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from ...recipes import RecipeError
 from ...workspace_errors import WorkspaceError
 from ...workspace_state import (
@@ -503,6 +504,155 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             review=review,
         )
 
+    @router.get(
+        "/projects/{project_id}/runs/{migration_run_id}/applications/"
+        "{application_id}/odoo-defaults",
+        response_class=HTMLResponse,
+    )
+    async def review_application_odoo_defaults(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+        application_id: str,
+    ):
+        """Show exact verified defaults before one grouped confirmation."""
+
+        require_session(request)
+        application = context.run_planning.repository.get_application(
+            application_id
+        )
+        if (
+            application.project_id != project_id
+            or application.migration_run_id != migration_run_id
+        ):
+            return HTMLResponse("RecipeApplication not found", status_code=404)
+        schema = context.queries.get_odoo_schema_catalog(
+            application.workspace_id
+        )
+        revision = context.mapping_workspace.mappings.get_mapping_revision(
+            application.workspace_id
+        )
+        if schema is None or revision is None:
+            return HTMLResponse(
+                "Recheck Odoo before reviewing these defaults",
+                status_code=422,
+            )
+        fields_by_model = {
+            model.name: {field.name: field for field in model.fields}
+            for model in schema.models
+        }
+        default_reviews = tuple(
+            item
+            for item in context.run_planning.repository.list_issues(
+                application.application_id
+            )
+            if item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+            and item.level.value == "REVIEW"
+        )
+        if not default_reviews:
+            return HTMLResponse(
+                "No verified Odoo defaults are waiting for review",
+                status_code=422,
+            )
+        defaults = []
+        for dataset in revision.definition.datasets:
+            for field_mapping in dataset.fields:
+                key = (dataset.target_model, field_mapping.target_field)
+                if (
+                    field_mapping.value_source
+                    is not ScalarValueSource.ODOO_DEFAULT
+                ):
+                    continue
+                field = fields_by_model.get(key[0], {}).get(key[1])
+                if (
+                    field is not None
+                    and field.required
+                    and field.create_default_present
+                ):
+                    defaults.append(
+                        {
+                            "field": field,
+                            "model": key[0],
+                            "value": _run_default_value_label(field),
+                        }
+                    )
+            for disposition in dataset.target_field_dispositions:
+                key = (dataset.target_model, disposition.target_field)
+                if (
+                    disposition.handling
+                    is not TargetFieldHandling.ODOO_DEFAULT
+                ):
+                    continue
+                field = fields_by_model.get(key[0], {}).get(key[1])
+                if (
+                    field is None
+                    or not field.required
+                    or not field.create_default_present
+                ):
+                    continue
+                defaults.append(
+                    {
+                        "field": field,
+                        "model": key[0],
+                        "value": _run_default_value_label(field),
+                    }
+                )
+        if not defaults or len(defaults) != len(default_reviews):
+            return HTMLResponse(
+                "No verified Odoo defaults are waiting for review",
+                status_code=422,
+            )
+        recipe = context.recipes.get(application.recipe_id, actor=context.actor)
+        return _render(
+            request,
+            "project_recipe_odoo_defaults.html",
+            application=application,
+            defaults=tuple(defaults),
+            project_id=project_id,
+            recipe=recipe,
+        )
+
+    @router.post(
+        "/projects/{project_id}/runs/{migration_run_id}/applications/"
+        "{application_id}/odoo-defaults"
+    )
+    async def confirm_application_odoo_defaults(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+        application_id: str,
+    ):
+        """Confirm the already captured scalar defaults for one application."""
+
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        application = context.run_planning.repository.get_application(
+            application_id
+        )
+        if (
+            application.project_id != project_id
+            or application.migration_run_id != migration_run_id
+        ):
+            return HTMLResponse("RecipeApplication not found", status_code=404)
+        try:
+            await run_in_threadpool(
+                context.run_planning.confirm_application_odoo_defaults,
+                application_id,
+                actor=context.actor,
+            )
+        except (MigrationRunPlanningError, WorkspaceError) as error:
+            _flash(request, str(error))
+            return RedirectResponse(
+                f"/projects/{project_id}/runs/{migration_run_id}/applications/"
+                f"{application_id}/odoo-defaults",
+                status_code=303,
+            )
+        _flash(request, "Confirmed the current Odoo defaults for this Recipe run.")
+        return RedirectResponse(
+            f"/projects/{project_id}/runs/{migration_run_id}",
+            status_code=303,
+        )
+
     @router.get("/projects/{project_id}/runs/{migration_run_id}/status")
     async def integrated_run_status(
         request: Request,
@@ -771,6 +921,25 @@ def _render_test_run_form(
         error=error,
         status_code=status_code,
     )
+
+
+def _run_default_value_label(field) -> str:
+    """Render one target-bound scalar default without exposing extra evidence."""
+
+    value = field.create_default_value
+    if field.type == "selection":
+        label = next(
+            (
+                str(choice_label)
+                for code, choice_label in field.selection
+                if str(code) == str(value)
+            ),
+            str(value),
+        )
+        return f"{label} ({value})"
+    if field.type == "boolean":
+        return "Yes" if value else "No"
+    return str(value)
 
 
 def _fresh_data_url(project_id: str, migration_run_id: str) -> str:

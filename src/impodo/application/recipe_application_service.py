@@ -40,6 +40,7 @@ class RecipeApplicationAssessment:
     control_values: Mapping[str, str]
     physical_binding_hash: str
     parameter_values_hash: str
+    target_default_fields: tuple[tuple[str, str], ...]
     issues: tuple[MigrationRunPlanIssue, ...]
 
     @property
@@ -107,7 +108,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             {},
         )
         application_issues.extend(source_issues)
-        _target_hash, target_issues = self._target_assessment(
+        _target_hash, target_issues, target_default_fields = self._target_assessment(
             definition,
             target_schema,
         )
@@ -168,6 +169,9 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 "control_values": dict(sorted(normalized_controls.items())),
                 "parameter_values": dict(sorted(normalized_parameters.items())),
                 "source_bindings": dict(sorted(bindings.items())),
+                "target_default_fields": [
+                    list(item) for item in target_default_fields
+                ],
             }
         )
         return RecipeApplicationAssessment(
@@ -179,6 +183,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             parameter_values_hash=content_hash(
                 dict(sorted(normalized_parameters.items()))
             ),
+            target_default_fields=target_default_fields,
             issues=issues,
         )
 
@@ -248,6 +253,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     selection,
                     controls,
                     self.references.get_reference_bundle(workspace_id),
+                    assessment.target_default_fields,
                 )
                 candidate = MappingDefinition(
                     mapping_id=str(uuid4()),
@@ -302,6 +308,11 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     ),
                     actor=actor,
                 )
+                default_review_required = any(
+                    item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+                    and item.level is MigrationRunPlanIssueLevel.REVIEW
+                    for item in issues
+                )
                 if not any(item.blocks for item in issues):
                     current_revision = (
                         self.mappings.mappings.get_mapping_revision(workspace_id)
@@ -322,23 +333,25 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                             workspace_id
                         )
                     )
-                    self.mappings.submit_current(
-                        workspace_id,
-                        datasets=revision.definition.datasets,
-                        expected_version=revision.version,
-                        expected_working_draft_version=(
-                            checked_draft.version
-                            if checked_draft is not None
-                            else None
-                        ),
-                        actor=actor,
-                    )
+                    if not default_review_required:
+                        self.mappings.submit_current(
+                            workspace_id,
+                            datasets=revision.definition.datasets,
+                            expected_version=revision.version,
+                            expected_working_draft_version=(
+                                checked_draft.version
+                                if checked_draft is not None
+                                else None
+                            ),
+                            actor=actor,
+                        )
                     mapping_id = revision.mapping_id
                     mapping_hash = revision.definition.content_hash
                 return self._result(
                     (
                         RecipeApplicationStatus.BLOCKED
                         if any(item.blocks for item in issues)
+                        or default_review_required
                         else RecipeApplicationStatus.READY
                     ),
                     mapping_id,

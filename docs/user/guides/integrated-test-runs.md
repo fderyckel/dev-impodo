@@ -65,6 +65,19 @@ Recipe order has no cycle and that two Recipes do not claim the same writable
 Odoo field. Reordering two conflicting Recipes is not a safe repair; one
 Recipe must own that field.
 
+An installed Odoo application may add required fields that were not part of a
+saved Recipe. If the current target returns usable scalar create defaults,
+the Recipe card opens **Review Odoo defaults** and shows their exact values.
+Confirm the group to keep the Recipe unchanged for this run. If Odoo returns
+no usable default, the card remains blocked and the Recipe needs a new version
+with a value provider. Impodo never guesses from an Odoo choice list.
+
+An older blocked Test run can select **Check Odoo defaults**. Impodo refreshes
+the one shared setup target, verifies that no other field behavior changed,
+and rebuilds only applications whose earlier required-field blockers are now
+covered. The data manager still reviews the values before the application
+becomes ready.
+
 ## What to check
 
 - The Test data version represents one complete, accepted delivery.

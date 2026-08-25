@@ -215,11 +215,6 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     status_code=404,
                     detail="Test run not found",
                 )
-            if binding.state.value == "ACTIVE":
-                return RedirectResponse(
-                    f"/projects/{project_id}/runs/{migration_run_id}",
-                    status_code=303,
-                )
             data_version = context.data_versions.get(
                 binding.data_version_id,
                 actor=context.actor,
@@ -278,6 +273,31 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     actor=context.actor,
                 )
             )
+            if binding.state.value == "ACTIVE":
+                recovered = await run_in_threadpool(
+                    context.run_planning.recover_blocked_test_run_defaults,
+                    migration_run_id,
+                    current_schema=target_schema,
+                    actor=context.actor,
+                )
+                if recovered:
+                    _flash(
+                        request,
+                        (
+                            "Odoo defaults are ready for review in "
+                            f"{len(recovered)} Recipe"
+                            f"{'s' if len(recovered) != 1 else ''}."
+                        ),
+                    )
+                else:
+                    _flash(
+                        request,
+                        "No blocked Recipe could be recovered from these Odoo defaults.",
+                    )
+                return RedirectResponse(
+                    f"/projects/{project_id}/runs/{migration_run_id}",
+                    status_code=303,
+                )
             read_credential = get_target_credential(
                 context.secret_store,
                 workspace_state,

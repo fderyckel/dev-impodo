@@ -201,6 +201,7 @@ class LocalOdooMetadataReader:
                 "The local Odoo field response does not match the model allowlist."
             )
         parsed: dict[str, ModelMetadata] = {}
+        create_defaults: dict[str, Mapping[str, object]] = {}
         for model_name in sorted(requested):
             raw_model = raw_models[model_name]
             if not isinstance(raw_model, Mapping):
@@ -239,9 +240,17 @@ class LocalOdooMetadataReader:
                 fields=fields,
                 unique_constraints=tuple(constraints),
             )
+            raw_defaults = raw_model.get("create_defaults")
+            if isinstance(raw_defaults, Mapping):
+                create_defaults[model_name] = {
+                    str(field_name): value
+                    for field_name, value in raw_defaults.items()
+                    if str(field_name) in fields
+                }
         return MetadataSnapshot(
             fingerprint=fingerprint,
             models=parsed,
+            create_defaults=create_defaults,
             complete=True,
             limitations=(
                 "Captured through a fixed local Odoo shell transaction that "
@@ -676,12 +685,24 @@ for constraint in constraints:
     }})
 for model_name in requested_models:
     model = env[model_name].sudo()
+    fields = model.fields_get(
+        allfields=[],
+        attributes={list(_FIELD_ATTRIBUTES)!r},
+    )
+    required_scalar_fields = sorted(
+        field_name
+        for field_name, details in fields.items()
+        if details.get("required")
+        and not details.get("readonly")
+        and details.get("type") in {{
+            "boolean", "char", "date", "datetime", "float", "html",
+            "integer", "monetary", "selection", "text",
+        }}
+    )
     captured_models[model_name] = {{
         "description": model._description,
-        "fields": model.fields_get(
-            allfields=[],
-            attributes={list(_FIELD_ATTRIBUTES)!r},
-        ),
+        "fields": fields,
+        "create_defaults": model.default_get(required_scalar_fields),
         "unique_constraints": constraints_by_model[model_name],
     }}
 payload = {{
@@ -789,7 +810,13 @@ try:
 {_indent(body.strip(), 4)}
     print(
         {_OUTPUT_MARKER!r}
-        + json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+        + json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+            default=lambda value: value.isoformat(),
+        )
     )
 finally:
     env.cr.rollback()

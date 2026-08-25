@@ -715,9 +715,14 @@ def _mapping_issue_views(
                 "field_type": field.type if field is not None else "",
                 "fix_url": fix_url,
                 "can_choose_default": (
-                    issue.code == "MAPPING_REQUIRED_FIELD_UNMAPPED"
+                    issue.code == "MAPPING_ODOO_DEFAULT_AVAILABLE"
                     and dataset_index is not None
                     and field is not None
+                ),
+                "default_value_label": (
+                    _odoo_default_value_label(field)
+                    if field is not None and field.create_default_present
+                    else ""
                 ),
                 "can_choose_managed": (
                     issue.code == "MAPPING_REQUIRED_FIELD_UNMAPPED"
@@ -818,6 +823,31 @@ def _mapping_next_step(
                         "readonly_recovery": readonly_field_recovery,
                     }
                 )
+            default_reviews = tuple(
+                item
+                for item in blocking_issue_views
+                if item["issue"].code == "MAPPING_ODOO_DEFAULT_AVAILABLE"
+            )
+            if default_reviews:
+                blockers.append(
+                    {
+                        "title": (
+                            f"Review {len(default_reviews)} Odoo default"
+                            f"{'s' if len(default_reviews) != 1 else ''}"
+                        ),
+                        "message": (
+                            "Odoo returned these create values for this exact "
+                            "target and company context. Confirm them together "
+                            "or match the fields yourself."
+                        ),
+                        "action_label": (
+                            f"Use {len(default_reviews)} Odoo default"
+                            f"{'s' if len(default_reviews) != 1 else ''}"
+                        ),
+                        "action": "confirm_defaults",
+                        "default_reviews": default_reviews,
+                    }
+                )
             blockers.extend(
                 {
                     "title": (
@@ -828,6 +858,7 @@ def _mapping_next_step(
                     "issue_view": item,
                 }
                 for item in blocking_issue_views
+                if item not in default_reviews
             )
     return {
         "label": "Confirm field matches",
@@ -838,6 +869,25 @@ def _mapping_next_step(
         "blockers": tuple(blockers),
         "previous_check_items": tuple(previous_check_items),
     }
+
+
+def _odoo_default_value_label(field) -> str:
+    """Render one verified scalar default in business-readable form."""
+
+    value = field.create_default_value
+    if field.type == "selection":
+        label = next(
+            (
+                str(choice_label)
+                for code, choice_label in field.selection
+                if str(code) == str(value)
+            ),
+            str(value),
+        )
+        return f"{label} ({value})"
+    if field.type == "boolean":
+        return "Yes" if value else "No"
+    return str(value)
 
 
 def _mapping_dataset_views(

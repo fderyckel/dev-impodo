@@ -618,6 +618,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "draft",
                 "submit",
                 "remove_readonly",
+                "confirm_defaults",
             } and not action.startswith(
                 ("set_disposition:", "clear_disposition:")
             ):
@@ -694,6 +695,30 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 message = (
                     f"Removed {removed_count} Odoo-managed field "
                     f"match{'es' if removed_count != 1 else ''}. "
+                    "Check matches again when ready."
+                )
+                if json_request:
+                    return JSONResponse(
+                        {
+                            "message": message,
+                            "redirect_url": mapping_return_url,
+                            "expected_working_draft_version": (
+                                working_draft.version
+                            ),
+                        }
+                    )
+                _flash(request, message)
+                return RedirectResponse(mapping_return_url, status_code=303)
+            if action == "confirm_defaults":
+                working_draft, confirmed_count = await run_in_threadpool(
+                    context.mapping_workspace.confirm_available_odoo_defaults,
+                    workspace_id,
+                    expected_version=expected_working_version,
+                    actor=context.actor,
+                )
+                message = (
+                    f"Confirmed {confirmed_count} Odoo default"
+                    f"{'s' if confirmed_count != 1 else ''}. "
                     "Check matches again when ready."
                 )
                 if json_request:

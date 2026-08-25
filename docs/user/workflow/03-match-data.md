@@ -38,6 +38,17 @@ record identity automatically.
 10. Select **Confirm field matches** for the exact checked revision. You can
     continue without the optional rule-effects preview.
 
+When installed Odoo applications add required fields, Impodo checks the
+current create defaults for all required writable scalar fields in one bounded
+read per record type. **Review Odoo defaults** shows the exact current values
+and confirms them together. Impodo does not infer a default from the first
+available choice. If Odoo returns no usable value, match the field or provide a
+fixed value instead.
+
+New read-only fields need no input. If an Odoo change makes an existing write
+match read-only, Impodo keeps the saved match visible and offers one grouped
+removal action before you check the matches again.
+
 For reviewed Odoo 19 references such as Country, Language, and Currency,
 Impodo checks the parent relationship and exact portable key through one
 shared policy. It may show the bounded Odoo choices without asking you to add
@@ -134,9 +145,10 @@ Stage 4 prepares every row for the required data review.
 
 When **Confirm field matches** is unavailable, the reason panel beside the
 bottom workflow actions lists every current blocker even if a field search or
-page filter hides the affected field. Follow **Match this field**, **Let Odoo
-choose**, or the other recovery action shown there, then select **Check
-matches** again.
+page filter hides the affected field. Follow **Match this field**, **Review
+Odoo defaults**, or the other recovery action shown there, then select **Check
+matches** again. **Let Odoo choose** appears only when the captured target
+provides a usable create default for that required field.
 
 ## What makes this work stale
 

@@ -6458,12 +6458,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ["field_0002"],
         )
 
-    def test_required_field_blocker_stays_visible_and_can_be_left_to_odoo(
+    def test_verified_required_default_is_reviewed_and_confirmed_as_a_group(
         self,
     ) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
             required_scalar_indexes=(0,),
+            verified_default_scalar_indexes=(0,),
         )
         source_identity, _source_value = dataset.columns
         context = self.app.state.context
@@ -6504,16 +6505,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             page.text.index('class="actions mapping-actions"'),
         )
         self.assertIn("You cannot continue yet — 1 reason", page.text)
-        self.assertIn("large_contacts: Field 0000 needs attention", page.text)
+        self.assertIn("Review 1 Odoo default", page.text)
+        self.assertIn("Field 0000:", page.text)
         self.assertIn(
-            "Required target field res.partner.field_0000 has no value provider.",
+            'value="confirm_defaults"',
             page.text,
         )
-        self.assertIn(
-            'value="set_disposition:0:field_0000:odoo_default"',
-            page.text,
-        )
-        self.assertIn("Let Odoo choose", page.text)
+        self.assertIn("Odoo default 0000", page.text)
+        self.assertIn("Use 1 Odoo default", page.text)
         self.assertRegex(
             page.text,
             r'<button class="button primary"[^>]*disabled>'
@@ -6525,7 +6524,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
-                "action": "set_disposition:0:field_0000:odoo_default",
+                "action": "confirm_defaults",
                 "expected_working_draft_version": "1",
             },
             headers=POST_HEADERS,
@@ -6533,9 +6532,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(decision.status_code, 303)
-        self.assertTrue(
-            decision.headers["location"].endswith("#next-step-blockers")
-        )
         working = context.mapping_workspace.mappings.get_mapping_working_draft(
             workspace_id
         )
@@ -6558,8 +6554,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "large_contacts: Field 0000 needs attention",
             decision_page.text,
         )
-        self.assertIn("Decision saved.", decision_page.text)
-        self.assertIn("Check matches to verify it.", decision_page.text)
+        self.assertIn("Confirmed 1 Odoo default.", decision_page.text)
 
         mapping_data = {
             "csrf_token": self.csrf,
@@ -6588,7 +6583,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(checked.status_code, 303)
         checked_page = self.client.get(checked.headers["location"])
         self.assertNotIn('id="next-step-blockers"', checked_page.text)
-        self.assertIn("I reviewed this warning", checked_page.text)
         self.assertIn("Confirm field matches", checked_page.text)
         current_revision = context.mapping_workspace.mappings.get_mapping_revision(
             workspace_id
@@ -6602,13 +6596,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 current_revision.version,
             )
         )
-        self.assertEqual(
-            current_validation.status,
-            MappingValidationStatus.VALID_WITH_WARNINGS,
-        )
-        warning_fingerprint = mapping_issue_fingerprint(
-            current_validation.issues[0]
-        )
+        self.assertEqual(current_validation.status, MappingValidationStatus.VALID)
+        self.assertEqual(current_validation.issues, ())
 
         submitted = self.client.post(
             f"/workspaces/{workspace_id}/mapping/save",
@@ -6621,7 +6610,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
                         "expected_working_draft_version",
                         str(current_working.version),
                     ],
-                    ["warning_acknowledgement", warning_fingerprint],
                 ]
             },
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
@@ -6636,12 +6624,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("Prepare all source rows", submitted_page.text)
 
-    def test_required_field_decisions_keep_other_checked_items_available(
+    def test_verified_required_defaults_are_confirmed_in_one_action(
         self,
     ) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=2,
             required_scalar_indexes=(0, 1),
+            verified_default_scalar_indexes=(0, 1),
         )
         source_identity, _source_value = dataset.columns
         context = self.app.state.context
@@ -6667,41 +6656,24 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
-        first_decision = self.client.post(
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertIn("Review 2 Odoo defaults", page.text)
+        self.assertIn("Odoo default 0000", page.text)
+        self.assertIn("Odoo default 0001", page.text)
+        self.assertEqual(page.text.count('value="confirm_defaults"'), 1)
+
+        decision = self.client.post(
             f"/workspaces/{workspace_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
-                "action": "set_disposition:0:field_0000:odoo_default",
+                "action": "confirm_defaults",
                 "expected_working_draft_version": "1",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
         )
 
-        self.assertEqual(first_decision.status_code, 303)
-        first_page = self.client.get(first_decision.headers["location"])
-        self.assertIn("Keep working from the last check", first_page.text)
-        self.assertIn("Field 0000 needs attention", first_page.text)
-        self.assertIn("Decision saved.", first_page.text)
-        self.assertIn("Check matches to verify it.", first_page.text)
-        self.assertIn("Field 0001 needs attention", first_page.text)
-        self.assertIn(
-            'value="set_disposition:0:field_0001:odoo_default"',
-            first_page.text,
-        )
-
-        second_decision = self.client.post(
-            f"/workspaces/{workspace_id}/mapping/save",
-            data={
-                "csrf_token": self.csrf,
-                "action": "set_disposition:0:field_0001:odoo_default",
-                "expected_working_draft_version": "2",
-            },
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-
-        self.assertEqual(second_decision.status_code, 303)
+        self.assertEqual(decision.status_code, 303)
         working = context.mapping_workspace.mappings.get_mapping_working_draft(
             workspace_id
         )
@@ -7749,6 +7721,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         readonly_scalar_indexes: tuple[int, ...] = (),
         readonly_relationship_indexes: tuple[int, ...] = (),
         required_scalar_indexes: tuple[int, ...] = (),
+        verified_default_scalar_indexes: tuple[int, ...] = (),
         required_relationship_indexes: tuple[int, ...] = (),
         relationship_field_type: str = "many2one",
         business_key_description: str = "Unique reference",
@@ -7981,6 +7954,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
                         if selection_field and index == 0
                         else ()
                     ),
+                    create_default_present=(
+                        index in verified_default_scalar_indexes
+                    ),
+                    create_default_value=(
+                        "fr_FR"
+                        if selection_field and index == 0
+                        else f"Odoo default {index:04d}"
+                    )
+                    if index in verified_default_scalar_indexes
+                    else None,
                 )
                 for index in range(scalar_field_count)
             ),

@@ -512,8 +512,61 @@ def _application_card(
             issues,
             current,
         )
-    if application.status is RecipeApplicationStatus.BLOCKED or issues:
-        first = issues[0] if issues else None
+    actionable_issues = tuple(
+        item for item in issues if item.level.value != "INFORMATION"
+    )
+    default_reviews = tuple(
+        item
+        for item in actionable_issues
+        if item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+        and item.level.value == "REVIEW"
+    )
+    if default_reviews and len(default_reviews) == len(actionable_issues):
+        return RunApplicationCard(
+            application,
+            recipe_name,
+            "ACTION_NEEDED",
+            "Review Odoo defaults",
+            (
+                f"Odoo can provide {len(default_reviews)} required value"
+                f"{'s' if len(default_reviews) != 1 else ''} for this run."
+            ),
+            "review",
+            "Review Odoo defaults",
+            f"{base_url}/odoo-defaults",
+            "get",
+            None,
+            "",
+            issues,
+            current,
+        )
+    if actionable_issues and all(
+        item.code == "RECIPE_TARGET_NEW_REQUIRED_FIELD"
+        for item in actionable_issues
+    ):
+        return RunApplicationCard(
+            application,
+            recipe_name,
+            "ACTION_NEEDED",
+            "Check Odoo defaults",
+            (
+                "Odoo added required fields after this Recipe was published. "
+                "Check whether this target supplies safe create defaults."
+            ),
+            "blocked",
+            "Check Odoo defaults",
+            (
+                f"/projects/{application.project_id}/runs/"
+                f"{application.migration_run_id}/odoo"
+            ),
+            "get",
+            None,
+            "",
+            issues,
+            current,
+        )
+    if application.status is RecipeApplicationStatus.BLOCKED or actionable_issues:
+        first = actionable_issues[0] if actionable_issues else None
         return RunApplicationCard(
             application,
             recipe_name,

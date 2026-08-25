@@ -80,6 +80,9 @@ class MetadataSnapshot:
 
     fingerprint: TargetFingerprint
     models: Mapping[str, ModelMetadata]
+    create_defaults: Mapping[str, Mapping[str, object]] = field(
+        default_factory=dict
+    )
     complete: bool = True
     limitations: tuple[str, ...] = ()
     content_hash: str | None = None
@@ -131,6 +134,13 @@ def metadata_snapshot_payload(snapshot: MetadataSnapshot) -> dict[str, Any]:
         "fingerprint": snapshot.fingerprint.portable_dict(),
         "complete": snapshot.complete,
         "limitations": list(snapshot.limitations),
+        "create_defaults": {
+            model: {
+                field_name: portable_value(value)
+                for field_name, value in sorted(defaults.items())
+            }
+            for model, defaults in sorted(snapshot.create_defaults.items())
+        },
         "models": {
             name: {
                 "description": model.description,
@@ -398,9 +408,23 @@ class SnapshotConnector:
                 ),
             )
         complete = bool(self._metadata_data.get("complete", True))
+        stored_defaults = self._metadata_data.get("create_defaults", {})
+        projected_defaults = {}
+        for request in requests:
+            model = models.get(request.model)
+            if model is None or request.model not in stored_defaults:
+                continue
+            projected_defaults[request.model] = {
+                str(name): portable_value(value)
+                for name, value in dict(
+                    stored_defaults.get(request.model, {})
+                ).items()
+                if name in model.fields
+            }
         return MetadataSnapshot(
             fingerprint=self._fingerprint,
             models=models,
+            create_defaults=projected_defaults,
             complete=complete,
             limitations=tuple(self._metadata_data.get("limitations", ())),
             content_hash=None,
@@ -599,7 +623,13 @@ class Json2ReadConnector:
     """Odoo 19 JSON-2 adapter with a deliberately closed read surface."""
 
     _READ_METHODS = frozenset(
-        {"context_get", "fields_get", "has_access", "search_read"}
+        {
+            "context_get",
+            "default_get",
+            "fields_get",
+            "has_access",
+            "search_read",
+        }
     )
 
     def __init__(
@@ -935,6 +965,7 @@ class Json2ReadConnector:
                 limitations.append("Odoo unique-constraint access unavailable")
 
         models: dict[str, ModelMetadata] = {}
+        create_defaults: dict[str, Mapping[str, object]] = {}
         for request in ordered_requests:
             response = self._post_read_method(
                 request.model,
@@ -983,9 +1014,43 @@ class Json2ReadConnector:
                 fields=fields,
                 unique_constraints=constraints.get(request.model, ()),
             )
+            required_scalar_fields = tuple(
+                sorted(
+                    name
+                    for name, field_metadata in fields.items()
+                    if _captures_create_default(field_metadata)
+                )
+            )
+            if not required_scalar_fields:
+                create_defaults[request.model] = {}
+                continue
+            try:
+                defaults = self._post_read_method(
+                    request.model,
+                    "default_get",
+                    {
+                        "fields_list": list(required_scalar_fields),
+                        "context": dict(self._config.context),
+                    },
+                )
+                if not isinstance(defaults, dict) or not set(defaults).issubset(
+                    required_scalar_fields
+                ):
+                    raise ConnectorIncompleteResultError(
+                        f"default_get returned invalid data for {request.model}"
+                    )
+                create_defaults[request.model] = {
+                    str(name): portable_value(value)
+                    for name, value in defaults.items()
+                }
+            except ConnectorError:
+                limitations.append(
+                    f"Odoo create-default access unavailable for {request.model}"
+                )
         return MetadataSnapshot(
             fingerprint=fingerprint,
             models=models,
+            create_defaults=create_defaults,
             limitations=tuple(limitations),
         )
 
@@ -1491,6 +1556,32 @@ def _parse_field_metadata(name: str, data: Mapping[str, Any]) -> FieldMetadata:
             if data.get("currency_field")
             else None
         ),
+    )
+
+
+_CREATE_DEFAULT_SCALAR_TYPES = frozenset(
+    {
+        "boolean",
+        "char",
+        "date",
+        "datetime",
+        "float",
+        "html",
+        "integer",
+        "monetary",
+        "selection",
+        "text",
+    }
+)
+
+
+def _captures_create_default(field_metadata: FieldMetadata) -> bool:
+    """Keep runtime-default reads bounded to required writable scalar fields."""
+
+    return bool(
+        field_metadata.required
+        and not field_metadata.readonly
+        and field_metadata.type in _CREATE_DEFAULT_SCALAR_TYPES
     )
 
 

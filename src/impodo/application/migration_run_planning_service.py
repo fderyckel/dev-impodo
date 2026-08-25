@@ -16,6 +16,7 @@ from ..data_version_sources import (
 )
 from ..data_versions import DataVersionPurpose, DataVersionService, DataVersionState
 from ..domain.coverage import ReferenceBundle
+from ..domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from ..domain.serialization import content_hash
 from ..migration_cutover import (
     PROJECT_SHARED_CONTROL_IDS,
@@ -1313,6 +1314,253 @@ class MigrationRunPlanningService:
             workspace_id,
             actor=actor,
         )[0]
+
+    def confirm_application_odoo_defaults(
+        self,
+        application_id: str,
+        *,
+        actor: Actor,
+    ) -> RunRecipeApplication:
+        """Confirm the grouped target defaults already checked for one run."""
+
+        application = self.repository.get_application(application_id)
+        self.authorization.require(
+            actor,
+            Capability.RECIPE_APPLY,
+            project_id=application.project_id,
+        )
+        issues = self.repository.list_issues(application.application_id)
+        default_reviews = tuple(
+            item
+            for item in issues
+            if item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+            and item.level is MigrationRunPlanIssueLevel.REVIEW
+        )
+        other_actionable = tuple(
+            item
+            for item in issues
+            if item not in default_reviews
+            and item.level is not MigrationRunPlanIssueLevel.INFORMATION
+        )
+        if not default_reviews:
+            raise MigrationRunPlanningError(
+                "No reviewed Odoo defaults are waiting for confirmation"
+            )
+        if other_actionable:
+            raise MigrationRunPlanningError(other_actionable[0].message)
+        schema = self.compiler.schemas.get_odoo_schema_catalog(
+            application.workspace_id
+        )
+        revision = self.compiler.mappings.mappings.get_mapping_revision(
+            application.workspace_id
+        )
+        working = self.compiler.mappings.mappings.get_mapping_working_draft(
+            application.workspace_id
+        )
+        if schema is None or revision is None or working is None:
+            raise MigrationRunPlanningError(
+                "Recheck Odoo and rebuild this Recipe application before "
+                "confirming defaults"
+            )
+        fields_by_model = {
+            model.name: {field.name: field for field in model.fields}
+            for model in schema.models
+        }
+        mapped_default_fields = {
+            (dataset.target_model, field.target_field)
+            for dataset in revision.definition.datasets
+            for field in dataset.fields
+            if field.value_source is ScalarValueSource.ODOO_DEFAULT
+        }
+        mapped_default_fields.update(
+            (dataset.target_model, disposition.target_field)
+            for dataset in revision.definition.datasets
+            for disposition in dataset.target_field_dispositions
+            if disposition.handling is TargetFieldHandling.ODOO_DEFAULT
+        )
+        default_fields = tuple(
+            sorted(
+                (model_name, field_name)
+                for model_name, field_name in mapped_default_fields
+                if fields_by_model.get(model_name, {}).get(field_name) is not None
+                and fields_by_model[model_name][field_name].required
+                and fields_by_model[model_name][field_name].create_default_present
+            )
+        )
+        if not default_fields or len(default_fields) != len(default_reviews):
+            raise MigrationRunPlanningError(
+                "One or more Odoo defaults are no longer verified for this target"
+            )
+        self.compiler.mappings.submit_current(
+            application.workspace_id,
+            datasets=revision.definition.datasets,
+            expected_version=revision.version,
+            expected_working_draft_version=working.version,
+            actor=actor,
+        )
+        remaining = tuple(
+            item for item in issues if item not in default_reviews
+        )
+        evidence_hash = content_hash(
+            {
+                "application_id": application.application_id,
+                "confirmed_odoo_defaults": [list(item) for item in default_fields],
+                "mapping_content_hash": revision.definition.content_hash,
+                "previous_evidence_hash": application.evidence_hash,
+                "schema_hash": schema.content_hash,
+                "status": RecipeApplicationStatus.READY.value,
+            }
+        )
+        return self.repository.save_application_materialization(
+            application.application_id,
+            expected_evidence_hash=application.evidence_hash,
+            status=RecipeApplicationStatus.READY,
+            issues=remaining,
+            mapping_id=revision.mapping_id,
+            mapping_content_hash=revision.definition.content_hash,
+            evidence_hash=evidence_hash,
+            actor=actor,
+        )
+
+    def recover_blocked_test_run_defaults(
+        self,
+        migration_run_id: str,
+        *,
+        current_schema: OdooSchemaCatalog,
+        actor: Actor,
+    ) -> tuple[RunRecipeApplication, ...]:
+        """Reassess old required-field blockers with fresh scalar defaults."""
+
+        bundle = self.repository.get_bundle(migration_run_id)
+        if bundle.run.purpose is not MigrationRunPurpose.TEST:
+            raise MigrationRunPlanningError(
+                "Required-field recovery is available here only for Test runs"
+            )
+        self.authorization.require(
+            actor,
+            Capability.RECIPE_APPLY,
+            project_id=bundle.run.project_id,
+        )
+        package = self.source_packages.repository.get_source_package(
+            bundle.run.data_version_id
+        )
+        if package is None:
+            raise MigrationRunPlanningError("DataVersion source package is missing")
+        source_selection = self._package_selection(package)
+        run_references = self.repository.get_run_reference_bundle(
+            migration_run_id
+        )
+        current_models = {model.name: model for model in current_schema.models}
+        recovered: list[RunRecipeApplication] = []
+        for application in bundle.applications:
+            if application.status is not RecipeApplicationStatus.BLOCKED:
+                continue
+            existing_issues = self.repository.list_issues(
+                application.application_id
+            )
+            blockers = tuple(item for item in existing_issues if item.blocks)
+            if not blockers or any(
+                item.code != "RECIPE_TARGET_NEW_REQUIRED_FIELD"
+                for item in blockers
+            ):
+                continue
+            frozen_projection = self.repository.get_workspace_target_schema(
+                application.workspace_id
+            )
+            if frozen_projection is None:
+                continue
+            selected_models = tuple(
+                current_models[model.name]
+                for model in frozen_projection.models
+                if model.name in current_models
+            )
+            if len(selected_models) != len(frozen_projection.models):
+                continue
+            projection = replace(
+                current_schema,
+                workspace_id=application.workspace_id,
+                models=selected_models,
+                content_hash=content_hash(
+                    {
+                        "application_id": application.application_id,
+                        "current_schema_hash": current_schema.content_hash,
+                        "frozen_projection_hash": frozen_projection.content_hash,
+                        "kind": "RUN_CREATE_DEFAULT_PROJECTION",
+                    }
+                ),
+                pending_refresh=None,
+            )
+            envelope = self.recipes.read_revision(
+                application.recipe_id,
+                application.recipe_revision,
+                actor=actor,
+            )
+            definition = dict(envelope["recipe"])
+            assessment = self.compiler.assess(
+                recipe_id=application.recipe_id,
+                definition=definition,
+                source_selection=source_selection,
+                target_schema=projection,
+                reference_bundle=(
+                    run_references.for_workspace(application.workspace_id)
+                    if run_references is not None
+                    else None
+                ),
+                parameter_values={},
+                control_values={},
+            )
+            legacy_binding_hash = content_hash(
+                {
+                    "control_values": dict(
+                        sorted(assessment.control_values.items())
+                    ),
+                    "parameter_values": dict(
+                        sorted(assessment.parameter_values.items())
+                    ),
+                    "source_bindings": dict(
+                        sorted(assessment.source_bindings.items())
+                    ),
+                }
+            )
+            if (
+                assessment.blocked
+                or not assessment.target_default_fields
+                or application.physical_binding_hash
+                not in {assessment.physical_binding_hash, legacy_binding_hash}
+            ):
+                continue
+            save_projection = getattr(
+                self.compiler.schemas,
+                "save_run_default_projection",
+                None,
+            )
+            if save_projection is None:
+                raise MigrationRunPlanningError(
+                    "Run default projection storage is unavailable"
+                )
+            save_projection(application.workspace_id, projection, actor=actor)
+            materialized = self.compiler.materialize(
+                application.workspace_id,
+                application_id=application.application_id,
+                recipe_id=application.recipe_id,
+                data_version_id=application.data_version_id,
+                definition=definition,
+                assessment=assessment,
+                actor=actor,
+            )
+            recovered.append(
+                self.repository.save_application_materialization(
+                    application.application_id,
+                    expected_evidence_hash=application.evidence_hash,
+                    status=materialized.status,
+                    issues=materialized.issues,
+                    mapping_id=materialized.mapping_id,
+                    mapping_content_hash=materialized.mapping_content_hash,
+                    evidence_hash=materialized.evidence_hash,
+                    actor=actor,
+                )
+            )
+        return tuple(recovered)
 
     def target_evidence_from_workspace(
         self,

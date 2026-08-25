@@ -306,7 +306,12 @@
                               Odoo will choose this value
                             {% endif %}
                           </strong>
-                          <p>Impodo will leave this field out when it prepares records.</p>
+                          <p>
+                            Impodo will leave this field out when it prepares records.
+                            {% if disposition.handling.value == 'odoo_default' and row.metadata.create_default_present %}
+                              Current Odoo value: <strong>{{ row.metadata.create_default_value }}</strong>.
+                            {% endif %}
+                          </p>
                           <button
                             class="button secondary compact"
                             type="submit"
@@ -321,7 +326,7 @@
                         <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}One choice for every row{% else %}Same value for every row{% endif %}</option>
                         {% if row.metadata.type != 'selection' or value_source == 'source_with_fallback' %}<option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>{% endif %}
                         {% if row.metadata.type == 'selection' %}<option value="conditional_rules" {% if value_source == 'conditional_rules' %}selected{% endif %}>Decide using rules</option>{% endif %}
-                        {% if not view.odoo_pinned %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
+                        {% if not view.odoo_pinned and (row.metadata.create_default_present or value_source == 'odoo_default') %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
                       </select>
                       <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
                         <label>Use value from
@@ -1176,6 +1181,16 @@
                     <summary>Support details</summary>
                     <code>MAPPING_TARGET_FIELD_READONLY</code>
                   </details>
+                {% endif %}
+                {% if blocker.default_reviews %}
+                  <ul>
+                    {% for item in blocker.default_reviews %}
+                      <li>
+                        {{ item.dataset_label }} &middot; {{ item.field_label }}:
+                        <strong>{{ item.default_value_label }}</strong>
+                      </li>
+                    {% endfor %}
+                  </ul>
                 {% endif %}
                 {% if blocker.issue_view %}
                   {% set issue_view = blocker.issue_view %}

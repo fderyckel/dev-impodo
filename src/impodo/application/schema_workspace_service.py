@@ -26,7 +26,7 @@ from ..domain.schema.governance import (
     BusinessKeyDefinition,
     SchemaGovernance,
 )
-from ..models import OdooReadIdentity, target_identity_hash
+from ..models import FieldMetadata, OdooReadIdentity, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..workspace_state import (
     WorkspaceState,
@@ -770,26 +770,10 @@ class SchemaWorkspaceService:
                 name=name,
                 label=discovered_labels.get(name) or model.description or name,
                 fields=tuple(
-                    SchemaField(
-                        name=field_name,
-                        label=field.label or field_name,
-                        type=field.type,
-                        required=field.required,
-                        readonly=field.readonly,
-                        relation=field.relation,
-                        relation_field=field.relation_field,
-                        selection=field.selection,
-                        stored=field.stored,
-                        computed=field.computed,
-                        has_inverse=field.has_inverse,
-                        related=field.related,
-                        translated=field.translated,
-                        company_dependent=field.company_dependent,
-                        searchable=field.searchable,
-                        sortable=field.sortable,
-                        exportable=field.exportable,
-                        digits=field.digits,
-                        currency_field=field.currency_field,
+                    _schema_field_from_metadata(
+                        field_name,
+                        field,
+                        snapshot.create_defaults.get(name),
                     )
                     for field_name, field in sorted(model.fields.items())
                 ),
@@ -1007,6 +991,86 @@ class SchemaWorkspaceService:
         return governance
 
 
+def _schema_field_from_metadata(
+    field_name: str,
+    field: FieldMetadata,
+    model_defaults: Mapping[str, object] | None,
+) -> SchemaField:
+    """Bind only a usable required scalar default to captured field evidence."""
+
+    default_present, default_value = _usable_create_default(
+        field,
+        model_defaults,
+    )
+    return SchemaField(
+        name=field_name,
+        label=field.label or field_name,
+        type=field.type,
+        required=field.required,
+        readonly=field.readonly,
+        relation=field.relation,
+        relation_field=field.relation_field,
+        selection=field.selection,
+        stored=field.stored,
+        computed=field.computed,
+        has_inverse=field.has_inverse,
+        related=field.related,
+        translated=field.translated,
+        company_dependent=field.company_dependent,
+        searchable=field.searchable,
+        sortable=field.sortable,
+        exportable=field.exportable,
+        digits=field.digits,
+        currency_field=field.currency_field,
+        create_default_present=default_present,
+        create_default_value=default_value,
+    )
+
+
+def _usable_create_default(
+    field: FieldMetadata,
+    model_defaults: Mapping[str, object] | None,
+) -> tuple[bool, bool | int | float | str | None]:
+    """Accept only exact scalar values that can satisfy this required field."""
+
+    if (
+        not field.required
+        or field.readonly
+        or model_defaults is None
+        or field.name not in model_defaults
+    ):
+        return False, None
+    value = model_defaults[field.name]
+    if field.type == "boolean":
+        return (True, value) if isinstance(value, bool) else (False, None)
+    if field.type == "integer":
+        return (
+            (True, value)
+            if isinstance(value, int) and not isinstance(value, bool)
+            else (False, None)
+        )
+    if field.type in {"float", "monetary"}:
+        return (
+            (True, value)
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            else (False, None)
+        )
+    if field.type == "selection":
+        codes = {str(item[0]) for item in field.selection}
+        return (
+            (True, value)
+            if isinstance(value, str) and value in codes
+            else (False, None)
+        )
+    if field.type in {"char", "date", "datetime", "html", "text"}:
+        return (
+            (True, value)
+            if isinstance(value, str) and bool(value.strip())
+            else (False, None)
+        )
+    return False, None
+
+
 def _schema_semantic_hash(catalog: OdooSchemaCatalog) -> str:
     """Hash schema meaning while excluding observation and display metadata."""
 
@@ -1072,6 +1136,8 @@ def _schema_field_semantics(field: SchemaField) -> dict[str, object]:
         "exportable": field.exportable,
         "digits": field.digits,
         "currency_field": field.currency_field,
+        "create_default_present": field.create_default_present,
+        "create_default_value": field.create_default_value,
     }
 
 
@@ -1207,6 +1273,8 @@ _FIELD_SEMANTIC_LABELS = (
     ("exportable", "export behavior"),
     ("digits", "number precision"),
     ("currency_field", "currency field"),
+    ("create_default_present", "Odoo create default"),
+    ("create_default_value", "Odoo create default value"),
 )
 
 
