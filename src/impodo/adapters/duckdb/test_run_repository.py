@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from datetime import datetime
 
-from ...access import Actor
+from ...access import Actor, ActorIdentity
 from ...domain.serialization import canonical_json
 from ...migration_foundation import (
     MigrationConflictError,
@@ -13,9 +14,14 @@ from ...migration_foundation import (
     MigrationOperationKind,
     MigrationOperationState,
     require_hash,
+    require_revision,
     require_uuid,
 )
-from ...migration_test import TestRunSetupBinding
+from ...migration_test import (
+    RecipeRunParameterValue,
+    TestRunParameterValues,
+    TestRunSetupBinding,
+)
 from .migration_foundation_repository import MigrationFoundationRepository
 
 
@@ -149,6 +155,136 @@ class TestRunRepository:
             )
         return tuple(self._from_row(row) for row in rows)
 
+    def get_parameter_values(
+        self,
+        migration_run_id: str,
+    ) -> TestRunParameterValues | None:
+        """Read the current run-owned Recipe answers in one bounded query."""
+
+        migration_run_id = require_uuid(migration_run_id, "migration_run_id")
+        with self.database.connect(self.registry_path) as connection:
+            rows = self.foundation._rows(
+                connection,
+                "SELECT * FROM test_run_parameter_values "
+                "WHERE migration_run_id = ?",
+                [migration_run_id],
+            )
+        return self._parameter_values_from_row(rows[0]) if rows else None
+
+    def replace_parameter_values(
+        self,
+        values: TestRunParameterValues,
+        *,
+        expected_revision: int | None,
+        actor: Actor,
+    ) -> TestRunParameterValues:
+        """Replace run-owned answers before the Test setup is activated."""
+
+        with self.database.connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                binding = connection.execute(
+                    "SELECT test_run_setup_id, project_id, state "
+                    "FROM test_run_setup_binding WHERE migration_run_id = ?",
+                    [values.migration_run_id],
+                ).fetchone()
+                if binding != (
+                    values.test_run_setup_id,
+                    values.project_id,
+                    "SETUP",
+                ):
+                    raise MigrationConflictError(
+                        "Run values require the current editable Test setup"
+                    )
+                current = connection.execute(
+                    "SELECT revision FROM test_run_parameter_values "
+                    "WHERE migration_run_id = ?",
+                    [values.migration_run_id],
+                ).fetchone()
+                stored_values = canonical_json(
+                    [item.to_dict() for item in values.values]
+                )
+                if current is None:
+                    if expected_revision is not None or values.revision != 1:
+                        raise MigrationConflictError(
+                            "Run values changed; reload and retry"
+                        )
+                    connection.execute(
+                        "INSERT INTO test_run_parameter_values VALUES "
+                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [
+                            values.test_run_setup_id,
+                            values.project_id,
+                            values.migration_run_id,
+                            values.revision,
+                            stored_values,
+                            values.content_hash,
+                            values.updated_by.issuer,
+                            values.updated_by.subject_id,
+                            values.updated_by.display_name,
+                            values.updated_at.isoformat(),
+                            values.contract_version,
+                        ],
+                    )
+                else:
+                    expected = require_revision(
+                        expected_revision,
+                        "expected_run_parameter_values_revision",
+                    )
+                    if current != (expected,) or values.revision != expected + 1:
+                        raise MigrationConflictError(
+                            "Run values changed; reload and retry"
+                        )
+                    updated = connection.execute(
+                        """
+                        UPDATE test_run_parameter_values
+                           SET revision = ?, values_json = ?, content_hash = ?,
+                               updated_by_issuer = ?, updated_by_subject = ?,
+                               updated_by_display_name = ?, updated_at = ?,
+                               contract_version = ?
+                         WHERE migration_run_id = ? AND revision = ?
+                         RETURNING migration_run_id
+                        """,
+                        [
+                            values.revision,
+                            stored_values,
+                            values.content_hash,
+                            values.updated_by.issuer,
+                            values.updated_by.subject_id,
+                            values.updated_by.display_name,
+                            values.updated_at.isoformat(),
+                            values.contract_version,
+                            values.migration_run_id,
+                            expected,
+                        ],
+                    ).fetchone()
+                    if updated is None:
+                        raise MigrationConflictError(
+                            "Run values changed; reload and retry"
+                        )
+                self.foundation._insert_event(
+                    connection,
+                    project_id=values.project_id,
+                    aggregate_kind="TEST_RUN_PARAMETER_VALUES",
+                    aggregate_id=values.migration_run_id,
+                    aggregate_revision=values.revision,
+                    event_type="TEST_RUN_PARAMETER_VALUES_REPLACED",
+                    detail={
+                        "content_hash": values.content_hash,
+                        "parameter_count": len(values.values),
+                    },
+                    actor=actor,
+                    occurred_at=values.updated_at,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        saved = self.get_parameter_values(values.migration_run_id)
+        if saved is None:
+            raise MigrationConflictError("Run values were not saved")
+        return saved
+
     @staticmethod
     def _validate_setup(connection, binding: TestRunSetupBinding) -> None:
         run = connection.execute(
@@ -228,3 +364,32 @@ class TestRunRepository:
     @staticmethod
     def _from_dict(value: Mapping[str, object]) -> TestRunSetupBinding:
         return TestRunSetupBinding.from_dict(dict(value))
+
+    @staticmethod
+    def _parameter_values_from_row(
+        value: Mapping[str, object],
+    ) -> TestRunParameterValues:
+        result = TestRunParameterValues(
+            test_run_setup_id=str(value["test_run_setup_id"]),
+            project_id=str(value["project_id"]),
+            migration_run_id=str(value["migration_run_id"]),
+            revision=int(value["revision"]),
+            values=tuple(
+                RecipeRunParameterValue(
+                    recipe_id=str(item["recipe_id"]),
+                    logical_parameter_id=str(item["logical_parameter_id"]),
+                    value=item["value"],
+                )
+                for item in json.loads(str(value["values_json"]))
+            ),
+            updated_by=ActorIdentity(
+                issuer=str(value["updated_by_issuer"]),
+                subject_id=str(value["updated_by_subject"]),
+                display_name=str(value["updated_by_display_name"]),
+            ),
+            updated_at=datetime.fromisoformat(str(value["updated_at"])),
+            contract_version=int(value["contract_version"]),
+        )
+        if str(value["content_hash"]) != result.content_hash:
+            raise ValueError("Stored Test run value hash is inconsistent")
+        return result

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
-from decimal import Decimal, InvalidOperation
 import re
 import unicodedata
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from uuid import uuid4
 
 from ..derived_entities import (
     DerivedEntityPlan,
@@ -40,11 +41,15 @@ from ..domain.recipe_applications import (
     RecipeApplicationIssue,
     RecipeApplicationIssueLevel,
 )
+from ..domain.recipe_parameters import (
+    RecipeParameterValueError,
+    normalize_recipe_parameter_values,
+)
 from ..domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
-    SchemaGovernance,
 )
+from ..domain.serialization import content_hash
 from ..domain.structural import (
     AggregateSpec,
     ExactJoinRule,
@@ -57,7 +62,17 @@ from ..domain.structural import (
     UnionAllRule,
     UnionBranch,
 )
-from ..domain.serialization import content_hash
+from ..quality import (
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRule,
+    QualityRuleFamily,
+    QualityRuleSource,
+)
+from ..recipe_source_binding import (
+    logical_dataset_storage_name,
+    normalize_recipe_source_name,
+)
 from ..reference_keys import (
     REFERENCE_POLICY_HASH,
     GovernedReferenceRequest,
@@ -65,13 +80,6 @@ from ..reference_keys import (
     ReferenceReadPurpose,
     authorize_governed_reference,
     captured_reference_field_contracts,
-)
-from ..quality import (
-    QualityOutcomePolicy,
-    QualityOwnerRole,
-    QualityRule,
-    QualityRuleFamily,
-    QualityRuleSource,
 )
 from ..value_rules import (
     ScalarTransformPolicy,
@@ -85,39 +93,10 @@ class RecipeApplicationCompiler:
 
     @staticmethod
     def _parameter_values(definitions, supplied):
-        expected = {str(item["logical_parameter_id"]): dict(item) for item in definitions}
-        unknown = sorted(set(supplied) - set(expected))
-        if unknown:
-            raise RecipeApplicationError(f"Parameter {unknown[0]} is not declared by this Recipe")
-        normalized: dict[str, object] = {}
-        for logical_id, definition in expected.items():
-            raw = str(supplied.get(logical_id, "")).strip()
-            if not raw:
-                if bool(definition.get("required")):
-                    raise RecipeApplicationError(f"Enter {definition.get('label', logical_id)}")
-                continue
-            value_type = str(definition.get("type", "string"))
-            if value_type == "date":
-                try:
-                    value = date.fromisoformat(raw)
-                except ValueError as error:
-                    raise RecipeApplicationError(f"{definition.get('label', logical_id)} must be a date") from error
-                if dict(definition.get("constraints", {})).get("not_after_application_date") and value > date.today():
-                    raise RecipeApplicationError(f"{definition.get('label', logical_id)} cannot be in the future")
-                normalized[logical_id] = value.isoformat()
-            elif value_type == "integer":
-                try:
-                    normalized[logical_id] = int(raw)
-                except ValueError as error:
-                    raise RecipeApplicationError(f"{definition.get('label', logical_id)} must be a whole number") from error
-            elif value_type == "decimal":
-                try:
-                    normalized[logical_id] = format(Decimal(raw), "f")
-                except InvalidOperation as error:
-                    raise RecipeApplicationError(f"{definition.get('label', logical_id)} must be a number") from error
-            else:
-                normalized[logical_id] = raw
-        return normalized
+        try:
+            return normalize_recipe_parameter_values(definitions, supplied)
+        except RecipeParameterValueError as error:
+            raise RecipeApplicationError(str(error)) from error
 
     @staticmethod
     def _control_values(definitions, supplied):
@@ -143,14 +122,17 @@ class RecipeApplicationCompiler:
         issues = []
         bindings: dict[str, str] = {}
         candidates: dict[str, tuple[tuple[str, str], ...]] = {}
-        by_name: dict[str, list] = {}
-        for dataset in selection.datasets:
-            by_name.setdefault(dataset.name, []).append(dataset)
         used_datasets = set()
         used_columns: dict[str, set[str]] = {}
         for required in dict(definition["source_shape"]).get("datasets", ()):
             logical_dataset = str(required["logical_dataset_id"])
-            matches = by_name.get(str(required["logical_name"]), [])
+            logical_name = str(required["logical_name"])
+            accepted_name = logical_dataset_storage_name(logical_dataset)
+            matches = [
+                dataset
+                for dataset in selection.datasets
+                if dataset.name in {logical_name, accepted_name}
+            ]
             if len(matches) != 1:
                 issues.append(self._block("RECIPE_SOURCE_DATASET_MISSING", f"Required source table {required['logical_name']} is missing or ambiguous.", "Confirm one table with the exact reusable name.", logical_dataset))
                 continue
@@ -159,11 +141,19 @@ class RecipeApplicationCompiler:
             used_datasets.add(dataset.dataset_id)
             by_column: dict[str, list] = {}
             for column in dataset.columns:
-                by_column.setdefault(column.source_name, []).append(column)
+                by_column.setdefault(
+                    normalize_recipe_source_name(column.source_name),
+                    [],
+                ).append(column)
             used_columns[dataset.dataset_id] = set()
             for required_column in required.get("columns", ()):
                 logical_column = str(required_column["logical_column_id"])
-                matches = by_column.get(str(required_column["source_name"]), [])
+                matches = by_column.get(
+                    normalize_recipe_source_name(
+                        str(required_column["source_name"])
+                    ),
+                    [],
+                )
                 selected = matches[0] if len(matches) == 1 else None
                 override = overrides.get(logical_column)
                 if override:
@@ -556,7 +546,7 @@ class RecipeApplicationCompiler:
             workspace_id=project_id,
             source_selection_hash=source.content_hash,
             rules=rules,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
         )
         self.preparation.save_derived_entity_plan(

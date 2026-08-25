@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from impodo.models import (
     ModelMetadata,
     OdooReadIdentity,
     TargetFingerprint,
+    TargetRecord,
     target_identity_hash,
 )
 from impodo.workspace_state import WorkspaceState, OdooConnectionMode
@@ -25,8 +27,19 @@ from impodo.web.target_credentials import (
     store_target_credential,
 )
 from impodo.web.target_readers import (
+    _capture_recipe_supporting_values,
     _read_readiness_snapshots,
     _read_supporting_lookup_snapshots,
+)
+from impodo.application.test_run_setup_service import (
+    OdooCheckRelationshipRequirement,
+    OdooCheckSupportingRequirement,
+)
+from impodo.workspace_contracts import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
 )
 from impodo.workspace_errors import WorkspaceError
 
@@ -115,6 +128,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
 
         return SimpleNamespace(
             secret_store=self.store,
+            target_credential_workspace=lambda _workspace_id: self.workspace_state,
             queries=SimpleNamespace(
                 get_odoo_schema_catalog=lambda _project_id: self.schema
             ),
@@ -364,6 +378,199 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         self.assertEqual(connector.record_requests[0].model, "res.country")
         self.assertEqual(connector.record_requests[0].limit, 2001)
         self.assertEqual(access.permission_hash, "sha256:" + "8" * 64)
+
+
+class RecipeSupportingValueBatchTests(unittest.TestCase):
+    def test_several_recipe_relationships_use_one_bounded_reader_call(self) -> None:
+        workspace = WorkspaceState(
+            workspace_id="recipe-setup",
+            name="Recipe setup",
+            source_system="CSV",
+            odoo_connection_mode=OdooConnectionMode.REMOTE,
+            odoo_base_url="https://test.example.test",
+            odoo_database="test",
+            intended_models=(
+                "res.country",
+                "res.currency",
+                "res.partner",
+            ),
+        )
+        target_hash = target_identity_hash(
+            connection_mode="REMOTE",
+            base_url=workspace.odoo_base_url,
+            database=workspace.odoo_database,
+        )
+
+        def field(name, field_type="char", *, relation=None, required=False):
+            return SchemaField(
+                name=name,
+                label=name.replace("_", " ").title(),
+                type=field_type,
+                required=required,
+                readonly=False,
+                relation=relation,
+                relation_field=None,
+                selection=(),
+            )
+
+        schema = OdooSchemaCatalog(
+            workspace_id=workspace.workspace_id,
+            policy_hash=HASH,
+            captured_at=datetime.now(timezone.utc),
+            captured_by="Data manager",
+            connection_mode="REMOTE",
+            database="test",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    "res.partner",
+                    "Contacts",
+                    (
+                        field(
+                            "country_id",
+                            "many2one",
+                            relation="res.country",
+                        ),
+                        field(
+                            "currency_id",
+                            "many2one",
+                            relation="res.currency",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    "res.country",
+                    "Countries",
+                    (field("code", required=True), field("name", required=True)),
+                ),
+                SchemaModel(
+                    "res.currency",
+                    "Currencies",
+                    (field("name", required=True),),
+                ),
+            ),
+            content_hash=HASH,
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="credential",
+            read_principal_hash="principal",
+            read_permission_hash="permission",
+            read_context_hash="context",
+            connection_target_hash=target_hash,
+        )
+        fingerprint = TargetFingerprint(
+            target_hash=target_hash,
+            connection_mode="REMOTE",
+            database="test",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-08-25T00:00:00Z",
+        )
+        calls = []
+
+        def reader(_workspace, metadata_requests, record_requests):
+            calls.append((tuple(metadata_requests), tuple(record_requests)))
+            return (
+                MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={
+                        "res.country": ModelMetadata(
+                            "res.country",
+                            "Countries",
+                            {
+                                "code": FieldMetadata(
+                                    "code", "char", required=True
+                                ),
+                                "name": FieldMetadata(
+                                    "name", "char", required=True
+                                ),
+                            },
+                        ),
+                        "res.currency": ModelMetadata(
+                            "res.currency",
+                            "Currencies",
+                            {
+                                "name": FieldMetadata(
+                                    "name", "char", required=True
+                                )
+                            },
+                        ),
+                    },
+                ),
+                RecordSnapshot(
+                    fingerprint=fingerprint,
+                    records={
+                        "res.country": (
+                            TargetRecord(
+                                "res.country",
+                                21,
+                                {"code": "FR", "name": "France"},
+                            ),
+                        ),
+                        "res.currency": (
+                            TargetRecord(
+                                "res.currency",
+                                1,
+                                {"name": "EUR"},
+                            ),
+                        ),
+                    },
+                    requested_fields={
+                        request.model: request.fields
+                        for request in record_requests
+                    },
+                ),
+            )
+
+        captures = []
+
+        def capture(_workspace_id, **values):
+            captures.append(values)
+            return SimpleNamespace(**values)
+
+        context = SimpleNamespace(
+            actor=SimpleNamespace(),
+            readiness_reader=reader,
+            supporting_lookups=SimpleNamespace(capture=capture),
+        )
+        requirements = tuple(
+            OdooCheckSupportingRequirement(
+                model_name=model_name,
+                key_fields=(key_field,),
+                scope_fields=(),
+                relationships=(
+                    OdooCheckRelationshipRequirement(
+                        parent_model="res.partner",
+                        relationship_field=relationship_field,
+                        relationship_type="many2one",
+                    ),
+                ),
+                recipe_names=("Customers",),
+            )
+            for model_name, key_field, relationship_field in (
+                ("res.country", "code", "country_id"),
+                ("res.currency", "name", "currency_id"),
+            )
+        )
+
+        stored = _capture_recipe_supporting_values(
+            context,
+            workspace,
+            schema,
+            requirements,
+        )
+
+        self.assertEqual(len(calls), 1)
+        metadata_requests, record_requests = calls[0]
+        self.assertEqual(
+            tuple(request.model for request in metadata_requests),
+            ("res.country", "res.currency"),
+        )
+        self.assertTrue(all(request.limit == 2_001 for request in record_requests))
+        self.assertEqual(len(stored), 2)
+        self.assertEqual(len(captures), 2)
+        self.assertEqual(
+            {item["relation_model"] for item in captures},
+            {"res.country", "res.currency"},
+        )
 
 
 if __name__ == "__main__":

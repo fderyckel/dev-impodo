@@ -7,12 +7,12 @@
       <h1>Fresh data</h1>
       <p>The selected Recipe versions already define the source tables and columns this Test run needs. Add the current files; you do not need to choose the Recipe relationships again.</p>
     </div>
-    <span class="status {% if accepted %}registered{% else %}draft{% endif %}">{% if accepted %}Complete{% else %}Current{% endif %}</span>
+    <span class="status {% if fresh_data_complete %}registered{% else %}draft{% endif %}">{% if fresh_data_complete %}Complete{% else %}Current{% endif %}</span>
   </div>
 
   <nav class="steps steps-3" aria-label="Recipe run steps">
-    <span class="setup-step {% if accepted %}complete{% else %}current{% endif %}" {% if not accepted %}aria-current="step"{% endif %}>1. Fresh data</span>
-    {% if accepted %}
+    <span class="setup-step {% if fresh_data_complete %}complete{% else %}current{% endif %}" {% if not fresh_data_complete %}aria-current="step"{% endif %}>1. Fresh data</span>
+    {% if fresh_data_complete %}
       <a class="setup-step current" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}/odoo">2. Check Odoo</a>
     {% else %}
       <span class="setup-step locked" aria-disabled="true">2. Check Odoo</span>
@@ -27,14 +27,174 @@
     {% if setup_state.source_files %}
       <div class="file-list">
         {% for file in setup_state.source_files %}
-          <div class="file-row"><div><strong>{{ file.display_name }}</strong><span>{{ file.size_bytes }} bytes</span></div><span>Added to this Test data version</span></div>
+          <div class="file-row">
+            <div><strong>{{ file.display_name }}</strong><span>{{ file.size_bytes }} bytes</span></div>
+            <div class="source-file-actions">
+              <span>Added to this Test data version</span>
+              {% if can_edit_files %}
+                {% set source_file_remove_action = '/projects/' ~ project.project_id ~ '/test-runs/' ~ run.migration_run_id ~ '/fresh-data/files/' ~ file.file_id ~ '/remove' %}
+                {% include "_source_file_remove_form.html" %}
+              {% endif %}
+            </div>
+          </div>
         {% endfor %}
       </div>
+      {% if can_edit_files %}{% include "_source_file_remove_dialog.html" %}{% endif %}
     {% else %}
       <p>No fresh files have been added yet.</p>
     {% endif %}
-    <div class="actions"><a class="button primary" href="{{ action_href }}">{{ action_label }}</a></div>
+    {% if can_edit_files %}
+      <form method="post" enctype="multipart/form-data" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/files">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ setup_state.revision }}">
+        <label>
+          Select fresh files
+          <input type="file" name="source_file" accept=".csv,.xlsx" multiple required>
+          <small>CSV and modern XLSX only. Maximum accepted size: 100 MB per file.</small>
+        </label>
+        <div class="actions">
+          <button class="button {% if setup_state.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add fresh files</button>
+        </div>
+      </form>
+      {% if setup_state.source_files %}
+        <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/register">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="revision" value="{{ setup_state.revision }}">
+          <div class="actions">
+            <button class="button primary" type="submit">
+              {% if inspection_complete %}Check files again{% else %}Check files and match tables{% endif %}
+            </button>
+          </div>
+        </form>
+      {% endif %}
+    {% elif fresh_data_complete %}
+      <div class="actions"><a class="button primary" href="{{ action_href }}">{{ action_label }}</a></div>
+    {% elif source_selection and not accepted %}
+      <form method="post" action="{{ action_href }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if run_value_plan.values %}{% include "_test_run_value_fields.html" %}{% endif %}
+        {% if run_value_plan.can_confirm %}<div class="actions"><button class="button primary" type="submit">{{ action_label }}</button></div>{% endif %}
+      </form>
+    {% endif %}
   </section>
+
+  {% if match_plan %}
+    <section class="form-card" aria-labelledby="recipe-matches-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Checked against the Recipe</p>
+          <h2 id="recipe-matches-title">Recipe table matches</h2>
+          <p>Impodo compared the detected tables with the source inputs saved in the selected Recipe versions. Confirm a choice only where more than one table could be right.</p>
+        </div>
+      </div>
+
+      <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/accept">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if run_value_plan.values %}{% include "_test_run_value_fields.html" %}{% endif %}
+        <div class="recipe-match-list">
+          {% for match in match_plan.inputs %}
+            <article class="recipe-match-card {% if match.status.value == 'MATCHED' %}matched{% elif match.status.value == 'AMBIGUOUS' %}choice{% else %}blocked{% endif %}">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Recipe source input</p>
+                  <h3>{{ match.label }}</h3>
+                  {% if match.recipe_names|length > 1 %}<p>Used by {{ match.recipe_names|join(', ') }}</p>{% endif %}
+                </div>
+                <span class="status {% if match.status.value == 'MATCHED' %}registered{% elif match.status.value == 'AMBIGUOUS' %}draft{% else %}blocked{% endif %}">
+                  {% if match.status.value == 'MATCHED' %}Matched{% elif match.status.value == 'AMBIGUOUS' %}Choose one{% else %}Needs attention{% endif %}
+                </span>
+              </div>
+
+              {% if match.status.value == 'MATCHED' and match.selected_candidate %}
+                <dl class="summary-list">
+                  <div><dt>Detected table</dt><dd>{{ match.selected_candidate.display_name }}</dd></div>
+                  <div><dt>Rows found</dt><dd>{{ match.selected_candidate.row_count }}</dd></div>
+                </dl>
+                <p>{{ match.explanation }}</p>
+              {% elif match.status.value == 'AMBIGUOUS' %}
+                <p>{{ match.explanation }}</p>
+                <label for="match-{{ loop.index0 }}">
+                  Choose the table for {{ match.label }}
+                  <select id="match-{{ loop.index0 }}" name="match_{{ loop.index0 }}" required>
+                    <option value="">Select a table</option>
+                    {% for candidate in match.candidates %}
+                      <option value="{{ candidate.candidate_id }}" {% if candidate.candidate_id == match.selected_candidate_id %}selected{% endif %}>{{ candidate.display_name }} &mdash; {{ candidate.row_count }} rows</option>
+                    {% endfor %}
+                  </select>
+                </label>
+              {% else %}
+                <div class="notice error"><p>{{ match.explanation }}</p></div>
+              {% endif %}
+
+              {% if match.columns %}
+                <details>
+                  <summary>{{ match.columns|length }} column{% if match.columns|length != 1 %}s{% endif %} expected by the Recipe</summary>
+                  <p>{{ match.columns|join(', ') }}</p>
+                </details>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+
+        {% if match_plan.unused_files %}
+          <div class="notice error">
+            <h3>Remove files not used by this Recipe</h3>
+            <p>The Recipe does not need the following file{% if match_plan.unused_files|length != 1 %}s{% endif %}: {{ match_plan.unused_files|join(', ') }}. Remove them above, then check the files again.</p>
+          </div>
+        {% endif %}
+
+        {% if match_plan.warnings %}
+          <div class="notice warning">
+            <h3>Review file warnings</h3>
+            <ul>
+              {% for warning in match_plan.warnings %}<li>{{ warning }}</li>{% endfor %}
+            </ul>
+            <label class="checkbox-row">
+              <input type="checkbox" name="warnings_acknowledged" value="1" required>
+              I reviewed these warnings and want to use the matched tables.
+            </label>
+          </div>
+        {% endif %}
+
+        {% if match_plan.can_submit and run_value_plan.can_confirm %}
+          <div class="actions"><button class="button primary" type="submit">Use this fresh data</button></div>
+        {% else %}
+          <p class="muted">Resolve the item marked "Needs attention" or the Recipe disagreement above, then check the files again.</p>
+        {% endif %}
+      </form>
+    </section>
+  {% elif setup_state.status.value == 'REGISTERED' and not inspection_complete and not source_selection %}
+    <section class="notice" aria-labelledby="files-changed-title">
+      <h2 id="files-changed-title">Check the current files</h2>
+      <p>The files changed after the last check. Select <strong>Check files and match tables</strong> above to refresh the Recipe matches.</p>
+    </section>
+  {% endif %}
+
+  {% if accepted and run_value_plan.values %}
+    <section class="form-card" aria-labelledby="run-details-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Known for this Test run</p>
+          <h2 id="run-details-title">Details for this run</h2>
+          <p>These answers belong to this fresh delivery. The Recipe definitions remain unchanged.</p>
+        </div>
+      </div>
+      {% if run_value_plan.ready_to_continue %}
+        <dl class="summary-list">
+          {% for item in run_value_plan.values %}
+            <div><dt>{{ item.label }}</dt><dd>{{ item.supplied_value }}</dd></div>
+          {% endfor %}
+        </dl>
+        {% if run_value_plan.editable_values %}<p class="muted">These details were accepted with this fresh data. Start a new Test run if they need to change.</p>{% endif %}
+      {% else %}
+        <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/accept">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          {% include "_test_run_value_fields.html" %}
+          {% if run_value_plan.can_confirm %}<div class="actions"><button class="button primary" type="submit">Save run details</button></div>{% endif %}
+        </form>
+      {% endif %}
+    </section>
+  {% endif %}
 
   <section class="overview-stage-list" aria-labelledby="recipe-inputs-title">
     <div class="section-heading"><div><p class="eyebrow">Known from the Recipe</p><h2 id="recipe-inputs-title">Required source inputs</h2><p>These requirements come from the exact saved versions selected for this run. They are read-only here.</p></div></div>
@@ -64,5 +224,4 @@
     {% endfor %}
   </section>
 
-  <div class="actions"><a class="button secondary" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/activate">Review Test setup</a></div>
 {% endblock %}

@@ -14,10 +14,9 @@ from .forward_upgrades import (
     ensure_current_schema,
 )
 
-
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 3
+MIGRATION_REGISTRY_VERSION = 4
 
 
 EXPECTED_REGISTRY_COLUMNS = {
@@ -328,6 +327,19 @@ EXPECTED_REGISTRY_COLUMNS = {
         "activated_at",
         "contract_version",
     ),
+    "test_run_parameter_values": (
+        "test_run_setup_id",
+        "project_id",
+        "migration_run_id",
+        "revision",
+        "values_json",
+        "content_hash",
+        "updated_by_issuer",
+        "updated_by_subject",
+        "updated_by_display_name",
+        "updated_at",
+        "contract_version",
+    ),
     "production_run_binding": (
         "production_run_binding_id",
         "project_id",
@@ -474,6 +486,36 @@ def _upgrade_migration_registry_v2_to_v3(
     _create_test_run_setup_binding(connection)
 
 
+def _create_test_run_parameter_values(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE test_run_parameter_values (
+            test_run_setup_id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL REFERENCES
+                migration_project_identity(project_id),
+            migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
+                migration_run_identity(migration_run_id),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            values_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL,
+            updated_by_issuer VARCHAR NOT NULL,
+            updated_by_subject VARCHAR NOT NULL,
+            updated_by_display_name VARCHAR NOT NULL,
+            updated_at VARCHAR NOT NULL,
+            contract_version INTEGER NOT NULL CHECK (contract_version = 1)
+        )
+        """
+    )
+
+
+def _upgrade_migration_registry_v3_to_v4(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    _create_test_run_parameter_values(connection)
+
+
 MIGRATION_REGISTRY_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="migration-registry-v1-to-v2-migration-ledger",
@@ -482,6 +524,10 @@ MIGRATION_REGISTRY_UPGRADES = {
     2: ForwardSchemaUpgrade(
         migration_id="migration-registry-v2-to-v3-test-run-setup",
         apply=_upgrade_migration_registry_v2_to_v3,
+    ),
+    3: ForwardSchemaUpgrade(
+        migration_id="migration-registry-v3-to-v4-test-run-values",
+        apply=_upgrade_migration_registry_v3_to_v4,
     ),
 }
 
@@ -964,6 +1010,22 @@ def _initialize_migration_registry(
                 content_hash VARCHAR NOT NULL,
                 created_at VARCHAR NOT NULL,
                 activated_at VARCHAR,
+                contract_version INTEGER NOT NULL CHECK (contract_version = 1)
+            );
+
+            CREATE TABLE test_run_parameter_values (
+                test_run_setup_id VARCHAR PRIMARY KEY,
+                project_id VARCHAR NOT NULL REFERENCES
+                    migration_project_identity(project_id),
+                migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
+                    migration_run_identity(migration_run_id),
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                values_json VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                updated_by_issuer VARCHAR NOT NULL,
+                updated_by_subject VARCHAR NOT NULL,
+                updated_by_display_name VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL,
                 contract_version INTEGER NOT NULL CHECK (contract_version = 1)
             );
 

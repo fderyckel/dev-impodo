@@ -9,21 +9,23 @@ See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
 
 from __future__ import annotations
-from fastapi import HTTPException, Request
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
+
 from ...connectors import ConnectorError
-from ...local_stack import LocalStackError
+from ...migration_foundation import MigrationFoundationError
+from ...recipes import RecipeError
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ...workspace_state import WorkspaceState, WorkspaceStateError
+from ...local_stack import LocalStackError
 from ...secrets import SecretStoreError
 from ...workspace_contracts import OdooSchemaCatalog, SchemaOrigin
 from ...workspace_errors import WorkspaceError
-from ..security import require_session
-from fastapi import APIRouter
+from ...workspace_state import WorkspaceState, WorkspaceStateError
 from ..context import WebContext
 from ..forms import (
     _checked,
@@ -36,15 +38,17 @@ from ..presenters.common import _flash
 from ..presenters.mapping_forms import _business_key_id, _comma_values
 from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
-from ..target_readers import (
-    _missing_schema_reader_message,
-    _refresh_model_catalog,
-    _selected_local_profile,
-)
+from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential,
     local_read_credential_binding_hash,
+)
+from ..target_readers import (
+    _capture_recipe_supporting_values,
+    _missing_schema_reader_message,
+    _refresh_model_catalog,
+    _selected_local_profile,
 )
 
 
@@ -162,6 +166,10 @@ def build_schema_router(context: WebContext) -> APIRouter:
     async def workspace_schema(request: Request, workspace_id: str):
         require_session(request)
         workspace_state = context.queries.get(workspace_id)
+        test_setup = context.test_runs.setup_binding_for_workspace(
+            workspace_id,
+            actor=context.actor,
+        )
         if (
             workspace_state.odoo_connection_mode is None
             or not workspace_state.odoo_base_url
@@ -171,7 +179,151 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace_state.workspace_id}/target",
                 status_code=303,
             )
+        if test_setup is not None:
+            return RedirectResponse(
+                f"/projects/{test_setup.project_id}/runs/"
+                f"{test_setup.migration_run_id}/odoo",
+                status_code=303,
+            )
         return _render_schema(request, context, workspace_id)
+
+    @router.post(
+        "/projects/{project_id}/test-runs/{migration_run_id}/odoo/check"
+    )
+    async def check_test_run_odoo(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+    ):
+        """Check one Recipe-derived target scope and activate its Test run."""
+
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "expected_workspace_revision", "operation_id"},
+        )
+        workspace_id = ""
+        try:
+            binding = context.test_runs.get(
+                migration_run_id,
+                actor=context.actor,
+            )
+            if binding.project_id != project_id:
+                raise MigrationFoundationError(
+                    "Test run does not belong to this Project"
+                )
+            if binding.state.value == "ACTIVE":
+                return RedirectResponse(
+                    f"/projects/{project_id}/runs/{migration_run_id}",
+                    status_code=303,
+                )
+            data_version = context.data_versions.get(
+                binding.data_version_id,
+                actor=context.actor,
+            )
+            if data_version.state.value != "FROZEN":
+                raise MigrationFoundationError(
+                    "Accept the fresh data before checking this Odoo target"
+                )
+            workspace_id = binding.setup_workspace_id
+            workspace_state = context.queries.get(workspace_id)
+            plan = context.test_runs.odoo_check_requirements_for_workspace(
+                workspace_id,
+                actor=context.actor,
+            )
+            if plan is None or not plan.models:
+                raise RecipeError(
+                    "The selected Recipes do not contain an Odoo requirement"
+                )
+            if workspace_state.intended_models != plan.model_names:
+                workspace_state = context.workspace_states.update_schema_scope(
+                    workspace_id,
+                    actor=context.actor,
+                    expected_revision=workspace_state.revision,
+                    permitted_models=plan.model_names,
+                )
+            current = context.queries.get_odoo_schema_catalog(workspace_id)
+            if current is not None and current.pending_refresh is not None:
+                raise WorkspaceError(
+                    "Review the detected Odoo changes before continuing"
+                )
+            schema = (
+                await _check_selected_schema(context, workspace_state)
+                if current is not None and current.origin is SchemaOrigin.LIVE_API
+                else await _capture_selected_schema(context, workspace_state)
+            )
+            if schema.pending_refresh is not None:
+                _flash(
+                    request,
+                    "Odoo changed. Review the changes before Impodo creates the Recipe work areas.",
+                )
+                return RedirectResponse(
+                    f"/projects/{project_id}/runs/{migration_run_id}/odoo#odoo-schema-changes",
+                    status_code=303,
+                )
+            await run_in_threadpool(
+                _capture_recipe_supporting_values,
+                context,
+                workspace_state,
+                schema,
+                plan.supporting_values,
+            )
+            target_schema, target_references = (
+                context.run_planning.target_evidence_from_workspace(
+                    project_id,
+                    workspace_id,
+                    actor=context.actor,
+                )
+            )
+            read_credential = get_target_credential(
+                context.secret_store,
+                workspace_state,
+                TargetCredentialRole.READ,
+            )
+            if read_credential is None:
+                raise SecretStoreError(
+                    "Enter and verify the read-only Odoo key for this Test run first"
+                )
+            result = context.test_runs.activate(
+                project_id,
+                migration_run_id,
+                expected_workspace_revision=int(
+                    _text(form, "expected_workspace_revision")
+                ),
+                target_schema=target_schema,
+                target_reference_bundle=target_references,
+                credential_generation=read_credential.binding_hash,
+                operation_id=_text(form, "operation_id"),
+                actor=context.actor,
+            )
+        except (
+            ConnectorError,
+            MigrationFoundationError,
+            RecipeError,
+            SecretStoreError,
+            WorkspaceStateError,
+            WorkspaceError,
+            TypeError,
+            ValueError,
+        ) as error:
+            if not workspace_id:
+                raise
+            return _render_schema(
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Odoo is ready. Impodo created {len(result.applications)} Recipe work areas.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/runs/{migration_run_id}",
+            status_code=303,
+        )
 
     @router.post("/workspaces/{workspace_id}/schema/local-config")
     async def select_schema_local_config(request: Request, workspace_id: str):
@@ -250,6 +402,20 @@ def build_schema_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
         workspace_state = context.queries.get(workspace_id)
+        test_setup = context.test_runs.setup_binding_for_workspace(
+            workspace_id,
+            actor=context.actor,
+        )
+        if test_setup is not None:
+            _flash(
+                request,
+                "The selected Recipes already define the Odoo information for this Test run.",
+            )
+            return RedirectResponse(
+                f"/projects/{test_setup.project_id}/runs/"
+                f"{test_setup.migration_run_id}/odoo",
+                status_code=303,
+            )
         existing_schema = context.queries.get_odoo_schema_catalog(workspace_id)
         try:
             permitted_models = _submitted_model_scope(form)
@@ -312,6 +478,16 @@ def build_schema_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         workspace_state = context.queries.get(workspace_id)
+        test_setup = context.test_runs.setup_binding_for_workspace(
+            workspace_id,
+            actor=context.actor,
+        )
+        if test_setup is not None:
+            return RedirectResponse(
+                f"/projects/{test_setup.project_id}/runs/"
+                f"{test_setup.migration_run_id}/odoo",
+                status_code=303,
+            )
         current = context.queries.get_odoo_schema_catalog(workspace_id)
         try:
             schema = (

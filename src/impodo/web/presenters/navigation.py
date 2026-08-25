@@ -14,8 +14,8 @@ from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
 from ...load_jobs import LoadJob
 from ...preparation_jobs import PreparationJob
-from ...workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
 from ...workspace_errors import WorkspaceError
+from ...workspace_state import SourceMode, WorkspaceState, WorkspaceStatus
 from ...workspace_views import WorkspaceOwnerView
 from ..context import WebContext
 from ..workspace_journeys import (
@@ -1053,15 +1053,21 @@ def _recipe_run_setup_navigation(
     workspace_id = workspace_view.workspace_id
     purpose = workspace_view.migration_run.purpose.value
     run_kind = "test-runs" if purpose == "TEST" else "production-runs"
-    run_home = (
-        f"/projects/{workspace_view.project_id}/{run_kind}/"
-        f"{workspace_view.migration_run_id}/activate"
-    )
     fresh_home = (
         f"/projects/{workspace_view.project_id}/test-runs/"
         f"{workspace_view.migration_run_id}/fresh-data"
         if purpose == "TEST"
         else None
+    )
+    run_home = fresh_home or (
+        f"/projects/{workspace_view.project_id}/{run_kind}/"
+        f"{workspace_view.migration_run_id}/activate"
+    )
+    odoo_home = (
+        f"/projects/{workspace_view.project_id}/runs/"
+        f"{workspace_view.migration_run_id}/odoo"
+        if purpose == "TEST"
+        else f"/workspaces/{workspace_id}/schema"
     )
     fresh_complete = workspace_view.data_version.state.value == "FROZEN"
     source_stage = _find_stage(navigation.stages, "source")
@@ -1090,11 +1096,11 @@ def _recipe_run_setup_navigation(
     elif odoo_stage is None or odoo_stage.status == "locked":
         odoo_status = "current"
         odoo_label = "Current"
-        odoo_href = f"/workspaces/{workspace_id}/schema"
+        odoo_href = odoo_home
     else:
         odoo_status = odoo_stage.status
         odoo_label = odoo_stage.status_label
-        odoo_href = f"/workspaces/{workspace_id}/schema"
+        odoo_href = odoo_home
     odoo = WorkflowStage(
         stage_id="odoo",
         number=2,

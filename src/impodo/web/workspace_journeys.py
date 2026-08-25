@@ -103,9 +103,13 @@ def recipe_run_home(
         )
     if journey is not WorkspaceJourney.RECIPE_RUN_SETUP:
         raise ValueError("An Authoring workspace has no Recipe-run home")
-    run_kind = "test-runs" if purpose is MigrationRunPurpose.TEST else "production-runs"
+    if purpose is MigrationRunPurpose.TEST:
+        return (
+            f"/projects/{access_context.project_id}/test-runs/"
+            f"{access_context.migration_run_id}/fresh-data"
+        )
     return (
-        f"/projects/{access_context.project_id}/{run_kind}/"
+        f"/projects/{access_context.project_id}/production-runs/"
         f"{access_context.migration_run_id}/activate"
     )
 

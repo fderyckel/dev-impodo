@@ -143,6 +143,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | --- | --- |
 | Project-native routes | [`migration_projects.py`](../../../src/impodo/web/routers/migration_projects.py) |
 | Workspace setup routes | [`workspace_setup.py`](../../../src/impodo/web/routers/workspace_setup.py) |
+| Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
 | Clean roots | [`MigrationProjectService`](../../../src/impodo/migration_projects.py), [`DataVersionService`](../../../src/impodo/data_versions.py), [`MigrationRunService`](../../../src/impodo/migration_runs.py), [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) |
 | Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/workspace_access.py) and [`MigrationFoundationRepository.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/migration_foundation_repository.py) |

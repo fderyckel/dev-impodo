@@ -1,13 +1,13 @@
 <form
   class="source-file-remove-form"
   method="post"
-  action="/workspaces/{{ workspace_id }}/files/{{ file.file_id }}/remove"
+  action="{{ source_file_remove_action if source_file_remove_action is defined else '/workspaces/' ~ workspace_id ~ '/files/' ~ file.file_id ~ '/remove' }}"
   data-source-file-remove-form
   data-source-file-name="{{ file.display_name }}"
 >
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
-  <input type="hidden" name="return_to" value="{{ return_to }}">
+  {% if return_to is defined %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
   <button
     class="link-button source-file-remove-trigger"
     type="button"

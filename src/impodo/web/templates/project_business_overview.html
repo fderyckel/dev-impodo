@@ -51,7 +51,7 @@
               <h3>{{ run.label }}</h3>
               <p>{% if run.state.value == 'READY' %}Complete{% else %}Current{% endif %} &middot; {% if test_setup and test_setup.state.value == 'SETUP' %}Newer data and Odoo target setup{% else %}One shared Odoo target{% endif %}</p>
               {% if test_setup and test_setup.state.value == 'SETUP' %}
-                <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/activate">Continue Test setup</a>
+                <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data">Continue Test setup</a>
               {% else %}
                 <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Test run</a>
               {% endif %}

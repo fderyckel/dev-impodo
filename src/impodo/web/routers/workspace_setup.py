@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.concurrency import run_in_threadpool
-from starlette.datastructures import UploadFile
 
-from ...intake import SourceIntakeError
 from ...workspace_state import (
     WorkspaceStateError,
     WorkspaceRegistrationError,
@@ -20,6 +17,7 @@ from ..forms import _revision, _secure_form
 from ..presenters.common import _render, _workspace_error
 from ..presenters.mapping_forms import _draft_or_redirect
 from ..security import require_session
+from ..source_file_commands import accept_source_uploads
 
 
 def build_workspace_setup_router(context: WebContext) -> APIRouter:
@@ -84,39 +82,9 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace.workspace_id}/target",
                 status_code=303,
             )
-        uploads = tuple(
-            item
-            for item in form.getlist("source_file")
-            if isinstance(item, UploadFile) and item.filename
-        )
-        if not uploads:
-            return _workspace_error(
-                request,
-                context,
-                workspace_id,
-                "workspace_files.html",
-                SourceIntakeError("Choose a CSV or XLSX file"),
-            )
-        added = 0
-        expected_revision = _revision(form)
         try:
-            for upload in uploads:
-                await run_in_threadpool(
-                    context.intake.accept,
-                    workspace_id,
-                    actor=context.actor,
-                    expected_revision=expected_revision,
-                    display_name=upload.filename,
-                    stream=upload.file,
-                )
-                added += 1
-                expected_revision += 1
+            await accept_source_uploads(context, workspace_id, form)
         except WorkspaceStateError as error:
-            if added:
-                error = SourceIntakeError(
-                    f"Added {added} file{'s' if added != 1 else ''}. "
-                    f"The next file could not be added: {error}"
-                )
             return _workspace_error(
                 request,
                 context,
@@ -124,9 +92,6 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 "workspace_files.html",
                 error,
             )
-        finally:
-            for upload in uploads:
-                await upload.close()
         return RedirectResponse(
             f"/workspaces/{workspace_id}/files",
             status_code=303,

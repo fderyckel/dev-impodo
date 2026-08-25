@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
-import re
+from uuid import uuid4
 
 from fastapi import Request
 from starlette.datastructures import FormData
@@ -16,7 +17,6 @@ from ...business_keys import (
 )
 from ...derived_entities import DerivedEntityRule
 from ...inspection import SourceFileCatalog
-from ...workspace_state import WorkspaceState
 from ...workspace_contracts import (
     OdooModelCatalog,
     OdooModelSummary,
@@ -26,6 +26,7 @@ from ...workspace_contracts import (
     SourceConfiguration,
 )
 from ...workspace_errors import WorkspaceError
+from ...workspace_state import WorkspaceState
 from ..constants import (
     _APPLICATION_MODULE_PREFIXES,
     _MANUAL_FIELD_NAME,
@@ -368,6 +369,41 @@ def _model_matches_application_scope(
     return False
 
 
+_RECIPE_RUN_MODEL_LABELS = {
+    "account.move": "Journal entries and invoices",
+    "account.move.line": "Journal entry lines",
+    "mrp.bom": "Bills of materials",
+    "mrp.bom.line": "Bill of materials lines",
+    "product.product": "Product variants",
+    "product.template": "Products",
+    "purchase.order": "Purchase orders",
+    "purchase.order.line": "Purchase order lines",
+    "res.company": "Companies",
+    "res.partner": "Contacts",
+    "sale.order": "Sales orders",
+    "sale.order.line": "Sales order lines",
+    "stock.move": "Stock movements",
+    "stock.move.line": "Stock movement lines",
+    "stock.quant": "Stock levels",
+}
+
+
+def _recipe_run_model_label(model_name: str) -> str:
+    """Return a useful business fallback before Odoo supplies its label."""
+
+    return _RECIPE_RUN_MODEL_LABELS.get(
+        model_name,
+        model_name.rsplit(".", 1)[-1].replace("_", " ").title(),
+    )
+
+
+def _recipe_run_field_label(field_name: str) -> str:
+    """Return a readable fallback while retaining technical evidence below it."""
+
+    value = field_name.removesuffix("_id").removesuffix("_ids")
+    return value.replace("_", " ").title()
+
+
 def _render_schema(
     request: Request,
     context: WebContext,
@@ -388,6 +424,66 @@ def _render_schema(
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     model_choices = _schema_model_choices(workspace_state, model_catalog)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    odoo_check_plan = context.test_runs.odoo_check_requirements_for_workspace(
+        workspace_id,
+        actor=context.actor,
+    )
+    model_labels = {
+        item.name: item.label
+        for item in (model_catalog.models if model_catalog is not None else ())
+    }
+    field_labels = {
+        (model.name, field.name): field.label
+        for model in (schema.models if schema is not None else ())
+        for field in model.fields
+    }
+    odoo_check_models = tuple(
+        {
+            "model_name": item.model_name,
+            "label": model_labels.get(
+                item.model_name,
+                _recipe_run_model_label(item.model_name),
+            ),
+            "fields": tuple(
+                {
+                    "name": field_name,
+                    "label": field_labels.get(
+                        (item.model_name, field_name),
+                        _recipe_run_field_label(field_name),
+                    ),
+                }
+                for field_name in item.field_names
+            ),
+            "recipe_names": item.recipe_names,
+        }
+        for item in (odoo_check_plan.models if odoo_check_plan is not None else ())
+    )
+    odoo_check_supporting_values = tuple(
+        {
+            "model_name": item.model_name,
+            "label": model_labels.get(
+                item.model_name,
+                _recipe_run_model_label(item.model_name),
+            ),
+            "key_fields": tuple(
+                {
+                    "name": field_name,
+                    "label": field_labels.get(
+                        (item.model_name, field_name),
+                        _recipe_run_field_label(field_name),
+                    ),
+                }
+                for field_name in (*item.key_fields, *item.scope_fields)
+            ),
+            "relationship_count": len(item.relationships),
+            "recipe_names": item.recipe_names,
+        }
+        for item in (
+            odoo_check_plan.supporting_values
+            if odoo_check_plan is not None
+            else ()
+        )
+    )
     governance = context.queries.get_schema_governance(workspace_id)
     governed_by_model = (
         {item.model: item for item in governance.business_keys}
@@ -407,6 +503,10 @@ def _render_schema(
         selection=context.queries.get_source_selection(workspace_id),
         model_catalog=model_catalog,
         model_choices=model_choices,
+        odoo_check_models=odoo_check_models,
+        odoo_check_supporting_values=odoo_check_supporting_values,
+        odoo_check_plan=odoo_check_plan,
+        operation_id=str(uuid4()),
         focus_model_count=sum(
             1 for choice in model_choices if choice["in_focus"]
         ),

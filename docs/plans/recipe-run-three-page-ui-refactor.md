@@ -282,18 +282,39 @@ for standard date needs unless a Recipe explicitly requires another value.
 **Exit result:** fresh data is supplied once, and related source inputs are
 requested from Recipe knowledge rather than rediscovered by the user.
 
-**Implemented slice:** a Test run now opens a run-owned **Fresh data** page.
+**Implemented slices:** a Test run now opens a run-owned **Fresh data** page.
 The page shows the exact selected Recipe versions, their logical source tables
 and required columns, the delivery cutoff, and files already supplied. Recipe
-cards follow dependency order. All selected Recipe identities and revision
-rows use one bounded registry connection, while each protected envelope is
-still verified. The common export-as-of date is supplied automatically during
-activation when a Recipe declares it.
+cards follow dependency order. The data manager adds or removes fresh files on
+this page, then selects **Check files and match tables**. Impodo inspects the
+files through the existing governed source service and compares the detected
+headers with every logical Recipe input. A unique compatible table is matched
+automatically even when its file name changed. Two credible tables require one
+choice; a missing input, an unsafe formula or error table, a reused physical
+table, or a file outside the Recipe remains blocked with its recovery on the
+same page. **Use this fresh data** records the Recipe-owned dataset names and
+freezes the normal immutable source selection. It does not open the six-stage
+source review.
 
-**Still planned in Phase 2:** accept files directly on the run page, match
-physical tables to logical Recipe inputs using explainable content evidence,
-store those explicit matches, collect other Recipe-owned run values, and ask
-the data manager only about missing or ambiguous inputs.
+All selected Recipe identities and revision rows use one bounded registry
+connection, while each protected envelope is still verified. Matching reads
+the current catalogues once and performs no Odoo calls or source-row queries.
+The common export-as-of date is supplied automatically during activation when
+a Recipe declares it.
+
+The page also collects every non-automatic run value declared by the selected
+Recipe versions. A stock date, warehouse, location, batch reference, or other
+generic Recipe value therefore appears without an object-specific screen. When
+several Recipes declare the same compatible value, the data manager answers it
+once and Impodo applies it to each Recipe. The common export-as-of date remains
+read-only because it comes from the delivery cutoff. Missing answers and
+conflicting definitions keep **Fresh data** current. Run answers are saved as
+revision-checked Test-run evidence and never change the reusable Recipe.
+
+**Phase 2 is implemented.** Fresh files, logical table matches, and
+Recipe-owned run values now complete on one run-owned page. Phase 3 can build
+the bounded **Check Odoo** operation on this accepted source and run-value
+evidence.
 
 ### Phase 3: build Check Odoo
 
@@ -303,6 +324,18 @@ internal setup and application workspaces after success.
 
 **Exit result:** the data manager chooses the target once; Impodo decides what
 must be refreshed and checked.
+
+**Implemented first slice:** the Test run now owns the canonical **Check
+Odoo** URL. It bulk-reads every exact selected Recipe revision once and shows
+the combined required Odoo record types, fields, and supporting-list names as
+read-only information. The general model picker is absent, a crafted scope
+change cannot replace the Recipe requirements, and copied setup schema links
+return to the run page. **Check this Odoo** reuses the existing governed schema
+capture and repairs older setup scopes from the pinned Recipe versions on that
+explicit action. Ordinary Authoring keeps its editable model picker and
+six-stage workflow. The remaining Phase 3 slice must refresh the supporting
+values in bounded groups, assess all Recipes in the same operation, and create
+the internal application workspaces automatically after success.
 
 ### Phase 4: build Review and load
 

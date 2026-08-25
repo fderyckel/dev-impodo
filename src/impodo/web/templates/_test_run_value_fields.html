@@ -1,0 +1,40 @@
+<input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">
+<fieldset>
+  <legend>Details for this run</legend>
+  <p>The selected Recipes ask for these values. If several Recipes use the same value, enter it once here.</p>
+  {% for item in run_value_plan.automatic_values %}
+    {% if item.conflict %}
+      <div class="notice error"><p>{{ item.conflict }}</p></div>
+    {% else %}
+      <dl class="summary-list">
+        <div>
+          <dt>{{ item.label }}</dt>
+          <dd>{{ item.supplied_value }} <span class="muted">&middot; Taken from this delivery</span></dd>
+        </div>
+      </dl>
+    {% endif %}
+  {% endfor %}
+  {% for item in run_value_plan.editable_values %}
+    {% if item.conflict %}
+      <div class="notice error"><p>{{ item.conflict }}</p></div>
+    {% else %}
+      <label for="parameter-{{ loop.index0 }}">
+        {{ item.label }}{% if item.required %} <span aria-hidden="true">*</span>{% endif %}
+        <input
+          id="parameter-{{ loop.index0 }}"
+          name="parameter_{{ loop.index0 }}"
+          type="{{ item.input_type }}"
+          value="{{ item.supplied_value or '' }}"
+          {% if item.input_step %}step="{{ item.input_step }}"{% endif %}
+          {% if item.max_length %}maxlength="{{ item.max_length }}"{% endif %}
+          {% if item.required %}required{% endif %}
+        >
+        {% if item.recipe_names|length > 1 %}
+          <small>Used by {{ item.recipe_names|join(', ') }}.</small>
+        {% else %}
+          <small>Requested by {{ item.recipe_names[0] }}.</small>
+        {% endif %}
+      </label>
+    {% endif %}
+  {% endfor %}
+</fieldset>

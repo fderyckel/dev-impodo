@@ -113,25 +113,32 @@ Project identity, workspace identity, run identity, or cutover authority.
 
 ## Integrated Test run trace
 
-1. The Project route resolves one accepted Test DataVersion, exact Recipe
-   revisions, explicit dependencies, and one reviewed Authoring target.
-2. `MigrationRunPlanningService.review_test_run` validates each revision once,
+1. The Project route creates one Test setup over exact Recipe revisions and
+   explicit dependencies, then accepts one fresh Test DataVersion.
+2. `TestRunSetupService.odoo_check_requirements_for_workspace` bulk-reads the
+   selected revisions and unions their Odoo models, fields, and supporting-list
+   names without contacting Odoo per Recipe.
+3. The run-owned **Check Odoo** route presents that scope as read-only and
+   delegates field capture to the existing shared schema service. A setup
+   workspace schema URL redirects to the run; Authoring keeps the editable
+   schema route.
+4. `MigrationRunPlanningService.review_test_run` validates each revision once,
    rejects cycles and overlapping writable fields, and creates a canonical
    union requirement plan.
-3. One run-owned schema projection and supporting-reference bundle are
+5. One run-owned schema projection and supporting-reference bundle are
    filtered to that union. `MigrationRunTargetSchema` and
    `MigrationRunReferenceBundle` use `migration_run_id`, retain their source
    workspace provenance, and never place a run UUID in a workspace field.
    There is no Odoo capture per Recipe.
-4. `MigrationRunPlanningRepository.provision_integrated_run` creates the run,
+6. `MigrationRunPlanningRepository.provision_integrated_run` creates the run,
    target binding, applications, and distinct workspaces in one restart-safe
    operation.
-5. `RecipeApplicationService` selects each application's DataVersion
+7. `RecipeApplicationService` selects each application's DataVersion
    datasets and builds fresh mapping evidence through the existing mapping
    service.
-6. The run page reads status and issues through bounded registry queries and
+8. The run page reads status and issues through bounded registry queries and
    does not open every workspace.
-7. `CutoverPlanRepository.ensure_for_run` reuses unchanged plan meaning or
+9. `CutoverPlanRepository.ensure_for_run` reuses unchanged plan meaning or
    appends a new unqualified revision and binds the run exactly.
 
 ## Integrated qualification trace

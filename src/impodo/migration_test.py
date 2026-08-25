@@ -6,9 +6,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from .access import ActorIdentity
 from .data_versions import DataVersion
 from .domain.serialization import content_hash
-from .migration_foundation import require_aware, require_uuid
+from .migration_foundation import (
+    require_aware,
+    require_revision,
+    require_uuid,
+    required_text,
+)
 from .migration_run_planning import RecipeDependency, RecipeRevisionSelection
 from .migration_runs import MigrationRun
 from .migration_workspaces import MigrationWorkspace
@@ -157,6 +163,108 @@ class TestRunSetupBinding:
         if claimed is not None and claimed != result.content_hash:
             raise ValueError("Stored Test run setup hash is inconsistent")
         return result
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeRunParameterValue:
+    """Hold one normalized answer for one exact Recipe application."""
+
+    recipe_id: str
+    logical_parameter_id: str
+    value: str | int
+
+    def __post_init__(self) -> None:
+        require_uuid(self.recipe_id, "recipe_id")
+        object.__setattr__(
+            self,
+            "logical_parameter_id",
+            required_text(
+                self.logical_parameter_id,
+                "logical_parameter_id",
+                maximum=120,
+            ),
+        )
+        if not self.logical_parameter_id.startswith("parameter:"):
+            raise ValueError("Run value must use a Recipe parameter identity")
+        if isinstance(self.value, bool) or not isinstance(self.value, (str, int)):
+            raise TypeError("Run value has an unsupported stored type")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "logical_parameter_id": self.logical_parameter_id,
+            "recipe_id": self.recipe_id,
+            "value": self.value,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TestRunParameterValues:
+    """Record the run-owned answers collected from selected Recipes."""
+
+    test_run_setup_id: str
+    project_id: str
+    migration_run_id: str
+    revision: int
+    values: tuple[RecipeRunParameterValue, ...]
+    updated_by: ActorIdentity
+    updated_at: datetime
+    contract_version: int = 1
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.test_run_setup_id, "test_run_setup_id"),
+            (self.project_id, "project_id"),
+            (self.migration_run_id, "migration_run_id"),
+        ):
+            require_uuid(value, name)
+        require_revision(self.revision, "run_parameter_values_revision")
+        if self.contract_version != 1:
+            raise ValueError("Test run value contract is unsupported")
+        ordered = tuple(
+            sorted(
+                self.values,
+                key=lambda item: (item.recipe_id, item.logical_parameter_id),
+            )
+        )
+        identities = tuple(
+            (item.recipe_id, item.logical_parameter_id) for item in ordered
+        )
+        if len(set(identities)) != len(identities):
+            raise ValueError("Store each Recipe run value only once")
+        object.__setattr__(self, "values", ordered)
+        require_aware(self.updated_at, "updated_at")
+
+    @property
+    def content_hash(self) -> str:
+        return content_hash(self.to_dict(include_hash=False))
+
+    @property
+    def by_recipe(self) -> dict[str, dict[str, object]]:
+        result: dict[str, dict[str, object]] = {}
+        for item in self.values:
+            result.setdefault(item.recipe_id, {})[
+                item.logical_parameter_id
+            ] = item.value
+        return result
+
+    def to_dict(self, *, include_hash: bool = True) -> dict[str, object]:
+        value: dict[str, object] = {
+            "contract_version": self.contract_version,
+            "migration_run_id": self.migration_run_id,
+            "project_id": self.project_id,
+            "revision": self.revision,
+            "test_run_setup_id": self.test_run_setup_id,
+            "updated_at": self.updated_at.isoformat(),
+            "updated_by": {
+                "display_name": self.updated_by.display_name,
+                "issuer": self.updated_by.issuer,
+                "subject_id": self.updated_by.subject_id,
+            },
+            "values": [item.to_dict() for item in self.values],
+        }
+        if include_hash:
+            value["content_hash"] = self.content_hash
+        return value
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,25 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import re
 import shutil
-from types import SimpleNamespace
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID, uuid4, uuid5
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from fastapi.testclient import TestClient
+
+from impodo.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
+from impodo.adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
 )
 from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
-from impodo.adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from impodo.adapters.duckdb.migration_run_planning_repository import (
     MigrationRunPlanningRepository,
 )
@@ -32,27 +34,33 @@ from impodo.adapters.duckdb.migration_workspace_state_repository import (
 )
 from impodo.adapters.duckdb.recipe_repository import RecipeRepository
 from impodo.adapters.duckdb.test_run_repository import TestRunRepository
-from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
 from impodo.adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
 )
+from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
+from impodo.application.mapping_workspace_service import MappingWorkspaceService
 from impodo.application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
 from impodo.application.migration_run_planning_service import (
     MigrationRunPlanningService,
 )
-from impodo.application.mapping_workspace_service import MappingWorkspaceService
 from impodo.application.recipe_application_service import (
-    RecipeApplicationService,
     RecipeApplicationAssessment,
+    RecipeApplicationService,
     RecipeMaterialization,
 )
+from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
 from impodo.application.recipe_publication_service import (
     RecipePublicationService,
 )
-from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
-from impodo.application.test_run_setup_service import TestRunSetupService
+from impodo.application.test_run_setup_service import (
+    FreshDataInputRequirement,
+    FreshDataMatchStatus,
+    FreshDataParameterRequirement,
+    FreshDataRecipeRequirement,
+    TestRunSetupService,
+)
 from impodo.data_version_sources import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
@@ -70,7 +78,6 @@ from impodo.data_versions import (
     DataVersionService,
     DataVersionState,
 )
-from impodo.domain.serialization import content_hash
 from impodo.domain.coverage import (
     ReferenceBundle,
     ReferenceDataSet,
@@ -79,9 +86,17 @@ from impodo.domain.coverage import (
 )
 from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.serialization import content_hash
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.inspection import (
+    CATALOG_CONTRACT_VERSION,
+    SourceColumnProfile,
+    SourceFileCatalog,
+    SourceTableCatalog,
+)
 from impodo.migration_foundation import (
     MigrationConflictError,
+    MigrationFoundationError,
     MigrationOperationState,
     utc_now,
 )
@@ -91,15 +106,15 @@ from impodo.migration_run_planning import (
     MigrationRunPlanIssueLevel,
     MigrationRunPlanningError,
     OdooModelRequirement,
-    ReferenceRequirement,
     RecipeApplicationStatus,
     RecipeDependency,
+    ReferenceRequirement,
 )
 from impodo.migration_runs import MigrationRunService
 from impodo.migration_workspaces import MigrationWorkspaceService
 from impodo.recipes import RecipeService
-from impodo.workspace_state import WorkspaceStateService
 from impodo.secrets import MemorySecretStore
+from impodo.web.app import create_local_app
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -109,10 +124,8 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.workspace_state import WorkspaceStateService
 from tests.workspace_access_helpers import workspace_access_service
-from impodo.web.app import create_local_app
-from fastapi.testclient import TestClient
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -166,7 +179,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             datasets=(
                 SourceDataset(
                     dataset_id="test-customers",
-                    name="Customers",
+                    name="customers",
                     source=FileSourceBinding(
                         file_id=str(uuid4()),
                         table_key="customers",
@@ -415,6 +428,246 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertIsNotNone(mapping_state.draft)
 
 
+class FreshDataRecipeMatchingTests(unittest.TestCase):
+    """Keep fresh matching automatic, explainable, and fail closed."""
+
+    @staticmethod
+    def _requirement(*inputs: FreshDataInputRequirement):
+        return (
+            FreshDataRecipeRequirement(
+                recipe_id="recipe-1",
+                recipe_revision=3,
+                display_name="Reusable Recipe",
+                business_purpose="Load the current business records",
+                inputs=tuple(inputs),
+                parameters=(),
+            ),
+        )
+
+    @staticmethod
+    def _catalog(
+        display_name: str,
+        *tables: tuple[str, tuple[str, ...]],
+        formulas: bool = False,
+    ) -> SourceFileCatalog:
+        file_id = f"file-{display_name}"
+        return SourceFileCatalog(
+            contract_version=CATALOG_CONTRACT_VERSION,
+            file_id=file_id,
+            display_name=display_name,
+            source_sha256="sha256:" + "a" * 64,
+            source_size_bytes=100,
+            format="CSV" if display_name.endswith(".csv") else "XLSX",
+            inspected_at=datetime.now(UTC),
+            encoding="utf-8" if display_name.endswith(".csv") else None,
+            delimiter="," if display_name.endswith(".csv") else None,
+            tables=tuple(
+                SourceTableCatalog(
+                    table_key=(
+                        "csv"
+                        if display_name.endswith(".csv")
+                        else f"sheet:{name}"
+                    ),
+                    name=name,
+                    kind="CSV" if display_name.endswith(".csv") else "WORKSHEET",
+                    hidden=False,
+                    header_row=1,
+                    row_count=8,
+                    column_count=len(columns),
+                    columns=tuple(
+                        SourceColumnProfile(
+                            ordinal=index,
+                            name=column,
+                            candidate_type="TEXT",
+                            null_count=0,
+                            non_null_count=8,
+                            distinct_count=8,
+                            distinct_count_is_exact=True,
+                            duplicate_count=0,
+                            minimum=None,
+                            maximum=None,
+                            minimum_length=None,
+                            maximum_length=None,
+                        )
+                        for index, column in enumerate(columns)
+                    ),
+                    preview_rows=(),
+                    formula_cell_count=1 if formulas else 0,
+                )
+                for name, columns in tables
+            ),
+        )
+
+    def test_unique_renamed_file_is_matched_from_required_columns(self):
+        requirements = self._requirement(
+            FreshDataInputRequirement(
+                logical_dataset_id="dataset:stock_levels",
+                label="Stock levels",
+                columns=("Product Code", "On Hand"),
+            )
+        )
+        catalog = self._catalog(
+            "warehouse-export-2026.csv",
+            ("warehouse-export-2026", ("product-code", "ON_HAND")),
+        )
+
+        plan = TestRunSetupService.fresh_data_match_plan(requirements, (catalog,))
+
+        self.assertTrue(plan.ready_to_accept)
+        self.assertEqual(plan.inputs[0].status, FreshDataMatchStatus.MATCHED)
+        self.assertEqual(plan.inputs[0].dataset_name, "stock_levels")
+        self.assertEqual(
+            plan.inputs[0].selected_candidate.file_name,
+            catalog.display_name,
+        )
+
+    def test_two_compatible_tables_ask_for_one_choice(self):
+        requirements = self._requirement(
+            FreshDataInputRequirement(
+                logical_dataset_id="dataset:products",
+                label="Products",
+                columns=("Product code",),
+            )
+        )
+        catalog = self._catalog(
+            "products.xlsx",
+            ("Current", ("Product code",)),
+            ("Archive", ("Product code",)),
+        )
+
+        plan = TestRunSetupService.fresh_data_match_plan(requirements, (catalog,))
+
+        self.assertTrue(plan.can_submit)
+        self.assertTrue(plan.needs_choice)
+        self.assertEqual(plan.inputs[0].status, FreshDataMatchStatus.AMBIGUOUS)
+        selected = plan.inputs[0].candidates[1]
+        chosen = TestRunSetupService.fresh_data_match_plan(
+            requirements,
+            (catalog,),
+            overrides={"dataset:products": selected.candidate_id},
+        )
+        self.assertTrue(chosen.ready_to_accept)
+        self.assertEqual(
+            chosen.inputs[0].selected_candidate_id,
+            selected.candidate_id,
+        )
+
+    def test_missing_or_unsafe_table_does_not_match(self):
+        requirements = self._requirement(
+            FreshDataInputRequirement(
+                logical_dataset_id="dataset:stock_levels",
+                label="Stock levels",
+                columns=("Product code", "On hand"),
+            )
+        )
+        catalog = self._catalog(
+            "stock.csv",
+            ("stock", ("Product code", "On hand")),
+            formulas=True,
+        )
+
+        plan = TestRunSetupService.fresh_data_match_plan(requirements, (catalog,))
+
+        self.assertFalse(plan.can_submit)
+        self.assertEqual(plan.inputs[0].status, FreshDataMatchStatus.MISSING)
+        self.assertEqual(plan.unused_files, ("stock.csv",))
+
+    def test_one_physical_table_cannot_fill_two_recipe_inputs(self):
+        requirements = self._requirement(
+            FreshDataInputRequirement(
+                logical_dataset_id="dataset:customers",
+                label="Customers",
+                columns=("External ID",),
+            ),
+            FreshDataInputRequirement(
+                logical_dataset_id="dataset:products",
+                label="Products",
+                columns=("External ID",),
+            ),
+        )
+        catalog = self._catalog(
+            "records.csv",
+            ("records", ("External ID",)),
+        )
+
+        plan = TestRunSetupService.fresh_data_match_plan(requirements, (catalog,))
+
+        self.assertFalse(plan.can_submit)
+        self.assertEqual(
+            {item.status for item in plan.inputs},
+            {FreshDataMatchStatus.CONFLICT},
+        )
+
+    def test_worksheet_and_its_excel_table_cannot_both_be_selected(self):
+        requirements = self._requirement(
+            FreshDataInputRequirement(
+                logical_dataset_id="dataset:customers",
+                label="Customers",
+                columns=("Customer name",),
+            ),
+            FreshDataInputRequirement(
+                logical_dataset_id="dataset:products",
+                label="Products",
+                columns=("Product code",),
+            ),
+        )
+        catalog = self._catalog(
+            "mixed.xlsx",
+            ("Sheet1", ("Customer name", "Product code")),
+            ("Products", ("Product code",)),
+        )
+        named_table = replace(
+            catalog.tables[1],
+            table_key="table:Sheet1:Products",
+            kind="NAMED_TABLE",
+        )
+        catalog = replace(catalog, tables=(catalog.tables[0], named_table))
+
+        plan = TestRunSetupService.fresh_data_match_plan(requirements, (catalog,))
+
+        self.assertFalse(plan.ready_to_accept)
+        self.assertEqual(
+            {item.status for item in plan.inputs},
+            {FreshDataMatchStatus.AMBIGUOUS, FreshDataMatchStatus.CONFLICT},
+        )
+        self.assertTrue(
+            all("same workbook area" in item.explanation for item in plan.inputs)
+        )
+
+    def test_shared_run_value_requires_compatible_recipe_meaning(self):
+        requirements = tuple(
+            FreshDataRecipeRequirement(
+                recipe_id=str(uuid4()),
+                recipe_revision=1,
+                display_name=name,
+                business_purpose=f"Prepare {name}",
+                inputs=(),
+                parameters=(
+                    FreshDataParameterRequirement(
+                        logical_parameter_id="parameter:stock_date",
+                        label="Stock date",
+                        value_type=value_type,
+                        required=True,
+                        constraints={},
+                        supplied_value=None,
+                    ),
+                ),
+            )
+            for name, value_type in (
+                ("Products", "string"),
+                ("Stock balances", "date"),
+            )
+        )
+
+        plan = TestRunSetupService._fresh_data_run_value_plan(
+            requirements,
+            None,
+        )
+
+        self.assertFalse(plan.can_confirm)
+        self.assertIn("compatible Recipe versions", plan.values[0].conflict)
+
+
 class IntegratedRecipeCompiler:
     """Keep the test focused on orchestration and persistence."""
 
@@ -488,7 +741,14 @@ class IntegratedRecipeCompiler:
                         "type": "date",
                         "required": True,
                         "constraints": {"not_after_application_date": True},
-                    }
+                    },
+                    {
+                        "logical_parameter_id": "parameter:batch_reference",
+                        "label": "Batch reference",
+                        "type": "string",
+                        "required": True,
+                        "constraints": {"max_length": 20},
+                    },
                 ]
             },
             "source_preparation": {"rules": []},
@@ -956,6 +1216,22 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             ),
             ("product.template", "res.partner"),
         )
+        odoo_plan = service.odoo_check_requirements_for_workspace(
+            setup.setup_workspace.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertIsNotNone(odoo_plan)
+        self.assertEqual(
+            tuple(
+                (item.model_name, item.field_names, item.recipe_names)
+                for item in odoo_plan.models
+            ),
+            (
+                ("product.template", ("default_code", "name"), ("Product and BOM",)),
+                ("res.partner", ("name",), ("Customers",)),
+            ),
+        )
+        self.assertEqual(odoo_plan.supporting_values, ())
         requirements = service.fresh_data_requirements(
             setup.run.migration_run_id,
             actor=LOCAL_ACTOR,
@@ -973,6 +1249,49 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 item.parameters[0].supplied_value == "2026-08-24"
                 for item in requirements
             )
+        )
+        run_values = service.fresh_data_run_value_plan(
+            setup.binding,
+            requirements,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(len(run_values.editable_values), 1)
+        self.assertEqual(
+            run_values.editable_values[0].recipe_names,
+            ("Customers", "Product and BOM"),
+        )
+        self.assertFalse(run_values.ready_to_continue)
+        with self.assertRaisesRegex(
+            MigrationFoundationError,
+            "20 characters or fewer",
+        ):
+            service.replace_fresh_data_run_values(
+                setup.binding,
+                {"parameter:batch_reference": "x" * 21},
+                expected_revision=None,
+                actor=LOCAL_ACTOR,
+            )
+        stored_run_values = service.replace_fresh_data_run_values(
+            setup.binding,
+            {"parameter:batch_reference": "AUGUST-REHEARSAL"},
+            expected_revision=None,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertIsNotNone(stored_run_values)
+        self.assertEqual(len(stored_run_values.values), 2)
+        unchanged_run_values = service.replace_fresh_data_run_values(
+            setup.binding,
+            {"parameter:batch_reference": "AUGUST-REHEARSAL"},
+            expected_revision=stored_run_values.revision,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(unchanged_run_values.revision, 1)
+        self.assertTrue(
+            service.fresh_data_run_value_plan(
+                setup.binding,
+                requirements,
+                actor=LOCAL_ACTOR,
+            ).ready_to_continue
         )
         self.assertEqual(
             self.packages.repository.get_source_package(
@@ -1017,14 +1336,31 @@ class IntegratedRecipeRunTests(unittest.TestCase):
         self.assertEqual(
             self.compiler.assessed_parameter_values[-2:],
             [
-                {"parameter:export_as_of_date": "2026-08-24"},
-                {"parameter:export_as_of_date": "2026-08-24"},
+                {
+                    "parameter:batch_reference": "AUGUST-REHEARSAL",
+                    "parameter:export_as_of_date": "2026-08-24",
+                },
+                {
+                    "parameter:batch_reference": "AUGUST-REHEARSAL",
+                    "parameter:export_as_of_date": "2026-08-24",
+                },
             ],
         )
-        self.assertEqual(
-            service.get(setup.run.migration_run_id, actor=LOCAL_ACTOR).state.value,
-            "ACTIVE",
+        active_binding = service.get(
+            setup.run.migration_run_id,
+            actor=LOCAL_ACTOR,
         )
+        self.assertEqual(active_binding.state.value, "ACTIVE")
+        with self.assertRaisesRegex(
+            MigrationConflictError,
+            "accepted with this fresh data",
+        ):
+            service.replace_fresh_data_run_values(
+                active_binding,
+                {"parameter:batch_reference": "LATE-CHANGE"},
+                expected_revision=stored_run_values.revision,
+                actor=LOCAL_ACTOR,
+            )
         for application in activated.applications:
             self.assertEqual(
                 service.credential_workspace(
@@ -1356,7 +1692,8 @@ class IntegratedRecipeRunTests(unittest.TestCase):
 class IntegratedRecipeRunBrowserTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"integrated-browser-{uuid4()}"
+        # Keep immutable artifact paths below the Windows portable path limit.
+        self.root = ROOT / ".tmp" / f"irb-{uuid4()}"
         self.root.mkdir()
         self.app = create_local_app(
             self.root,
@@ -1477,6 +1814,32 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
                             "type": "date",
                             "required": True,
                             "constraints": {"not_after_application_date": True},
+                        },
+                        {
+                            "logical_parameter_id": "parameter:batch_reference",
+                            "label": "Batch reference",
+                            "type": "string",
+                            "required": True,
+                            "constraints": {"max_length": 20},
+                        },
+                    ]
+                },
+                "odoo_target_contract": {
+                    "models": [
+                        {
+                            "model": "res.partner",
+                            "fields": [
+                                {"name": "name"},
+                                {"name": "email"},
+                            ],
+                        }
+                    ]
+                },
+                "reference_dependencies": {
+                    "references": [
+                        {
+                            "name": "Countries",
+                            "content_hash": content_hash("countries"),
                         }
                     ]
                 },
@@ -1542,21 +1905,217 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertIn("Customer name", fresh_data.text)
         self.assertIn("Recipe v1", fresh_data.text)
         self.assertIn("2026-08-24", fresh_data.text)
+        fresh_files_action = f"{setup_location}/files"
         self.assertIn("Add fresh files", fresh_data.text)
+        self.assertIn(f'action="{fresh_files_action}"', fresh_data.text)
+        self.assertIn('name="source_file"', fresh_data.text)
         self.assertNotIn("Match data", fresh_data.text)
         self.assertNotIn("Prepare data", fresh_data.text)
         self.assertNotIn("Final review", fresh_data.text)
         self.assertNotIn("Load into Odoo", fresh_data.text)
 
-        file_entry = self.client.get(
-            re.search(r'href="([^"]+)">Add fresh files', fresh_data.text).group(1)
-        )
-        self.assertEqual(file_entry.status_code, 200)
-        self.assertIn("Recipe run", file_entry.text)
-        setup_workspace_id = re.search(
-            r'action="/workspaces/([^/]+)/files"',
-            file_entry.text,
+        fresh_csrf = re.search(
+            r'name="csrf_token" value="([^"]+)"', fresh_data.text
         ).group(1)
+        fresh_revision = re.search(
+            r'name="revision" value="([^"]+)"', fresh_data.text
+        ).group(1)
+        missing_file = self.client.post(
+            fresh_files_action,
+            data={"csrf_token": fresh_csrf, "revision": fresh_revision},
+            headers={"Origin": "http://testserver"},
+        )
+        self.assertEqual(missing_file.status_code, 422)
+        self.assertIn("Choose a CSV or XLSX file", missing_file.text)
+        self.assertIn(f'action="{fresh_files_action}"', missing_file.text)
+        uploaded = self.client.post(
+            fresh_files_action,
+            data={"csrf_token": fresh_csrf, "revision": fresh_revision},
+            files={
+                "source_file": (
+                    "wrong.csv",
+                    b"Customer name\nWrong customer\n",
+                    "text/csv",
+                )
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(uploaded.status_code, 303)
+        self.assertEqual(uploaded.headers["location"], setup_location)
+
+        uploaded_page = self.client.get(setup_location)
+        self.assertIn("Added 1 fresh file to this Test run.", uploaded_page.text)
+        self.assertIn("wrong.csv", uploaded_page.text)
+        self.assertIn("Check files and match tables", uploaded_page.text)
+        remove_action = re.search(
+            r'<form\s+class="source-file-remove-form"\s+method="post"\s+'
+            r'action="([^"]+)"',
+            uploaded_page.text,
+        ).group(1)
+        current_revision = re.search(
+            r'name="revision" value="([^"]+)"', uploaded_page.text
+        ).group(1)
+        removed = self.client.post(
+            remove_action,
+            data={"csrf_token": fresh_csrf, "revision": current_revision},
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(removed.status_code, 303)
+        self.assertEqual(removed.headers["location"], setup_location)
+
+        empty_again = self.client.get(setup_location)
+        self.assertIn("Removed wrong.csv from this Test run.", empty_again.text)
+        self.assertNotIn("<strong>wrong.csv</strong>", empty_again.text)
+        current_revision = re.search(
+            r'name="revision" value="([^"]+)"', empty_again.text
+        ).group(1)
+        uploaded = self.client.post(
+            fresh_files_action,
+            data={"csrf_token": fresh_csrf, "revision": current_revision},
+            files={
+                "source_file": (
+                    "customers.csv",
+                    b"Customer name,Email\nCurrent customer,current@example.com\n",
+                    "text/csv",
+                )
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(uploaded.status_code, 303)
+        ready_page = self.client.get(setup_location)
+        current_revision = re.search(
+            r'name="revision" value="([^"]+)"', ready_page.text
+        ).group(1)
+        registered = self.client.post(
+            f"{setup_location}/register",
+            data={"csrf_token": fresh_csrf, "revision": current_revision},
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(registered.status_code, 303, registered.text)
+        setup_binding = context.test_runs.get(setup_run_id, actor=context.actor)
+        setup_workspace_id = setup_binding.setup_workspace_id
+        self.assertEqual(registered.headers["location"], setup_location)
+
+        registered_fresh_data = self.client.get(setup_location)
+        self.assertIn("Recipe table matches", registered_fresh_data.text)
+        self.assertIn("customers.csv", registered_fresh_data.text)
+        self.assertIn("Matched", registered_fresh_data.text)
+        self.assertIn("Details for this run", registered_fresh_data.text)
+        self.assertIn("Batch reference", registered_fresh_data.text)
+        self.assertIn('name="parameter_0"', registered_fresh_data.text)
+        self.assertIn("Use this fresh data", registered_fresh_data.text)
+        self.assertIn('name="source_file"', registered_fresh_data.text)
+        self.assertNotIn(
+            f'/workspaces/{setup_workspace_id}/sources',
+            registered_fresh_data.text,
+        )
+
+        missing_run_value = self.client.post(
+            f"{setup_location}/accept",
+            data={
+                "csrf_token": fresh_csrf,
+                "parameter_revision": "",
+                "parameter_0": "",
+                "warnings_acknowledged": "1",
+            },
+            headers={"Origin": "http://testserver"},
+        )
+        self.assertEqual(missing_run_value.status_code, 422)
+        self.assertIn("Enter Batch reference", missing_run_value.text)
+
+        accepted = self.client.post(
+            f"{setup_location}/accept",
+            data={
+                "csrf_token": fresh_csrf,
+                "parameter_revision": "",
+                "parameter_0": "AUGUST-REHEARSAL",
+                "warnings_acknowledged": "1",
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(accepted.status_code, 303, accepted.text)
+        self.assertEqual(accepted.headers["location"], setup_location)
+        accepted_page = self.client.get(setup_location)
+        self.assertIn(
+            "Accepted the fresh data and its Recipe table matches.",
+            accepted_page.text,
+        )
+        self.assertIn("AUGUST-REHEARSAL", accepted_page.text)
+        self.assertIn("Continue to Check Odoo", accepted_page.text)
+        self.assertNotIn('name="source_file"', accepted_page.text)
+
+        odoo_url = f"/projects/{project_id}/runs/{setup_run_id}/odoo"
+        first_odoo_entry = self.client.get(odoo_url, follow_redirects=False)
+        self.assertEqual(first_odoo_entry.status_code, 303)
+        self.assertEqual(
+            first_odoo_entry.headers["location"],
+            f"/workspaces/{setup_workspace_id}/target",
+        )
+        target_page = self.client.get(first_odoo_entry.headers["location"])
+        self.assertIn("Connect the Test Odoo server", target_page.text)
+        self.assertIn(
+            f'href="{setup_location}"',
+            target_page.text,
+        )
+        self.assertIn("Use this Odoo and continue", target_page.text)
+
+        setup_state = context.workspace_states.repository.get(setup_workspace_id)
+        context.workspace_states.update_target(
+            setup_workspace_id,
+            actor=context.actor,
+            expected_revision=setup_state.revision,
+            odoo_connection_mode="REMOTE",
+            odoo_base_url="https://test-odoo.example.test",
+            odoo_database="test_odoo",
+            intended_applications=(),
+            intended_models=context.test_runs.required_models_for_workspace(
+                setup_workspace_id,
+                actor=context.actor,
+            ),
+        )
+        odoo_page = self.client.get(odoo_url)
+        self.assertEqual(odoo_page.status_code, 200)
+        self.assertIn("Odoo information this run needs", odoo_page.text)
+        self.assertIn("Contacts", odoo_page.text)
+        self.assertNotIn("Countries", odoo_page.text)
+        self.assertIn("do not require current values", odoo_page.text)
+        self.assertIn("Check this Odoo", odoo_page.text)
+        self.assertNotIn("Choose the Odoo data you need", odoo_page.text)
+        self.assertNotIn("data-model-picker", odoo_page.text)
+
+        copied_setup_url = self.client.get(
+            f"/workspaces/{setup_workspace_id}/schema",
+            follow_redirects=False,
+        )
+        self.assertEqual(copied_setup_url.status_code, 303)
+        self.assertEqual(copied_setup_url.headers["location"], odoo_url)
+
+        saved_setup_state = context.workspace_states.repository.get(
+            setup_workspace_id
+        )
+        forged_picker = self.client.post(
+            f"/workspaces/{setup_workspace_id}/schema",
+            data={
+                "csrf_token": fresh_csrf,
+                "revision": str(saved_setup_state.revision),
+                "permitted_models": "product.template",
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(forged_picker.status_code, 303)
+        self.assertEqual(forged_picker.headers["location"], odoo_url)
+        self.assertEqual(
+            context.workspace_states.repository.get(
+                setup_workspace_id
+            ).intended_models,
+            ("res.partner",),
+        )
 
         for stale_path in ("overview", "mapping", "summary", "load"):
             stale = self.client.get(
@@ -1566,7 +2125,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             self.assertEqual(stale.status_code, 303)
             self.assertEqual(
                 stale.headers["location"],
-                f"/projects/{project_id}/test-runs/{setup_run_id}/activate",
+                f"/projects/{project_id}/test-runs/{setup_run_id}/fresh-data",
             )
 
 

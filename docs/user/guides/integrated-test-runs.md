@@ -32,18 +32,28 @@ evidence.
    **Fresh data** for this run.
 5. Review the exact Recipe versions and their required source tables. Expand a
    table only when you need to see its required columns.
-6. Select **Add fresh files**, upload the complete newer delivery, review the
-   detected tables, and select **Accept Data version**.
-7. Under **Check Odoo**, connect the Odoo target for this Test run. Impodo carries the selected
-   Recipes' required models into Odoo field discovery, so you do not select
-   the target model again.
-8. Select **Return to Test run setup**.
-9. Under **Review and load**, review the newer data, Odoo target review, read-only access, and
-   selected Recipe versions.
-10. Select **Create Recipe work areas**.
-11. On the run page, select **Continue review and load** for the next Recipe.
-12. Prepare, compare, confirm the load, and verify the result.
-13. When every application has succeeded in the required order, qualify that
+6. Under **Fresh data**, select the complete newer delivery. Select **Add fresh
+   files**. You can remove an incorrect file on the same page.
+7. Select **Check files and match tables**. Impodo shows the table chosen for
+   each Recipe input. If two tables could be right, choose one. If a file is not
+   used by the Recipe, remove it and check the files again.
+8. Select **Use this fresh data**. This accepts the matched tables as the Test
+   data version.
+9. Under **Check Odoo**, connect the Odoo target for this Test run.
+10. Review the Odoo record types, fields, and supporting lists taken from the
+    exact selected Recipe versions. You cannot replace them with other Odoo
+    choices in this run, and you do not select related tables again.
+11. Select **Check this Odoo**. This first Phase 3 slice checks the required
+    Odoo field information through the existing read-only capture. A missing
+    current supporting list can still appear as an action-needed result during
+    activation until the combined supporting-list refresh is added.
+12. Select **Return to Test run setup**.
+13. Under **Review and load**, review the newer data, Odoo target review,
+    read-only access, and selected Recipe versions.
+14. Select **Create Recipe work areas**.
+15. On the run page, select **Continue review and load** for the next Recipe.
+16. Prepare, compare, confirm the load, and verify the result.
+17. When every application has succeeded in the required order, qualify that
     exact Test run as the Production candidate.
 
 Before creating Recipe work areas, Impodo checks that the Recipe order has no cycle
@@ -79,16 +89,36 @@ Each selected Recipe then receives:
 The saved Recipe remains unchanged. No source table or prior workspace is
 copied.
 
-The current **Fresh data** page explains what the Recipes require and returns
-you to the run after file work. The detailed source review still detects and
-confirms the physical tables in the shared setup workspace. Automatic table
-matching on the same page is a later part of this refactor.
+The **Fresh data** page explains what the Recipes require and accepts or removes
+the new delivery files in the run journey. **Check files and match tables**
+compares each safe detected table with the required Recipe columns. A renamed
+file can match automatically when its table is the only compatible choice.
+Impodo asks only when more than one table could fill the same Recipe input.
+Missing inputs, unsafe formula or error tables, and files the Recipe does not
+use remain on this page with a clear correction.
+
+The page also asks for details that belong only to this run, such as a stock
+date, warehouse, location, or batch reference. The questions and labels come
+from the selected Recipe versions, so the same page works for customers,
+products, stock balances, and transactional data. If several Recipes use the
+same compatible detail, enter it once. The delivery cutoff is already supplied
+and appears read-only.
+
+Impodo checks the value type and any saved limit before accepting it. A missing
+required value or disagreement between selected Recipes keeps **Fresh data**
+current and explains what needs attention. Saved answers belong to the Test
+run; they do not change the Recipe or the Authoring workspace. If an earlier
+Test delivery was accepted before run details were stored, return to **Fresh
+data**, supply the missing details, and continue to **Check Odoo**.
+After the details are accepted with the fresh data, they are read-only. Start a
+new Test run if an accepted answer needs to change.
 
 The setup and Recipe workspaces still keep the detailed evidence. Their browser
 navigation belongs to the run: setup permits fresh-data and Odoo-check pages,
 while an application permits only preparation, review, load, and verification.
-A saved or copied workspace link that belongs to Authoring returns you to the
-owning run without changing saved work.
+A saved or copied setup schema link returns to the run-owned **Check Odoo**
+page. The ordinary Authoring workspace keeps its editable Odoo model picker
+and six-stage journey.
 
 ## Ready and Blocked
 

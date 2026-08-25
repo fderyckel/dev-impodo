@@ -195,7 +195,7 @@
         {% endif %}
       </section>
       <div class="actions">
-        <a class="button secondary" href="{% if is_odoo_source %}/projects/{{ migration_context.project_id }}{% else %}/workspaces/{{ workspace_id }}/sources{% endif %}">Back</a>
+        <a class="button secondary" href="{% if is_recipe_test %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/fresh-data{% elif is_odoo_source %}/projects/{{ migration_context.project_id }}{% else %}/workspaces/{{ workspace_id }}/sources{% endif %}">Back</a>
         <button
           class="button secondary"
           type="submit"
@@ -203,7 +203,7 @@
           value="test"
           data-test-connection-button
         >{% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "REMOTE" %}{{ remote_connection.button_label }}{% else %}Check connection{% endif %}</button>
-        <button class="button primary" type="submit" name="action" value="save">{% if is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
+        <button class="button primary" type="submit" name="action" value="save">{% if is_recipe_test or is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
       </div>
     </form>
 

@@ -50,15 +50,44 @@ identities, then verifies each protected envelope. The number of registry
 connections does not grow with the number of Recipes. Protected envelope
 reads remain one per exact selected revision.
 
-The page shows files already attached to the Test DataVersion and enters the
-existing setup workspace only for file intake and detailed table review. That
-shared intake path remains current until the later logical-input matching
-slice moves the physical-table decision into the run page.
+The page shows files already attached to the Test DataVersion. Its upload and
+removal forms post to run-owned routes that first verify Project, run, and
+setup-workspace ownership. `accept_source_uploads` and `remove_source_file`
+adapt both the run routes and ordinary Authoring routes to the same governed
+intake service, revision checks, protected storage, file validation, cleanup,
+and audit path. The run-owned registration action inspects the current files
+and returns to **Fresh data**. `fresh_data_match_plan` reads the resulting
+catalogue set once, deduplicates shared logical inputs across Recipes, and
+matches tables in memory from unique normalized required headers. It excludes
+formula and error tables and prevents one physical table from filling two
+different logical inputs. It also prevents a worksheet and an Excel named table
+covering the same workbook area from filling separate inputs. A unique safe
+match is automatic; the form posts an explicit choice only for a remaining
+ambiguity.
+
+Acceptance confirms the selected tables through `SourceWorkspaceService`,
+assigns deterministic dataset names derived from the Recipe logical dataset
+IDs, freezes the existing immutable source selection, and projects it into the
+Test DataVersion. An interrupted projection can resume from that frozen
+selection. The ordinary Authoring source pages keep the same detailed table
+review and call the same services; the Recipe-run route does not duplicate the
+source engine or change Authoring navigation.
 
 When the data manager saves the Test target, the target route reads the setup
 binding and preselects the union of models declared by the selected Recipe
-revisions. It does not call Odoo once per Recipe. The normal schema capture
-performs the bounded Odoo 19 metadata read.
+revisions. `odoo_check_requirements_for_workspace` bulk-reads the exact
+protected revisions once and combines their models, fields, Recipe names, and
+supporting-list names in memory. It performs no Odoo call per Recipe.
+
+`GET /projects/{project_id}/runs/{migration_run_id}/odoo` renders the shared
+setup evidence as the run-owned **Check Odoo** page. The page presents the
+combined requirements as read-only business information and does not render
+the Authoring model picker. A copied setup `/schema` URL redirects to this
+canonical run URL. A crafted model-scope form for the setup also redirects
+without changing the Recipe-derived scope. On **Check this Odoo**, the schema
+route aligns an older setup's saved scope with the pinned Recipes and calls the
+existing bounded Odoo 19 metadata capture. Ordinary Authoring schema pages
+retain their editable model picker and existing service path.
 
 `GET` and `POST /projects/{project_id}/test-runs/{migration_run_id}/activate`
 review and activate the same run. Activation requires the frozen Test package,
@@ -67,9 +96,25 @@ read-credential generation. `MigrationRunPlanningService.activate_test_run`
 then stores the run target and plan atomically and creates one isolated
 application workspace per selected Recipe. The integrated run page continues
 to read bounded registry status without opening every application workspace.
-Activation supplies the date portion of the Test delivery cutoff to every
-selected file Recipe that declares the standard export-as-of parameter. Other
-Recipe-owned run values remain part of the later Fresh data input slice.
+**Fresh data** reads parameter definitions from the exact selected Recipe
+revisions in the same bounded bulk read used for source requirements. It asks
+for every non-automatic value on the run page. Identical logical parameter IDs
+are shown once only when their type, requirement, and constraints agree across
+Recipes; a disagreement fails closed. The standard export-as-of value remains
+read-only and comes from the Test delivery cutoff.
+
+`TestRunSetupService.replace_fresh_data_run_values` validates submitted values
+through the same normalizer used by the Recipe application compiler. The
+repository stores normalized Recipe-scoped answers in
+`test_run_parameter_values` with an optimistic revision, content hash, stable
+actor identity, timestamp, and audit event. A normal run accepts these answers
+with the fresh source selection and does not replace them after the Test
+DataVersion is frozen. An older frozen delivery may add its missing answers
+once. Activation reads this evidence once, adds
+the standard export-as-of date where declared, validates every exact Recipe
+definition again, and supplies the resulting per-Recipe values to planning.
+An older accepted Test delivery with no saved answers stays on **Fresh data**
+until its required Recipe values are supplied.
 
 ### Planning and collision checks
 
@@ -94,10 +139,12 @@ stores only supporting reference datasets named by the selected Recipes.
 only one application's requirements into its workspace and reject per-
 application recapture.
 
-The current flow captures one fresh live snapshot of the Odoo target chosen
-for the Test run in the shared setup workspace. It makes no Odoo call per
-Recipe or source row. A later target refresh remains a run-owned batch
-operation and must not reintroduce application-workspace target capture.
+The current Phase 3 slice captures one fresh live field snapshot of the Odoo
+target chosen for the Test run in the shared setup workspace. It makes no Odoo
+call per Recipe or source row. The Recipe's supporting-list names are visible
+and remain part of activation assessment, but their combined refresh is the
+next Phase 3 slice. That refresh must remain one run-owned bounded operation
+and must not reintroduce application-workspace target capture.
 
 ## Evidence and state
 
@@ -150,9 +197,10 @@ executing that route.
 
 The run page enters an application through
 `GET /projects/{project_id}/runs/{migration_run_id}/applications/{application_id}`.
-Odoo recovery enters the one shared setup workspace through
-`GET /projects/{project_id}/runs/{migration_run_id}/odoo`. These run-owned
-routes prevent application pages from becoming a second Authoring workflow.
+Odoo recovery renders the one shared setup workspace through
+`GET /projects/{project_id}/runs/{migration_run_id}/odoo`; the workspace
+`/schema` URL redirects there. These run-owned routes prevent application
+pages from becoming a second Authoring workflow.
 The run enters its source contract through
 `GET /projects/{project_id}/test-runs/{migration_run_id}/fresh-data`; workspace
 file and table pages are supporting detail rather than another run home.
@@ -193,20 +241,25 @@ queries must not scale with Recipe count.
 | Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/migration_run_planning.py) |
 | Test setup binding | [`migration_test.py`](../../../src/impodo/migration_test.py) |
 | Test setup coordinator | [`TestRunSetupService`](../../../src/impodo/application/test_run_setup_service.py) |
+| Stable logical source binding | [`recipe_source_binding.py`](../../../src/impodo/recipe_source_binding.py) |
 | Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/recipes.py) |
 | Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/migration_run_planning_service.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
 | Test setup persistence | [`TestRunRepository`](../../../src/impodo/adapters/duckdb/test_run_repository.py) |
+| Shared Recipe run-value validation | [`recipe_parameters.py`](../../../src/impodo/domain/recipe_parameters.py) |
+| Forward-compatible registry schema | [`migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) |
 | Run-owned schema projection | [`RunAwareSchemaRepository`](../../../src/impodo/adapters/duckdb/run_aware_schema_repository.py) |
 | Run-owned reference projection | [`RunAwareAdvancedCoverageRepository`](../../../src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py) |
 | Browser routes | [`integrated_runs.py`](../../../src/impodo/web/routers/integrated_runs.py) |
+| Shared file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Workspace journey policy | [`workspace_journeys.py`](../../../src/impodo/web/workspace_journeys.py) |
 | Journey-aware navigation | [`navigation.py`](../../../src/impodo/web/presenters/navigation.py) |
 
 ## Verification
 
 - [`tests/test_integrated_recipe_runs.py`](../../../tests/test_integrated_recipe_runs.py)
+- [`tests/test_forward_upgrade_compatibility.py`](../../../tests/test_forward_upgrade_compatibility.py)
 - [`tests/test_workspace_journeys.py`](../../../tests/test_workspace_journeys.py)
 - [`tests/test_project_authoring.py`](../../../tests/test_project_authoring.py)
 - [`tests/test_data_version_source_packages.py`](../../../tests/test_data_version_source_packages.py)

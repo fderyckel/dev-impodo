@@ -669,6 +669,32 @@ h3 {
   margin: 0 auto;
 }
 
+.recipe-match-list {
+  display: grid;
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+
+.recipe-match-card {
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--impodo-grey);
+  border-radius: 4px;
+  background: var(--impodo-soft);
+  padding: 1.1rem 1.2rem;
+}
+
+.recipe-match-card.matched {
+  border-left-color: #4d7c5b;
+}
+
+.recipe-match-card.choice {
+  border-left-color: #c08018;
+}
+
+.recipe-match-card.blocked {
+  border-left-color: var(--danger);
+}
+
 .empty-state {
   text-align: center;
 }

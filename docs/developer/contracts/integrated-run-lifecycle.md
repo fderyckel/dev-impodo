@@ -28,6 +28,14 @@ reference bundle. These objects are captured or selected once for the run.
 An application workspace may read only the part required by its Recipe; it
 cannot recapture, rebind, or publish independent run target evidence.
 
+Before target capture, the Test setup bulk-reads the exact selected Recipe
+revisions and derives one read-only browser projection of required Odoo
+models, fields, and supporting-list names. This projection cannot be replaced
+through the setup model-scope form. The run-owned **Check Odoo** route and a
+copied setup schema URL resolve to the same shared setup evidence. Ordinary
+Authoring workspaces remain outside this rule and retain editable model
+selection.
+
 The Test DataVersion owns the complete immutable source package. Each
 application workspace stores only its selected logical dataset and snapshot
 references. It never copies source rows or another workspace database.
@@ -38,6 +46,46 @@ This read must include a Recipe identity that was archived after selection,
 because the run pins the exact revision rather than the active Recipe list.
 It must use a bounded registry operation rather than one registry query per
 Recipe.
+
+After inspection, the run matches the current physical tables to those logical
+inputs from the bounded catalogues. Every required header must occur exactly
+once after conservative case, spacing, and punctuation normalization. Formula
+or error tables are ineligible. One compatible table is automatic; a unique
+Recipe-name match may break a tie; every remaining ambiguity requires an
+explicit choice. Missing inputs, one physical table claimed by two logical
+inputs, overlapping worksheet and named-table selections, and files unused by
+the Recipe fail closed.
+
+Acceptance derives a stable dataset name from each Recipe logical dataset ID,
+then calls the existing source confirmation, freeze, and DataVersion projection
+services. The resulting immutable `SourceSelection` is the physical binding;
+the portable Recipe never stores a delivery-specific file or table ID. The
+compiler accepts both this logical-ID-derived name and the earlier exact
+logical-name convention so saved Recipe evidence remains forward compatible.
+
+## Run-owned parameter values
+
+Each selected Recipe revision declares the values a fresh application may
+need. The standard export-as-of date is supplied from the Test DataVersion
+cutoff and is read-only. Every other declared value is answered on **Fresh
+data** and belongs to that Test run, not to the reusable Recipe.
+
+Compatible declarations with the same logical parameter ID are one business
+question. Their type, required status, and constraints must agree before one
+answer can be applied to several Recipes. A disagreement, an unknown submitted
+parameter, an invalid type, a missing required answer, or a value outside a
+saved constraint fails closed before source acceptance or activation.
+
+`test_run_parameter_values` stores normalized Recipe-scoped answers under the
+pinned `TestRunSetupBinding`. The record has its own optimistic revision,
+content hash, stable actor identity, timestamp, and audit event. The repository
+checks the setup ID, Project, run, and editable setup state in the same write
+transaction. Accepted answers cannot change after the Test DataVersion is
+frozen; an older frozen Test delivery may add a missing answer record once.
+Activation reads the record once and validates it again against
+the exact protected Recipe revisions. Changing these answers never changes a
+Recipe revision, Authoring evidence, source snapshot, target snapshot, or
+application workspace.
 
 ## Planning gate
 
@@ -100,15 +148,19 @@ run before the requested route reads or changes child evidence.
 Run-owned navigation may redirect to an existing workspace route while the
 three-page refactor is delivered. The redirect does not transfer ownership:
 shared Odoo refresh remains in the setup workspace, and application evidence
-remains in its isolated workspace. This compatibility seam must not create a
-second semantic implementation or retain an obsolete application-specific
-Authoring path.
+remains in its isolated workspace. Fresh file matching and acceptance stay on
+the run-owned page. This compatibility seam must not create a second semantic
+implementation or retain an obsolete application-specific Authoring path.
 
 `GET /projects/{project_id}/test-runs/{migration_run_id}/fresh-data` is the
-canonical Test source entry. It may delegate file intake and detailed physical
-table review to the shared setup workspace. It must not ask the data manager
-to redefine the logical tables or columns already supplied by the selected
-Recipe revisions.
+canonical Test source entry. Run-owned forms may add or remove files only
+after verifying that the run owns the draft setup workspace. They must call
+the same intake commands as ordinary Authoring; the run journey must not own a
+second file-validation, storage, cleanup, or audit implementation. Detailed
+physical-table review remains available to ordinary Authoring but is not part
+of the Recipe-run journey. The run page must not ask the data manager to
+redefine the logical tables or columns already supplied by the selected Recipe
+revisions.
 
 ## Qualification boundary
 

@@ -72,6 +72,12 @@ table as an immutable tagged Parquet snapshot with source-row lineage. The
 selection and all snapshot pointers advance in one transaction. Mapping preview
 and preparation read the verified snapshot rather than reopening CSV or XLSX.
 
+An integrated Recipe run reaches the same freeze boundary from its run-owned
+**Fresh data** page. It uses the selected Recipe revisions to propose the
+physical tables and dataset names, but it still calls the ordinary confirmation,
+freeze, and DataVersion projection services. Ordinary Authoring retains its
+detailed table review; there is no second validation or snapshot implementation.
+
 An Odoo capture selection is append-only and bound to the current target
 identity. Saving the selection does not contact Odoo. Current policy permits
 at most 50 closed scalar fields and 10,000 rows, which the reader fetches in
@@ -85,6 +91,7 @@ field path.
 | --- | --- |
 | File and selection orchestration | [`SourceWorkspaceService`](../../../src/impodo/application/source_workspace_service.py) |
 | Isolated source workers | [`source_worker.py`](../../../src/impodo/source_worker.py) |
+| Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
 | Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/derived_entities.py) |

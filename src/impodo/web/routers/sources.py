@@ -31,7 +31,6 @@ from types import SimpleNamespace
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
-from starlette.datastructures import UploadFile
 from ...access import Capability
 from ...application.odoo_capture_job_service import (
     OdooCaptureJobNotFoundError,
@@ -68,6 +67,7 @@ from ..target_credentials import (
     get_target_credential,
     store_target_credential,
 )
+from ..source_file_commands import accept_source_uploads, remove_source_file
 
 
 def build_sources_router(context: WebContext) -> APIRouter:
@@ -139,11 +139,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
         if return_to not in {"files", "sources", "datasets"}:
             raise HTTPException(status_code=400, detail="Invalid return page")
         try:
-            removed = await run_in_threadpool(
-                context.intake.remove,
+            removed = await remove_source_file(
+                context,
                 workspace_id,
                 file_id,
-                actor=context.actor,
                 expected_revision=_revision(form),
             )
         except WorkspaceStateError as error:
@@ -181,23 +180,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
             or workspace_state.source_mode is not SourceMode.FILE
         ):
             raise HTTPException(status_code=400, detail="Source upload is unavailable")
-        upload = form.get("source_file")
-        if not isinstance(upload, UploadFile) or not upload.filename:
-            return _render_source_file_error(
-                request,
+        try:
+            added_files = await accept_source_uploads(
                 context,
                 workspace_id,
-                "sources",
-                WorkspaceStateError("Choose a CSV or XLSX file"),
-            )
-        try:
-            added = await run_in_threadpool(
-                context.intake.accept,
-                workspace_id,
-                actor=context.actor,
-                expected_revision=_revision(form),
-                display_name=upload.filename,
-                stream=upload.file,
+                form,
+                allow_multiple=False,
             )
         except WorkspaceStateError as error:
             return _render_source_file_error(
@@ -207,9 +195,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 "sources",
                 error,
             )
-        finally:
-            await upload.close()
-        _flash(request, f"Added {added.display_name} to this Data version.")
+        _flash(
+            request,
+            f"Added {added_files[0].display_name} to this Data version.",
+        )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/sources#source-files",
             status_code=303,
