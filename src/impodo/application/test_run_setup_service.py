@@ -1133,15 +1133,22 @@ class TestRunSetupService:
     def credential_workspace(self, workspace_id: str, *, actor: Actor):
         """Return the shared Test setup workspace that owns target credentials."""
 
+        workspace_id = self.credential_workspace_id(workspace_id, actor=actor)
+        return self.workspace_states.repository.get(workspace_id)
+
+    def credential_workspace_id(self, workspace_id: str, *, actor: Actor) -> str:
+        """Return the credential owner without opening another workspace store."""
+
+        workspace_id = require_uuid(workspace_id, "workspace_id")
         binding = self.test_runs.for_workspace(workspace_id)
         if binding is None:
-            return self.workspace_states.repository.get(workspace_id)
+            return workspace_id
         self.authorization.require(
             actor,
             Capability.PROJECT_VIEW,
             project_id=binding.project_id,
         )
-        return self.workspace_states.repository.get(binding.setup_workspace_id)
+        return binding.setup_workspace_id
 
     def _selections(self, project_id, values, *, actor):
         normalized = tuple(values)

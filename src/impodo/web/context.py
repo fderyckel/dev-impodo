@@ -15,7 +15,7 @@ See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 from ..access import Actor, AuthorizationPolicy
@@ -69,6 +69,7 @@ from ..local_odoo_reader import (
 )
 from ..migration_run_setup import MigrationRunTargetSetupService
 from ..local_stack import LocalStackService
+from ..migration_foundation import MigrationIdentifierConfusionError
 from ..models import OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
 from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
@@ -189,15 +190,28 @@ class WebContext:
     odoo_connection_tests: OdooConnectionTestService
     remote_connections: RemoteConnectionStatusService
 
-    def target_credential_workspace(self, workspace_id: str) -> WorkspaceState:
-        """Resolve the shared Test or Production setup that owns target keys."""
+    def target_credential_workspace(
+        self,
+        workspace_id: str,
+        *,
+        workspace_state: WorkspaceState | None = None,
+    ) -> WorkspaceState:
+        """Project current target details onto the shared credential owner."""
 
-        test_owner = self.test_runs.credential_workspace(
+        current = workspace_state or self.workspace_states.repository.get(workspace_id)
+        if current.workspace_id != workspace_id:
+            raise MigrationIdentifierConfusionError(
+                "The target credential request changed workspace identity"
+            )
+        test_owner_id = self.test_runs.credential_workspace_id(
             workspace_id,
             actor=self.actor,
         )
-        return self.production_runs.credential_workspace(
-            test_owner.workspace_id,
+        owner_id = self.production_runs.credential_workspace_id(
+            test_owner_id,
             actor=self.actor,
         )
+        if owner_id == current.workspace_id:
+            return current
+        return replace(current, workspace_id=owner_id)
 

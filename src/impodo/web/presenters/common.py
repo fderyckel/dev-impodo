@@ -6,6 +6,7 @@ import re
 
 from fastapi import Request
 
+from ...access import Capability
 from ...workspace_state import (
     OdooConnectionMode,
     WorkspaceState,
@@ -42,8 +43,16 @@ def _render(
         and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
     ):
         credential_owner = application.target_credential_workspace(
-            workspace_state.workspace_id
+            workspace_state.workspace_id,
+            workspace_state=workspace_state,
         )
+        access = getattr(request.state, "workspace_access_context", None)
+        if access is None or access.workspace_id != workspace_state.workspace_id:
+            access = application.workspace_access.resolve(
+                workspace_state.workspace_id,
+                actor=application.actor,
+                capability=Capability.PROJECT_VIEW,
+            )
         credential_status = get_target_credential_status(
             application.secret_store,
             credential_owner,
@@ -53,7 +62,8 @@ def _render(
         explicitly_required = bool(context.get("read_credential_required"))
         context["read_credential_prompt"] = {
             "action_href": (
-                f"/workspaces/{workspace_state.workspace_id}/"
+                f"/projects/{access.project_id}/"
+                f"workspaces/{workspace_state.workspace_id}/"
                 "target/read-credential/quick"
             ),
             "auto_open": explicitly_required or prompt_error is not None,

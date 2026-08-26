@@ -13,6 +13,10 @@ from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
+from ...migration_foundation import (
+    MigrationIdentifierConfusionError,
+    require_uuid,
+)
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ...workspace_state import (
@@ -200,10 +204,11 @@ def build_target_router(context: WebContext) -> APIRouter:
     router = APIRouter()
 
     @router.post(
-        "/workspaces/{workspace_id}/target/read-credential/quick"
+        "/projects/{project_id}/workspaces/{workspace_id}/target/read-credential/quick"
     )
     async def save_quick_read_credential(
         request: Request,
+        project_id: str,
         workspace_id: str,
     ):
         """Save one target-bound read key and retain the current workflow page."""
@@ -223,17 +228,24 @@ def build_target_router(context: WebContext) -> APIRouter:
         json_request = _accepts_json(request)
         try:
             return_to = _quick_credential_return_to(form, workspace_id)
+            access = context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.PROJECT_EDIT,
+            )
+            if access.project_id != require_uuid(project_id, "project_id"):
+                raise MigrationIdentifierConfusionError(
+                    "The credential request belongs to another MigrationProject"
+                )
             workspace_state = context.queries.get(workspace_id)
             if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
                 raise SecretStoreError(
                     "A read-only API key is only needed for Remote Odoo"
                 )
-            context.workspace_access.resolve(
+            credential_owner = context.target_credential_workspace(
                 workspace_id,
-                actor=context.actor,
-                capability=Capability.PROJECT_EDIT,
+                workspace_state=workspace_state,
             )
-            credential_owner = context.target_credential_workspace(workspace_id)
             credential = store_target_credential(
                 context.secret_store,
                 credential_owner,

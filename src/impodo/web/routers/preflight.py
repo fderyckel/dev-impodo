@@ -150,7 +150,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             {"csrf_token", "read_api_key", "read_api_key_storage"},
         )
         workspace_state = context.queries.get(workspace_id)
-        credential_owner = context.target_credential_workspace(workspace_id)
+        credential_owner = context.target_credential_workspace(
+            workspace_id,
+            workspace_state=workspace_state,
+        )
         verified_read_identity = None
         completed_without_load = False
 
@@ -184,7 +187,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 )
                 audit_stored_target_credential(
                     context.workspace_states,
-                    credential_owner,
+                    workspace_state,
                     TargetCredentialRole.READ,
                     credential,
                     actor=context.actor,

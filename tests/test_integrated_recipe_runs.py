@@ -2241,6 +2241,63 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 setup.setup_workspace.workspace_id,
             )
 
+        browser_app = create_local_app(
+            self.root,
+            launch_token="shared-key-regression",
+            session_secret="shared-key-regression-session",
+            secret_store=self.secret_store,
+            preparation_jobs_enabled=False,
+            odoo_capture_jobs_enabled=False,
+        )
+        with TestClient(browser_app) as browser:
+            launched = browser.get(
+                "/launch?token=shared-key-regression",
+                follow_redirects=False,
+            )
+            self.assertEqual(launched.status_code, 303)
+            application = activated.applications[0]
+            mapping_url = f"/workspaces/{application.workspace_id}/mapping"
+
+            mapping_page = browser.get(mapping_url)
+
+            self.assertEqual(mapping_page.status_code, 200, mapping_page.text)
+            self.assertNotIn("Workspace not found", mapping_page.text)
+            quick_key_url = (
+                f"/projects/{project.project_id}/workspaces/"
+                f"{application.workspace_id}/target/read-credential/quick"
+            )
+            self.assertIn(f'action="{quick_key_url}"', mapping_page.text)
+            saved = browser.post(
+                quick_key_url,
+                data={
+                    "csrf_token": re.search(
+                        r'name="csrf_token" value="([^"]+)"',
+                        mapping_page.text,
+                    ).group(1),
+                    "read_api_key": "application-read-key",
+                    "read_api_key_storage": "session",
+                    "return_to": mapping_url,
+                },
+                headers={
+                    "Origin": "http://testserver",
+                    "Accept": "application/json",
+                },
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertEqual(saved.json()["return_to"], mapping_url)
+            self.assertEqual(browser.get(mapping_url).status_code, 200)
+
+        setup_state = self.workspace_states.repository.get(
+            setup.setup_workspace.workspace_id
+        )
+        shared_credential = get_target_credential(
+            self.secret_store,
+            setup_state,
+            TargetCredentialRole.READ,
+        )
+        assert shared_credential is not None
+        self.assertEqual(shared_credential.secret, "application-read-key")
+
     def test_selected_recipe_revisions_use_one_registry_connection(self):
         opened = []
         original_connect = self.database.connect
@@ -3228,7 +3285,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             with self.subTest(unsafe_location=unsafe_location):
                 unsafe_return = self.client.post(
                     (
-                        f"/workspaces/{setup_workspace_id}/"
+                        f"/projects/{project_id}/workspaces/{setup_workspace_id}/"
                         "target/read-credential/quick"
                     ),
                     data={
@@ -3253,7 +3310,10 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         )
 
         saved_key = self.client.post(
-            f"/workspaces/{setup_workspace_id}/target/read-credential/quick",
+            (
+                f"/projects/{project_id}/workspaces/{setup_workspace_id}/"
+                "target/read-credential/quick"
+            ),
             data={
                 "csrf_token": fresh_csrf,
                 "read_api_key": "test-read-key",
