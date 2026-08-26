@@ -60,6 +60,7 @@ from .bounded_preparation import (
     prepare_bounded_direct_session,
     supports_bounded_direct_preparation,
 )
+from .columnar_transformation_port import ColumnarTransformationPort
 
 
 class PreparationOdooProvenance(Protocol):
@@ -114,6 +115,7 @@ class PreparationService:
         authorization: AuthorizationPolicy,
         quality: QualityService,
         normalization: NormalizationService,
+        columnar_transformations: ColumnarTransformationPort,
         resolution: ResolutionService | None = None,
         odoo_provenance: PreparationOdooProvenance | None = None,
     ) -> None:
@@ -127,6 +129,7 @@ class PreparationService:
         self.authorization = authorization
         self.quality = quality
         self.normalization = normalization
+        self.columnar_transformations = columnar_transformations
         self.resolution = resolution
         self.odoo_provenance = odoo_provenance
 
@@ -249,6 +252,7 @@ class PreparationService:
                 self.artifacts,
                 reference_bundle,
                 self.sessions,
+                self.columnar_transformations,
                 actor=actor,
                 source_snapshots=source_snapshots,
                 batch_progress=report_source_batch,

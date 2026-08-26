@@ -22,6 +22,9 @@ from .adapters.duckdb.migration_workspace_engine_database import (
 )
 from .adapters.duckdb.source_repository import SourceRepository
 from .adapters.duckdb.staging_repository import StagingRepository
+from .adapters.polars_transformation import PolarsTransformationAdapter
+from .adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
+from .adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from .application.normalization_service import NormalizationService
 from .application.odoo_provenance_service import OdooProvenanceService
 from .application.preparation_service import PreparationService
@@ -99,6 +102,8 @@ def create_preparation_worker(
         odoo_provenance_repository,
         secrets,
         authorization,
+        ProtectedOdooProvenanceCodec(),
+        ProtectedOdooComparisonCodec(),
     )
     return PreparationService(
         workspace_states,
@@ -111,6 +116,7 @@ def create_preparation_worker(
         authorization,
         quality,
         normalization,
+        PolarsTransformationAdapter(),
         resolution,
         odoo_provenance=odoo_provenance,
     )

@@ -8,12 +8,6 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
 
 from ..access import Actor
-from ..adapters.polars_transformation import (
-    POLARS_TRANSFORMATION_BATCH_ROWS,
-    iter_polars_prepared_batches,
-    summarize_polars_rule_impacts,
-    write_polars_prepared_snapshot,
-)
 from ..artifacts import GovernedArtifactStores, ArtifactStoreError
 from ..derived_entities import DerivedEntityPlan
 from ..domain.compiler.browser_mapping_compiler import compile_browser_mapping
@@ -78,6 +72,10 @@ from ..staging_contracts import (
 )
 from ..workspace_contracts import SourceDataset, SourceSelection
 from ..domain.errors import ReadinessError
+from .columnar_transformation_port import (
+    DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,
+    ColumnarTransformationPort,
+)
 from .readiness_ports import PreparationSessionRepository
 
 
@@ -176,11 +174,12 @@ def prepare_bounded_direct_session(
     artifacts: GovernedArtifactStores,
     reference_bundle: ReferenceBundle | None,
     sessions: PreparationSessionRepository,
+    columnar_transformations: ColumnarTransformationPort,
     *,
     actor: Actor,
     source_snapshots: Iterable[SourceSnapshot] | None = None,
     batch_progress: Callable[[int, int], None] | None = None,
-    columnar_batch_size: int = POLARS_TRANSFORMATION_BATCH_ROWS,
+    columnar_batch_size: int = DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,
 ) -> BoundedDirectPreparation:
     """Transform direct selected sources into one READY durable session."""
 
@@ -359,6 +358,7 @@ def prepare_bounded_direct_session(
                         artifacts,
                         sessions,
                         session.session_id,
+                        columnar_transformations,
                     )
                     projection = PreparedCanonicalProjection(
                         dataset_id=effective.dataset_id,
@@ -401,7 +401,7 @@ def prepare_bounded_direct_session(
                                 )
                             impact_collector.record_persisted_precomputed(
                                 native_projection.impact_counts,
-                                summarize_polars_rule_impacts(
+                                columnar_transformations.summarize_rule_impacts(
                                     path,
                                     prepared_snapshot,
                                     columnar.program,
@@ -426,7 +426,7 @@ def prepare_bounded_direct_session(
                             prepared_snapshot,
                             projection,
                         )
-                        for native_batch in iter_polars_prepared_batches(
+                        for native_batch in columnar_transformations.iter_prepared_batches(
                             path,
                             prepared_snapshot,
                             snapshot,
@@ -703,6 +703,7 @@ def _prepared_snapshot_for_program(
     artifacts: GovernedArtifactStores,
     sessions: PreparationSessionRepository,
     session_id: str,
+    columnar_transformations: ColumnarTransformationPort,
 ) -> PreparedSnapshot:
     """Reuse or publish one exact typed projection before canonical adaptation."""
 
@@ -748,7 +749,7 @@ def _prepared_snapshot_for_program(
         ) as source_path:
             with artifacts.prepare_prepared_snapshot(workspace_state.workspace_id) as workspace:
                 candidate_path = workspace / "prepared.parquet"
-                candidate = write_polars_prepared_snapshot(
+                candidate = columnar_transformations.write_prepared_snapshot(
                     source_path,
                     source_snapshot,
                     program,

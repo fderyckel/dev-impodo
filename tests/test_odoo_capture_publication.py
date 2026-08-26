@@ -14,6 +14,7 @@ from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
+from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
@@ -23,6 +24,8 @@ from impodo.application.odoo_capture_publication_service import (
     OdooCapturePublicationService,
 )
 from impodo.application.odoo_provenance_service import OdooProvenanceService
+from impodo.adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
+from impodo.adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
 from impodo.application.bounded_preparation import prepare_bounded_direct_session
 from impodo.application.preparation_service import (
@@ -78,6 +81,7 @@ from impodo.workspace_access import WorkspaceAccessContext
 HASHES = tuple("sha256:" + digit * 64 for digit in "123456789")
 DiskUsage = namedtuple("DiskUsage", "total used free")
 ROOT = Path(__file__).resolve().parents[1]
+COLUMNAR_TRANSFORMATIONS = PolarsTransformationAdapter()
 
 
 def _lineage_id(kind: str, workspace_id: str) -> str:
@@ -148,6 +152,8 @@ class OdooCapturePublicationTests(unittest.TestCase):
             self.repository,
             self.secrets,
             authorization,
+            ProtectedOdooProvenanceCodec(),
+            ProtectedOdooComparisonCodec(),
         )
         self.service = OdooCapturePublicationService(
             OdooSourceCaptureService(
@@ -239,6 +245,8 @@ class OdooCapturePublicationTests(unittest.TestCase):
             repository,
             self.secrets,
             authorization,
+            ProtectedOdooProvenanceCodec(),
+            ProtectedOdooComparisonCodec(),
         )
         service = OdooCapturePublicationService(
             OdooSourceCaptureService(
@@ -330,6 +338,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
             self.artifacts,
             None,
             PreparationSessionRepository(self.database, self.artifacts),
+            COLUMNAR_TRANSFORMATIONS,
             actor=LOCAL_ACTOR,
             source_snapshots=(publication.source_snapshot,),
         )
@@ -754,4 +763,3 @@ def _selection(
 
 if __name__ == "__main__":
     unittest.main()
-

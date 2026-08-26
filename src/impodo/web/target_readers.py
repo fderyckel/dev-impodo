@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 
 from starlette.concurrency import run_in_threadpool
 
-from ..adapters.odoo_source_capture import Json2OdooSourceCapture
 from ..application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     OdooReadFailureCode,
@@ -103,24 +102,6 @@ def _target_json2_config(
     if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Configure the Odoo target before reading it")
     return target_record_read_config(
-        Json2Config(
-            base_url=workspace_state.odoo_base_url,
-            database=workspace_state.odoo_database,
-            api_key=api_key,
-            connection_mode=workspace_state.odoo_connection_mode.value,
-        )
-    )
-
-
-def _source_capture_reader(
-    workspace_state: WorkspaceState,
-    api_key: str,
-) -> Json2OdooSourceCapture:
-    """Build the one governed JSON-2 business-record capture adapter."""
-
-    if workspace_state.odoo_connection_mode is None:
-        raise WorkspaceStateError("Configure the Odoo target before source capture")
-    return Json2OdooSourceCapture(
         Json2Config(
             base_url=workspace_state.odoo_base_url,
             database=workspace_state.odoo_database,

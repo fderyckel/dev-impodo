@@ -34,21 +34,36 @@ Run the inventory check from the repository root:
 .venv/bin/python -m unittest tests.test_architecture_inventory -v
 ```
 
-The reviewed Phase 0 snapshot contains 275 production modules and 1,688
-runtime internal import edges. It records one type-only edge. The snapshot
-also records three current application-to-adapter edges and the current
-runtime cycle between `impodo.inspection` and `impodo.source_worker`.
+The reviewed snapshot contains 277 production modules and 1,708 runtime
+internal import edges. It records one type-only edge. Phase 1 removed the three
+application-to-adapter edges and the runtime cycle between
+`impodo.inspection` and `impodo.source_worker`.
 
-These violations are evidence for Phase 1, not permissions for new edges. When
-a remediation slice changes production modules or imports, inspect the JSON
-diff. Update the fixture only when the change is intended and the new result is
-at least as close to the target dependency rule. Phase 1 removes the recorded
-violations before it enforces a zero-violation rule.
+When a remediation slice changes production modules or imports, inspect the
+JSON diff. Update the fixture only when the change is intended and the new
+result is at least as close to the target dependency rule. The Phase 1
+dependency gate now requires zero application-to-adapter edges and zero
+runtime cycles.
 
 The inventory resolves relative imports and imports beneath `TYPE_CHECKING`.
 It treats type-only edges as dependency-direction evidence while reporting
 runtime cycles separately. An unknown nested production package is
 unclassified and fails the baseline until a maintainer assigns it a layer.
+
+## Phase 1 dependency direction
+
+Run the direction gate from the repository root:
+
+```bash
+.venv/bin/python -m unittest tests.test_architecture_dependency_rules -v
+```
+
+The test reads the complete temporary ownership manifest for every remaining
+flat production module. It rejects domain imports of application, adapter, or
+web modules; application imports of adapter or web modules; runtime module
+cycles; and direct concrete-adapter construction outside a composition module
+or worker entry point. It prints the exact offending import path or
+construction site when a rule fails.
 
 ## Reproducible test order
 

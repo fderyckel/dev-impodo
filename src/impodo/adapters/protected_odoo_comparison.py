@@ -9,6 +9,9 @@ import os
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from ..application.protected_evidence_codecs import (
+    EncodedOdooComparison as PortEncodedOdooComparison,
+)
 from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..workspace_errors import WorkspaceError
 
@@ -84,6 +87,45 @@ def decode_odoo_comparison(
     if _hash(plaintext) != expected_logical_hash:
         raise WorkspaceError("Protected Odoo comparison content changed")
     return plaintext
+
+
+class ProtectedOdooComparisonCodec:
+    """Implement the application comparison codec port with AES-GCM envelopes."""
+
+    def encode_comparison(
+        self,
+        plaintext: bytes,
+        *,
+        authenticated_binding: bytes,
+        key: bytes,
+    ) -> PortEncodedOdooComparison:
+        encoded = encode_odoo_comparison(
+            plaintext,
+            authenticated_binding=authenticated_binding,
+            key=key,
+        )
+        return PortEncodedOdooComparison(
+            encrypted_bytes=encoded.encrypted_bytes,
+            logical_hash=encoded.logical_hash,
+            artifact_hash=encoded.artifact_hash,
+        )
+
+    def decode_comparison(
+        self,
+        encrypted_bytes: bytes,
+        *,
+        authenticated_binding: bytes,
+        expected_logical_hash: str,
+        expected_artifact_hash: str,
+        key: bytes,
+    ) -> bytes:
+        return decode_odoo_comparison(
+            encrypted_bytes,
+            authenticated_binding=authenticated_binding,
+            expected_logical_hash=expected_logical_hash,
+            expected_artifact_hash=expected_artifact_hash,
+            key=key,
+        )
 
 
 def _hash(value: bytes) -> str:

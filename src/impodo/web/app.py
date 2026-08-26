@@ -140,6 +140,10 @@ from ..adapters.duckdb.advanced_coverage_repository import AdvancedCoverageRepos
 from ..adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
+from ..adapters.polars_transformation import PolarsTransformationAdapter
+from ..adapters.odoo_source_capture import Json2OdooSourceCapture
+from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
+from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from ..adapters.protected_recipe_store import ProtectedRecipeStore
 from ..adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
@@ -152,6 +156,7 @@ from ..workspace_state import (
     WorkspaceStateService,
     SourceMode,
 )
+from ..connectors import Json2Config
 from ..data_version_sources import (
     DataVersionSourcePackageService,
     WorkspaceSourceProjectionService,
@@ -191,7 +196,6 @@ from .target_readers import (
     _read_schema,
     _probe_read_identity,
     _test_connection,
-    _source_capture_reader,
 )
 from .target_credentials import (
     TargetCredentialRole,
@@ -272,6 +276,25 @@ def create_local_app(
     ``app.state.context`` and passes that same context to every router. This
     function opens no project and contacts no Odoo target while composing.
     """
+
+    def local_source_capture_factory(
+        workspace_state: WorkspaceState,
+        api_key: str,
+    ) -> Json2OdooSourceCapture:
+        """Build the local JSON-2 capture adapter from one selected target."""
+
+        if workspace_state.odoo_connection_mode is None:
+            raise WorkspaceStateError(
+                "Configure the Odoo target before source capture"
+            )
+        return Json2OdooSourceCapture(
+            Json2Config(
+                base_url=workspace_state.odoo_base_url,
+                database=workspace_state.odoo_database,
+                api_key=api_key,
+                connection_mode=workspace_state.odoo_connection_mode.value,
+            )
+        )
 
     unavailable_projects = prepare_incompatible_project_storage(project_root)
     foundation_database = MigrationFoundationDatabase(
@@ -371,6 +394,8 @@ def create_local_app(
         odoo_provenance_repository,
         resolved_secret_store,
         workspace_access,
+        ProtectedOdooProvenanceCodec(),
+        ProtectedOdooComparisonCodec(),
     )
     odoo_capture_publication = OdooCapturePublicationService(
         OdooSourceCaptureService(
@@ -539,6 +564,7 @@ def create_local_app(
         workspace_access,
         quality,
         normalization,
+        PolarsTransformationAdapter(),
         resolution,
         odoo_provenance=odoo_provenance_service,
     )
@@ -732,7 +758,7 @@ def create_local_app(
         schema_reader=schema_reader or _read_schema,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
         readiness_reader=readiness_reader,
-        source_capture_factory=source_capture_factory or _source_capture_reader,
+        source_capture_factory=source_capture_factory or local_source_capture_factory,
         write_executor_factory=write_executor_factory or _write_executor,
         readback_reader_factory=readback_reader_factory or _readback_reader,
         local_stack=local_stack_service or LocalStackService(),

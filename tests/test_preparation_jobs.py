@@ -23,6 +23,7 @@ from impodo.application.preparation_job_service import PreparationCancelled
 from impodo.application.preparation_job_service import PreparationJobManager
 from impodo.application.preparation_job_service import _run_preparation_worker
 from impodo.application.preparation_service import PreparationService
+from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.data_versions import DataVersionPurpose
 from impodo.migration_run_planning import RecipeApplicationStatus
@@ -243,6 +244,7 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
             MagicMock(),
             MagicMock(),
             MagicMock(),
+            PolarsTransformationAdapter(),
             resolution=None,
         )
         checkpoints = 0

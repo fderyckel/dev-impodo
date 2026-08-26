@@ -18,6 +18,9 @@ from typing import Iterable
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from ..application.protected_evidence_codecs import (
+    EncodedOdooProvenance as PortEncodedOdooProvenance,
+)
 from ..domain.odoo_provenance import (
     OdooCaptureOriginHeader,
     OdooOriginBatch,
@@ -166,6 +169,50 @@ def decode_capture_provenance(
             "Odoo provenance failed logical hash verification"
         )
     return _decode_plaintext(plaintext, expected_row_count=expected_row_count)
+
+
+class ProtectedOdooProvenanceCodec:
+    """Implement the application provenance codec port with AES-GCM envelopes."""
+
+    def encode_capture(
+        self,
+        *,
+        binding: OdooProvenanceBinding,
+        header: OdooCaptureOriginHeader,
+        batches: Iterable[OdooOriginBatch],
+        key: bytes,
+    ) -> PortEncodedOdooProvenance:
+        encoded = encode_capture_provenance(
+            binding=binding,
+            header=header,
+            batches=batches,
+            key=key,
+        )
+        return PortEncodedOdooProvenance(
+            encrypted_bytes=encoded.encrypted_bytes,
+            logical_hash=encoded.logical_hash,
+            artifact_hash=encoded.artifact_hash,
+            row_count=encoded.row_count,
+        )
+
+    def decode_capture(
+        self,
+        *,
+        binding: OdooProvenanceBinding,
+        encrypted_bytes: bytes,
+        expected_logical_hash: str,
+        expected_artifact_hash: str,
+        expected_row_count: int,
+        key: bytes,
+    ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]]:
+        return decode_capture_provenance(
+            binding=binding,
+            encrypted_bytes=encrypted_bytes,
+            expected_logical_hash=expected_logical_hash,
+            expected_artifact_hash=expected_artifact_hash,
+            expected_row_count=expected_row_count,
+            key=key,
+        )
 
 
 def _decode_plaintext(

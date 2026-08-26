@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 
 import psutil
 
@@ -18,13 +18,6 @@ from .build_contract import (
     PROCESS_BUILD_CONTRACT,
     require_same_application_build,
 )
-from .inspection import (
-    SourceFileCatalog,
-    SourceInspectionError,
-    SourceInspectionOptions,
-    inspect_source_file,
-)
-from .workspace_state import SourceFile
 from .source import SourceLoadError, validate_source_file
 
 
@@ -93,10 +86,13 @@ def validate_source_file_isolated(
 def inspect_source_file_isolated(
     path: str | Path,
     *,
-    source_file: SourceFile,
-    options: SourceInspectionOptions | None,
+    source_file: Any,
+    options: Any,
+    inspector: Callable[..., Any],
+    catalog_from_json: Callable[[str], Any],
+    inspection_error: type[Exception],
     build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
-) -> SourceFileCatalog:
+) -> Any:
     """Inspect an accepted file in a spawned, resource-bounded process."""
 
     context = multiprocessing.get_context("spawn")
@@ -108,6 +104,7 @@ def inspect_source_file_isolated(
             str(Path(path)),
             source_file,
             options,
+            inspector,
             build_contract,
             sender,
             start_event,
@@ -127,27 +124,27 @@ def inspect_source_file_isolated(
             process,
             timeout_seconds=INSPECTION_TIMEOUT_SECONDS,
             operation="inspection",
-            error_type=SourceInspectionError,
+            error_type=inspection_error,
         ):
             process.terminate()
             process.join(timeout=5)
-            raise SourceInspectionError("Source inspection exceeded its time limit")
+            raise inspection_error("Source inspection exceeded its time limit")
         try:
             status, payload = receiver.recv()
         except EOFError as error:
-            raise SourceInspectionError(
+            raise inspection_error(
                 "Source inspection worker stopped unexpectedly"
             ) from error
         process.join(timeout=5)
         if process.is_alive():
             process.terminate()
             process.join(timeout=5)
-            raise SourceInspectionError("Source inspection worker did not exit")
+            raise inspection_error("Source inspection worker did not exit")
         if status != "ok":
-            raise SourceInspectionError(str(payload))
+            raise inspection_error(str(payload))
         if process.exitcode != 0:
-            raise SourceInspectionError("Source inspection worker failed")
-        return SourceFileCatalog.from_json(str(payload))
+            raise inspection_error("Source inspection worker failed")
+        return catalog_from_json(str(payload))
     finally:
         receiver.close()
         if process.is_alive():
@@ -179,8 +176,9 @@ def _worker(
 
 def _inspection_worker(
     path: str,
-    source_file: SourceFile,
-    options: SourceInspectionOptions | None,
+    source_file: Any,
+    options: Any,
+    inspector: Callable[..., Any],
     expected_build_contract: ApplicationBuildContract,
     sender: Any,
     start_event: Any,
@@ -190,7 +188,7 @@ def _inspection_worker(
             _limit_unix_memory()
         start_event.wait()
         require_same_application_build(expected_build_contract)
-        catalog = inspect_source_file(
+        catalog = inspector(
             path,
             source_file=source_file,
             options=options,
@@ -355,4 +353,3 @@ def _windows_kernel32() -> Any:
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
     return kernel32
-

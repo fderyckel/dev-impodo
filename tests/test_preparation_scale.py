@@ -25,6 +25,7 @@ from impodo.application import bounded_normalization as bounded_normalization_mo
 from impodo.application import bounded_preparation as bounded_preparation_module
 from impodo.application import preparation_service as preparation_module
 from impodo.application import quality_service as quality_module
+from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.application.bounded_preparation import BOUNDED_SOURCE_BATCH_SIZE
 from impodo.application.preparation_capability import (
     compile_preparation_capability,
@@ -80,6 +81,7 @@ from impodo.workspace_state import (
     WorkspaceStatus,
     SourceFile,
 )
+
 from impodo import source as source_module
 from impodo.normalization import (
     NormalizationCandidate,
@@ -102,6 +104,7 @@ from impodo.workspace_contracts import MappingWorkingDraft
 
 
 ROOT = Path(__file__).resolve().parents[1]
+COLUMNAR_TRANSFORMATIONS = PolarsTransformationAdapter()
 PREPARATION_SCALE_ROWS = int(os.environ.get("IMPODO_PREPARATION_SCALE_ROWS", "100000"))
 PREPARATION_SCALE_COLUMNS = int(
     os.environ.get("IMPODO_PREPARATION_SCALE_COLUMNS", "30")
@@ -379,9 +382,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_columnar_canonical_row = (
             bounded_preparation_module.canonical_prepared_session_row
         )
-        original_native_batches = (
-            bounded_preparation_module.iter_polars_prepared_batches
-        )
+        original_native_batches = PolarsTransformationAdapter.iter_prepared_batches
         original_canonical_json = bounded_preparation_module.canonical_json_bytes
         original_projection_canonical_json = (
             canonical_projection_module.canonical_json_bytes
@@ -601,9 +602,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     ),
                 ),
                 patch.object(
-                    bounded_preparation_module,
-                    "iter_polars_prepared_batches",
-                    instrumented_native_batches,
+                    PolarsTransformationAdapter,
+                    "iter_prepared_batches",
+                    staticmethod(instrumented_native_batches),
                 ),
                 patch.object(
                     bounded_preparation_module,
@@ -1071,12 +1072,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
             return invoke
 
-        original_prepared_writer = (
-            bounded_preparation_module.write_polars_prepared_snapshot
-        )
-        original_prepared_batches = (
-            bounded_preparation_module.iter_polars_prepared_batches
-        )
+        original_prepared_writer = PolarsTransformationAdapter.write_prepared_snapshot
+        original_prepared_batches = PolarsTransformationAdapter.iter_prepared_batches
         original_project_row = evaluator_module.CompiledBrowserRowTransformer.project
         original_finish_row = evaluator_module.CompiledBrowserRowTransformer.finish
         original_prepare_row = source_module.CompiledPreparedRowTransformer.transform
@@ -1103,19 +1100,19 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             memory_sampler = stack.enter_context(_PeakWorkingSetSampler(process))
             stack.enter_context(
                 patch.object(
-                    bounded_preparation_module,
-                    "write_polars_prepared_snapshot",
-                    timed_call(
+                    PolarsTransformationAdapter,
+                    "write_prepared_snapshot",
+                    staticmethod(timed_call(
                         "prepared_snapshot_transform_and_write",
                         original_prepared_writer,
-                    ),
+                    )),
                 )
             )
             stack.enter_context(
                 patch.object(
-                    bounded_preparation_module,
-                    "iter_polars_prepared_batches",
-                    timed_prepared_batches,
+                    PolarsTransformationAdapter,
+                    "iter_prepared_batches",
+                    staticmethod(timed_prepared_batches),
                 )
             )
             stack.enter_context(
@@ -1176,6 +1173,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 self.artifacts,
                 reference_bundle,
                 self.context.preparation.sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=self.context.actor,
                 source_snapshots=source_snapshots,
             )
@@ -3319,4 +3317,3 @@ def _installed_version(distribution: str) -> str:
 
 if __name__ == "__main__":
     unittest.main()
-

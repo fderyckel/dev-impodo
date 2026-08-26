@@ -10,15 +10,6 @@ from typing import Iterable, Protocol
 from uuid import uuid4
 
 from ..access import Actor, Capability
-from ..adapters.protected_odoo_provenance import (
-    decode_capture_provenance,
-    encode_capture_provenance,
-)
-from ..adapters.protected_odoo_comparison import (
-    EncodedOdooComparison,
-    decode_odoo_comparison,
-    encode_odoo_comparison,
-)
 from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.odoo_provenance import (
     OdooCaptureManifest,
@@ -31,6 +22,10 @@ from ..models import canonical_json_bytes
 from ..secrets import SecretStore, SecretStoreError
 from ..workspace_errors import WorkspaceError
 from ..workspace_access import WorkspaceAccessService
+from .protected_evidence_codecs import (
+    OdooComparisonCodec,
+    OdooProvenanceCodec,
+)
 
 
 class OdooProvenanceStore(Protocol):
@@ -97,12 +92,16 @@ class OdooProvenanceService:
         provenance: OdooProvenanceStore,
         secrets: SecretStore,
         authorization: WorkspaceAccessService,
+        provenance_codec: OdooProvenanceCodec,
+        comparison_codec: OdooComparisonCodec,
     ) -> None:
         self._workspaces = workspaces
         self._selections = selections
         self._provenance = provenance
         self._secrets = secrets
         self._authorization = authorization
+        self._provenance_codec = provenance_codec
+        self._comparison_codec = comparison_codec
 
     def prepare_capture_origins(
         self,
@@ -155,7 +154,7 @@ class OdooProvenanceService:
             context_hash=selection.context_hash,
         )
         key = self._data_version_key(context.data_version_id, create=True)
-        encoded = encode_capture_provenance(
+        encoded = self._provenance_codec.encode_capture(
             binding=binding,
             header=header,
             batches=batches,
@@ -240,7 +239,7 @@ class OdooProvenanceService:
         if manifest.retention_until <= current_time:
             raise WorkspaceError("Protected Odoo provenance has expired")
         encrypted = self._provenance.read_encrypted(workspace_id, manifest)
-        return decode_capture_provenance(
+        return self._provenance_codec.decode_capture(
             binding=manifest.provenance_binding,
             encrypted_bytes=encrypted,
             expected_logical_hash=manifest.provenance_logical_hash,
@@ -272,7 +271,7 @@ class OdooProvenanceService:
             raise WorkspaceError(
                 "The protected Odoo capture changed before comparison publication"
             )
-        encoded: EncodedOdooComparison = encode_odoo_comparison(
+        encoded = self._comparison_codec.encode_comparison(
             plaintext,
             authenticated_binding=_comparison_binding(
                 workspace_id,
@@ -310,7 +309,7 @@ class OdooProvenanceService:
             raise WorkspaceError(
                 "The protected Odoo comparison no longer matches the current capture"
             )
-        return decode_odoo_comparison(
+        return self._comparison_codec.decode_comparison(
             encrypted_bytes,
             authenticated_binding=_comparison_binding(
                 workspace_id,

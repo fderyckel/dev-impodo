@@ -455,15 +455,22 @@ and both recorded process-isolated orders.
 
 ### Phase 1: Enforce dependency direction
 
-- Define consumer-owned ports for Polars preparation and protected evidence
-  codecs.
-- Inject their local implementations from composition and worker entry points.
-- Break the `inspection.py` and `source_worker.py` cycle by extracting shared
-  contracts and the pure inspector or by injecting the isolated worker.
-- Add the architecture import and cycle test.
+Phase 1 is implemented. The preparation application service owns a narrow
+columnar-transformation port, and the Odoo provenance service owns the two
+protected-evidence codec ports. The local Polars and AES-GCM implementations
+are constructed only by browser or worker composition.
 
-**Exit condition:** There is no application-to-adapter import and no production
-module cycle.
+The inspection service now supplies its pure inspector to the isolated worker.
+The worker no longer imports the inspection service, so the production module
+graph has no inspection-worker cycle.
+
+`tests/test_architecture_dependency_rules.py` reads the complete temporary
+flat-module ownership manifest. It rejects forbidden domain and application
+imports, runtime cycles, and concrete adapter construction outside composition
+or a worker entry point.
+
+**Exit condition:** Met. There is no application-to-adapter import and no
+production module cycle.
 
 ### Phase 2: Decompose composition and change hubs
 

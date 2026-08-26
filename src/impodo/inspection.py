@@ -319,6 +319,9 @@ class SourceInspectionService:
                             path,
                             source_file=source_file,
                             options=None,
+                            inspector=inspect_source_file,
+                            catalog_from_json=SourceFileCatalog.from_json,
+                            inspection_error=SourceInspectionError,
                         )
                     )
             except ArtifactStoreError as error:
@@ -368,6 +371,9 @@ class SourceInspectionService:
                     path,
                     source_file=source_file,
                     options=options,
+                    inspector=inspect_source_file,
+                    catalog_from_json=SourceFileCatalog.from_json,
+                    inspection_error=SourceInspectionError,
                 )
         except ArtifactStoreError as error:
             raise SourceInspectionError(str(error)) from error

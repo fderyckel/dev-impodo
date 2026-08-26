@@ -32,6 +32,8 @@ from impodo.adapters.protected_odoo_provenance import (
 )
 from impodo.artifacts import LocalArtifactStore
 from impodo.application.odoo_provenance_service import OdooProvenanceService
+from impodo.adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
+from impodo.adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from impodo.domain.odoo_capture import (
     OdooCaptureFilterPolicy,
     OdooCaptureSelection,
@@ -131,6 +133,8 @@ class OdooProvenanceTests(unittest.TestCase):
             self.repository,
             self.secrets,
             self.workspace_access,
+            ProtectedOdooProvenanceCodec(),
+            ProtectedOdooComparisonCodec(),
         )
         self.now = datetime.now(timezone.utc)
         self.workspace_state = WorkspaceState(
@@ -705,4 +709,3 @@ class OdooProvenanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -555,7 +555,11 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         )
         with patch(
             "impodo.source_worker.inspect_source_file_isolated",
-            side_effect=inspect_source_file,
+            side_effect=lambda path, *, source_file, options, inspector, catalog_from_json, inspection_error: inspector(
+                path,
+                source_file=source_file,
+                options=options,
+            ),
         ):
             context.inspections.inspect_project(workspace_id, actor=context.actor)
         context.sources.confirm_source(
@@ -717,5 +721,3 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

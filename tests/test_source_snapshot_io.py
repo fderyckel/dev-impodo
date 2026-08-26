@@ -20,6 +20,7 @@ from impodo.adapters.duckdb.preparation_session_repository import (
 )
 from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
+from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.application.bounded_preparation import (
     direct_preparation_row_limit,
     prepare_bounded_direct_session,
@@ -61,6 +62,7 @@ from impodo.workspace_access import WorkspaceAccessContext
 
 ROOT = Path(__file__).resolve().parents[1]
 HASH_B = "sha256:" + "b" * 64
+COLUMNAR_TRANSFORMATIONS = PolarsTransformationAdapter()
 
 
 def _lineage_id(kind: str, workspace_id: str) -> str:
@@ -175,6 +177,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 self.artifacts,
                 None,
                 sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=LOCAL_ACTOR,
                 source_snapshots=snapshots,
                 columnar_batch_size=1,
@@ -237,7 +240,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(restored.rows, staged.canonical_run.rows)
         self.assertEqual(restored.content_hash, staged.canonical_run.content_hash)
         with patch(
-            "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
+            "impodo.adapters.polars_transformation."
+            "PolarsTransformationAdapter.write_prepared_snapshot",
             side_effect=AssertionError("reused preparation reran Polars"),
         ):
             repeated = prepare_bounded_direct_session(
@@ -250,6 +254,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 self.artifacts,
                 None,
                 sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=LOCAL_ACTOR,
                 source_snapshots=snapshots,
             )
@@ -317,6 +322,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             self.artifacts,
             None,
             sessions,
+            COLUMNAR_TRANSFORMATIONS,
             actor=LOCAL_ACTOR,
             source_snapshots=(snapshot,),
         )
@@ -374,6 +380,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             self.artifacts,
             None,
             sessions,
+            COLUMNAR_TRANSFORMATIONS,
             actor=LOCAL_ACTOR,
             source_snapshots=(snapshot,),
         )
@@ -433,7 +440,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         sessions = PreparationSessionRepository(self.database)
 
         with patch(
-            "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
+            "impodo.adapters.polars_transformation."
+            "PolarsTransformationAdapter.write_prepared_snapshot",
             side_effect=AssertionError("unsupported mapping used the native adapter"),
         ):
             bounded = prepare_bounded_direct_session(
@@ -446,6 +454,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 self.artifacts,
                 None,
                 sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=LOCAL_ACTOR,
                 source_snapshots=(snapshot,),
             )
@@ -479,6 +488,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 self.artifacts,
                 None,
                 sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=LOCAL_ACTOR,
             )
 
@@ -581,6 +591,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 self.artifacts,
                 None,
                 sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=LOCAL_ACTOR,
                 source_snapshots=(snapshot,),
             )
@@ -631,6 +642,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 self.artifacts,
                 None,
                 sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=LOCAL_ACTOR,
                 source_snapshots=(snapshot,),
                 batch_progress=cancel_after_durable_batch,
@@ -642,7 +654,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             1,
         )
         with patch(
-            "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
+            "impodo.adapters.polars_transformation."
+            "PolarsTransformationAdapter.write_prepared_snapshot",
             side_effect=AssertionError("retry reran Polars"),
         ):
             retry = prepare_bounded_direct_session(
@@ -655,6 +668,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 self.artifacts,
                 None,
                 sessions,
+                COLUMNAR_TRANSFORMATIONS,
                 actor=LOCAL_ACTOR,
                 source_snapshots=(snapshot,),
                 columnar_batch_size=1,
@@ -1211,4 +1225,3 @@ def _direct_mapping(selection) -> MappingDefinition:
 
 if __name__ == "__main__":
     unittest.main()
-
