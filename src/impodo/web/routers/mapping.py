@@ -33,7 +33,10 @@ from ...connectors import ConnectorError
 from ...domain.errors import ReadinessError
 from ...domain.mapping.contracts import TargetFieldHandling
 from ...domain.staging.transformation_impact import TransformationImpactFilter
-from ...migration_run_planning import MigrationRunPlanningError
+from ...migration_run_planning import (
+    MigrationRunPlanningError,
+    RecipeApplicationStatus,
+)
 from ...secrets import SecretStoreError
 from ...source import SourceLoadError
 from ...workspace_errors import WorkspaceError
@@ -845,14 +848,30 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     workspace_id=workspace_id,
                 )
                 if access.recipe_application_id is not None:
-                    await run_in_threadpool(
+                    confirmed_application = await run_in_threadpool(
                         context.run_planning.confirm_application_mapping,
                         access.recipe_application_id,
                         actor=context.actor,
                     )
-                message = "Field matches confirmed."
+                    mapping_return_url = (
+                        _confirmed_recipe_mapping_destination(
+                            confirmed_application
+                        )
+                    )
+                    if (
+                        confirmed_application.status
+                        is RecipeApplicationStatus.BLOCKED
+                    ):
+                        message = (
+                            "Field matches confirmed. Continue with the remaining "
+                            "Recipe review."
+                        )
+                    else:
+                        message = "Field matches confirmed."
+                else:
+                    message = "Field matches confirmed."
+                    mapping_return_url = f"/workspaces/{workspace_id}/prepare"
                 _flash(request, message)
-                mapping_return_url = f"/workspaces/{workspace_id}/prepare"
         except HTTPException as error:
             return _mapping_save_error_response(
                 request,
@@ -930,6 +949,17 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _confirmed_recipe_mapping_destination(application) -> str:
+    """Continue through the run while another Recipe review remains."""
+
+    if application.status is RecipeApplicationStatus.BLOCKED:
+        return (
+            f"/projects/{application.project_id}/runs/"
+            f"{application.migration_run_id}"
+        )
+    return f"/workspaces/{application.workspace_id}/prepare"
 
 
 def _active_preparation_url(context: WebContext, workspace_id: str) -> str:

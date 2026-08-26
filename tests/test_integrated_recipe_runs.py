@@ -125,6 +125,7 @@ from impodo.migration_runs import (
 )
 from impodo.migration_test import TestRunSetupState
 from impodo.migration_workspaces import MigrationWorkspaceService
+from impodo.preparation_jobs import PreparationJobStatus
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
@@ -136,7 +137,13 @@ from impodo.recipes import RecipeService
 from impodo.reference_keys import REFERENCE_POLICY_HASH
 from impodo.secrets import MemorySecretStore
 from impodo.web.app import create_local_app
-from impodo.web.run_review import build_integrated_run_review
+from impodo.web.routers.mapping import (
+    _confirmed_recipe_mapping_destination,
+)
+from impodo.web.run_review import (
+    build_integrated_run_review,
+    publish_preparation_progress,
+)
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential,
@@ -1057,6 +1064,12 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
         self.assertEqual(
             saved[0][1]["mapping_content_hash"],
             definition.content_hash,
+        )
+        confirmed.project_id = project_id
+        confirmed.workspace_id = workspace_id
+        self.assertEqual(
+            _confirmed_recipe_mapping_destination(confirmed),
+            f"/projects/{project_id}/runs/{run_id}",
         )
 
     def test_old_required_field_blocker_recovers_to_grouped_default_review(self):
@@ -2623,6 +2636,41 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             [self.foundation.registry_path, self.foundation.registry_path],
         )
         self.assertEqual(len(statements), 2)
+
+    def test_preparation_progress_does_not_override_review_or_later_progress(self):
+        application_id = str(uuid4())
+        attempted = []
+        current = SimpleNamespace(status=RecipeApplicationStatus.BLOCKED)
+
+        def transition(current_id, **values):
+            attempted.append((current_id, values))
+            raise MigrationConflictError(
+                "Recipe application progress changed before this update"
+            )
+
+        repository = SimpleNamespace(
+            transition_application_status=transition,
+            get_application=lambda current_id: current,
+        )
+        context = SimpleNamespace(
+            actor=LOCAL_ACTOR,
+            run_planning=SimpleNamespace(repository=repository),
+        )
+        job = SimpleNamespace(
+            workspace=SimpleNamespace(recipe_application_id=application_id),
+            status=PreparationJobStatus.RUNNING,
+        )
+
+        publish_preparation_progress(context, job)
+        current.status = RecipeApplicationStatus.COMPARED
+        job.status = PreparationJobStatus.SUCCEEDED
+        publish_preparation_progress(context, job)
+
+        self.assertEqual(len(attempted), 2)
+
+        current.status = RecipeApplicationStatus.DRAFT_READINESS
+        with self.assertRaises(MigrationConflictError):
+            publish_preparation_progress(context, job)
 
     def test_review_projection_orders_recipes_without_workspace_open(self):
         result = self._start()

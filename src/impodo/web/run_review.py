@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Mapping
 
 from ..domain.serialization import content_hash
 from ..load_jobs import LoadJob, LoadJobStatus
+from ..migration_foundation import MigrationConflictError
 from ..migration_run_planning import (
     IntegratedRunBundle,
     MigrationRunPlanIssue,
@@ -232,11 +233,11 @@ def publish_preparation_progress(
         )
     else:
         return
-    context.run_planning.repository.transition_application_status(
+    _transition_application_progress(
+        context,
         application_id,
         expected_statuses=expected,
         status=target,
-        actor=context.actor,
     )
 
 
@@ -276,14 +277,54 @@ def publish_load_progress(context: WebContext, job: LoadJob) -> None:
         )
     else:
         return
-    updated = context.run_planning.repository.transition_application_status(
+    updated = _transition_application_progress(
+        context,
         application_id,
         expected_statuses=expected,
         status=target,
-        actor=context.actor,
     )
     if updated.status is RecipeApplicationStatus.RECONCILED:
         _try_start_after_reconciliation(context, updated.migration_run_id)
+
+
+_APPLICATION_PROGRESS_ORDER = {
+    RecipeApplicationStatus.READY: 0,
+    RecipeApplicationStatus.RUNNING: 1,
+    RecipeApplicationStatus.PREPARED: 2,
+    RecipeApplicationStatus.COMPARED: 3,
+    RecipeApplicationStatus.EXECUTED: 4,
+    RecipeApplicationStatus.RECONCILED: 5,
+    RecipeApplicationStatus.QUALIFIED: 5,
+}
+
+
+def _transition_application_progress(
+    context: WebContext,
+    application_id: str,
+    *,
+    expected_statuses: tuple[RecipeApplicationStatus, ...],
+    status: RecipeApplicationStatus,
+) -> RunRecipeApplication:
+    """Publish one milestone without reversing held or later progress."""
+
+    try:
+        return context.run_planning.repository.transition_application_status(
+            application_id,
+            expected_statuses=expected_statuses,
+            status=status,
+            actor=context.actor,
+        )
+    except MigrationConflictError:
+        current = context.run_planning.repository.get_application(application_id)
+        current_order = _APPLICATION_PROGRESS_ORDER.get(current.status)
+        target_order = _APPLICATION_PROGRESS_ORDER.get(status)
+        if current.status is RecipeApplicationStatus.BLOCKED or (
+            current_order is not None
+            and target_order is not None
+            and current_order >= target_order
+        ):
+            return current
+        raise
 
 
 def publish_compared_application(
@@ -323,7 +364,7 @@ def publish_reconciled_application(
         raise WorkspaceError(
             "The verified Recipe does not belong to this Test run"
         )
-    updated = context.run_planning.repository.transition_application_status(
+    context.run_planning.repository.transition_application_status(
         application_id,
         expected_statuses=(
             RecipeApplicationStatus.READY,

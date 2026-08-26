@@ -12,6 +12,7 @@ from ...application.preparation_job_registry import (
     PreparationJobStateError,
 )
 from ...migration_foundation import MigrationFoundationError
+from ...migration_run_planning import RecipeApplicationStatus
 from ...preparation_jobs import PreparationJob, PreparationJobStatus
 from ...preparation_jobs import PreparationWorkspace
 from ...workspace_errors import WorkspaceError
@@ -41,7 +42,8 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         try:
-            _preparation_workspace(context, workspace_id)
+            workspace = _preparation_workspace(context, workspace_id)
+            _assert_recipe_application_can_prepare(context, workspace)
         except WorkspaceError as error:
             request.session["summary_error"] = str(error)
             return RedirectResponse(
@@ -126,6 +128,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token"})
         try:
             workspace = _preparation_workspace(context, workspace_id)
+            _assert_recipe_application_can_prepare(context, workspace)
             job = _manager(context).retry(
                 workspace_id,
                 job_id,
@@ -154,6 +157,7 @@ def enqueue_preparation(context: WebContext, workspace_id: str) -> PreparationJo
     """Capture lightweight display/scale metadata before starting the process."""
 
     workspace = _preparation_workspace(context, workspace_id)
+    _assert_recipe_application_can_prepare(context, workspace)
     total_rows = _preparation_row_count(context, workspace_id)
     return _manager(context).enqueue(
         workspace_id,
@@ -162,6 +166,45 @@ def enqueue_preparation(context: WebContext, workspace_id: str) -> PreparationJo
         actor=context.actor,
         workspace=workspace,
     )
+
+
+def _assert_recipe_application_can_prepare(
+    context: WebContext,
+    workspace: PreparationWorkspace,
+) -> None:
+    """Keep preparation behind the run's remaining Recipe reviews."""
+
+    application_id = workspace.recipe_application_id
+    if application_id is None:
+        return
+    application = context.run_planning.repository.get_application(application_id)
+    if application.workspace_id != workspace.workspace_id:
+        raise WorkspaceError("This Recipe work area no longer matches its run")
+    issues = context.run_planning.repository.list_issues(application_id)
+    actionable = tuple(
+        item for item in issues if item.level.value != "INFORMATION"
+    )
+    if application.status is RecipeApplicationStatus.BLOCKED or actionable:
+        if actionable and all(
+            item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+            for item in actionable
+        ):
+            raise WorkspaceError(
+                "Review the current Odoo defaults before preparing this Recipe"
+            )
+        raise WorkspaceError(
+            actionable[0].message
+            if actionable
+            else "Finish the remaining Recipe review before preparation"
+        )
+    if application.status not in {
+        RecipeApplicationStatus.READY,
+        RecipeApplicationStatus.RUNNING,
+        RecipeApplicationStatus.FAILED,
+    }:
+        raise WorkspaceError(
+            "Continue this Recipe from its current Review and load step"
+        )
 
 
 def _migration_project_name(context: WebContext, migration_project_id: str) -> str:

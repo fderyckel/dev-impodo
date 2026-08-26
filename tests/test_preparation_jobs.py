@@ -25,12 +25,17 @@ from impodo.application.preparation_job_service import _run_preparation_worker
 from impodo.application.preparation_service import PreparationService
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.data_versions import DataVersionPurpose
+from impodo.migration_run_planning import RecipeApplicationStatus
 from impodo.migration_runs import MigrationRunPurpose
 from impodo.preparation_jobs import (
     PreparationJobStatus,
     PreparationPhase,
     PreparationWorkspace,
 )
+from impodo.web.routers.preparation import (
+    _assert_recipe_application_can_prepare,
+)
+from impodo.workspace_errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -152,6 +157,44 @@ class PreparationJobRegistryTests(unittest.TestCase):
                 "Restart Impodo before continuing",
             )
             self.assertFalse(failed.retry_allowed)
+
+    def test_recipe_review_blocks_preparation_before_worker_enqueue(self) -> None:
+        application_id = str(uuid4())
+        workspace_id = str(uuid4())
+        application = SimpleNamespace(
+            status=RecipeApplicationStatus.BLOCKED,
+            workspace_id=workspace_id,
+        )
+        default_review = SimpleNamespace(
+            code="RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+            level=SimpleNamespace(value="REVIEW"),
+        )
+        repository = SimpleNamespace(
+            get_application=lambda current_id: application,
+            list_issues=lambda current_id: (default_review,),
+        )
+        context = SimpleNamespace(
+            run_planning=SimpleNamespace(repository=repository)
+        )
+        workspace = SimpleNamespace(
+            recipe_application_id=application_id,
+            workspace_id=workspace_id,
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "Review the current Odoo defaults",
+        ):
+            _assert_recipe_application_can_prepare(context, workspace)
+
+        application.status = RecipeApplicationStatus.READY
+        repository.list_issues = lambda current_id: (
+            SimpleNamespace(
+                code="RECIPE_SOURCE_COLUMN_UNUSED",
+                level=SimpleNamespace(value="INFORMATION"),
+            ),
+        )
+        _assert_recipe_application_can_prepare(context, workspace)
 
 
 class PreparationCancellationBoundaryTests(unittest.TestCase):
