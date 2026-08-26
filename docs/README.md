@@ -52,6 +52,9 @@ applies those rules when documentation is created or rewritten.
 - [Python code map](architecture/python-code-map.md) — navigation from browser
   and CLI entry points through services, domain behavior, repositories, and
   migration evidence.
+- [Code architecture maintainability audit](reports/code-architecture-maintainability-audit-2026-08-26.md)
+  — point-in-time evidence about domain ownership, package navigability,
+  dependency direction, change hubs, tests, and browser assets.
 - [Security and infrastructure](architecture/security-and-infrastructure.md) — factual
   overview of the local architecture, implemented controls, infrastructure
   requirements, data handling, verification evidence, and current limitations.
@@ -72,6 +75,9 @@ applies those rules when documentation is created or rewritten.
 
 - [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
   delivery roadmap.
+- [Code organization remediation](plans/code-organization-remediation.md) — a
+  proposed layer-and-capability package structure, dependency rules, placement
+  guide, and incremental refactor sequence that preserves current behavior.
 - [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
   the approved plan for applying an existing Recipe to fresh data and an Odoo
   target without repeating the six authoring stages.
