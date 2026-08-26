@@ -1278,6 +1278,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const action = event.submitter?.value || "";
       const changesFieldDisposition =
+        action === "refresh_defaults" ||
         action.startsWith("set_disposition:") ||
         action.startsWith("clear_disposition:");
       if (action === "submit" && dirty) {
@@ -1315,6 +1316,8 @@ document.addEventListener("DOMContentLoaded", () => {
           saveStatus.textContent = "Saving progress...";
         } else if (action === "remove_readonly") {
           saveStatus.textContent = "Removing Odoo-managed field matches...";
+        } else if (action === "refresh_defaults") {
+          saveStatus.textContent = "Checking the current Odoo defaults...";
         } else if (changesFieldDisposition) {
           saveStatus.textContent = "Saving the Odoo-field decision...";
         } else if (action === "submit") {

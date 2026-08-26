@@ -636,6 +636,9 @@ def _refresh_mapping_odoo_defaults(
 ) -> OdooSchemaCatalog:
     """Read required create defaults once per model and preserve saved mapping."""
 
+    if schema.pending_refresh is not None:
+        return schema
+
     metadata_requests = tuple(
         MetadataRequest(model=model_name, fields=field_names)
         for model_name, field_names in requested_fields
@@ -690,16 +693,30 @@ def _refresh_mapping_odoo_defaults(
             raise OdooReadCredentialMissingError(
                 "Enter the Odoo read API key before asking Odoo to decide."
             )
-        if credential.binding_hash != schema.read_credential_binding_hash:
-            raise WorkspaceError(
-                "The Odoo read key changed; check the Odoo fields again"
-            )
         probe_models = tuple(sorted(model.name for model in schema.models))
         read_identity = context.read_identity_probe(
             workspace_state,
             credential.secret,
             probe_models,
         )
+        if (
+            credential.binding_hash != schema.read_credential_binding_hash
+            or read_identity.target_hash != schema.connection_target_hash
+            or read_identity.principal_hash != schema.read_principal_hash
+            or read_identity.permission_hash != schema.read_permission_hash
+            or read_identity.context_hash != schema.read_context_hash
+            or read_identity.readable_models != probe_models
+        ):
+            checked_schema = context.schema_workspace.check_refresh(
+                workspace_state.workspace_id,
+                context.schema_reader(workspace_state, credential.secret),
+                read_credential_binding_hash=credential.binding_hash,
+                read_identity=read_identity,
+                actor=context.actor,
+            )
+            if checked_schema.pending_refresh is not None:
+                return checked_schema
+            schema = checked_schema
         snapshot = Json2ReadConnector(
             _target_json2_config(workspace_state, credential.secret)
         ).get_model_metadata(metadata_requests)

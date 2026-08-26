@@ -775,13 +775,37 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     actor=context.actor,
                 )
                 workspace_state = context.queries.get(workspace_id)
-                await run_in_threadpool(
+                refreshed_schema = await run_in_threadpool(
                     _refresh_mapping_odoo_defaults,
                     context,
                     workspace_state,
                     schema,
                     requested_fields,
                 )
+                if refreshed_schema.pending_refresh is not None:
+                    change_count = refreshed_schema.pending_refresh.change_count
+                    message = (
+                        "Odoo changed since these fields were checked. Review "
+                        f"{change_count} Odoo change"
+                        f"{'s' if change_count != 1 else ''}; your checked "
+                        "matches are preserved."
+                    )
+                    schema_review_url = (
+                        f"/workspaces/{workspace_id}/schema#odoo-details"
+                    )
+                    _flash(request, message)
+                    if json_request:
+                        return JSONResponse(
+                            {
+                                "message": message,
+                                "redirect_url": schema_review_url,
+                                "expected_working_draft_version": (
+                                    expected_working_version
+                                ),
+                                "expected_parent_version": expected_parent,
+                            }
+                        )
+                    return RedirectResponse(schema_review_url, status_code=303)
                 working_draft, confirmed_count = await run_in_threadpool(
                     context.mapping_workspace.confirm_available_odoo_defaults,
                     workspace_id,

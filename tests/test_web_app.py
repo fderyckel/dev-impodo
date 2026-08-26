@@ -6954,6 +6954,141 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(checked_validation.status, MappingValidationStatus.VALID)
         self.assertEqual(checked_validation.issues, ())
 
+    def test_default_action_routes_changed_odoo_fields_to_review(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=2,
+            required_scalar_indexes=(0, 1),
+            connection_mode=OdooConnectionMode.REMOTE,
+        )
+        source_identity, _source_value = dataset.columns
+        context = self.app.state.context
+        revision, validation = context.mapping_workspace.check_definition(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+        schema_before = context.queries.get_odoo_schema_catalog(workspace_id)
+        workspace_state = context.queries.get(workspace_id)
+        current_model = schema_before.models[0]
+
+        def metadata(field):
+            return FieldMetadata(
+                name=field.name,
+                type=field.type,
+                label=field.label,
+                required=field.required,
+                readonly=field.readonly,
+                relation=field.relation,
+                relation_field=field.relation_field,
+                selection=field.selection,
+                stored=field.stored,
+                computed=field.computed,
+                has_inverse=field.has_inverse,
+                related=field.related,
+                translated=field.translated,
+                company_dependent=field.company_dependent,
+                searchable=field.searchable,
+                sortable=field.sortable,
+                exportable=field.exportable,
+                digits=field.digits,
+                currency_field=field.currency_field,
+            )
+
+        def changed_identity(_workspace_state, _secret, models):
+            normalized = tuple(sorted(models))
+            return OdooReadIdentity(
+                target_hash=schema_before.connection_target_hash,
+                principal_hash=schema_before.read_principal_hash,
+                permission_hash="sha256:" + "9" * 64,
+                context_hash=schema_before.read_context_hash,
+                readable_models=normalized,
+                observed_at="2026-08-26T00:00:00Z",
+            )
+
+        def changed_schema(_workspace_state, _secret):
+            fields = {field.name: metadata(field) for field in current_model.fields}
+            fields["x_optional"] = FieldMetadata(
+                name="x_optional",
+                type="char",
+                label="Optional field",
+            )
+            return MetadataSnapshot(
+                fingerprint=_browser_schema(workspace_state).fingerprint,
+                models={
+                    current_model.name: ModelMetadata(
+                        model=current_model.name,
+                        description=current_model.label,
+                        fields=fields,
+                    )
+                },
+                create_defaults={
+                    current_model.name: {
+                        "field_0000": "First Odoo default",
+                        "field_0001": "Second Odoo default",
+                    }
+                },
+            )
+
+        context.readiness_reader = None
+        context.read_identity_probe = changed_identity
+        context.schema_reader = changed_schema
+        with patch("impodo.web.target_readers.Json2ReadConnector") as connector:
+            decision = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/save",
+                json={
+                    "entries": [
+                        ["csrf_token", self.csrf],
+                        ["action", "refresh_defaults"],
+                        ["expected_parent_version", str(revision.version)],
+                        ["expected_working_draft_version", "1"],
+                    ]
+                },
+                headers={
+                    **POST_HEADERS,
+                    "Accept": "application/json",
+                    "X-CSRF-Token": self.csrf,
+                },
+            )
+
+        self.assertEqual(decision.status_code, 200, decision.text)
+        self.assertEqual(
+            decision.json()["redirect_url"],
+            f"/workspaces/{workspace_id}/schema#odoo-details",
+        )
+        self.assertIn("Review", decision.json()["message"])
+        connector.assert_not_called()
+        checked_schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        self.assertEqual(checked_schema.content_hash, schema_before.content_hash)
+        self.assertIsNotNone(checked_schema.pending_refresh)
+        self.assertTrue(
+            any(
+                change.field_name == "x_optional"
+                for change in checked_schema.pending_refresh.changes
+            )
+        )
+        working = context.queries.get_mapping_working_draft(workspace_id)
+        self.assertEqual(working.version, 1)
+        self.assertEqual(
+            working.definition.datasets[0].target_field_dispositions,
+            (),
+        )
+
     def test_required_managed_relationship_can_be_left_to_odoo(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
@@ -7994,6 +8129,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         business_key_description: str = "Unique reference",
         target_model: str = "res.partner",
         relationship_field_names: tuple[str, ...] | None = None,
+        connection_mode: OdooConnectionMode = OdooConnectionMode.LOCAL,
     ):
         context = self.app.state.context
         created = _create_workspace(
@@ -8004,8 +8140,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         registered = replace(
             created,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
-            odoo_base_url="http://127.0.0.1:8069",
+            odoo_connection_mode=connection_mode,
+            odoo_base_url=(
+                "http://127.0.0.1:8069"
+                if connection_mode is OdooConnectionMode.LOCAL
+                else "https://remote.example.test"
+            ),
             odoo_database="odoo19_local",
             intended_models=(target_model,),
             status=WorkspaceStatus.REGISTERED,
@@ -8023,10 +8163,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         _replace_run_target_setup(
             context,
             registered.workspace_id,
-            connection_mode=OdooConnectionMode.LOCAL,
-            base_url="http://127.0.0.1:8069",
+            connection_mode=connection_mode,
+            base_url=registered.odoo_base_url,
             database="odoo19_local",
         )
+        read_credential_binding_hash = "sha256:" + "1" * 64
+        if connection_mode is OdooConnectionMode.REMOTE:
+            read_credential_binding_hash = store_target_credential(
+                self.secrets,
+                registered,
+                TargetCredentialRole.READ,
+                "read-secret",
+                persistent=False,
+            ).binding_hash
         dataset = SourceDataset(
             dataset_id="dataset:large",
             name="large_contacts",
@@ -8263,7 +8412,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             models=(SchemaModel(target_model, target_model, fields),),
             content_hash="sha256:" + "4" * 64,
             origin=SchemaOrigin.LIVE_API,
-            read_credential_binding_hash="sha256:" + "1" * 64,
+            read_credential_binding_hash=read_credential_binding_hash,
             read_principal_hash="sha256:" + "1" * 64,
             read_permission_hash="sha256:" + "2" * 64,
             read_context_hash="sha256:" + "3" * 64,
