@@ -394,9 +394,10 @@ class OdooSchemaCatalog:
     """Hold the exact permitted-model Odoo schema captured for mapping.
 
     ``connection_target_hash`` binds the configured endpoint/database identity;
-    ``content_hash`` is the exact schema-scope hash. ``origin`` distinguishes
-    authenticated/live evidence from an explicitly unverified local draft that
-    cannot support submission.
+    ``content_hash`` binds the governed schema capture and remains stable when
+    only supplemental create-default evidence is refreshed. ``origin``
+    distinguishes authenticated/live evidence from an explicitly unverified
+    local draft that cannot support submission.
     """
 
     workspace_id: str

@@ -127,7 +127,9 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Replace access provenance without invalidating semantic dependents."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -297,7 +299,9 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Store default evidence only; preserve governance and mapping pointers."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
