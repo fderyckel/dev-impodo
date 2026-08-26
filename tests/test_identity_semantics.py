@@ -155,7 +155,7 @@ CURRENT_IDENTITY_SURFACES = {
             "/workspaces/{{ workspace_id }}",
         ),
         (
-            "src/impodo/web/templates/workspace_mapping.html",
+            "src/impodo/web/templates/mapping/page.html",
             "/workspaces/{{ workspace_id }}",
         ),
         (

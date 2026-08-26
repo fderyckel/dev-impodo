@@ -4396,23 +4396,26 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Advanced: custom pattern", mapping_page.text)
         self.assertIn("Advanced: formula or custom calculation", mapping_page.text)
         self.assertIn("Safe formulas only", mapping_page.text)
+        self.assertIn('/static/mapping.css', mapping_page.text)
+        self.assertIn('/static/mapping.js', mapping_page.text)
 
         mapping_script = self.client.get("/static/app.js")
+        mapping_position_script = self.client.get("/static/mapping.js")
         self.assertIn("updateScalarTableScroll", mapping_script.text)
         self.assertIn(
             "new ResizeObserver(updateScalarTableScroll)",
             mapping_script.text,
         )
         self.assertIn('window.addEventListener("beforeunload"', mapping_script.text)
-        self.assertIn("rememberMappingPosition", mapping_script.text)
-        self.assertIn("restoreMappingPosition", mapping_script.text)
-        self.assertIn("rememberMappingInteraction", mapping_script.text)
-        self.assertIn("visibleMappingRow", mapping_script.text)
+        self.assertIn("impodoMappingPosition?.remember", mapping_script.text)
+        self.assertIn("rememberInteraction", mapping_position_script.text)
+        self.assertIn("visibleRow", mapping_position_script.text)
+        self.assertIn("const restore = ()", mapping_position_script.text)
+        self.assertIn("window.sessionStorage", mapping_position_script.text)
         self.assertIn(
             'mappingForm.addEventListener("pointerdown"',
             mapping_script.text,
         )
-        self.assertIn("window.sessionStorage", mapping_script.text)
         self.assertIn("preventScroll: true", mapping_script.text)
         self.assertIn("rememberNormalizationPosition", mapping_script.text)
         self.assertIn("restoreNormalizationPosition", mapping_script.text)
@@ -4469,12 +4472,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn("hydrateSourceOptions", mapping_script.text)
         self.assertIn("option.defaultSelected = selected", mapping_script.text)
-        mapping_styles = self.client.get("/static/app.css")
+        mapping_styles = self.client.get("/static/mapping.css")
+        shared_styles = self.client.get("/static/app.css")
         self.assertIn(".scalar-table-scroll-top", mapping_styles.text)
         self.assertIn("overflow-x: scroll", mapping_styles.text)
         self.assertIn(".mapping-save-state.unsaved", mapping_styles.text)
-        self.assertIn(".source-table-summary", mapping_styles.text)
-        self.assertIn(".source-table-title", mapping_styles.text)
+        self.assertIn(".source-table-summary", shared_styles.text)
+        self.assertIn(".source-table-title", shared_styles.text)
 
         selection = (
             self.app.state.context.sources.sources.get_source_selection(workspace_id)
@@ -8709,4 +8713,3 @@ def _workbook_bytes() -> bytes:
     workbook.save(output)
     workbook.close()
     return output.getvalue()
-

@@ -261,7 +261,7 @@ stages:
       - src/impodo/web/routers/mapping.py
       - src/impodo/web/routers/quality.py
     templates:
-      - src/impodo/web/templates/workspace_mapping.html
+      - src/impodo/web/templates/mapping/page.html
       - src/impodo/web/templates/workspace_transformation_impact.html
     code_references:
       - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService
@@ -275,10 +275,10 @@ stages:
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
     tests:
-      - tests/test_mapping_forms.py
-      - tests/test_mapping_validation.py
-      - tests/test_selection_rules.py
-      - tests/test_mapping_impact_presenter.py
+      - tests/mapping/test_forms.py
+      - tests/mapping/test_validation.py
+      - tests/mapping/test_selection_rules.py
+      - tests/mapping/test_impact_presenter.py
       - tests/test_web_app.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md

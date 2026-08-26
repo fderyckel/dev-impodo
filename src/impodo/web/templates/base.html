@@ -14,7 +14,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Impodo{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+    {% block page_styles %}{% endblock %}
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    {% block page_scripts %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
     <header class="site-header">

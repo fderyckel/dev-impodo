@@ -116,7 +116,12 @@ class OrderedTextStepFormTests(unittest.TestCase):
 
     def test_button_authored_text_steps_notify_mapping_draft_tracking(self) -> None:
         script = (
-            Path(__file__).parents[1] / "src" / "impodo" / "web" / "static" / "app.js"
+            Path(__file__).parents[2]
+            / "src"
+            / "impodo"
+            / "web"
+            / "static"
+            / "app.js"
         ).read_text(encoding="utf-8")
 
         self.assertIn(
@@ -124,6 +129,25 @@ class OrderedTextStepFormTests(unittest.TestCase):
             script,
         )
         self.assertEqual(script.count("notifyTextStepsChanged(builder);"), 3)
+
+    def test_mapping_page_owns_its_page_assets(self) -> None:
+        root = Path(__file__).parents[2]
+        template = (
+            root / "src" / "impodo" / "web" / "templates" / "mapping" / "page.html"
+        ).read_text(encoding="utf-8")
+        styles = (root / "src" / "impodo" / "web" / "static" / "mapping.css").read_text(
+            encoding="utf-8"
+        )
+        script = (root / "src" / "impodo" / "web" / "static" / "mapping.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("/mapping.css", template)
+        self.assertIn("/mapping.js", template)
+        self.assertIn(".scalar-table-scroll-top", styles)
+        self.assertIn(".mapping-save-state.unsaved", styles)
+        self.assertIn("window.impodoMappingPosition", script)
+        self.assertIn("[data-mapping-form]", script)
 
 
 if __name__ == "__main__":

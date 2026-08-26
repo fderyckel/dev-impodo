@@ -1,46 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Match data · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/mapping.css') }}">
+{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/mapping.js') }}" defer></script>
+{% endblock %}
 {% block content %}
-  <div class="page-heading">
-    <div>
-      <p class="eyebrow">Stage 3 of 6 · Match data</p>
-      <h1>Match your data to Odoo</h1>
-      <p>{% if odoo_pinned %}Choose which captured values to prepare, then separately approve every field that may be updated.{% else %}Choose where each source value belongs and how existing records are found.{% endif %}</p>
-    </div>
-    {% if has_unvalidated_changes %}
-      <span class="status">Saved changes need checking</span>
-    {% elif submission %}
-      <span class="status registered">Matches confirmed</span>
-    {% elif validation and validation.status.value == 'INVALID' %}
-      <span class="status review">Matches need attention</span>
-    {% elif revision %}
-      <span class="status ready">Ready to confirm</span>
-    {% endif %}
-  </div>
-
-  {% if recipe_application and recipe_application.state.value == 'APPLIED' %}
-    <div class="notice success">
-      <strong>Recipe v{{ recipe_application.recipe_revision }} is loaded.</strong>
-      Its reusable rules were compiled into this fresh working draft. Review the
-      current field matches here before checking and confirming them.
-    </div>
-  {% endif %}
-
-  {% if schema and schema.origin.value == 'LOCAL_MANUAL' %}
-    <div class="notice warning">
-      These Odoo details have not yet been checked against Odoo. You can save your work, but you must refresh from Odoo before confirming it.
-    </div>
-  {% endif %}
-
-  {% if working_draft_is_stale %}
-    <div class="notice warning">
-      Your source tables or Odoo choices changed, so older matching work was not loaded. Review the current choices before saving again.
-    </div>
-  {% elif has_unvalidated_changes %}
-    <div class="notice success">
-      Your saved work is loaded. Continue editing or check the matches when ready.
-    </div>
-  {% endif %}
+  {% include "mapping/_heading.html" %}
 
   {% if selection and schema and (governance or odoo_pinned) %}
     <form

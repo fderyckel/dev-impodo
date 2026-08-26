@@ -336,7 +336,7 @@ Mapping, target connection, transformation editing, and job polling. Split
 Load them through explicit static tags or one small entry point. Do not add a
 frontend build system unless a separate need justifies it.
 
-Split `workspace_mapping.html` into named partials or macros around stable
+Split `mapping/page.html` into named partials or macros around stable
 forms and dialogs. Preserve exact input names, URLs, progressive enhancement,
 and server-rendered recovery behavior.
 
@@ -541,6 +541,12 @@ old flat root paths are absent, and the architecture test enforces the target
 dependency matrix.
 
 ### Phase 4: Organize tests and browser assets
+
+Phase 4 is in progress. The completed first slice groups Mapping form,
+validation, and transformation-impact tests under `tests/mapping`, and moves
+the Mapping page to `templates/mapping/page.html`. That page now owns its
+Mapping layout stylesheet and viewport-restoration script. Shared browser
+behavior remains in the common assets.
 
 - Move tests into the capability and evidence-level hierarchy.
 - Replace broad mutable fixtures with explicit builders.

@@ -481,142 +481,6 @@ document.addEventListener("DOMContentLoaded", () => {
     pendingNormalizationRejectForm = null;
   });
 
-  const mappingPositionStorageKey =
-    `impodo.mapping.position:${window.location.pathname}`;
-  let lastMappingRow = null;
-  let lastMappingControl = null;
-  const rememberMappingInteraction = (target) => {
-    const row = target?.closest?.("[data-target-field]");
-    if (!row) {
-      return;
-    }
-    lastMappingRow = row;
-    if (target.name) {
-      lastMappingControl = target;
-    }
-  };
-  const visibleMappingRow = () => {
-    const visibleRows = Array.from(
-      document.querySelectorAll("[data-target-field]")
-    )
-      .map((row) => ({ row, bounds: row.getBoundingClientRect() }))
-      .filter(
-        ({ bounds }) =>
-          bounds.height > 0 &&
-          bounds.bottom > 0 &&
-          bounds.top < window.innerHeight
-      );
-    return visibleRows.reduce((nearest, candidate) => {
-      if (!nearest) {
-        return candidate;
-      }
-      const viewportReference = Math.min(160, window.innerHeight / 4);
-      return Math.abs(candidate.bounds.top - viewportReference) <
-        Math.abs(nearest.bounds.top - viewportReference)
-        ? candidate
-        : nearest;
-    }, null)?.row;
-  };
-  const rememberMappingPosition = () => {
-    const active = document.activeElement;
-    const activeRow = active?.closest?.("[data-target-field]");
-    const rememberedRow = lastMappingRow?.isConnected
-      ? lastMappingRow
-      : null;
-    const row = activeRow || rememberedRow || visibleMappingRow();
-    const focusControl = activeRow
-      ? active
-      : lastMappingControl?.isConnected
-        ? lastMappingControl
-        : active;
-    const dataset = row?.closest("[data-mapping-dataset]");
-    const horizontal = Array.from(
-      document.querySelectorAll("[data-scalar-table-scroll][id]")
-    ).map((element) => [element.id, element.scrollLeft]);
-    try {
-      window.sessionStorage.setItem(
-        mappingPositionStorageKey,
-        JSON.stringify({
-          scrollY: window.scrollY,
-          focusName: focusControl?.name || "",
-          focusValue: focusControl?.value || "",
-          datasetId: dataset?.dataset.mappingDataset || "",
-          targetField: row?.dataset.targetField || "",
-          targetOffset: row?.getBoundingClientRect().top ?? null,
-          horizontal,
-        })
-      );
-    } catch {
-      // Navigation remains usable when browser storage is unavailable.
-    }
-  };
-  const restoreMappingPosition = () => {
-    if (window.location.hash === "#next-step-blockers") {
-      try {
-        window.sessionStorage.removeItem(mappingPositionStorageKey);
-      } catch {
-        // The blocker anchor remains usable without browser storage.
-      }
-      window.requestAnimationFrame(() => {
-        document
-          .querySelector("#next-step-blockers")
-          ?.focus({ preventScroll: true });
-      });
-      return;
-    }
-    let stored = null;
-    try {
-      stored = JSON.parse(
-        window.sessionStorage.getItem(mappingPositionStorageKey) || "null"
-      );
-      window.sessionStorage.removeItem(mappingPositionStorageKey);
-    } catch {
-      stored = null;
-    }
-    if (!stored || !document.querySelector("[data-mapping-form]")) {
-      return;
-    }
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const rows = Array.from(
-          document.querySelectorAll("[data-target-field]")
-        );
-        const row = rows.find(
-          (candidate) =>
-            candidate.dataset.targetField === stored.targetField &&
-            (!stored.datasetId ||
-              candidate.closest("[data-mapping-dataset]")?.dataset
-                .mappingDataset === stored.datasetId)
-        );
-        const targetTop =
-          row && Number.isFinite(stored.targetOffset)
-            ? window.scrollY +
-              row.getBoundingClientRect().top -
-              stored.targetOffset
-            : stored.scrollY;
-        window.scrollTo({
-          top: Math.max(0, targetTop || 0),
-          behavior: "auto",
-        });
-        for (const [id, scrollLeft] of stored.horizontal || []) {
-          const element = document.getElementById(id);
-          if (element) {
-            element.scrollLeft = scrollLeft;
-          }
-        }
-        const controls = Array.from(
-          (row || document).querySelectorAll("[name]")
-        );
-        const focusTarget = controls.find(
-          (control) =>
-            control.name === stored.focusName &&
-            (!stored.focusValue || control.value === stored.focusValue)
-        );
-        focusTarget?.focus({ preventScroll: true });
-      });
-    });
-  };
-
   const normalizationReview = document.querySelector(
     "[data-normalization-review]"
   );
@@ -823,7 +687,7 @@ document.addEventListener("DOMContentLoaded", () => {
       for (const targetModel of targetModels) {
         query.set(targetModel.name, targetModel.value);
       }
-      rememberMappingPosition();
+      window.impodoMappingPosition?.remember();
       window.location.assign(`${window.location.pathname}?${query.toString()}`);
     });
   }
@@ -1151,11 +1015,11 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     mappingForm.addEventListener("focusin", (event) => {
-      rememberMappingInteraction(event.target);
+      window.impodoMappingPosition?.rememberInteraction(event.target);
     });
     mappingForm.addEventListener("pointerdown", (event) => {
       if (event.target?.closest?.('button[type="submit"]')) {
-        rememberMappingPosition();
+        window.impodoMappingPosition?.remember();
       }
     });
 
@@ -1272,7 +1136,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     mappingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      rememberMappingPosition();
+      window.impodoMappingPosition?.remember();
       if (submitting) {
         return;
       }
@@ -4197,7 +4061,6 @@ document.addEventListener("DOMContentLoaded", () => {
     window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
   }
 
-  restoreMappingPosition();
   restoreNormalizationPosition();
   restoreSourceReviewPosition();
 

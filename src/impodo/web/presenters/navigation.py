@@ -116,7 +116,7 @@ _TEMPLATE_LOCATION = {
         "Separate combined information",
     ),
     "workspace_schema.html": ("odoo", "Choose Odoo records"),
-    "workspace_mapping.html": ("match", "Match fields"),
+    "mapping/page.html": ("match", "Match fields"),
     "workspace_transformation_impact.html": (
         "match",
         "Review rule effects",

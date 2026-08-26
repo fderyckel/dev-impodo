@@ -1,0 +1,258 @@
+/* Mapping-page layout and controls; shared design tokens stay in app.css. */
+
+.mapping-dataset {
+  border-right: 0;
+  border-left: 0;
+}
+
+.identity-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.5rem;
+}
+
+.identity-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--impodo-soft);
+  padding: 1.2rem;
+}
+
+.identity-panel .eyebrow {
+  margin-bottom: .35rem;
+}
+
+.identity-panel h3 {
+  margin: 0;
+  color: var(--impodo-charcoal-dark);
+  font-size: 1.12rem;
+}
+
+.identity-panel > .muted {
+  min-height: 2.8rem;
+  margin: .45rem 0 .8rem;
+}
+
+.identity-match-list {
+  margin-top: 1rem;
+}
+
+.identity-match-row {
+  border-top: 1px solid var(--line);
+  padding: 1rem 0 .15rem;
+}
+
+.identity-field-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .35rem .55rem;
+}
+
+.identity-role {
+  color: var(--impodo-red-dark);
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.identity-field-name code {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.identity-match-row label {
+  margin: .75rem 0;
+  font-size: .86rem;
+}
+
+.mapping-dataset > h3 {
+  margin-top: 2.25rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.4rem;
+  color: var(--impodo-red-dark);
+  font-size: .8rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.mapping-actions {
+  position: sticky;
+  z-index: 4;
+  bottom: 0;
+  margin: 1.5rem -1rem -2.5rem;
+  border-top: 1px solid var(--line);
+  background: rgba(244, 244, 241, .97);
+  padding: 1rem;
+}
+
+.mapping-save-state {
+  align-self: center;
+  margin: 0 auto 0 0;
+  color: var(--muted);
+  font-size: .88rem;
+  font-weight: 650;
+}
+
+.mapping-save-state.unsaved {
+  color: var(--impodo-red-dark);
+}
+
+.mapping-next-step-blockers > ul,
+.mapping-previous-check > ul {
+  display: grid;
+  gap: .8rem;
+  margin: .8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mapping-next-step-blockers > ul > li,
+.mapping-previous-check > ul > li {
+  border-top: 1px solid rgb(89 61 15 / 18%);
+  padding-top: .8rem;
+}
+
+.mapping-next-step-blockers > ul > li:first-child,
+.mapping-previous-check > ul > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.mapping-next-step-blockers li > p,
+.mapping-previous-check > p {
+  margin: .3rem 0;
+}
+
+.mapping-previous-check {
+  margin-top: .8rem;
+  border-top: 1px solid rgb(89 61 15 / 18%);
+  padding-top: .8rem;
+}
+
+.mapping-previous-check > p {
+  margin-bottom: .8rem;
+}
+
+.scalar-table-scroll-top {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 18px;
+  margin-top: .75rem;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  scrollbar-color: var(--impodo-grey) var(--impodo-soft);
+  scrollbar-gutter: stable;
+}
+
+.scalar-table-scroll-top[hidden] {
+  display: none;
+}
+
+.scalar-table-scroll-top:focus-visible {
+  outline: 2px solid var(--impodo-red);
+  outline-offset: 2px;
+}
+
+.scalar-table-scroll-top::-webkit-scrollbar {
+  height: 14px;
+}
+
+.scalar-table-scroll-top::-webkit-scrollbar-track {
+  background: var(--impodo-soft);
+}
+
+.scalar-table-scroll-top::-webkit-scrollbar-thumb {
+  border: 2px solid var(--impodo-soft);
+  border-radius: 999px;
+  background: var(--impodo-grey);
+}
+
+.scalar-table-scroll-spacer {
+  height: 1px;
+}
+
+.mapping-table {
+  min-width: 1420px;
+}
+
+.mapping-table th[data-target] {
+  min-width: 11rem;
+}
+
+.mapping-table select {
+  min-width: 14rem;
+}
+
+.mapping-table td:first-child select {
+  min-width: 18rem;
+}
+
+.mapping-preview {
+  min-width: 13rem;
+  max-width: 20rem;
+  vertical-align: top;
+}
+
+.mapping-preview span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.mapping-preview span[aria-hidden="true"] {
+  margin: .25rem 0;
+  color: var(--muted);
+}
+
+.mapping-rule-card {
+  display: grid;
+  gap: .65rem;
+  margin: .75rem 0;
+  border: 1px solid var(--border);
+  border-radius: .6rem;
+  background: var(--surface-subtle);
+  padding: .75rem;
+}
+
+.mapping-rule-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.mapping-condition-row {
+  display: grid;
+  gap: .55rem;
+  margin-top: .65rem;
+  border-top: 1px solid var(--border);
+  padding-top: .65rem;
+}
+
+@media (max-width: 860px) {
+  .identity-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .identity-panel > .muted {
+    min-height: 0;
+  }
+
+  .mapping-actions {
+    position: static;
+    margin: 1.5rem 0 0;
+    padding: 1rem 0 0;
+  }
+
+  .mapping-save-state {
+    width: 100%;
+  }
+}

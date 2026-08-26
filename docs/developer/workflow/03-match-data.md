@@ -194,16 +194,26 @@ look plausible.
 
 ## Verification
 
-- [`tests/test_mapping_forms.py`](../../../tests/test_mapping_forms.py)
-- [`tests/test_mapping_validation.py`](../../../tests/test_mapping_validation.py)
-- [`tests/test_selection_rules.py`](../../../tests/test_selection_rules.py)
-- [`tests/test_mapping_impact_presenter.py`](../../../tests/test_mapping_impact_presenter.py)
+- [`tests/mapping/test_forms.py`](../../../tests/mapping/test_forms.py)
+- [`tests/mapping/test_validation.py`](../../../tests/mapping/test_validation.py)
+- [`tests/mapping/test_selection_rules.py`](../../../tests/mapping/test_selection_rules.py)
+- [`tests/mapping/test_impact_presenter.py`](../../../tests/mapping/test_impact_presenter.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 - [`tests/test_recipe_representative_shapes.py`](../../../tests/test_recipe_representative_shapes.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,
 direct exact submission, and required Stage 4 review.
+
+Run the focused Mapping package with:
+
+```bash
+.venv/bin/python -m unittest \
+  tests.mapping.test_forms \
+  tests.mapping.test_validation \
+  tests.mapping.test_selection_rules \
+  tests.mapping.test_impact_presenter -v
+```
 
 ## Related documentation
 
