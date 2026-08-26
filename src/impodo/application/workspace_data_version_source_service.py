@@ -213,8 +213,12 @@ class WorkspaceDataVersionSourceService:
                         manifest={
                             "capture_manifest_hash": manifest.content_hash,
                             "capture_manifest_id": manifest.manifest_id,
+                            "data_logical_hash": snapshot.data_logical_hash,
                             "data_size_bytes": manifest.data_size_bytes,
                             "parquet_sha256": snapshot.parquet_sha256,
+                            "physical_selection_hash": (
+                                snapshot.physical_selection_hash
+                            ),
                             "provenance_logical_hash": (
                                 manifest.provenance_logical_hash
                             ),

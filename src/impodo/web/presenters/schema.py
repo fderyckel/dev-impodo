@@ -414,6 +414,9 @@ def _render_schema(
     status_code: int = 200,
     schema_load_failed: bool = False,
     operation_id: str | None = None,
+    read_credential_required: bool = False,
+    read_credential_resume: str = "stay",
+    read_credential_resume_action: str = "",
     key_drafts: Mapping[
         str,
         tuple[tuple[str, ...], tuple[str, ...], str],
@@ -535,6 +538,9 @@ def _render_schema(
         error=error,
         support_error=support_error,
         schema_load_failed=schema_load_failed,
+        read_credential_required=read_credential_required,
+        read_credential_resume=read_credential_resume,
+        read_credential_resume_action=read_credential_resume_action,
         status_code=status_code,
     )
 

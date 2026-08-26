@@ -169,12 +169,15 @@ class CategoricalCoverageService:
             by_dataset.setdefault(item.dataset.dataset_id, []).append(item)
         results: list[CategoricalFieldResult] = []
         issues: list[MappingValidationIssue] = []
-        physical_selection = self.sources.get_source_selection(workspace_id)
-        if physical_selection is None:
-            raise WorkspaceError("Frozen source evidence is incomplete")
-        selection_dataset_ids = {
-            item.dataset_id for item in physical_selection.datasets
-        }
+        physical_selection = None
+        selection_dataset_ids: set[str] = set()
+        if by_dataset:
+            physical_selection = self.sources.get_source_selection(workspace_id)
+            if physical_selection is None:
+                raise WorkspaceError("Frozen source evidence is incomplete")
+            selection_dataset_ids = {
+                item.dataset_id for item in physical_selection.datasets
+            }
         for dataset_id in sorted(by_dataset):
             dataset_fields = by_dataset[dataset_id]
             supported_fields: list[_CoverageField] = []
@@ -225,6 +228,7 @@ class CategoricalCoverageService:
                 continue
             if not scan_fields:
                 continue
+            assert physical_selection is not None
             frame = self._scan_dataset(
                 workspace_id,
                 physical_selection,
@@ -237,11 +241,15 @@ class CategoricalCoverageService:
                 if issue is not None:
                     issues.append(issue)
 
-        snapshots = tuple(
-            sorted(
-                self.sources.get_current_source_snapshots(workspace_id),
-                key=lambda item: item.dataset_id,
+        snapshots = (
+            tuple(
+                sorted(
+                    self.sources.get_current_source_snapshots(workspace_id),
+                    key=lambda item: item.dataset_id,
+                )
             )
+            if by_dataset
+            else ()
         )
         evidence = CategoricalCoverageEvidence(
             mapping_content_hash=definition.content_hash,

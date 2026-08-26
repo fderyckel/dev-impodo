@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
 
 from ..artifacts import ArtifactStoreError
 from ..connectors import (
@@ -74,6 +74,16 @@ class OdooReadFailure:
     recovery: OdooReadRecoveryKind
     support_code: str
     support_reference: str = ""
+
+    @property
+    def asks_for_read_credential(self) -> bool:
+        """Whether the operator can recover by entering a read-only key."""
+
+        return self.recovery in {
+            OdooReadRecoveryKind.ENTER_READ_KEY,
+            OdooReadRecoveryKind.REPLACE_READ_KEY,
+            OdooReadRecoveryKind.USE_KEY_WITH_READ_ACCESS,
+        }
 
 
 class OdooReadCredentialMissingError(SecretStoreError):

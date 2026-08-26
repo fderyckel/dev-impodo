@@ -40,6 +40,7 @@ _SETUP_AREAS = frozenset(
 )
 _APPLICATION_AREAS = frozenset(
     {
+        "mapping",
         "prepare",
         "preparation",
         "resolution",

@@ -47,6 +47,13 @@ from .repository import DuckDbRepository
 class WorkspaceSourceProjectionReader(Protocol):
     """Read the immutable DataVersion selection bound to one workspace."""
 
+    def get_source_selection(
+        self,
+        workspace_id: str,
+    ) -> SourceSelection | None:
+        """Return the original physical selection identity for snapshot reads."""
+        ...
+
     def get_mapping_source_selection(
         self,
         workspace_id: str,
@@ -320,7 +327,11 @@ class SourceRepository(DuckDbRepository):
             "SELECT selection_json FROM source_selection WHERE singleton_id = 1",
         )
         if value is None:
-            return None
+            if self._mapping_source_projection is None:
+                return None
+            return self._mapping_source_projection.get_source_selection(
+                workspace_id
+            )
         try:
             return SourceSelection.from_json(value)
         except (TypeError, ValueError) as error:

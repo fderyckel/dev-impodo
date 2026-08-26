@@ -14,14 +14,18 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
+from ...application.odoo_read_failures import (
+    OdooReadCredentialMissingError,
+    classify_odoo_read_failure,
+)
 from ...connectors import ConnectorError
-from ...migration_foundation import MigrationFoundationError
-from ...recipes import RecipeError
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
 from ...local_stack import LocalStackError
+from ...migration_foundation import MigrationFoundationError
+from ...recipes import RecipeError
 from ...secrets import SecretStoreError
 from ...workspace_contracts import OdooSchemaCatalog, SchemaOrigin
 from ...workspace_errors import WorkspaceError
@@ -38,8 +42,8 @@ from ..presenters.common import _flash
 from ..presenters.mapping_forms import _business_key_id, _comma_values
 from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
-from ..security import require_session
 from ..run_review import start_next_preparation
+from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential,
@@ -115,7 +119,9 @@ async def _read_selected_schema(context: WebContext, workspace_state: WorkspaceS
         read_identity = None
     else:
         if credential is None:
-            raise WorkspaceError(_missing_schema_reader_message(workspace_state))
+            raise OdooReadCredentialMissingError(
+                _missing_schema_reader_message(workspace_state)
+            )
         read_identity = await run_in_threadpool(
             context.read_identity_probe,
             workspace_state,
@@ -299,7 +305,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 TargetCredentialRole.READ,
             )
             if read_credential is None:
-                raise SecretStoreError(
+                raise OdooReadCredentialMissingError(
                     "Enter and verify the read-only Odoo key for this Test run first"
                 )
             result = context.test_runs.activate(
@@ -326,12 +332,19 @@ def build_schema_router(context: WebContext) -> APIRouter:
         ) as error:
             if not workspace_id:
                 raise
+            read_failure = classify_odoo_read_failure(error)
             return _render_schema(
                 request,
                 context,
                 workspace_id,
                 error=str(error),
                 operation_id=_text(form, "operation_id"),
+                read_credential_required=read_failure.asks_for_read_credential,
+                read_credential_resume="submit",
+                read_credential_resume_action=(
+                    f"/projects/{project_id}/test-runs/"
+                    f"{migration_run_id}/odoo/check"
+                ),
                 status_code=422,
             )
         _flash(
@@ -409,11 +422,17 @@ def build_schema_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
+            read_failure = classify_odoo_read_failure(error)
             return _render_schema(
                 request,
                 context,
                 workspace_id,
                 error=str(error),
+                read_credential_required=read_failure.asks_for_read_credential,
+                read_credential_resume="submit",
+                read_credential_resume_action=(
+                    f"/workspaces/{workspace_id}/schema/models/refresh"
+                ),
                 status_code=422,
             )
         _flash(
@@ -488,12 +507,20 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 SecretStoreError,
                 WorkspaceError,
             ) as error:
+                read_failure = classify_odoo_read_failure(error)
                 return _render_schema(
                     request,
                     context,
                     workspace_id,
                     support_error=str(error),
                     schema_load_failed=True,
+                    read_credential_required=(
+                        read_failure.asks_for_read_credential
+                    ),
+                    read_credential_resume="submit",
+                    read_credential_resume_action=(
+                        f"/workspaces/{workspace_id}/schema/capture"
+                    ),
                     status_code=422,
                 )
         _flash(request, "Odoo data is ready.")
@@ -532,12 +559,18 @@ def build_schema_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
+            read_failure = classify_odoo_read_failure(error)
             return _render_schema(
                 request,
                 context,
                 workspace_id,
                 support_error=str(error),
                 schema_load_failed=True,
+                read_credential_required=read_failure.asks_for_read_credential,
+                read_credential_resume="submit",
+                read_credential_resume_action=(
+                    f"/workspaces/{workspace_id}/schema/capture"
+                ),
                 status_code=422,
             )
         if schema.pending_refresh is not None:

@@ -1,8 +1,11 @@
 """Target browser routes."""
 
 from __future__ import annotations
+
+from urllib.parse import unquote, urlsplit
+
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...access import Capability
@@ -10,16 +13,16 @@ from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
-from ...workspace_state import (
-    OdooConnectionMode,
-    WorkspaceStateError,
-    WorkspaceSetupStep,
-    WorkspaceStatus,
-    SourceMode,
-    workspace_setup_requirements_for_step,
-)
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
+from ...workspace_state import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceSetupStep,
+    WorkspaceStateError,
+    WorkspaceStatus,
+    workspace_setup_requirements_for_step,
+)
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash
@@ -32,10 +35,9 @@ from ..presenters.summary import (
     _require_local_stack_stop,
 )
 from ..security import require_session
-from ..target_readers import _selected_local_profile
 from ..target_credentials import (
-    TargetCredentialRole,
     TargetCredentialRemovalReason,
+    TargetCredentialRole,
     audit_removed_target_credentials,
     audit_stored_target_credential,
     delete_target_credential,
@@ -45,7 +47,7 @@ from ..target_credentials import (
     target_read_credential_id,
     target_write_credential_id,
 )
-
+from ..target_readers import _selected_local_profile
 
 _LOCAL_STACK_RETURN_TARGET = "target"
 _LOCAL_STACK_RETURN_SUMMARY_COMPARE = "summary_compare"
@@ -92,6 +94,33 @@ def _target_read_key_persistence(form) -> bool:
     if storage:
         raise SecretStoreError("Choose a valid read-only key storage option.")
     return "remember_read_api_key" in form or "remember_api_key" in form
+
+
+def _quick_credential_return_to(form, workspace_id: str) -> str:
+    """Accept one same-origin path without creating an open redirect."""
+
+    value = _text(form, "return_to")
+    if not value:
+        return f"/workspaces/{workspace_id}/target"
+    parsed = urlsplit(value)
+    decoded = unquote(value)
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or not parsed.path.startswith("/")
+        or unquote(parsed.path).startswith("//")
+        or "\\" in decoded
+        or any(ord(character) < 32 for character in decoded)
+        or len(value) > 2048
+    ):
+        raise SecretStoreError("The requested return page is unavailable")
+    return value
+
+
+def _accepts_json(request: Request) -> bool:
+    """Return JSON to the inline browser dialog without changing form encoding."""
+
+    return "application/json" in request.headers.get("accept", "").lower()
 
 
 def _render_local_stack_error(
@@ -169,6 +198,73 @@ async def _validate_selected_local_connection(
 
 def build_target_router(context: WebContext) -> APIRouter:
     router = APIRouter()
+
+    @router.post(
+        "/workspaces/{workspace_id}/target/read-credential/quick"
+    )
+    async def save_quick_read_credential(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Save one target-bound read key and retain the current workflow page."""
+
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "read_api_key",
+                "read_api_key_storage",
+                "return_to",
+            },
+        )
+        return_to = f"/workspaces/{workspace_id}/target"
+        json_request = _accepts_json(request)
+        try:
+            return_to = _quick_credential_return_to(form, workspace_id)
+            workspace_state = context.queries.get(workspace_id)
+            if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+                raise SecretStoreError(
+                    "A read-only API key is only needed for Remote Odoo"
+                )
+            context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.PROJECT_EDIT,
+            )
+            credential_owner = context.target_credential_workspace(workspace_id)
+            credential = store_target_credential(
+                context.secret_store,
+                credential_owner,
+                TargetCredentialRole.READ,
+                _text(form, "read_api_key"),
+                persistent=_target_read_key_persistence(form),
+            )
+            audit_stored_target_credential(
+                context.workspace_states,
+                credential_owner,
+                TargetCredentialRole.READ,
+                credential,
+                actor=context.actor,
+            )
+            context.remote_connections.clear(credential_owner.workspace_id)
+            if credential_owner.workspace_id != workspace_id:
+                context.remote_connections.clear(workspace_id)
+        except (SecretStoreError, WorkspaceError) as error:
+            if json_request:
+                return JSONResponse({"detail": str(error)}, status_code=422)
+            request.session["read_credential_error"] = str(error)
+            return RedirectResponse(return_to, status_code=303)
+        message = (
+            "The read-only Odoo key is saved on this computer."
+            if credential.persistent
+            else "The read-only Odoo key is available until Impodo closes."
+        )
+        if json_request:
+            return JSONResponse({"message": message, "return_to": return_to})
+        _flash(request, message)
+        return RedirectResponse(return_to, status_code=303)
 
     @router.get("/workspaces/{workspace_id}/target", response_class=HTMLResponse)
     async def workspace_target_form(request: Request, workspace_id: str):

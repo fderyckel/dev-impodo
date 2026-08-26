@@ -273,6 +273,45 @@ class CategoricalCoverageTests(unittest.TestCase):
         self.assertNotEqual(base.validation_hash, bound.validation_hash)
         self.assertEqual(MappingValidationResult.from_json(bound.to_json()), bound)
 
+    def test_collect_without_categorical_rules_needs_no_physical_snapshot(self) -> None:
+        definition = replace(
+            self.definition,
+            datasets=(
+                replace(
+                    self.definition.datasets[0],
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="lang",
+                            source_column_key="language",
+                        ),
+                    ),
+                    relationships=(),
+                ),
+            ),
+        )
+
+        def unexpected_read(_workspace_id):
+            self.fail("categorical-free mappings must not read physical snapshots")
+
+        service = CategoricalCoverageService(
+            SimpleNamespace(
+                get_source_selection=unexpected_read,
+                get_current_source_snapshots=unexpected_read,
+            ),
+            object(),
+        )
+
+        collected = service.collect(
+            self.workspace_id,
+            definition,
+            self.selection,
+            self.schema,
+        )
+
+        self.assertEqual(collected.issues, ())
+        self.assertEqual(collected.evidence.source_snapshot_hashes, ())
+        self.assertEqual(collected.evidence.field_results, ())
+
     def test_exact_target_coverage_uses_runtime_transformation_semantics(self) -> None:
         partner_model = self.schema.models[0]
         language = partner_model.fields[0]

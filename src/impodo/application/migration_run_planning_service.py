@@ -17,6 +17,7 @@ from ..data_version_sources import (
 from ..data_versions import DataVersionPurpose, DataVersionService, DataVersionState
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
+from ..domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from ..domain.serialization import content_hash
 from ..migration_cutover import (
     PROJECT_SHARED_CONTROL_IDS,
@@ -113,6 +114,7 @@ class MigrationRunPlanningService:
         data_versions: DataVersionService,
         recipes: RecipeService,
         repository,
+        test_run_values,
         source_packages,
         source_projections: WorkspaceSourceProjectionService,
         workspace_states: WorkspaceStateService,
@@ -124,6 +126,7 @@ class MigrationRunPlanningService:
         self.data_versions = data_versions
         self.recipes = recipes
         self.repository = repository
+        self.test_run_values = test_run_values
         self.source_packages = source_packages
         self.source_projections = source_projections
         self.workspace_states = workspace_states
@@ -1411,7 +1414,7 @@ class MigrationRunPlanningService:
                 "status": RecipeApplicationStatus.READY.value,
             }
         )
-        return self.repository.save_application_materialization(
+        confirmed = self.repository.save_application_materialization(
             application.application_id,
             expected_evidence_hash=application.evidence_hash,
             status=RecipeApplicationStatus.READY,
@@ -1419,6 +1422,115 @@ class MigrationRunPlanningService:
             mapping_id=revision.mapping_id,
             mapping_content_hash=revision.definition.content_hash,
             evidence_hash=evidence_hash,
+            actor=actor,
+        )
+        self._mark_run_ready_if_complete(
+            confirmed.migration_run_id,
+            actor=actor,
+        )
+        return confirmed
+
+    def confirm_application_mapping(
+        self,
+        application_id: str,
+        *,
+        actor: Actor,
+    ) -> RunRecipeApplication:
+        """Record one submitted run-workspace mapping and clear stale blockers."""
+
+        application = self.repository.get_application(application_id)
+        self.authorization.require(
+            actor,
+            Capability.RECIPE_APPLY,
+            project_id=application.project_id,
+        )
+        revision = self.compiler.mappings.mappings.get_mapping_revision(
+            application.workspace_id
+        )
+        if revision is None or revision.mapping_id != application.mapping_id:
+            raise MigrationRunPlanningError(
+                "The confirmed field matches do not belong to this Recipe work area"
+            )
+        submission = self.compiler.mappings.mappings.get_mapping_submission(
+            application.workspace_id,
+            revision.version,
+        )
+        if (
+            submission is None
+            or submission.mapping_id != revision.mapping_id
+            or submission.mapping_content_hash
+            != revision.definition.content_hash
+        ):
+            raise MigrationRunPlanningError(
+                "Confirm the current field matches before continuing this Recipe"
+            )
+        remaining = tuple(
+            item
+            for item in self.repository.list_issues(application.application_id)
+            if not item.code.startswith("MAPPING_")
+        )
+        default_review_required = any(
+            item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+            and item.level is MigrationRunPlanIssueLevel.REVIEW
+            for item in remaining
+        )
+        status = (
+            RecipeApplicationStatus.BLOCKED
+            if any(item.blocks for item in remaining)
+            or default_review_required
+            else RecipeApplicationStatus.READY
+        )
+        evidence_hash = content_hash(
+            {
+                "application_id": application.application_id,
+                "mapping_content_hash": revision.definition.content_hash,
+                "mapping_submission_hash": content_hash(
+                    submission.to_json()
+                ),
+                "previous_evidence_hash": application.evidence_hash,
+                "remaining_issues": [item.to_dict() for item in remaining],
+                "status": status.value,
+            }
+        )
+        confirmed = self.repository.save_application_materialization(
+            application.application_id,
+            expected_evidence_hash=application.evidence_hash,
+            status=status,
+            issues=remaining,
+            mapping_id=revision.mapping_id,
+            mapping_content_hash=revision.definition.content_hash,
+            evidence_hash=evidence_hash,
+            actor=actor,
+        )
+        self._mark_run_ready_if_complete(
+            confirmed.migration_run_id,
+            actor=actor,
+        )
+        return confirmed
+
+    def _mark_run_ready_if_complete(
+        self,
+        migration_run_id: str,
+        *,
+        actor: Actor,
+    ) -> None:
+        bundle = self.repository.get_bundle(migration_run_id)
+        if not bundle.applications or not all(
+            item.status is RecipeApplicationStatus.READY
+            for item in bundle.applications
+        ):
+            return
+        current = self.repository.foundation.get_migration_run(migration_run_id)
+        if current.state is not MigrationRunState.DRAFT:
+            return
+        self.repository.foundation.save_migration_run(
+            replace(
+                current,
+                state=MigrationRunState.READY,
+                updated_at=utc_now(),
+            ),
+            expected_revision=current.optimistic_revision,
+            event_type="RECIPE_APPLICATIONS_READY",
             actor=actor,
         )
 
@@ -1450,6 +1562,30 @@ class MigrationRunPlanningService:
         run_references = self.repository.get_run_reference_bundle(
             migration_run_id
         )
+        data_version = self.data_versions.get(
+            bundle.run.data_version_id,
+            actor=actor,
+        )
+        saved_run_values = self.test_run_values.get_parameter_values(
+            migration_run_id
+        )
+        if saved_run_values is not None and (
+            saved_run_values.project_id != bundle.run.project_id
+            or saved_run_values.migration_run_id != migration_run_id
+        ):
+            raise MigrationRunPlanningError(
+                "The saved Recipe values do not belong to this Test run"
+            )
+        saved_values_by_recipe = (
+            saved_run_values.by_recipe if saved_run_values is not None else {}
+        )
+        application_recipe_ids = {
+            application.recipe_id for application in bundle.applications
+        }
+        if set(saved_values_by_recipe) - application_recipe_ids:
+            raise MigrationRunPlanningError(
+                "The saved Recipe values do not match this Test run"
+            )
         current_models = {model.name: model for model in current_schema.models}
         recovered: list[RunRecipeApplication] = []
         refusal_reasons: list[str] = []
@@ -1460,11 +1596,33 @@ class MigrationRunPlanningService:
                 application.application_id
             )
             blockers = tuple(item for item in existing_issues if item.blocks)
-            if not blockers or any(
-                item.code != "RECIPE_TARGET_NEW_REQUIRED_FIELD"
+            default_reviews = tuple(
+                item
+                for item in existing_issues
+                if item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+            )
+            original_default_blocker = bool(blockers) and all(
+                item.code == "RECIPE_TARGET_NEW_REQUIRED_FIELD"
                 for item in blockers
+            )
+            interrupted_default_recovery = (
+                bool(blockers)
+                and all(
+                    item.code == "RECIPE_MAPPING_MATERIALIZATION_BLOCKED"
+                    for item in blockers
+                )
+                and bool(default_reviews)
+                and application.mapping_id is None
+            )
+            if not (
+                original_default_blocker or interrupted_default_recovery
             ):
                 continue
+            required_field_count = (
+                len(blockers)
+                if original_default_blocker
+                else len(default_reviews)
+            )
             frozen_projection = self.repository.get_workspace_target_schema(
                 application.workspace_id
             )
@@ -1505,6 +1663,24 @@ class MigrationRunPlanningService:
                 actor=actor,
             )
             definition = dict(envelope["recipe"])
+            parameter_values = dict(
+                saved_values_by_recipe.get(application.recipe_id, {})
+            )
+            parameter_contract = definition.get("parameter_definitions", {})
+            declared_parameters = (
+                parameter_contract.get("parameters", ())
+                if isinstance(parameter_contract, Mapping)
+                else ()
+            )
+            if any(
+                isinstance(item, Mapping)
+                and str(item.get("logical_parameter_id", ""))
+                == EXPORT_AS_OF_PARAMETER_ID
+                for item in declared_parameters
+            ):
+                parameter_values[EXPORT_AS_OF_PARAMETER_ID] = (
+                    data_version.export_as_of
+                )
             assessment = self.compiler.assess(
                 recipe_id=application.recipe_id,
                 definition=definition,
@@ -1515,7 +1691,7 @@ class MigrationRunPlanningService:
                     if run_references is not None
                     else None
                 ),
-                parameter_values={},
+                parameter_values=parameter_values,
                 control_values={},
             )
             legacy_binding_hash = content_hash(
@@ -1532,10 +1708,12 @@ class MigrationRunPlanningService:
                 }
             )
             if not assessment.target_default_fields:
-                field_word = "field" if len(blockers) == 1 else "fields"
+                field_word = (
+                    "field" if required_field_count == 1 else "fields"
+                )
                 refusal_reasons.append(
                     "Odoo did not return usable create defaults for the "
-                    f"{len(blockers)} required {field_word} added by installed "
+                    f"{required_field_count} required {field_word} added by installed "
                     "apps. Publish a new Recipe revision that supplies these values."
                 )
                 continue
@@ -1545,18 +1723,19 @@ class MigrationRunPlanningService:
                     None,
                 )
                 refusal_reasons.append(
-                    (
-                        f"{blocker.message} {blocker.recovery_action}"
-                        if blocker is not None
-                        else "The checked Odoo defaults did not resolve every "
-                        "saved Recipe blocker. Review the run's saved issues."
-                    )
+                    f"{blocker.message} {blocker.recovery_action}"
+                    if blocker is not None
+                    else "The checked Odoo defaults did not resolve every "
+                    "saved Recipe blocker. Review the run's saved issues."
                 )
                 continue
             if application.physical_binding_hash not in {
                 assessment.physical_binding_hash,
                 legacy_binding_hash,
-            }:
+            } or (
+                assessment.parameter_values_hash
+                != application.parameter_values_hash
+            ):
                 refusal_reasons.append(
                     "The saved Recipe values no longer match this reassessment. "
                     "Start a new Test run so Impodo can bind them again safely."

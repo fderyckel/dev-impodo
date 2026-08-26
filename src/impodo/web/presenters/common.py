@@ -6,8 +6,16 @@ import re
 
 from fastapi import Request
 
-from ...workspace_state import WorkspaceState, WorkspaceStatus
+from ...workspace_state import (
+    OdooConnectionMode,
+    WorkspaceState,
+    WorkspaceStatus,
+)
 from ..context import WebContext
+from ..target_credentials import (
+    TargetCredentialRole,
+    get_target_credential_status,
+)
 from .concepts import CONCEPTS, CONCEPTS_BY_SLUG
 from .navigation import build_workspace_navigation
 from .setup import build_workspace_setup_view
@@ -28,6 +36,39 @@ def _render(
             context["support_error"] = support_error
     workspace_state = context.get("workspace_state")
     application = request.app.state.context
+    prompt_error = request.session.pop("read_credential_error", None)
+    if (
+        isinstance(workspace_state, WorkspaceState)
+        and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+    ):
+        credential_owner = application.target_credential_workspace(
+            workspace_state.workspace_id
+        )
+        credential_status = get_target_credential_status(
+            application.secret_store,
+            credential_owner,
+            TargetCredentialRole.READ,
+        )
+        query = f"?{request.url.query}" if request.url.query else ""
+        explicitly_required = bool(context.get("read_credential_required"))
+        context["read_credential_prompt"] = {
+            "action_href": (
+                f"/workspaces/{workspace_state.workspace_id}/"
+                "target/read-credential/quick"
+            ),
+            "auto_open": explicitly_required or prompt_error is not None,
+            "error": prompt_error,
+            "required": (
+                explicitly_required
+                or (raw_error is not None and not credential_status.available)
+            ),
+            "resume": str(context.get("read_credential_resume", "stay")),
+            "resume_action": str(
+                context.get("read_credential_resume_action", "")
+            ),
+            "return_to": f"{request.url.path}{query}",
+            "status_label": credential_status.label,
+        }
     workspace_view = None
     if isinstance(workspace_state, WorkspaceState) and (
         "workspace_navigation" not in context or "migration_context" not in context

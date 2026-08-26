@@ -73,6 +73,7 @@ class WorkspaceJourneyTests(unittest.TestCase):
     def test_application_allows_review_and_load_but_not_authoring(self) -> None:
         workspace_id = self.access.workspace_id
         for area in (
+            "mapping",
             "prepare",
             "preparation",
             "resolution",
@@ -92,7 +93,6 @@ class WorkspaceJourneyTests(unittest.TestCase):
             "files",
             "sources",
             "schema",
-            "mapping",
         ):
             self.assertFalse(
                 workspace_route_is_allowed(
@@ -104,7 +104,7 @@ class WorkspaceJourneyTests(unittest.TestCase):
 
     def test_stale_application_url_returns_to_the_run_without_mutating(self) -> None:
         request = _request(
-            f"/workspaces/{self.access.workspace_id}/mapping",
+            f"/workspaces/{self.access.workspace_id}/schema",
             method="POST",
         )
         response = enforce_workspace_journey(

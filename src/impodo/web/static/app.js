@@ -34,6 +34,148 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   setupBlockers?.focus();
 
+  const readCredentialDialog = document.querySelector(
+    "[data-read-credential-dialog]"
+  );
+  const readCredentialForm = readCredentialDialog?.querySelector(
+    "[data-read-credential-form]"
+  );
+  const readCredentialInput = readCredentialDialog?.querySelector(
+    "[data-read-credential-input]"
+  );
+  const readCredentialError = readCredentialDialog?.querySelector(
+    "[data-read-credential-error]"
+  );
+  const readCredentialStatus = readCredentialDialog?.querySelector(
+    "[data-read-credential-status]"
+  );
+  const saveReadCredential = readCredentialDialog?.querySelector(
+    "[data-save-read-credential]"
+  );
+  let readCredentialReturnFocus = null;
+
+  const showReadCredentialError = (message) => {
+    if (!readCredentialError) {
+      return;
+    }
+    readCredentialError.textContent = message;
+    readCredentialError.hidden = false;
+  };
+
+  const openReadCredentialDialog = ({
+    message = "",
+    resume = "stay",
+    trigger = null,
+  } = {}) => {
+    if (!readCredentialDialog || !readCredentialForm) {
+      return false;
+    }
+    readCredentialReturnFocus = trigger || document.activeElement;
+    readCredentialDialog.dataset.resume = resume;
+    if (message) {
+      showReadCredentialError(message);
+    }
+    if (!readCredentialDialog.open) {
+      readCredentialDialog.showModal();
+    }
+    window.requestAnimationFrame(() => readCredentialInput?.focus());
+    return true;
+  };
+  window.impodoOpenReadCredentialDialog = openReadCredentialDialog;
+
+  for (const trigger of document.querySelectorAll(
+    "[data-open-read-credential]"
+  )) {
+    trigger.addEventListener("click", () => {
+      openReadCredentialDialog({ trigger });
+    });
+  }
+  for (const close of readCredentialDialog?.querySelectorAll(
+    "[data-close-read-credential]"
+  ) || []) {
+    close.addEventListener("click", () => readCredentialDialog?.close());
+  }
+  readCredentialDialog?.addEventListener("close", () => {
+    if (readCredentialReturnFocus?.isConnected) {
+      window.requestAnimationFrame(() => readCredentialReturnFocus.focus());
+    }
+    readCredentialReturnFocus = null;
+  });
+
+  readCredentialForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    readCredentialForm.setAttribute("aria-busy", "true");
+    if (saveReadCredential) {
+      saveReadCredential.disabled = true;
+      saveReadCredential.textContent = "Saving key...";
+    }
+    if (readCredentialError) {
+      readCredentialError.textContent = "";
+      readCredentialError.hidden = true;
+    }
+    try {
+      const response = await fetch(readCredentialForm.action, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: new FormData(readCredentialForm),
+      });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (_error) {
+        payload = {};
+      }
+      if (!response.ok) {
+        throw new Error(payload.detail || "The Odoo key could not be saved.");
+      }
+      if (readCredentialInput) {
+        readCredentialInput.value = "";
+      }
+      if (readCredentialStatus) {
+        readCredentialStatus.textContent =
+          payload.message || "The read-only Odoo key is ready.";
+      }
+      const saved = new CustomEvent("impodo:read-credential-saved", {
+        cancelable: true,
+        detail: payload,
+      });
+      document.dispatchEvent(saved);
+      readCredentialDialog?.close();
+      if (saved.defaultPrevented) {
+        return;
+      }
+      if (readCredentialDialog?.dataset.resume === "submit") {
+        const resumeAction = readCredentialDialog.dataset.resumeAction || "";
+        const resumeForm = Array.from(document.forms).find(
+          (form) => form.getAttribute("action") === resumeAction
+        );
+        if (resumeForm) {
+          resumeForm.requestSubmit();
+          return;
+        }
+        window.location.assign(payload.return_to || window.location.href);
+      }
+    } catch (error) {
+      showReadCredentialError(
+        error instanceof Error
+          ? error.message
+          : "The Odoo key could not be saved."
+      );
+    } finally {
+      readCredentialForm.removeAttribute("aria-busy");
+      if (saveReadCredential) {
+        saveReadCredential.disabled = false;
+        saveReadCredential.textContent = "Save key";
+      }
+    }
+  });
+
+  if (readCredentialDialog?.dataset.autoOpen === "true") {
+    openReadCredentialDialog({
+      resume: readCredentialDialog.dataset.resume || "stay",
+    });
+  }
+
   const conceptDialogTriggers = new WeakMap();
   for (const trigger of document.querySelectorAll(
     "[data-concept-help-trigger]"
@@ -1308,6 +1450,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
     let activeValueMatch = null;
     let valueMatchRequest = null;
+    let readCredentialRetry = null;
 
     const parseValueMatches = (storage) => {
       try {
@@ -1681,6 +1824,21 @@ document.addEventListener("DOMContentLoaded", () => {
           payload = {};
         }
         if (!response.ok) {
+          if (
+            payload.read_credential_required === true &&
+            typeof window.impodoOpenReadCredentialDialog === "function"
+          ) {
+            readCredentialRetry = { trigger, refresh };
+            valueMatchDialog.close();
+            window.impodoOpenReadCredentialDialog({
+              message:
+                payload.detail ||
+                "Enter a read-only Odoo key to load these choices.",
+              resume: "stay",
+              trigger,
+            });
+            return;
+          }
           throw new Error(
             payload.detail ||
               "The Odoo choices could not be loaded. Check the connection and try again."
@@ -1702,6 +1860,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
     };
+
+    document.addEventListener("impodo:read-credential-saved", (event) => {
+      if (!readCredentialRetry) {
+        return;
+      }
+      event.preventDefault();
+      const retry = readCredentialRetry;
+      readCredentialRetry = null;
+      window.requestAnimationFrame(() => {
+        void openValueMatch(retry.trigger, { refresh: retry.refresh });
+      });
+    });
 
     mappingForm.addEventListener("click", (event) => {
       const trigger = event.target.closest?.("[data-open-value-match]");

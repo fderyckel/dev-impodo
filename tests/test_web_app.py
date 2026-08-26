@@ -90,6 +90,7 @@ from impodo.application.preflight_service import MANIFEST_NAME
 from impodo.application.odoo_connection_service import OdooConnectionTestService
 from impodo.application.load_job_service import LoadJobResult
 from impodo.application.odoo_read_failures import (
+    OdooReadCredentialMissingError,
     OdooReadFailureCode,
     OdooReadWorkflowError,
 )
@@ -5786,6 +5787,55 @@ class ProjectSetupWizardTests(unittest.TestCase):
             CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
         )
 
+    def test_relationship_choices_request_the_inline_read_key_recovery(
+        self,
+    ) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+            relationship_field_count=1,
+        )
+        source_value = dataset.columns[1]
+        with (
+            patch(
+                "impodo.web.routers.mapping._source_value_choices",
+                return_value=({"value": "FRA", "count": 3},),
+            ),
+            patch(
+                "impodo.web.routers.mapping._relationship_value_choices",
+                side_effect=OdooReadCredentialMissingError(
+                    "Enter the read-only Odoo key to load current countries"
+                ),
+            ),
+        ):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/value-choices",
+                data={
+                    "csrf_token": self.csrf,
+                    "kind": "relationship",
+                    "dataset_id": dataset.dataset_id,
+                    "source_column_key": source_value.stable_key,
+                    "target_model": "res.partner",
+                    "target_field": "relation_0000",
+                    "business_key_id": business_key.key_id,
+                },
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertTrue(
+            response.json()["read_credential_required"],
+            response.text,
+        )
+        self.assertEqual(
+            response.json()["read_credential_failure_code"],
+            OdooReadFailureCode.READ_KEY_MISSING.value,
+        )
+        self.assertNotIn("Odoo API key", response.text)
+
+        script = self.client.get("/static/app.js")
+        self.assertIn("payload.read_credential_required === true", script.text)
+        self.assertIn('"impodo:read-credential-saved"', script.text)
+
     def test_relationship_choices_are_read_once_without_exposing_odoo_ids(
         self,
     ) -> None:
@@ -6482,6 +6532,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             scalar_field_count=1,
             required_scalar_indexes=(0,),
             verified_default_scalar_indexes=(0,),
+            target_model="sale.order",
         )
         source_identity, _source_value = dataset.columns
         context = self.app.state.context
@@ -6490,7 +6541,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
-                    target_model="res.partner",
+                    target_model="sale.order",
                     mode=MappingTargetMode.UPSERT,
                     source_identity_column_keys=(source_identity.stable_key,),
                     target_identity=(
@@ -6576,7 +6627,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         mapping_data = {
             "csrf_token": self.csrf,
             "editable_dataset_id": dataset.dataset_id,
-            "target_model_0": "res.partner",
+            "target_model_0": "sale.order",
             "mode_0": "upsert",
             "on_existing_0": "block",
             "source_identity_0": source_identity.stable_key,

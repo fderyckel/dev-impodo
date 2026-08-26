@@ -483,6 +483,7 @@ def create_local_app(
         data_versions=data_versions,
         recipes=recipes,
         repository=run_planning_repository,
+        test_run_values=test_run_repository,
         source_packages=source_packages,
         source_projections=WorkspaceSourceProjectionService(
             foundation_repository,

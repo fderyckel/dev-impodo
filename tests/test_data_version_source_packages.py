@@ -166,6 +166,7 @@ class DataVersionSourcePackageTests(unittest.TestCase):
             source_sha256=file_hash,
             payload=catalog_payload,
         )
+        physical_selection_hash = content_hash("physical-selection")
         columns = (
             SourceDatasetColumn(
                 ordinal=1,
@@ -226,7 +227,10 @@ class DataVersionSourcePackageTests(unittest.TestCase):
                     schema_hash=source_column_contract_hash(columns),
                     snapshot_hash=content_hash("customer-snapshot"),
                     snapshot_storage_key="snapshots/customers.parquet",
-                    manifest={"logical_name": "customers"},
+                    manifest={
+                        "logical_name": "customers",
+                        "physical_selection_hash": physical_selection_hash,
+                    },
                 ),
                 SourcePackageDataset(
                     dataset_id="products",
@@ -246,7 +250,10 @@ class DataVersionSourcePackageTests(unittest.TestCase):
                     schema_hash=source_column_contract_hash(columns),
                     snapshot_hash=content_hash("product-snapshot"),
                     snapshot_storage_key="snapshots/products.parquet",
-                    manifest={"logical_name": "products"},
+                    manifest={
+                        "logical_name": "products",
+                        "physical_selection_hash": physical_selection_hash,
+                    },
                 ),
             ),
             updated_at=received_at,
@@ -527,8 +534,12 @@ class DataVersionSourcePackageTests(unittest.TestCase):
         product_selection = mapping_sources.get_mapping_source_selection(
             product.workspace_id
         )
+        customer_physical = mapping_sources.get_source_selection(
+            customer.workspace_id
+        )
         assert customer_selection is not None
         assert product_selection is not None
+        assert customer_physical is not None
         self.assertEqual(
             tuple(item.dataset_id for item in customer_selection.datasets),
             ("customers",),
@@ -540,6 +551,10 @@ class DataVersionSourcePackageTests(unittest.TestCase):
         self.assertNotEqual(
             customer_selection.content_hash,
             product_selection.content_hash,
+        )
+        self.assertEqual(
+            customer_physical.content_hash,
+            content_hash("physical-selection"),
         )
         for workspace in (customer, product):
             path = self.database.workspace_store_path(

@@ -114,6 +114,37 @@ class WorkspaceMappingSourceProjection:
         self,
         workspace_id: str,
     ) -> SourceSelection | None:
-        """Expose the same immutable projection to compiler source-shape reads."""
+        """Return the physical selection identity bound to source snapshots."""
 
-        return self.get_mapping_source_selection(workspace_id)
+        projection = self.repository.get_workspace_source_projection(
+            workspace_id
+        )
+        if projection is None:
+            return None
+        package = self.repository.get_source_package(projection.data_version_id)
+        if package is None or package.content_hash != projection.package_hash:
+            return None
+        selected_ids = {item.dataset_id for item in projection.datasets}
+        datasets = tuple(
+            item.to_mapping_dataset()
+            for item in package.datasets
+            if item.dataset_id in selected_ids
+        )
+        if len(datasets) != len(selected_ids):
+            return None
+        physical_hashes = {
+            str(item.manifest.get("physical_selection_hash", ""))
+            for item in package.datasets
+            if item.dataset_id in selected_ids
+        }
+        if len(physical_hashes) != 1 or not next(iter(physical_hashes)):
+            return None
+        return SourceSelection(
+            selection_id=projection.projection_id,
+            version=1,
+            data_version_id=projection.data_version_id,
+            created_at=projection.created_at,
+            created_by=projection.created_by,
+            datasets=datasets,
+            content_hash=next(iter(physical_hashes)),
+        )

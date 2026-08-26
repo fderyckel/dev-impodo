@@ -565,18 +565,61 @@ def _application_card(
             issues,
             current,
         )
-    if application.status is RecipeApplicationStatus.BLOCKED or actionable_issues:
-        first = actionable_issues[0] if actionable_issues else None
+    interrupted_default_recovery = (
+        application.mapping_id is None
+        and bool(default_reviews)
+        and any(
+            item.code == "RECIPE_MAPPING_MATERIALIZATION_BLOCKED"
+            for item in actionable_issues
+        )
+        and all(
+            item in default_reviews
+            or item.code == "RECIPE_MAPPING_MATERIALIZATION_BLOCKED"
+            for item in actionable_issues
+        )
+    )
+    if interrupted_default_recovery:
         return RunApplicationCard(
             application,
             recipe_name,
             "ACTION_NEEDED",
-            "Action needed",
+            "Finish checking Odoo defaults",
+            (
+                "Odoo supplied the required values, but Impodo did not finish "
+                "creating this Recipe work area. Retry the saved check."
+            ),
+            "blocked",
+            "Retry Odoo defaults",
+            (
+                f"/projects/{application.project_id}/runs/"
+                f"{application.migration_run_id}/odoo"
+            ),
+            "get",
+            None,
+            "",
+            issues,
+            current,
+        )
+    if application.status is RecipeApplicationStatus.BLOCKED or actionable_issues:
+        first = actionable_issues[0] if actionable_issues else None
+        has_mapping_blocker = application.mapping_id is not None and any(
+            item.code.startswith("MAPPING_")
+            for item in actionable_issues
+        )
+        return RunApplicationCard(
+            application,
+            recipe_name,
+            "ACTION_NEEDED",
+            "Review field matches" if has_mapping_blocker else "Action needed",
             first.message if first is not None else "This Recipe needs review.",
             "blocked",
-            "",
-            "",
-            "",
+            "Review field matches" if has_mapping_blocker else "",
+            (
+                f"/workspaces/{application.workspace_id}/mapping"
+                if has_mapping_blocker
+                else ""
+            ),
+            "get" if has_mapping_blocker else "",
             None,
             "",
             issues,

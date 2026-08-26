@@ -2399,6 +2399,7 @@ label.model-choice input {
 .local-stack-dialog,
 .confirmation-dialog,
 .recipe-delete-dialog,
+.read-credential-dialog,
 .value-match-dialog {
   width: min(720px, calc(100vw - 2rem));
   max-height: min(780px, calc(100vh - 2rem));
@@ -2413,17 +2414,20 @@ label.model-choice input {
 .local-stack-dialog::backdrop,
 .confirmation-dialog::backdrop,
 .recipe-delete-dialog::backdrop,
+.read-credential-dialog::backdrop,
 .value-match-dialog::backdrop {
   background: rgba(41, 44, 40, .58);
 }
 
 .local-stack-dialog form,
 .confirmation-dialog form,
+.read-credential-dialog form,
 .recipe-delete-dialog form {
   margin: 0;
 }
 
 .confirmation-dialog,
+.read-credential-dialog,
 .recipe-delete-dialog {
   width: min(560px, calc(100vw - 2rem));
 }

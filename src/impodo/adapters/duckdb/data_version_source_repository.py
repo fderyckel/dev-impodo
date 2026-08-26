@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import json
-from typing import Iterable
+from collections.abc import Iterable
+from dataclasses import replace
 
 from ...access import Actor
 from ...data_version_sources import (
@@ -13,9 +13,13 @@ from ...data_version_sources import (
     SourcePackageConfiguration,
     SourcePackageState,
 )
-from ...inspection import SourceFileCatalog
-from ...domain.source_snapshot import SourceSnapshot
 from ...domain.odoo_capture import OdooCaptureSelection
+from ...domain.source_snapshot import (
+    SourceSnapshot,
+    SourceSnapshotColumn,
+    SourceSnapshotSchema,
+)
+from ...inspection import SourceFileCatalog
 from ...migration_foundation import MigrationFoundationError, utc_now
 from ...workspace_contracts import SourceConfiguration, SourceSelection
 from .migration_foundation_repository import MigrationFoundationRepository
@@ -149,6 +153,68 @@ class DataVersionOwnedSourceRepository(SourceRepository):
                 "The workspace source selection belongs to another DataVersion"
             )
         return selection
+
+    def get_current_source_snapshots(
+        self,
+        workspace_id: str,
+    ) -> tuple[SourceSnapshot, ...]:
+        """Read local snapshots or rebuild their immutable package manifests."""
+
+        snapshots = super().get_current_source_snapshots(workspace_id)
+        if snapshots:
+            return snapshots
+        selection = self.get_source_selection(workspace_id)
+        if selection is None:
+            return ()
+        package = self._package(workspace_id)
+        selected_ids = {item.dataset_id for item in selection.datasets}
+        packaged = {
+            item.dataset_id: item
+            for item in package.datasets
+            if item.dataset_id in selected_ids
+        }
+        if set(packaged) != selected_ids:
+            raise MigrationFoundationError(
+                "The projected source snapshots are incomplete"
+            )
+        try:
+            return tuple(
+                SourceSnapshot(
+                    data_version_id=package.data_version_id,
+                    dataset_id=item.dataset_id,
+                    dataset_name=item.display_name,
+                    source=item.source,
+                    physical_selection_hash=str(
+                        item.manifest["physical_selection_hash"]
+                    ),
+                    reader_contract_version=int(
+                        item.manifest["reader_contract_version"]
+                    ),
+                    schema=SourceSnapshotSchema.create(
+                        SourceSnapshotColumn.create(
+                            ordinal=column.ordinal,
+                            stable_key=column.stable_key,
+                            source_name=column.source_name,
+                            candidate_type=column.candidate_type,
+                        )
+                        for column in item.columns
+                    ),
+                    row_count=item.row_count,
+                    data_logical_hash=str(item.manifest["data_logical_hash"]),
+                    logical_hash=item.snapshot_hash,
+                    parquet_storage_key=item.snapshot_storage_key,
+                    parquet_sha256=str(item.manifest["parquet_sha256"]),
+                    created_at=package.updated_at,
+                )
+                for item in sorted(
+                    packaged.values(),
+                    key=lambda value: value.dataset_id,
+                )
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise MigrationFoundationError(
+                "The projected source snapshot manifest is incomplete"
+            ) from error
 
     def save_source_selection(
         self,

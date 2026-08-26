@@ -4,6 +4,15 @@ kind: plan
 status: proposed
 ---
 
+
+
+I would make these refinements before treating it as the execution contract:
+1. Clarify the home of cross-cutting mapping, preparation, and execution code. The proposed tree lists them as separate domain capabilities, while the placement rules also describe much of their evidence as workspace-owned. Define, for each, the owner of its state, its portable pure logic, and the allowed public contract. Otherwise the new tree can recreate the same ambiguity it aims to remove. See [target package shape (line 73)](dev-impodo\docs\plans\code-organization-remediation.md:73) and [workspace placement (line 144)](\dev-impodo\docs\plans\code-organization-remediation.md:144).
+2. Specify the transaction boundary as a narrow port or transaction-scoped repository interface—not a DuckDB connection passed through application services. Enumerate the atomic operations and fault/retry tests that protect them. The principle is right; the interface needs to prevent persistence details leaking inward. See [cross-owner transactions (line 181)](\dev-impodo\docs\plans\code-organization-remediation.md:181).
+3. Make the Phase 1 architecture check explicitly transitional. It must deterministically classify existing flat modules, resolve relative and type-only imports correctly, and fail on unclassified production code. This avoids replacing one hidden organization system with a fragile test-side mapping. See [executable architecture checks (line 332)](\dev-impodo\docs\plans\code-organization-remediation.md:332).
+4. Make the order-dependence proof reproducible: use recorded fixed shuffle seeds or process-isolated cases, rather than one nondeterministic shuffled run. See [Phase 0 (line 357)](\dev-impodo\docs\plans\code-organization-remediation.md:357).
+5. Add explicit batching and query-count preservation checks. Splitting broad repositories into narrow ports can accidentally introduce N+1 registry queries, workspace opens, or Odoo reads. The existing architecture requires bounded shared Odoo capture, so this deserves a regression gate alongside restart-safety tests.
+
 # Code organization remediation plan
 
 ## Purpose

@@ -230,6 +230,13 @@
             <div class="notice error" role="alert">
               <strong>We could not complete that action.</strong>
               <span>{{ error }}</span>
+              {% if read_credential_prompt and read_credential_prompt.required %}
+                <button
+                  class="button secondary compact"
+                  type="button"
+                  data-open-read-credential
+                >Enter the Odoo key</button>
+              {% endif %}
               {% if support_error and support_error != error %}
                 <details class="technical-details">
                   <summary>Support details</summary>
@@ -263,5 +270,8 @@
         </button>
       </form>
     </footer>
+    {% if read_credential_prompt %}
+      {% include "_read_credential_dialog.html" %}
+    {% endif %}
   </body>
 </html>

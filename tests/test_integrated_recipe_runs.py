@@ -89,6 +89,7 @@ from impodo.domain.coverage import (
     ReferenceValueKind,
 )
 from impodo.domain.mapping.contracts import ScalarValueSource
+from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.serialization import content_hash
@@ -115,7 +116,11 @@ from impodo.migration_run_planning import (
     RecipeDependency,
     ReferenceRequirement,
 )
-from impodo.migration_runs import MigrationRunPurpose, MigrationRunService
+from impodo.migration_runs import (
+    MigrationRunPurpose,
+    MigrationRunService,
+    MigrationRunState,
+)
 from impodo.migration_test import TestRunSetupState
 from impodo.migration_workspaces import MigrationWorkspaceService
 from impodo.models import (
@@ -132,7 +137,7 @@ from impodo.web.app import create_local_app
 from impodo.web.run_review import build_integrated_run_review
 from impodo.web.target_credentials import (
     TargetCredentialRole,
-    store_target_credential,
+    get_target_credential,
 )
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -155,6 +160,141 @@ class SimulatedCrash(RuntimeError):
 
 class RecipeApplicationServiceTests(unittest.TestCase):
     """Exercise the retained compiler with the accepted Customer envelope."""
+
+    def test_required_default_recovery_is_model_agnostic(self):
+        definition = {
+            "contract_versions": {"odoo_target_contract": 2},
+            "odoo_target_contract": {
+                "odoo_major_version": 19,
+                "reference_policy_hash": REFERENCE_POLICY_HASH,
+                "approved_write_fields": {
+                    "sale.order": ("name",),
+                    "stock.picking": ("name",),
+                },
+                "models": (
+                    {"model": "sale.order", "fields": ()},
+                    {"model": "stock.picking", "fields": ()},
+                ),
+            },
+            "mapping": {
+                "datasets": (
+                    {
+                        "target_model": "sale.order",
+                        "fields": (),
+                        "relationships": (),
+                        "target_field_dispositions": (),
+                    },
+                    {
+                        "target_model": "stock.picking",
+                        "fields": (),
+                        "relationships": (),
+                        "target_field_dispositions": (),
+                    },
+                )
+            },
+        }
+        workspace_id = str(uuid4())
+        schema = OdooSchemaCatalog(
+            workspace_id=workspace_id,
+            policy_hash=content_hash("schema policy"),
+            captured_at=datetime.now(UTC),
+            captured_by="Data manager",
+            connection_mode="REMOTE",
+            database="fictional_test",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    name="sale.order",
+                    label="Sales Order",
+                    fields=(
+                        SchemaField(
+                            name="shipping_policy",
+                            label="Shipping Policy",
+                            type="selection",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(("direct", "As soon as possible"),),
+                            create_default_present=True,
+                            create_default_value="direct",
+                        ),
+                        SchemaField(
+                            name="computed_reference",
+                            label="Computed Reference",
+                            type="char",
+                            required=True,
+                            readonly=True,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            computed=True,
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    name="stock.picking",
+                    label="Transfer",
+                    fields=(
+                        SchemaField(
+                            name="batch_code",
+                            label="Batch Code",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            create_default_present=True,
+                            create_default_value="AUTO",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash=content_hash("schema evidence"),
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash=content_hash("read credential"),
+            read_principal_hash=content_hash("principal"),
+            read_permission_hash=content_hash("permissions"),
+            read_context_hash=content_hash("context"),
+            connection_target_hash=content_hash("target"),
+        )
+        compiler = RecipeApplicationService(
+            sources=SimpleNamespace(),
+            schemas=SimpleNamespace(),
+            schema_workspace=SimpleNamespace(),
+            references=SimpleNamespace(),
+            preparation=SimpleNamespace(),
+            mappings=SimpleNamespace(),
+            categorical=SimpleNamespace(),
+            application_state=SimpleNamespace(),
+        )
+
+        _assessment_hash, issues, default_fields = compiler._target_assessment(
+            definition,
+            schema,
+        )
+
+        self.assertEqual(
+            default_fields,
+            (
+                ("sale.order", "shipping_policy"),
+                ("stock.picking", "batch_code"),
+            ),
+        )
+        self.assertEqual(
+            [item.logical_id for item in issues],
+            [
+                "sale.order.shipping_policy",
+                "stock.picking.batch_code",
+            ],
+        )
+        self.assertTrue(
+            all(
+                item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
+                for item in issues
+            )
+        )
 
     def test_customer_recipe_assesses_current_sources_target_and_references(self):
         definition = json.loads(
@@ -722,11 +862,13 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
 
     def test_confirmed_recipe_default_submits_mapping_and_keeps_information(self):
         project_id = str(uuid4())
+        run_id = str(uuid4())
         application_id = str(uuid4())
         workspace_id = str(uuid4())
         recipe_id = str(uuid4())
         application = SimpleNamespace(
             application_id=application_id,
+            migration_run_id=run_id,
             project_id=project_id,
             workspace_id=workspace_id,
             evidence_hash=content_hash("blocked application"),
@@ -768,11 +910,29 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
         working = SimpleNamespace(version=3)
         submitted = []
         saved = []
+        saved_runs = []
+        confirmed = SimpleNamespace(
+            migration_run_id=run_id,
+            status=RecipeApplicationStatus.READY,
+        )
+        current_run = SimpleNamespace(
+            state=MigrationRunState.READY,
+            optimistic_revision=2,
+        )
         repository = SimpleNamespace(
             get_application=lambda current_id: application,
             list_issues=lambda current_id: (review, information),
             save_application_materialization=lambda current_id, **values: (
-                saved.append((current_id, values)) or "confirmed"
+                saved.append((current_id, values)) or confirmed
+            ),
+            get_bundle=lambda current_id: SimpleNamespace(
+                applications=(confirmed,)
+            ),
+            foundation=SimpleNamespace(
+                get_migration_run=lambda current_id: current_run,
+                save_migration_run=lambda run, **values: (
+                    saved_runs.append((run, values)) or run
+                ),
             ),
         )
         mapping_state = SimpleNamespace(
@@ -802,10 +962,100 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
-        self.assertEqual(result, "confirmed")
+        self.assertIs(result, confirmed)
         self.assertEqual(len(submitted), 1)
         self.assertEqual(saved[0][1]["status"], RecipeApplicationStatus.READY)
         self.assertEqual(saved[0][1]["issues"], (information,))
+        self.assertEqual(saved_runs, [])
+
+    def test_confirmed_run_mapping_clears_only_stale_mapping_blockers(self):
+        project_id = str(uuid4())
+        run_id = str(uuid4())
+        application_id = str(uuid4())
+        workspace_id = str(uuid4())
+        mapping_id = str(uuid4())
+        application = SimpleNamespace(
+            application_id=application_id,
+            migration_run_id=run_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            mapping_id=mapping_id,
+            evidence_hash=content_hash("mapping blocker"),
+        )
+        mapping_blocker = MigrationRunPlanIssue(
+            code="MAPPING_CATEGORICAL_COVERAGE_INCOMPLETE",
+            level=MigrationRunPlanIssueLevel.BLOCKER,
+            message="One source choice is not matched.",
+            recovery_action="Match the source choice.",
+        )
+        default_review = MigrationRunPlanIssue(
+            code="RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+            level=MigrationRunPlanIssueLevel.REVIEW,
+            message="Odoo can provide one required value.",
+            recovery_action="Review the current Odoo value.",
+        )
+        information = MigrationRunPlanIssue(
+            code="RECIPE_SOURCE_COLUMN_UNUSED",
+            level=MigrationRunPlanIssueLevel.INFORMATION,
+            message="One new source column is unused.",
+            recovery_action="No action is required.",
+        )
+        definition = SimpleNamespace(content_hash=content_hash("corrected mapping"))
+        revision = SimpleNamespace(
+            mapping_id=mapping_id,
+            version=2,
+            definition=definition,
+        )
+        submission = SimpleNamespace(
+            mapping_id=mapping_id,
+            mapping_content_hash=definition.content_hash,
+            to_json=lambda: '{"submission":"confirmed"}',
+        )
+        confirmed = SimpleNamespace(
+            migration_run_id=run_id,
+            status=RecipeApplicationStatus.BLOCKED,
+        )
+        saved = []
+        service = object.__new__(MigrationRunPlanningService)
+        service.authorization = SimpleNamespace(require=lambda *args, **kwargs: None)
+        service.repository = SimpleNamespace(
+            get_application=lambda current_id: application,
+            list_issues=lambda current_id: (
+                mapping_blocker,
+                information,
+                default_review,
+            ),
+            save_application_materialization=lambda current_id, **values: (
+                saved.append((current_id, values)) or confirmed
+            ),
+            get_bundle=lambda current_id: SimpleNamespace(
+                applications=(confirmed,)
+            ),
+        )
+        service.compiler = SimpleNamespace(
+            mappings=SimpleNamespace(
+                mappings=SimpleNamespace(
+                    get_mapping_revision=lambda current_id: revision,
+                    get_mapping_submission=lambda current_id, version: submission,
+                )
+            )
+        )
+
+        result = service.confirm_application_mapping(
+            application_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertIs(result, confirmed)
+        self.assertEqual(saved[0][1]["status"], RecipeApplicationStatus.BLOCKED)
+        self.assertEqual(
+            saved[0][1]["issues"],
+            (information, default_review),
+        )
+        self.assertEqual(
+            saved[0][1]["mapping_content_hash"],
+            definition.content_hash,
+        )
 
     def test_old_required_field_blocker_recovers_to_grouped_default_review(self):
         project_id = str(uuid4())
@@ -823,7 +1073,14 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             recipe_id=recipe_id,
             recipe_revision=1,
             status=RecipeApplicationStatus.BLOCKED,
+            mapping_id=None,
             physical_binding_hash=binding_hash,
+            parameter_values_hash=content_hash(
+                {
+                    EXPORT_AS_OF_PARAMETER_ID: "2026-08-24",
+                    "parameter:batch": "AUGUST",
+                }
+            ),
             evidence_hash=content_hash("old blocker"),
         )
         old_blocker = MigrationRunPlanIssue(
@@ -843,10 +1100,13 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
         assessment = RecipeApplicationAssessment(
             dataset_ids=("customers",),
             source_bindings={},
-            parameter_values={},
+            parameter_values={
+                EXPORT_AS_OF_PARAMETER_ID: "2026-08-24",
+                "parameter:batch": "AUGUST",
+            },
             control_values={},
             physical_binding_hash=binding_hash,
-            parameter_values_hash=content_hash({}),
+            parameter_values_hash=application.parameter_values_hash,
             target_default_fields=(("res.partner", "autopost_bills"),),
             issues=(review,),
         )
@@ -861,6 +1121,7 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
         current = self._schema(str(uuid4()), default_present=True)
         projections = []
         assessed_schemas = []
+        assessed_parameter_values = []
         saved = []
         repository = SimpleNamespace(
             get_bundle=lambda current_id: SimpleNamespace(
@@ -885,7 +1146,9 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
                 )
             ),
             assess=lambda **values: (
-                assessed_schemas.append(values["target_schema"]) or assessment
+                assessed_schemas.append(values["target_schema"])
+                or assessed_parameter_values.append(values["parameter_values"])
+                or assessment
             ),
             materialize=lambda *args, **kwargs: materialized,
         )
@@ -898,8 +1161,35 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             )
         )
         service._package_selection = lambda package: object()
+        service.data_versions = SimpleNamespace(
+            get=lambda *args, **kwargs: SimpleNamespace(
+                export_as_of="2026-08-24"
+            )
+        )
+        service.test_run_values = SimpleNamespace(
+            get_parameter_values=lambda current_id: SimpleNamespace(
+                project_id=project_id,
+                migration_run_id=run_id,
+                by_recipe={
+                    recipe_id: {"parameter:batch": "AUGUST"}
+                },
+            )
+        )
         service.recipes = SimpleNamespace(
-            read_revision=lambda *args, **kwargs: {"recipe": {}}
+            read_revision=lambda *args, **kwargs: {
+                "recipe": {
+                    "parameter_definitions": {
+                        "parameters": (
+                            {
+                                "logical_parameter_id": (
+                                    EXPORT_AS_OF_PARAMETER_ID
+                                ),
+                            },
+                            {"logical_parameter_id": "parameter:batch"},
+                        )
+                    }
+                }
+            }
         )
         service.compiler = compiler
 
@@ -911,12 +1201,41 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
 
         self.assertEqual(result, ("recovered",))
         self.assertEqual(assessed_schemas[0].workspace_id, workspace_id)
+        self.assertEqual(
+            assessed_parameter_values[0],
+            {
+                EXPORT_AS_OF_PARAMETER_ID: "2026-08-24",
+                "parameter:batch": "AUGUST",
+            },
+        )
         recovered_field = assessed_schemas[0].models[0].fields[0]
         self.assertTrue(recovered_field.create_default_present)
         self.assertEqual(projections[0][0], workspace_id)
         self.assertEqual(saved[0][1]["status"], RecipeApplicationStatus.BLOCKED)
         self.assertEqual(saved[0][1]["issues"], (review,))
 
+        materialization_blocker = MigrationRunPlanIssue(
+            code="RECIPE_MAPPING_MATERIALIZATION_BLOCKED",
+            level=MigrationRunPlanIssueLevel.BLOCKER,
+            message="Frozen source evidence is incomplete",
+            recovery_action="Retry the checked Odoo defaults.",
+            recipe_ids=(recipe_id,),
+        )
+        repository.list_issues = lambda current_id: (
+            materialization_blocker,
+            review,
+        )
+
+        retried = service.recover_blocked_test_run_defaults(
+            run_id,
+            current_schema=current,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(retried, ("recovered",))
+        self.assertEqual(len(saved), 2)
+
+        repository.list_issues = lambda current_id: (old_blocker,)
         compiler.assess = lambda **values: replace(
             assessment,
             target_default_fields=(),
@@ -1554,6 +1873,7 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             data_versions=self.data_versions,
             recipes=self.recipe_service,
             repository=self.planning_repository,
+            test_run_values=TestRunRepository(self.foundation),
             source_packages=self.packages,
             source_projections=WorkspaceSourceProjectionService(
                 self.foundation,
@@ -2276,7 +2596,12 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             self.customer.recipe.recipe_id: self.customer.recipe,
             self.product.recipe.recipe_id: self.product.recipe,
         }
-        first = result.applications[0]
+        first_recipe_id = result.requirement_plan.application_order[0]
+        first = next(
+            item
+            for item in result.applications
+            if item.recipe_id == first_recipe_id
+        )
         review = MigrationRunPlanIssue(
             code="RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
             level=MigrationRunPlanIssueLevel.REVIEW,
@@ -2294,8 +2619,13 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             issues=issue_map,
         )
 
-        self.assertEqual(view.cards[0].action_label, "Review Odoo defaults")
-        self.assertTrue(view.cards[0].action_url.endswith("/odoo-defaults"))
+        card = next(
+            item
+            for item in view.cards
+            if item.application.application_id == first.application_id
+        )
+        self.assertEqual(card.action_label, "Review Odoo defaults")
+        self.assertTrue(card.action_url.endswith("/odoo-defaults"))
         blocker = replace(
             review,
             code="RECIPE_TARGET_NEW_REQUIRED_FIELD",
@@ -2311,10 +2641,93 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             issues=issue_map,
         )
         self.assertEqual(
-            legacy_view.cards[0].action_label,
+            next(
+                item
+                for item in legacy_view.cards
+                if item.application.application_id == first.application_id
+            ).action_label,
             "Check Odoo defaults",
         )
-        self.assertTrue(legacy_view.cards[0].action_url.endswith("/odoo"))
+        legacy_card = next(
+            item
+            for item in legacy_view.cards
+            if item.application.application_id == first.application_id
+        )
+        self.assertTrue(legacy_card.action_url.endswith("/odoo"))
+
+        mapping_blocker = replace(
+            review,
+            code="MAPPING_CATEGORICAL_COVERAGE_INCOMPLETE",
+            level=MigrationRunPlanIssueLevel.BLOCKER,
+            message="One source choice is not matched.",
+            recovery_action="Match the source choice.",
+        )
+        issue_map[first.application_id] = (mapping_blocker, review)
+        mapping_view = build_integrated_run_review(
+            SimpleNamespace(preparation_jobs=None, load_jobs=None),
+            result,
+            recipes=recipes,
+            issues=issue_map,
+        )
+        self.assertEqual(
+            next(
+                item
+                for item in mapping_view.cards
+                if item.application.application_id == first.application_id
+            ).action_label,
+            "Review field matches",
+        )
+        self.assertEqual(
+            next(
+                item
+                for item in mapping_view.cards
+                if item.application.application_id == first.application_id
+            ).action_url,
+            f"/workspaces/{first.workspace_id}/mapping",
+        )
+
+        materialization_blocker = replace(
+            review,
+            code="RECIPE_MAPPING_MATERIALIZATION_BLOCKED",
+            level=MigrationRunPlanIssueLevel.BLOCKER,
+            message="Frozen source evidence is incomplete.",
+            recovery_action="Retry the saved Odoo check.",
+        )
+        interrupted = replace(
+            first,
+            status=RecipeApplicationStatus.BLOCKED,
+            mapping_id=None,
+            mapping_content_hash=None,
+        )
+        interrupted_result = replace(
+            result,
+            applications=tuple(
+                interrupted
+                if item.application_id == first.application_id
+                else item
+                for item in result.applications
+            ),
+        )
+        issue_map[first.application_id] = (
+            materialization_blocker,
+            review,
+        )
+        interrupted_view = build_integrated_run_review(
+            SimpleNamespace(preparation_jobs=None, load_jobs=None),
+            interrupted_result,
+            recipes=recipes,
+            issues=issue_map,
+        )
+        interrupted_card = next(
+            item
+            for item in interrupted_view.cards
+            if item.application.application_id == first.application_id
+        )
+        self.assertEqual(
+            interrupted_card.action_label,
+            "Retry Odoo defaults",
+        )
+        self.assertTrue(interrupted_card.action_url.endswith("/odoo"))
 
     def test_failed_application_remains_the_next_recoverable_recipe(self):
         result = self._start()
@@ -2793,14 +3206,76 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             f'name="operation_id" value="{check_operation_id}"',
             missing_reader.text,
         )
+        self.assertIn("data-read-credential-dialog", missing_reader.text)
+        self.assertIn('data-auto-open="true"', missing_reader.text)
+        self.assertIn('data-resume="submit"', missing_reader.text)
+        self.assertIn(
+            (
+                'data-resume-action="'
+                f"/projects/{project_id}/test-runs/{setup_run_id}/odoo/check"
+                '"'
+            ),
+            missing_reader.text,
+        )
+        self.assertIn("Keep it on this computer", missing_reader.text)
+        self.assertIn("Windows Credential Manager", missing_reader.text)
+        self.assertNotIn("test-read-key", missing_reader.text)
+
+        for unsafe_location in (
+            "https://outside.example.test/steal",
+            "/%2F%2Foutside.example.test/steal",
+        ):
+            with self.subTest(unsafe_location=unsafe_location):
+                unsafe_return = self.client.post(
+                    (
+                        f"/workspaces/{setup_workspace_id}/"
+                        "target/read-credential/quick"
+                    ),
+                    data={
+                        "csrf_token": fresh_csrf,
+                        "read_api_key": "must-not-be-saved",
+                        "read_api_key_storage": "session",
+                        "return_to": unsafe_location,
+                    },
+                    headers={
+                        "Origin": "http://testserver",
+                        "Accept": "application/json",
+                    },
+                )
+                self.assertEqual(unsafe_return.status_code, 422)
         setup_state = context.workspace_states.repository.get(setup_workspace_id)
-        credential = store_target_credential(
+        self.assertIsNone(
+            get_target_credential(
+                context.secret_store,
+                setup_state,
+                TargetCredentialRole.READ,
+            )
+        )
+
+        saved_key = self.client.post(
+            f"/workspaces/{setup_workspace_id}/target/read-credential/quick",
+            data={
+                "csrf_token": fresh_csrf,
+                "read_api_key": "test-read-key",
+                "read_api_key_storage": "session",
+                "return_to": odoo_url,
+            },
+            headers={
+                "Origin": "http://testserver",
+                "Accept": "application/json",
+            },
+        )
+        self.assertEqual(saved_key.status_code, 200, saved_key.text)
+        self.assertEqual(saved_key.json()["return_to"], odoo_url)
+        self.assertNotIn("test-read-key", saved_key.text)
+        credential = get_target_credential(
             context.secret_store,
             setup_state,
             TargetCredentialRole.READ,
-            "test-read-key",
-            persistent=False,
         )
+        assert credential is not None
+        self.assertEqual(credential.secret, "test-read-key")
+        self.assertFalse(credential.persistent)
         target_hash = target_identity_hash(
             connection_mode="REMOTE",
             base_url=setup_state.odoo_base_url,

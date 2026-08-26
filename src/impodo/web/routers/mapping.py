@@ -10,26 +10,38 @@ See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
 
 from __future__ import annotations
+
 import csv
-from dataclasses import replace
 import hashlib
-from io import StringIO
 import json
-from fastapi import HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from dataclasses import replace
+from io import StringIO
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from starlette.concurrency import run_in_threadpool
+
+from ...access import Capability
+from ...application.odoo_read_failures import classify_odoo_read_failure
 from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
-from ...workspace_state import WorkspaceStateError
 from ...domain.errors import ReadinessError
 from ...domain.mapping.contracts import TargetFieldHandling
 from ...domain.staging.transformation_impact import TransformationImpactFilter
+from ...migration_run_planning import MigrationRunPlanningError
 from ...secrets import SecretStoreError
 from ...source import SourceLoadError
 from ...workspace_errors import WorkspaceError
-from ..security import require_csrf, require_session
-from fastapi import APIRouter
-from ..constants import TRANSFORMATION_IMPACT_PAGE_SIZE, TRANSFORMATION_IMPACT_OUTCOMES
+from ...workspace_state import WorkspaceStateError
+from ..constants import (
+    TRANSFORMATION_IMPACT_OUTCOMES,
+    TRANSFORMATION_IMPACT_PAGE_SIZE,
+)
 from ..context import WebContext
 from ..forms import (
     _is_json_request,
@@ -64,6 +76,7 @@ from ..presenters.mapping_view import (
     _render_mapping_field_catalog,
     _safe_spreadsheet_text,
 )
+from ..security import require_csrf, require_session
 from ..target_readers import _relationship_value_choices, _source_value_choices
 
 
@@ -251,7 +264,21 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             SourceLoadError,
             WorkspaceError,
         ) as error:
-            return JSONResponse({"detail": str(error)}, status_code=422)
+            read_failure = classify_odoo_read_failure(error)
+            return JSONResponse(
+                {
+                    "detail": str(error),
+                    "read_credential_required": (
+                        read_failure.asks_for_read_credential
+                    ),
+                    "read_credential_failure_code": (
+                        read_failure.code.value
+                        if read_failure.asks_for_read_credential
+                        else ""
+                    ),
+                },
+                status_code=422,
+            )
 
     @router.get(
         "/workspaces/{workspace_id}/mapping/transformation-impact",
@@ -779,7 +806,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             if action == "draft":
-                revision, validation = await run_in_threadpool(
+                _revision, validation = await run_in_threadpool(
                     context.mapping_workspace.check_definition,
                     workspace_id,
                     datasets=datasets,
@@ -812,6 +839,17 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     ),
                     actor=context.actor,
                 )
+                access = context.workspace_access.require(
+                    context.actor,
+                    Capability.MAPPING_SUBMIT,
+                    workspace_id=workspace_id,
+                )
+                if access.recipe_application_id is not None:
+                    await run_in_threadpool(
+                        context.run_planning.confirm_application_mapping,
+                        access.recipe_application_id,
+                        actor=context.actor,
+                    )
                 message = "Field matches confirmed."
                 _flash(request, message)
                 mapping_return_url = f"/workspaces/{workspace_id}/prepare"
@@ -822,7 +860,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 error,
                 json_request=json_request,
             )
-        except (ValueError, WorkspaceError) as error:
+        except (
+            ValueError,
+            MigrationRunPlanningError,
+            WorkspaceError,
+        ) as error:
             if json_request:
                 current_working = (
                     context.queries.get_mapping_working_draft(workspace_id)
