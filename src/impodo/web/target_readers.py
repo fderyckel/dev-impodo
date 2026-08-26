@@ -628,6 +628,92 @@ def _source_value_choices(
     )
 
 
+def _refresh_mapping_odoo_defaults(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+    requested_fields: tuple[tuple[str, tuple[str, ...]], ...],
+) -> OdooSchemaCatalog:
+    """Read required create defaults once per model and preserve saved mapping."""
+
+    metadata_requests = tuple(
+        MetadataRequest(model=model_name, fields=field_names)
+        for model_name, field_names in requested_fields
+    )
+    if context.readiness_reader is not None:
+        snapshot, _records = context.readiness_reader(
+            workspace_state,
+            metadata_requests,
+            (),
+        )
+        read_credential_binding_hash = schema.read_credential_binding_hash
+        read_identity = (
+            OdooReadIdentity(
+                target_hash=schema.connection_target_hash,
+                principal_hash=schema.read_principal_hash,
+                permission_hash=schema.read_permission_hash,
+                context_hash=schema.read_context_hash,
+                readable_models=tuple(sorted(model.name for model in schema.models)),
+                observed_at=datetime.now(timezone.utc).isoformat(),
+            )
+            if workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL
+            else None
+        )
+    elif workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL:
+        local_profile = _selected_local_profile(context, workspace_state)
+        if local_profile is None:
+            raise LocalOdooRecoveryRequired(
+                "Choose and validate the matching local odoo.conf before "
+                "asking Odoo to decide."
+            )
+        read_credential_binding_hash = local_read_credential_binding_hash(
+            workspace_state
+        )
+        if read_credential_binding_hash != schema.read_credential_binding_hash:
+            raise WorkspaceError(
+                "The local Odoo target evidence changed; check the Odoo fields again"
+            )
+        snapshot, _records = context.local_odoo_reader.get_preflight_snapshots(
+            workspace_state,
+            local_profile,
+            metadata_requests,
+            (),
+        )
+        read_identity = None
+    else:
+        credential = get_target_credential(
+            context.secret_store,
+            context.target_credential_workspace(workspace_state.workspace_id),
+            TargetCredentialRole.READ,
+        )
+        if credential is None:
+            raise OdooReadCredentialMissingError(
+                "Enter the Odoo read API key before asking Odoo to decide."
+            )
+        if credential.binding_hash != schema.read_credential_binding_hash:
+            raise WorkspaceError(
+                "The Odoo read key changed; check the Odoo fields again"
+            )
+        probe_models = tuple(sorted(model.name for model in schema.models))
+        read_identity = context.read_identity_probe(
+            workspace_state,
+            credential.secret,
+            probe_models,
+        )
+        snapshot = Json2ReadConnector(
+            _target_json2_config(workspace_state, credential.secret)
+        ).get_model_metadata(metadata_requests)
+        read_credential_binding_hash = credential.binding_hash
+    return context.schema_workspace.refresh_create_defaults(
+        workspace_state.workspace_id,
+        snapshot,
+        requested_fields=dict(requested_fields),
+        read_credential_binding_hash=read_credential_binding_hash,
+        read_identity=read_identity,
+        actor=context.actor,
+    )
+
+
 def _relationship_value_choices(
     context: WebContext,
     workspace_state: WorkspaceState,

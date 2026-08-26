@@ -9,6 +9,22 @@ from typing import Protocol
 from .contracts import TargetFieldHandling
 
 
+CREATE_DEFAULT_SCALAR_TYPES = frozenset(
+    {
+        "boolean",
+        "char",
+        "date",
+        "datetime",
+        "float",
+        "html",
+        "integer",
+        "monetary",
+        "selection",
+        "text",
+    }
+)
+
+
 class CreateFieldView(Protocol):
     """Minimal field evidence used by workspace and Recipe compatibility."""
 
@@ -93,4 +109,14 @@ def is_odoo_managed_candidate(field: CreateFieldView) -> bool:
         field.type in {"one2many", "many2many"}
         or field.computed is True
         or field.related is True
+    )
+
+
+def supports_create_default_capture(field: CreateFieldView) -> bool:
+    """Return whether one field can receive bounded ``default_get`` evidence."""
+
+    return bool(
+        field.required
+        and not field.readonly
+        and field.type in CREATE_DEFAULT_SCALAR_TYPES
     )

@@ -60,6 +60,17 @@ class RunAwareSchemaRepository:
             **kwargs,
         )
 
+    def save_odoo_create_defaults(self, workspace_id, catalog, **kwargs):
+        if self.runs.get_workspace_target_schema(workspace_id) is not None:
+            raise MigrationRunPlanningError(
+                "Check target defaults once from the integrated run"
+            )
+        return self.local.save_odoo_create_defaults(
+            workspace_id,
+            catalog,
+            **kwargs,
+        )
+
     def confirm_odoo_schema_refresh(self, workspace_id, catalog, **kwargs):
         if self.runs.get_workspace_target_schema(workspace_id) is not None:
             raise MigrationRunPlanningError(

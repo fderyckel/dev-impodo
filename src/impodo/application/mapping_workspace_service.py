@@ -33,6 +33,7 @@ from ..domain.mapping.contracts import (
 from ..domain.mapping.create_field_policy import (
     CreateFieldCoverage,
     evaluate_create_field,
+    supports_create_default_capture,
 )
 from ..domain.mapping.artifacts import (
     MappingRevision,
@@ -554,6 +555,65 @@ class MappingWorkspaceService:
         )
         return draft, confirmed_count
 
+    def default_recovery_fields(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """Return checked required scalar blockers eligible for ``default_get``."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            workspace_id=workspace_id,
+        )
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
+        working = self.mappings.get_mapping_working_draft(workspace_id)
+        if schema is None or revision is None or working is None:
+            raise WorkspaceError(
+                "Check the current field matches before asking Odoo to decide"
+            )
+        if working.content_hash != revision.definition.content_hash:
+            raise WorkspaceError(
+                "Check the saved field changes before asking Odoo to decide"
+            )
+        validation = self.mappings.get_mapping_validation(
+            workspace_id,
+            revision.version,
+        )
+        if validation is None:
+            raise WorkspaceError(
+                "Check the current field matches before asking Odoo to decide"
+            )
+        fields_by_model = {
+            model.name: {field.name: field for field in model.fields}
+            for model in schema.models
+        }
+        grouped: dict[str, set[str]] = {}
+        for issue in validation.issues:
+            if (
+                issue.severity != "error"
+                or issue.code != "MAPPING_REQUIRED_FIELD_UNMAPPED"
+                or not issue.target_model
+                or not issue.target_field
+            ):
+                continue
+            field = fields_by_model.get(issue.target_model, {}).get(
+                issue.target_field
+            )
+            if field is not None and supports_create_default_capture(field):
+                grouped.setdefault(issue.target_model, set()).add(field.name)
+        if not grouped:
+            raise WorkspaceError(
+                "No required scalar fields are waiting for an Odoo default check"
+            )
+        return tuple(
+            (model_name, tuple(sorted(field_names)))
+            for model_name, field_names in sorted(grouped.items())
+        )
+
     def check_definition(
         self,
         workspace_id: str,
@@ -978,7 +1038,6 @@ class MappingWorkspaceService:
                 and snapshot.read_credential_binding_hash
                 == schema.read_credential_binding_hash
                 and snapshot.read_principal_hash == schema.read_principal_hash
-                and snapshot.read_permission_hash == schema.read_permission_hash
                 and snapshot.read_context_hash == schema.read_context_hash
                 and snapshot.reference_policy_hash == REFERENCE_POLICY_HASH
             ):

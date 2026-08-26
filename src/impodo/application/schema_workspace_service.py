@@ -26,6 +26,7 @@ from ..domain.schema.governance import (
     BusinessKeyDefinition,
     SchemaGovernance,
 )
+from ..domain.mapping.create_field_policy import supports_create_default_capture
 from ..models import FieldMetadata, OdooReadIdentity, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..workspace_state import (
@@ -129,6 +130,18 @@ class SchemaWorkspaceRepository(Protocol):
         actor: Actor,
     ) -> None:
         """Record refresh status without replacing current schema meaning."""
+        ...
+
+    def save_odoo_create_defaults(
+        self,
+        workspace_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_content_hash: str,
+        expected_read_credential_binding_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Store supplemental create defaults without retiring dependents."""
         ...
 
     def confirm_odoo_schema_refresh(
@@ -408,6 +421,154 @@ class SchemaWorkspaceService:
             actor=actor,
         )
         return checked
+
+    def refresh_create_defaults(
+        self,
+        workspace_id: str,
+        snapshot: MetadataSnapshot,
+        *,
+        requested_fields: Mapping[str, tuple[str, ...]],
+        read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None = None,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Add exact ``default_get`` evidence without changing schema ownership."""
+
+        workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
+        current = self.schemas.get_odoo_schema_catalog(workspace_id)
+        if current is None or current.origin is not SchemaOrigin.LIVE_API:
+            raise WorkspaceError(
+                "Load verified Odoo fields before asking Odoo to decide"
+            )
+        if current.pending_refresh is not None:
+            raise WorkspaceError(
+                "Review the checked Odoo field changes before asking Odoo to decide"
+            )
+        _validate_read_credential_binding_hash(read_credential_binding_hash)
+        if read_credential_binding_hash != current.read_credential_binding_hash:
+            raise WorkspaceError(
+                "The Odoo read key changed; check the Odoo fields again"
+            )
+        normalized = {
+            str(model_name): tuple(dict.fromkeys(field_names))
+            for model_name, field_names in requested_fields.items()
+            if field_names
+        }
+        if not normalized or set(normalized) - permitted:
+            raise WorkspaceError(
+                "The required Odoo default check is outside this migration scope"
+            )
+        if not snapshot.complete or set(snapshot.models) != set(normalized):
+            raise WorkspaceError(
+                "Odoo did not return every required field default check"
+            )
+        if snapshot.fingerprint.target_hash != current.connection_target_hash:
+            raise WorkspaceError("Odoo defaults came from a different target")
+        if (
+            snapshot.fingerprint.connection_mode != current.connection_mode
+            or snapshot.fingerprint.database != current.database
+            or snapshot.fingerprint.odoo_version != current.odoo_version
+        ):
+            raise WorkspaceError(
+                "The Odoo target details changed; check the Odoo fields again"
+            )
+        if workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL:
+            identity_hashes = _validate_read_identity(
+                workspace_state,
+                read_identity,
+                required_models=tuple(sorted(permitted)),
+            )
+            if (
+                identity_hashes["read_principal_hash"]
+                != current.read_principal_hash
+                or identity_hashes["read_permission_hash"]
+                != current.read_permission_hash
+                or identity_hashes["read_context_hash"]
+                != current.read_context_hash
+            ):
+                raise WorkspaceError(
+                    "The Odoo reader, permissions, or company context changed; "
+                    "check the Odoo fields again"
+                )
+
+        current_models = {model.name: model for model in current.models}
+        replacements: dict[str, dict[str, SchemaField]] = {}
+        recovered_count = 0
+        for model_name, field_names in normalized.items():
+            current_model = current_models.get(model_name)
+            returned_model = snapshot.models[model_name]
+            current_fields = {
+                field.name: field for field in current_model.fields
+            } if current_model is not None else {}
+            if set(returned_model.fields) != set(field_names):
+                raise WorkspaceError(
+                    "Odoo did not return the exact required fields requested"
+                )
+            recovered_fields: dict[str, SchemaField] = {}
+            for field_name in field_names:
+                current_field = current_fields.get(field_name)
+                returned_field = returned_model.fields[field_name]
+                if (
+                    current_field is None
+                    or not _supports_default_refresh(current_field)
+                ):
+                    raise WorkspaceError(
+                        f"{model_name}.{field_name} cannot use an Odoo create default"
+                    )
+                observed = _schema_field_from_metadata(
+                    field_name,
+                    returned_field,
+                    snapshot.create_defaults.get(model_name),
+                )
+                if _schema_field_structure(current_field) != _schema_field_structure(
+                    observed
+                ):
+                    raise WorkspaceError(
+                        f"{model_name}.{field_name} changed in Odoo; check the "
+                        "Odoo fields again"
+                    )
+                if not observed.create_default_present:
+                    raise WorkspaceError(
+                        f"Odoo did not return a usable default for "
+                        f"{model_name}.{field_name}. Match this field yourself."
+                    )
+                recovered_fields[field_name] = replace(
+                    current_field,
+                    create_default_present=True,
+                    create_default_value=observed.create_default_value,
+                )
+                recovered_count += 1
+            replacements[model_name] = recovered_fields
+
+        checked_at = datetime.now(timezone.utc)
+        updated = replace(
+            current,
+            models=tuple(
+                replace(
+                    model,
+                    fields=tuple(
+                        replacements.get(model.name, {}).get(field.name, field)
+                        for field in model.fields
+                    ),
+                )
+                for model in current.models
+            ),
+            last_checked_at=checked_at,
+            last_checked_by=actor.identity.display_name,
+            pending_refresh=None,
+        )
+        self.schemas.save_odoo_create_defaults(
+            workspace_id,
+            updated,
+            expected_content_hash=current.content_hash,
+            expected_read_credential_binding_hash=(
+                current.read_credential_binding_hash
+            ),
+            actor=actor,
+        )
+        if recovered_count < 1:
+            raise WorkspaceError("Odoo did not return a usable create default")
+        return updated
 
     def confirm_refresh(
         self,
@@ -1069,6 +1230,21 @@ def _usable_create_default(
             else (False, None)
         )
     return False, None
+
+
+def _supports_default_refresh(field: SchemaField) -> bool:
+    """Keep supplemental reads aligned with the connector's scalar allowlist."""
+
+    return supports_create_default_capture(field)
+
+
+def _schema_field_structure(field: SchemaField) -> dict[str, object]:
+    """Compare captured field behavior while excluding supplemental defaults."""
+
+    semantics = _schema_field_semantics(field)
+    semantics.pop("create_default_present")
+    semantics.pop("create_default_value")
+    return semantics
 
 
 def _schema_semantic_hash(catalog: OdooSchemaCatalog) -> str:

@@ -1192,6 +1192,13 @@
                     {% endfor %}
                   </ul>
                 {% endif %}
+                {% if blocker.default_checks %}
+                  <ul>
+                    {% for item in blocker.default_checks %}
+                      <li>{{ item.dataset_label }} &middot; {{ item.field_label }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
                 {% if blocker.issue_view %}
                   {% set issue_view = blocker.issue_view %}
                   <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>

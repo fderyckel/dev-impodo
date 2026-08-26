@@ -33,6 +33,7 @@ from urllib.parse import quote
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .domain.mapping.create_field_policy import supports_create_default_capture
 from .models import (
     FieldMetadata,
     ModelMetadata,
@@ -1559,30 +1560,10 @@ def _parse_field_metadata(name: str, data: Mapping[str, Any]) -> FieldMetadata:
     )
 
 
-_CREATE_DEFAULT_SCALAR_TYPES = frozenset(
-    {
-        "boolean",
-        "char",
-        "date",
-        "datetime",
-        "float",
-        "html",
-        "integer",
-        "monetary",
-        "selection",
-        "text",
-    }
-)
-
-
 def _captures_create_default(field_metadata: FieldMetadata) -> bool:
     """Keep runtime-default reads bounded to required writable scalar fields."""
 
-    return bool(
-        field_metadata.required
-        and not field_metadata.readonly
-        and field_metadata.type in _CREATE_DEFAULT_SCALAR_TYPES
-    )
+    return supports_create_default_capture(field_metadata)
 
 
 def _metadata_bool(data: Mapping[str, Any], key: str) -> bool | None:

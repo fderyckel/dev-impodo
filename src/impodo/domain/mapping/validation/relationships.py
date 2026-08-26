@@ -417,8 +417,9 @@ def _validate_resolver(
                 "MAPPING_TARGET_MODEL_UNKNOWN",
                 path,
                 "The resolver model is absent from the permitted schema.",
-                "Add it to schema scope and recapture.",
+                "Refresh the linked Odoo values and check matches again.",
                 dataset=dataset,
+                target_field=relationship_metadata.name,
             )
         )
         return

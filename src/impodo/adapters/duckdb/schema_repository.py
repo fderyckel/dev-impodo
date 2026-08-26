@@ -11,7 +11,7 @@ See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
 
 from __future__ import annotations
 
-
+from dataclasses import asdict
 
 from ...access import Actor
 from ...domain.schema.governance import SchemaGovernance
@@ -286,6 +286,98 @@ class SchemaRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
+    def save_odoo_create_defaults(
+        self,
+        workspace_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_content_hash: str,
+        expected_read_credential_binding_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Store default evidence only; preserve governance and mapping pointers."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            connection.begin()
+            try:
+                row = connection.execute(
+                    """
+                    SELECT catalog_json
+                      FROM odoo_schema_catalog
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                if row is None:
+                    raise WorkspaceError("Capture the Odoo schema first")
+                current = OdooSchemaCatalog.from_json(str(row[0]))
+                unchanged_structure = (
+                    current.workspace_id == workspace_id
+                    and current.content_hash == expected_content_hash
+                    and current.read_credential_binding_hash
+                    == expected_read_credential_binding_hash
+                    and catalog.workspace_id == current.workspace_id
+                    and catalog.content_hash == current.content_hash
+                    and catalog.policy_hash == current.policy_hash
+                    and catalog.connection_target_hash
+                    == current.connection_target_hash
+                    and catalog.connection_mode == current.connection_mode
+                    and catalog.database == current.database
+                    and catalog.odoo_version == current.odoo_version
+                    and catalog.origin is current.origin
+                    and _models_without_create_defaults(catalog.models)
+                    == _models_without_create_defaults(current.models)
+                    and catalog.read_credential_binding_hash
+                    == current.read_credential_binding_hash
+                    and catalog.read_principal_hash
+                    == current.read_principal_hash
+                    and catalog.read_permission_hash
+                    == current.read_permission_hash
+                    and catalog.read_context_hash == current.read_context_hash
+                    and catalog.captured_at == current.captured_at
+                    and catalog.captured_by == current.captured_by
+                    and current.pending_refresh is None
+                    and catalog.pending_refresh is None
+                )
+                if not unchanged_structure:
+                    raise WorkspaceError(
+                        "Odoo schema was modified by another request"
+                    )
+                changed_count = _create_default_change_count(
+                    current.models,
+                    catalog.models,
+                )
+                if changed_count < 1:
+                    raise WorkspaceError(
+                        "Odoo did not return new create-default evidence"
+                    )
+                connection.execute(
+                    """
+                    UPDATE odoo_schema_catalog
+                       SET catalog_json = ?
+                     WHERE singleton_id = 1
+                    """,
+                    [catalog.to_json()],
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._workspace_revision(connection),
+                    event_type="ODOO_CREATE_DEFAULTS_REFRESHED",
+                    detail=(
+                        f"{changed_count} required field default"
+                        f"{'s' if changed_count != 1 else ''}; "
+                        "schema structure unchanged"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
     def confirm_odoo_schema_refresh(
         self,
         workspace_id: str,
@@ -488,3 +580,35 @@ class SchemaRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+
+
+def _models_without_create_defaults(models) -> list[dict[str, object]]:
+    """Return exact schema structure with supplemental default values removed."""
+
+    result: list[dict[str, object]] = []
+    for model in models:
+        value = asdict(model)
+        for field in value["fields"]:
+            field.pop("create_default_present", None)
+            field.pop("create_default_value", None)
+        result.append(value)
+    return result
+
+
+def _create_default_change_count(previous_models, observed_models) -> int:
+    """Count fields whose supplemental create-default evidence changed."""
+
+    previous = {
+        (model.name, field.name): (
+            field.create_default_present,
+            field.create_default_value,
+        )
+        for model in previous_models
+        for field in model.fields
+    }
+    return sum(
+        previous.get((model.name, field.name))
+        != (field.create_default_present, field.create_default_value)
+        for model in observed_models
+        for field in model.fields
+    )

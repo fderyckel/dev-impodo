@@ -448,6 +448,75 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "New contact",
         )
 
+    def test_required_default_refresh_preserves_schema_governance(self) -> None:
+        schema = self._capture_authenticated_schema()
+        governance = self.schemas.govern(
+            self.workspace_state.workspace_id,
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="partner-name",
+                    model="res.partner",
+                    key_fields=("name",),
+                    description="Unique contact name",
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            actor=LOCAL_ACTOR,
+        )
+        snapshot = _metadata_snapshot(
+            create_defaults={"res.partner": {"name": "New contact"}}
+        )
+        partner = snapshot.models["res.partner"]
+        narrowed = replace(
+            snapshot,
+            models={
+                "res.partner": replace(
+                    partner,
+                    fields={"name": partner.fields["name"]},
+                )
+            },
+        )
+
+        refreshed = self.schemas.refresh_create_defaults(
+            self.workspace_state.workspace_id,
+            narrowed,
+            requested_fields={"res.partner": ("name",)},
+            read_credential_binding_hash=schema.read_credential_binding_hash,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        refreshed_name = next(
+            field
+            for field in refreshed.models[0].fields
+            if field.name == "name"
+        )
+        self.assertTrue(refreshed_name.create_default_present)
+        self.assertEqual(refreshed_name.create_default_value, "New contact")
+        self.assertEqual(refreshed.content_hash, schema.content_hash)
+        self.assertEqual(
+            self.schema_repository.get_schema_governance(
+                self.workspace_state.workspace_id
+            ),
+            governance,
+        )
+        database_path = (
+            self.schema_repository.workspace_directory(
+                self.workspace_state.workspace_id
+            )
+            / "workspace-engine.duckdb"
+        )
+        with self.schema_repository._connect(database_path) as connection:
+            event = connection.execute(
+                """
+                SELECT event_type
+                  FROM audit_event
+                 ORDER BY event_id DESC
+                 LIMIT 1
+                """
+            ).fetchone()
+        self.assertEqual(event, ("ODOO_CREATE_DEFAULTS_REFRESHED",))
+
     def test_schema_access_rebind_blocks_field_drift_without_invalidation(
         self,
     ) -> None:

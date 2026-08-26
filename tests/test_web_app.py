@@ -6278,6 +6278,38 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("odoo_id", choices.text)
         self.assertNotIn("41", choices.text)
 
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        lookup = context.supporting_lookups.current(
+            workspace_id,
+            relation_model="uom.uom",
+            key_fields=("name",),
+            scope_fields=(),
+            display_field="name",
+            target_hash=schema.connection_target_hash,
+            read_credential_binding_hash=schema.read_credential_binding_hash,
+            read_principal_hash=schema.read_principal_hash,
+            read_context_hash=schema.read_context_hash,
+            actor=context.actor,
+        )
+        self.assertIsNotNone(lookup)
+        context.supporting_lookups.capture(
+            workspace_id,
+            relation_model=lookup.relation_model,
+            key_fields=lookup.key_fields,
+            scope_fields=lookup.scope_fields,
+            display_field=lookup.display_field,
+            field_contracts=lookup.field_contracts,
+            target_hash=lookup.target_hash,
+            read_credential_binding_hash=lookup.read_credential_binding_hash,
+            read_principal_hash=lookup.read_principal_hash,
+            read_permission_hash="sha256:" + "9" * 64,
+            read_context_hash=lookup.read_context_hash,
+            captured_at=lookup.captured_at,
+            choices=lookup.choices,
+            ambiguous_values=lookup.ambiguous_values,
+            actor=context.actor,
+        )
+
         saved = self.client.post(
             f"/workspaces/{workspace_id}/mapping/save",
             json={
@@ -6767,6 +6799,160 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ],
             ["field_0000", "field_0001"],
         )
+
+    def test_missing_required_defaults_are_checked_and_confirmed_in_one_action(
+        self,
+    ) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=2,
+            required_scalar_indexes=(0, 1),
+        )
+        source_identity, _source_value = dataset.columns
+        context = self.app.state.context
+        revision, validation = context.mapping_workspace.check_definition(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+        schema_before = context.queries.get_odoo_schema_catalog(workspace_id)
+        governance_before = context.queries.get_schema_governance(workspace_id)
+        calls = []
+
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
+            calls.append((metadata_requests, record_requests))
+            models = {model.name: model for model in schema_before.models}
+            returned_models = {}
+            defaults = {}
+            for request in metadata_requests:
+                model = models[request.model]
+                fields = {field.name: field for field in model.fields}
+                returned_models[request.model] = ModelMetadata(
+                    model=request.model,
+                    description=model.label,
+                    fields={
+                        field_name: FieldMetadata(
+                            name=field_name,
+                            type=fields[field_name].type,
+                            label=fields[field_name].label,
+                            required=fields[field_name].required,
+                            readonly=fields[field_name].readonly,
+                            relation=fields[field_name].relation,
+                            relation_field=fields[field_name].relation_field,
+                            selection=fields[field_name].selection,
+                            stored=fields[field_name].stored,
+                            computed=fields[field_name].computed,
+                            has_inverse=fields[field_name].has_inverse,
+                            related=fields[field_name].related,
+                            translated=fields[field_name].translated,
+                            company_dependent=fields[field_name].company_dependent,
+                            searchable=fields[field_name].searchable,
+                            sortable=fields[field_name].sortable,
+                            exportable=fields[field_name].exportable,
+                            digits=fields[field_name].digits,
+                            currency_field=fields[field_name].currency_field,
+                        )
+                        for field_name in request.fields
+                    },
+                )
+                defaults[request.model] = {
+                    field_name: f"Current Odoo default {field_name}"
+                    for field_name in request.fields
+                }
+            metadata = MetadataSnapshot(
+                fingerprint=_browser_schema(workspace_state).fingerprint,
+                models=returned_models,
+                create_defaults=defaults,
+            )
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={},
+                requested_fields={},
+            )
+
+        context.readiness_reader = readiness_reader
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertIn("Let Odoo decide for 2 required fields", page.text)
+        self.assertIn("read-only for this exact Odoo target", page.text)
+        self.assertEqual(page.text.count('value="refresh_defaults"'), 1)
+
+        decision = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "refresh_defaults",
+                "expected_working_draft_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(decision.status_code, 303, decision.text)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls[0][0]), 1)
+        self.assertEqual(
+            calls[0][0][0].fields,
+            ("field_0000", "field_0001"),
+        )
+        self.assertEqual(calls[0][1], ())
+        schema_after = context.queries.get_odoo_schema_catalog(workspace_id)
+        self.assertEqual(schema_after.content_hash, schema_before.content_hash)
+        self.assertEqual(
+            context.queries.get_schema_governance(workspace_id),
+            governance_before,
+        )
+        recovered_fields = {
+            field.name: field for field in schema_after.models[0].fields
+        }
+        self.assertEqual(
+            recovered_fields["field_0000"].create_default_value,
+            "Current Odoo default field_0000",
+        )
+        self.assertEqual(
+            recovered_fields["field_0001"].create_default_value,
+            "Current Odoo default field_0001",
+        )
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            workspace_id
+        )
+        self.assertEqual(
+            [
+                item.target_field
+                for item in working.definition.datasets[0].target_field_dispositions
+            ],
+            ["field_0000", "field_0001"],
+        )
+        decision_page = self.client.get(decision.headers["location"])
+        self.assertIn("Odoo will decide 2 required fields", decision_page.text)
+        self.assertIn("Odoo will choose this value", decision_page.text)
+
+        _checked_revision, checked_validation = (
+            context.mapping_workspace.check_definition(
+                workspace_id,
+                datasets=working.definition.datasets,
+                expected_parent_version=revision.version,
+                expected_working_draft_version=working.version,
+                actor=context.actor,
+            )
+        )
+        self.assertEqual(checked_validation.status, MappingValidationStatus.VALID)
+        self.assertEqual(checked_validation.issues, ())
 
     def test_required_managed_relationship_can_be_left_to_odoo(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(

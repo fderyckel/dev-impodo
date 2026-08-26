@@ -80,7 +80,11 @@ from ..presenters.mapping_view import (
     _safe_spreadsheet_text,
 )
 from ..security import require_csrf, require_session
-from ..target_readers import _relationship_value_choices, _source_value_choices
+from ..target_readers import (
+    _refresh_mapping_odoo_defaults,
+    _relationship_value_choices,
+    _source_value_choices,
+)
 
 
 def build_mapping_router(context: WebContext) -> APIRouter:
@@ -649,6 +653,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "submit",
                 "remove_readonly",
                 "confirm_defaults",
+                "refresh_defaults",
             } and not action.startswith(
                 ("set_disposition:", "clear_disposition:")
             ):
@@ -763,6 +768,47 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     )
                 _flash(request, message)
                 return RedirectResponse(mapping_return_url, status_code=303)
+            if action == "refresh_defaults":
+                requested_fields = await run_in_threadpool(
+                    context.mapping_workspace.default_recovery_fields,
+                    workspace_id,
+                    actor=context.actor,
+                )
+                workspace_state = context.queries.get(workspace_id)
+                await run_in_threadpool(
+                    _refresh_mapping_odoo_defaults,
+                    context,
+                    workspace_state,
+                    schema,
+                    requested_fields,
+                )
+                working_draft, confirmed_count = await run_in_threadpool(
+                    context.mapping_workspace.confirm_available_odoo_defaults,
+                    workspace_id,
+                    expected_version=expected_working_version,
+                    actor=context.actor,
+                )
+                message = (
+                    f"Odoo will decide {confirmed_count} required field"
+                    f"{'s' if confirmed_count != 1 else ''} using the defaults "
+                    "checked for this target. Check matches again when ready."
+                )
+                decision_return_url = (
+                    f"{_mapping_return_url(request, workspace_id)}"
+                    "#next-step-blockers"
+                )
+                if json_request:
+                    return JSONResponse(
+                        {
+                            "message": message,
+                            "redirect_url": decision_return_url,
+                            "expected_working_draft_version": (
+                                working_draft.version
+                            ),
+                        }
+                    )
+                _flash(request, message)
+                return RedirectResponse(decision_return_url, status_code=303)
             active_definition = _active_mapping_definition(
                 context,
                 workspace_id,
@@ -880,6 +926,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 json_request=json_request,
             )
         except (
+            ConnectorError,
+            SecretStoreError,
             ValueError,
             MigrationRunPlanningError,
             WorkspaceError,

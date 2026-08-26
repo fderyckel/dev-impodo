@@ -217,11 +217,12 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             "models": {
                 "res.partner": {
                     "description": "Contact",
+                    "create_defaults": {"ref": "NEW"},
                     "fields": {
                         "ref": {
                             "string": "Reference",
                             "type": "char",
-                            "required": False,
+                            "required": True,
                             "readonly": False,
                         }
                     },
@@ -254,11 +255,13 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         )
 
         self.assertEqual(metadata.fingerprint, records.fingerprint)
+        self.assertEqual(metadata.create_defaults["res.partner"]["ref"], "NEW")
         self.assertEqual(records.records["res.partner"][0].values["ref"], "P-7")
         self.assertEqual(len(calls), 1)
         script = calls[0][1]
         self.assertEqual(script.count(".fields_get("), 1)
         self.assertEqual(script.count(".search_read("), 1)
+        self.assertEqual(script.count(".default_get("), 1)
         self.assertIn("for request in metadata_requests:", script)
         self.assertIn("for request in record_requests:", script)
         self.assertIn("with_context(active_test=False)", script)

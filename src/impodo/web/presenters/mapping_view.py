@@ -32,6 +32,7 @@ from ...domain.mapping.scalar_values import (
     evaluate_scalar_mapping_value,
 )
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
+from ...domain.mapping.create_field_policy import supports_create_default_capture
 from ...quality import (
     MAX_MANAGER_RULES_PER_DATASET,
     QualityOutcomePolicy,
@@ -719,6 +720,12 @@ def _mapping_issue_views(
                     and dataset_index is not None
                     and field is not None
                 ),
+                "can_check_default": (
+                    issue.code == "MAPPING_REQUIRED_FIELD_UNMAPPED"
+                    and dataset_index is not None
+                    and field is not None
+                    and supports_create_default_capture(field)
+                ),
                 "default_value_label": (
                     _odoo_default_value_label(field)
                     if field is not None and field.create_default_present
@@ -848,6 +855,29 @@ def _mapping_next_step(
                         "default_reviews": default_reviews,
                     }
                 )
+            default_checks = tuple(
+                item
+                for item in blocking_issue_views
+                if item["can_check_default"]
+            )
+            if default_checks:
+                blockers.append(
+                    {
+                        "title": (
+                            f"Let Odoo decide for {len(default_checks)} required "
+                            f"field{'s' if len(default_checks) != 1 else ''}"
+                        ),
+                        "message": (
+                            "Impodo will check the defaults read-only for this "
+                            "exact Odoo target and company context. During loading, "
+                            "Impodo leaves these fields out so Odoo applies those "
+                            "defaults."
+                        ),
+                        "action_label": "Let Odoo decide",
+                        "action": "refresh_defaults",
+                        "default_checks": default_checks,
+                    }
+                )
             blockers.extend(
                 {
                     "title": (
@@ -858,7 +888,7 @@ def _mapping_next_step(
                     "issue_view": item,
                 }
                 for item in blocking_issue_views
-                if item not in default_reviews
+                if item not in default_reviews and item not in default_checks
             )
     return {
         "label": "Confirm field matches",

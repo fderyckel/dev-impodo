@@ -31,6 +31,7 @@ from .connectors import (
     RecordRequest,
     RecordSnapshot,
 )
+from .domain.mapping.create_field_policy import CREATE_DEFAULT_SCALAR_TYPES
 from .local_stack import LocalStackProfile
 from .models import (
     FieldMetadata,
@@ -331,6 +332,7 @@ class LocalOdooMetadataReader:
             )
 
         parsed_models: dict[str, ModelMetadata] = {}
+        create_defaults: dict[str, Mapping[str, object]] = {}
         for request in metadata:
             raw_model = raw_models.get(request.model)
             if not isinstance(raw_model, Mapping):
@@ -350,6 +352,13 @@ class LocalOdooMetadataReader:
                     for name, details in raw_fields.items()
                 },
             )
+            raw_defaults = raw_model.get("create_defaults")
+            if isinstance(raw_defaults, Mapping):
+                create_defaults[request.model] = {
+                    str(field_name): value
+                    for field_name, value in raw_defaults.items()
+                    if str(field_name) in parsed_models[request.model].fields
+                }
 
         parsed_records: dict[str, tuple[TargetRecord, ...]] = {}
         requested_fields: dict[str, tuple[str, ...]] = {}
@@ -405,6 +414,7 @@ class LocalOdooMetadataReader:
             MetadataSnapshot(
                 fingerprint=fingerprint,
                 models=parsed_models,
+                create_defaults=create_defaults,
                 complete=True,
                 limitations=(
                     "Captured through a fixed local Odoo shell transaction that "
@@ -744,12 +754,21 @@ record_requests = json.loads({encoded_records!r})
 captured_models = {{}}
 for request in metadata_requests:
     model = env[request["model"]].sudo()
+    fields = model.fields_get(
+        allfields=request["fields"],
+        attributes={list(_FIELD_ATTRIBUTES)!r},
+    )
+    required_scalar_fields = sorted(
+        field_name
+        for field_name, details in fields.items()
+        if details.get("required")
+        and not details.get("readonly")
+        and details.get("type") in {tuple(sorted(CREATE_DEFAULT_SCALAR_TYPES))!r}
+    )
     captured_models[request["model"]] = {{
         "description": model._description,
-        "fields": model.fields_get(
-            allfields=request["fields"],
-            attributes={list(_FIELD_ATTRIBUTES)!r},
-        ),
+        "fields": fields,
+        "create_defaults": model.default_get(required_scalar_fields),
     }}
 captured_records = {{}}
 for request in record_requests:
