@@ -15,7 +15,7 @@ from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
-from impodo.application.bounded_quality import (
+from impodo.application.workspace.preparation.bounded_quality import (
     build_bounded_quality_run,
     materialize_staging_run,
 )
@@ -748,4 +748,3 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

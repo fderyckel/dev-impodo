@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from impodo.application.preparation_capability import (
+from impodo.application.workspace.preparation.preparation_capability import (
     PreparationRouteBehavior,
     compile_preparation_capability,
 )
@@ -27,7 +27,7 @@ class PreparationCapabilityTests(unittest.TestCase):
         selection = _selection((100_000,))
 
         with patch(
-            "impodo.application.preparation_capability."
+            "impodo.application.workspace.preparation.preparation_capability."
             "direct_preparation_row_limit",
             return_value=COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         ):
@@ -63,7 +63,7 @@ class PreparationCapabilityTests(unittest.TestCase):
         )
 
         with patch(
-            "impodo.application.preparation_capability."
+            "impodo.application.workspace.preparation.preparation_capability."
             "direct_preparation_row_limit",
             return_value=COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         ):
@@ -110,7 +110,7 @@ class PreparationCapabilityTests(unittest.TestCase):
         )
 
         with patch(
-            "impodo.application.preparation_capability."
+            "impodo.application.workspace.preparation.preparation_capability."
             "direct_preparation_row_limit",
             return_value=COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         ):
@@ -135,7 +135,7 @@ class PreparationCapabilityTests(unittest.TestCase):
         selection = _selection((60_000,))
 
         with patch(
-            "impodo.application.preparation_capability."
+            "impodo.application.workspace.preparation.preparation_capability."
             "direct_preparation_row_limit",
             return_value=COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         ):
@@ -166,7 +166,7 @@ class PreparationCapabilityTests(unittest.TestCase):
         )
 
         with patch(
-            "impodo.application.preparation_capability."
+            "impodo.application.workspace.preparation.preparation_capability."
             "direct_preparation_row_limit",
             return_value=COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         ):

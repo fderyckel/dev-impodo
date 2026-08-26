@@ -11,23 +11,23 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
 
-from ..derived_entities import DerivedEntityPlan
-from ..domain.coverage import ReferenceBundle
-from ..domain.mapping.contracts import MappingDefinition
-from ..domain.source_snapshot import SourceSnapshot
-from ..domain.staging.scale import (
+from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
-from ..quality import (
+from impodo.quality import (
     MANDATORY_QUALITY_FAMILIES,
     QualityRuleFamily,
     QualityRuleSet,
     QualityRuleSource,
 )
-from ..workspace_contracts import SourceSelection
-from ..domain.errors import ReadinessError
+from impodo.workspace_contracts import SourceSelection
+from impodo.domain.errors import ReadinessError
 from .bounded_preparation import (
     direct_preparation_row_limit,
     supports_bounded_direct_preparation,

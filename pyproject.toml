@@ -52,4 +52,5 @@ where = ["src"]
 impodo = [
   "web/static/*",
   "web/templates/*.html",
+  "web/templates/*/*.html",
 ]

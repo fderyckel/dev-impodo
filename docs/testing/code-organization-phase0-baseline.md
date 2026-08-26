@@ -34,7 +34,7 @@ Run the inventory check from the repository root:
 .venv/bin/python -m unittest tests.test_architecture_inventory -v
 ```
 
-The reviewed snapshot contains 315 production modules and 1,824 runtime
+The reviewed snapshot contains 321 production modules and 1,838 runtime
 internal import edges. It records one type-only edge. Phase 1 removed the three
 application-to-adapter edges and the runtime cycle between
 `impodo.inspection` and `impodo.source_worker`. Phase 2 added named
@@ -43,7 +43,13 @@ collaborators without adding a forbidden layer dependency or runtime cycle.
 Phase 3 moves the Project, Data version, workspace, Recipe, and Run domain
 models, application services, and consumer-owned ports to owner-and-layer
 paths. It moves Cutover domain contracts to `domain/cutover/models.py` while
-the existing Cutover application services retain their focused names.
+the existing Cutover application services retain their focused names. The
+workspace-owned Mapping, Preparation, and Execution application slices now
+live below `application/workspace`. Run planning, review, target evidence,
+guided Test setup, fresh-data matching, and fresh-data value decisions now
+live below `application/run`; deterministic ordering and collision decisions
+live below `domain/run`. These moves preserve the zero-cycle and
+zero-forbidden-edge baseline.
 
 When a remediation slice changes production modules or imports, inspect the
 JSON diff. Update the fixture only when the change is intended and the new
@@ -213,3 +219,19 @@ both fixed shuffled orders, focused owner groups, atomic-operation set, bounded
 I/O set, documentation checks, and `git diff --check` pass. Record any optional
 remote Odoo or browser verification that was not run; Phase 0 does not require
 a live target because it changes no browser or Odoo behavior.
+
+## Broader web-suite debt
+
+The complete `tests.test_web_app` module is not a Phase 0 gate and is not green
+at the reviewed `HEAD`. A clean exported checkout reproduces five assertion
+failures and one error across
+`test_remote_compare_recovery_matches_the_classified_failure`,
+`test_remote_reference_failure_returns_to_matching_without_key_form`, and
+`test_transformation_impact_uses_server_filters_and_100_row_pages`. The first
+two contracts predate the global read-credential dialog; the third fixture
+predates the required source-snapshot `physical_selection_hash`.
+
+Do not attribute those outcomes to a package-only remediation without a clean
+baseline comparison. Keep running focused browser contracts for moved assets,
+and repair these three contracts before adopting the complete web module as a
+required architecture gate.

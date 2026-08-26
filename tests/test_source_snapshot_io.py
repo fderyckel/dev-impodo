@@ -21,11 +21,13 @@ from impodo.adapters.duckdb.preparation_session_repository import (
 from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
-from impodo.application.bounded_preparation import (
+from impodo.application.workspace.preparation.bounded_preparation import (
     direct_preparation_row_limit,
     prepare_bounded_direct_session,
 )
-from impodo.application.preparation_service import stage_browser_mapping
+from impodo.application.workspace.preparation.preparation_service import (
+    stage_browser_mapping,
+)
 from impodo.application.source_workspace_service import SourceWorkspaceService
 from impodo.artifacts import ArtifactStoreError, LocalArtifactStore
 from impodo.domain.mapping.contracts import (
@@ -159,11 +161,13 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         with (
             patch(
-                "impodo.application.bounded_preparation.compile_browser_row_transformer",
+                "impodo.application.workspace.preparation.bounded_preparation."
+                "compile_browser_row_transformer",
                 side_effect=AssertionError("supported snapshot used the Python oracle"),
             ),
             patch(
-                "impodo.application.bounded_preparation.canonical_row_from_prepared",
+                "impodo.application.workspace.preparation.bounded_preparation."
+                "canonical_row_from_prepared",
                 side_effect=AssertionError("native path built CanonicalRow"),
             ),
         ):
@@ -473,7 +477,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.application.bounded_preparation.compile_browser_row_transformer",
+                "impodo.application.workspace.preparation.bounded_preparation."
+                "compile_browser_row_transformer",
                 side_effect=AssertionError("supported mapping used Python"),
             ),
             self.assertRaisesRegex(ReadinessError, "source snapshot"),

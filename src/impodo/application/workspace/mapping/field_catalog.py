@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..derived_entities import DerivedEntityPlan
-from ..domain.mapping.artifacts import MappingRevision
-from ..domain.schema.governance import SchemaGovernance
-from ..inspection import SourceFileCatalog
-from ..workspace_contracts import (
+from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.mapping.artifacts import MappingRevision
+from impodo.domain.schema.governance import SchemaGovernance
+from impodo.inspection import SourceFileCatalog
+from impodo.workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SourceSelection,

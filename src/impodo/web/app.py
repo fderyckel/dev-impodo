@@ -33,23 +33,25 @@ from ..access import (
     LOCAL_ACTOR,
 )
 from ..application.browser_queries import BrowserQueryService
-from ..application.mapping_workspace_service import MappingWorkspaceService
-from ..application.categorical_coverage_service import CategoricalCoverageService
-from ..application.normalization_service import NormalizationService
+from ..application.workspace.mapping.categorical_coverage import (
+    CategoricalCoverageService,
+)
+from ..application.workspace.mapping.service import MappingWorkspaceService
+from ..application.workspace.preparation.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
-from ..application.execution_service import ExecutionService
-from ..application.load_job_service import LoadJobManager
-from ..application.reconciliation_service import ReconciliationService
+from ..application.workspace.execution.service import ExecutionService
+from ..application.workspace.execution.load_jobs import LoadJobManager
+from ..application.workspace.execution.reconciliation import ReconciliationService
 from ..application.recipe_compilation_service import RecipeCompiler
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
 from ..build_contract import ApplicationBuildContract, PROCESS_BUILD_CONTRACT
-from ..application.migration_run_planning_service import (
+from ..application.run.planning_service import (
     MigrationRunPlanningService,
 )
 from ..application.cutover_plan_service import (
@@ -57,7 +59,7 @@ from ..application.cutover_plan_service import (
     WorkspaceIntegratedQualificationEvidenceReader,
 )
 from ..application.production_cutover_service import ProductionCutoverService
-from ..application.test_run_setup_service import TestRunSetupService
+from ..application.run.test_setup_service import TestRunSetupService
 from ..application.recipe_application_service import RecipeApplicationService
 from ..application.recipe_publication_service import RecipePublicationService
 from ..application.workspace_source_projection import (
@@ -66,14 +68,18 @@ from ..application.workspace_source_projection import (
 from ..application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
 )
-from ..application.preparation_service import PreparationService
-from ..application.preparation_job_service import PreparationJobManager
-from ..application.quality_service import QualityService
-from ..application.resolution_service import ResolutionService
+from ..application.workspace.preparation.preparation_service import PreparationService
+from ..application.workspace.preparation.preparation_job_service import (
+    PreparationJobManager,
+)
+from ..application.workspace.preparation.quality_service import QualityService
+from ..application.workspace.preparation.resolution_service import ResolutionService
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
-from ..application.transformation_impact_service import TransformationImpactService
+from ..application.workspace.mapping.transformation_impact import (
+    TransformationImpactService,
+)
 from ..artifacts import GovernedArtifactStores
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService

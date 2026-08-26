@@ -6,7 +6,7 @@ from threading import Event
 import time
 import unittest
 
-from impodo.application.load_job_service import (
+from impodo.application.workspace.execution.load_jobs import (
     LoadJobManager,
     LoadJobResult,
 )

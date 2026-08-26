@@ -475,7 +475,7 @@ production module cycle.
 ### Phase 2: Decompose composition and change hubs
 
 
-Phase 2 is implemented. The completed slices give local browser composition two
+Phase 2 is in progress. The completed slices give local browser composition two
 capability builders and sends the lifecycle and mapping-quality routes narrow
 contexts. `FoundationProjectRecords` now owns Project persistence, while
 `RegistryTransactionCoordinator` owns the shared registry commit or rollback
@@ -502,13 +502,33 @@ delivery, shared setup workspace, and durable setup binding. Public repository
 and service ports remain unchanged, so callers retain the existing schema,
 transaction, and restart-safety behavior.
 
-**Exit condition:** Met. Each extracted component has one named reason to
-change; public ports, schemas, transaction boundaries, bounded-I/O behavior,
-and restart-safety tests remain unchanged.
+`application/run/fresh_data_matching.py` now owns the deterministic matching
+of selected Recipe inputs to detected tables in one fresh Test delivery.
+`TestRunSetupService` retains its public method but delegates that pure decision
+instead of combining it with persistence and authorization coordination.
+`application/run/fresh_data_values.py` now owns Recipe source and parameter
+projection, shared run-value merging, automatic export-date normalization, and
+saved-value ownership checks. `TestRunSetupService` retains persistence and
+authorization coordination while calling those portable functions.
+
+`domain/run/planning.py` now owns deterministic dependency ordering, Odoo
+requirement unioning, reference-version and write-ownership collision checks,
+and the reusable requirement hash. `RunReviewUseCase` calls those domain
+functions directly instead of receiving seven callbacks from
+`MigrationRunPlanningService`.
+
+The remaining facades still coordinate several named responsibilities.
+`MigrationFoundationRepository`, `PreparationSessionRepository`,
+`MigrationRunPlanningService`, and `TestRunSetupService` therefore remain
+Phase 2 work even though their extracted collaborators have narrow ownership.
+
+**Exit condition:** Not yet met. Each remaining facade must coordinate one
+cohesive operation family, while public ports, schemas, transaction boundaries,
+bounded-I/O behavior, and restart-safety tests remain unchanged.
 
 ### Phase 3: Move capability packages
 
-Phase 3 is complete. The completed Project slice moves Project identity and
+Phase 3 is in progress. The completed Project slice moves Project identity and
 governance state to `domain/project/models.py`, and moves Project commands and
 the consumer-owned persistence port to `application/project`. The completed
 Data version slice moves data-delivery identity and accepted-state rules to
@@ -522,10 +542,25 @@ locations directly. The completed Recipe slice moves Recipe identity,
 immutable revisions, and publication diagnostics to `domain/recipe/models.py`,
 and moves Recipe reads and their port to `application/recipe`. The completed
 Run slice moves run identity and lifecycle state to `domain/run/models.py`,
-and moves run commands and their port to `application/run`. The completed
+and moves run commands and their port to `application/run`. Integrated
+planning, review, target evidence, and guided Test setup now also live under
+that application owner instead of flat application paths. The completed
 Cutover slice moves immutable plans, qualification evidence, and selection
 contracts to `domain/cutover/models.py`; the existing focused Cutover
 application services remain at their current application paths.
+
+The completed Mapping application slice places the field catalogue, Mapping
+lifecycle, categorical source evidence, and transformation-impact coordination
+under `application/workspace/mapping`. The old flat application paths are
+absent.
+
+The completed Preparation application slice places preparation orchestration,
+background jobs, capability routing, bounded evaluation, quality, resolution,
+normalization, and its consumer-owned readiness and columnar-transformation
+ports under `application/workspace/preparation`. The completed Execution slice
+places execution coordination, load jobs, and reconciliation under
+`application/workspace/execution`. Both slices delete their old flat
+application paths.
 
 - Move one capability at a time with `git mv`.
 - Update all imports, code-map entries, workflow references, and focused tests
@@ -533,12 +568,12 @@ application services remain at their current application paths.
 - Delete the old module path in the same change. Do not leave import aliases.
 - Start with the accepted ownership roots: Project, Data version, workspace,
   Recipe, run, and cutover.
-- Move mapping, preparation, and execution after the ownership roots provide
-  stable destinations.
+- Preparation, Mapping, and Execution now have owner-qualified workspace
+  destinations.
 
-**Exit condition:** Met. Each moved root communicates its owner and layer, the
-old flat root paths are absent, and the architecture test enforces the target
-dependency matrix.
+**Exit condition:** Not yet met. Remaining flat production modules need
+explicit final homes, and the architecture test must continue to enforce the
+target dependency matrix throughout those moves.
 
 ### Phase 4: Organize tests and browser assets
 
@@ -547,6 +582,20 @@ validation, and transformation-impact tests under `tests/mapping`, and moves
 the Mapping page to `templates/mapping/page.html`. That page now owns its
 Mapping layout stylesheet and viewport-restoration script. Shared browser
 behavior remains in the common assets.
+
+The Run domain planning checks now live under `tests/domain/run`, so their path
+identifies both evidence level and owner. The Odoo target page now owns
+`target-connection.js` and `target-connection.css`; connection-state and local
+stack behavior no longer live in the shared browser assets.
+
+The broader `tests.test_web_app` module is not currently a clean gate. On
+2026-08-26 it ran 65 tests with five assertion failures and one error across
+three methods: the two remote-read recovery methods still expect the global
+credential dialog to be absent, and the transformation-impact paging fixture
+lacks the required `physical_selection_hash`. The same outcomes reproduce from
+a clean export of `HEAD`; this remediation does not treat them as regressions
+or silently mark them green. Repair those focused contracts before promoting
+the whole module to a Phase 4 gate.
 
 - Move tests into the capability and evidence-level hierarchy.
 - Replace broad mutable fixtures with explicit builders.

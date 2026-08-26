@@ -9,7 +9,10 @@ import unittest
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.application.execution_service import ExecutionService, execution_api_scope
+from impodo.application.workspace.execution.service import (
+    ExecutionService,
+    execution_api_scope,
+)
 from impodo.domain.execution import (
     ExecutionRowStatus,
     ExecutionRunStatus,
@@ -2067,4 +2070,3 @@ class TargetWriterFactoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -5,26 +5,28 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import WorkspaceArtifactStore
-from ..derived_entities import DerivedEntityPlan
-from ..domain.staging.transformation_impact import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.artifacts import WorkspaceArtifactStore
+from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.staging.transformation_impact import (
     TransformationImpactIdentity,
     TransformationImpactReport,
     TransformationImpactRow,
     TransformationImpactSnapshot,
 )
-from ..domain.source_snapshot import SourceSnapshot
-from ..inspection import SourceFileCatalog
-from ..domain.mapping.artifacts import MappingRevision
-from ..domain.mapping.validation.evidence import (
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.inspection import SourceFileCatalog
+from impodo.domain.mapping.artifacts import MappingRevision
+from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )
-from ..workspace_state import WorkspaceState
-from ..workspace_contracts import MappingWorkingDraft, SourceSelection
-from ..workspace_errors import WorkspaceError
-from .preparation_service import stage_browser_mapping
+from impodo.workspace_state import WorkspaceState
+from impodo.workspace_contracts import MappingWorkingDraft, SourceSelection
+from impodo.workspace_errors import WorkspaceError
+from impodo.application.workspace.preparation.preparation_service import (
+    stage_browser_mapping,
+)
 
 
 class TransformationImpactWorkspaceRepository(Protocol):

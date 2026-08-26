@@ -14,12 +14,16 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 
 from impodo.access import LOCAL_ACTOR
-from impodo.application.bounded_normalization import (
+from impodo.application.workspace.preparation.bounded_normalization import (
     BoundedNormalizationUnsupported,
     _BoundedNormalizationEffects,
 )
-from impodo.application.bounded_quality import build_bounded_quality_run
-from impodo.application.normalization_service import NormalizationService
+from impodo.application.workspace.preparation.bounded_quality import (
+    build_bounded_quality_run,
+)
+from impodo.application.workspace.preparation.normalization_service import (
+    NormalizationService,
+)
 from impodo.domain.errors import NormalizationReviewPolicyError, ReadinessError
 from impodo.governance import DryRun, DryRunStatus
 from impodo.domain.mapping.contracts import (
@@ -133,12 +137,12 @@ class NormalizationEvaluationTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.application.normalization_service."
+                "impodo.application.workspace.preparation.normalization_service."
                 "build_bounded_normalization_evaluation",
                 side_effect=BoundedNormalizationUnsupported,
             ),
             patch(
-                "impodo.application.normalization_service.evaluate_normalization",
+                "impodo.application.workspace.preparation.normalization_service.evaluate_normalization",
                 side_effect=AssertionError("whole-run fallback executed"),
             ),
             self.assertRaisesRegex(
@@ -991,4 +995,3 @@ class NormalizationStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

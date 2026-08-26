@@ -66,7 +66,7 @@ from impodo.workspace_state import (
     WorkspaceStatus,
     SourceFile,
 )
-from impodo.application.preparation_service import (
+from impodo.application.workspace.preparation.preparation_service import (
     canonical_source_hashes,
     stage_browser_mapping,
 )
@@ -1402,4 +1402,3 @@ def _column_profile(ordinal: int, name: str, distinct: int) -> SourceColumnProfi
 
 if __name__ == "__main__":
     unittest.main()
-

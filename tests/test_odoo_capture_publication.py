@@ -27,8 +27,10 @@ from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from impodo.adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
-from impodo.application.bounded_preparation import prepare_bounded_direct_session
-from impodo.application.preparation_service import (
+from impodo.application.workspace.preparation.bounded_preparation import (
+    prepare_bounded_direct_session,
+)
+from impodo.application.workspace.preparation.preparation_service import (
     _verify_odoo_preparation_evidence,
     canonical_source_hashes,
 )

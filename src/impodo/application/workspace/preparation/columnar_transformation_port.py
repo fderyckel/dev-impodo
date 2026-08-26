@@ -11,15 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
 
-from ..domain.compiler.columnar_transformation import ColumnarTransformationProgram
-from ..domain.prepared_snapshot import PreparedSnapshot
-from ..domain.source_snapshot import SourceSnapshot
-from ..domain.staging.transformation_impact import (
+from impodo.domain.compiler.columnar_transformation import ColumnarTransformationProgram
+from impodo.domain.prepared_snapshot import PreparedSnapshot
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.staging.transformation_impact import (
     TransformationImpactCounts,
     TransformationImpactRow,
     TransformationRuleImpact,
 )
-from ..models import Issue, PreparedRecord
+from impodo.models import Issue, PreparedRecord
 
 
 DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS = 1_000

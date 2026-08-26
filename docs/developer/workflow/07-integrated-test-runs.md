@@ -293,14 +293,14 @@ queries must not scale with Recipe count.
 | --- | --- |
 | Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/migration_run_planning.py) |
 | Test setup binding | [`migration_test.py`](../../../src/impodo/migration_test.py) |
-| Test setup coordinator | [`TestRunSetupService`](../../../src/impodo/application/test_run_setup_service.py) |
+| Test setup coordinator | [`TestRunSetupService`](../../../src/impodo/application/run/test_setup_service.py) |
 | Stable logical source binding | [`recipe_source_binding.py`](../../../src/impodo/recipe_source_binding.py) |
 | Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/application/recipe/service.py) |
-| Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/migration_run_planning_service.py) |
+| Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/run/planning_service.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |
-| Background preparation summary | [`PreparationJobManager`](../../../src/impodo/application/preparation_job_service.py) |
-| Background load summary | [`LoadJobManager`](../../../src/impodo/application/load_job_service.py) |
+| Background preparation summary | [`PreparationJobManager`](../../../src/impodo/application/workspace/preparation/preparation_job_service.py) |
+| Background load summary | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
 | Test setup persistence | [`TestRunRepository`](../../../src/impodo/adapters/duckdb/test_run_repository.py) |
 | Shared Recipe run-value validation | [`recipe_parameters.py`](../../../src/impodo/domain/recipe_parameters.py) |

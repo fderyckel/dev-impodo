@@ -9,21 +9,21 @@ import re
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..domain.execution import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.execution import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
     MAX_CREATE_BATCH_ROWS,
 )
-from ..domain.execution_snapshot import (
+from impodo.domain.execution_snapshot import (
     ExecutionDataset,
     ExecutionRow,
     ExecutionSnapshot,
     FieldIntent,
 )
-from ..models import (
+from impodo.models import (
     BusinessReference,
     LogicalReference,
     OdooReadIdentity,
@@ -31,15 +31,15 @@ from ..models import (
     canonical_json_text,
     portable_value,
 )
-from ..odoo_scope import OdooApiScope, OdooModelScope
-from ..odoo_writer import (
+from impodo.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.odoo_writer import (
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
-from ..workspace_state import WorkspaceState, OdooConnectionMode, SourceMode
-from ..workspace_errors import WorkspaceError
-from .preflight_service import PreflightService
+from impodo.workspace_state import WorkspaceState, OdooConnectionMode, SourceMode
+from impodo.workspace_errors import WorkspaceError
+from impodo.application.preflight_service import PreflightService
 
 
 DEFAULT_CREATE_BATCH_ROWS = 10

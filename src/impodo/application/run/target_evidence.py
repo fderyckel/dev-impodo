@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..domain.coverage import ReferenceBundle
-from ..migration_foundation import require_uuid
-from ..workspace_contracts import OdooSchemaCatalog
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.coverage import ReferenceBundle
+from impodo.migration_foundation import require_uuid
+from impodo.workspace_contracts import OdooSchemaCatalog
 
 
 class RunTargetEvidenceUseCase:

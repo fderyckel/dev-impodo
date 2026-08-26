@@ -12,8 +12,8 @@ from typing import Any, Callable
 
 import duckdb
 
-from ..access import Actor
-from ..build_contract import (
+from impodo.access import Actor
+from impodo.build_contract import (
     ApplicationBuildContract,
     ApplicationBuildMismatchError,
     PROCESS_BUILD_CONTRACT,
@@ -23,17 +23,17 @@ from .preparation_job_registry import (
     PreparationJobRegistry,
     PreparationJobStateError,
 )
-from ..connectors import ConnectorError
-from ..domain.errors import ReadinessError
-from ..preparation_jobs import (
+from impodo.connectors import ConnectorError
+from impodo.domain.errors import ReadinessError
+from impodo.preparation_jobs import (
     PreparationJob,
     PreparationJobStatus,
     PreparationPhase,
     PreparationWorkspace,
 )
-from ..workspace_state import WorkspaceStateError
-from ..secrets import SecretStoreError
-from ..workspace_errors import WorkspaceError
+from impodo.workspace_state import WorkspaceStateError
+from impodo.secrets import SecretStoreError
+from impodo.workspace_errors import WorkspaceError
 
 
 class PreparationCancelled(RuntimeError):
@@ -347,7 +347,7 @@ def _run_preparation_worker(
         require_same_application_build(expected_build_contract)
         # Import lazily so multiprocessing imports only the workspace-scoped
         # worker composition. The child never opens the Recipe registry.
-        from ..preparation_worker import create_preparation_worker
+        from impodo.preparation_worker import create_preparation_worker
 
         preparation = create_preparation_worker(root, workspace=workspace)
 
@@ -439,4 +439,3 @@ def _resolution_review_is_waiting(preparation: Any, workspace_id: str) -> bool:
         and review.summary.status == "REVIEW_REQUIRED"
         and review.candidates
     )
-

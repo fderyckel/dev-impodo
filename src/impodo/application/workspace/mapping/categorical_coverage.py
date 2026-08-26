@@ -6,9 +6,9 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
-from ..artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
-from ..columnar_runtime import configure_columnar_runtime
-from ..domain.mapping.contracts import (
+from impodo.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from impodo.columnar_runtime import configure_columnar_runtime
+from impodo.domain.mapping.contracts import (
     MAX_VALUE_MAPPINGS,
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -17,25 +17,25 @@ from ..domain.mapping.contracts import (
     ScalarFieldMapping,
     ScalarValueSource,
 )
-from ..domain.mapping.scalar_values import (
+from impodo.domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
 )
-from ..domain.mapping.validation.evidence import (
+from impodo.domain.mapping.validation.evidence import (
     CategoricalCoverageEvidence,
     CategoricalFieldResult,
     CategoricalValueCount,
     MappingValidationIssue,
 )
-from ..domain.serialization import content_hash
-from ..domain.source_snapshot import SourceSnapshot
-from ..source import SourceLoadError
-from ..source_snapshot_io import (
+from impodo.domain.serialization import content_hash
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.source import SourceLoadError
+from impodo.source_snapshot_io import (
     validate_snapshot_for_dataset,
     validate_source_snapshot_path,
 )
-from ..workspace_contracts import OdooSchemaCatalog, SourceSelection
-from ..workspace_errors import WorkspaceError
+from impodo.workspace_contracts import OdooSchemaCatalog, SourceSelection
+from impodo.workspace_errors import WorkspaceError
 
 
 configure_columnar_runtime()

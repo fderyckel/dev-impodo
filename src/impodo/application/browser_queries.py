@@ -35,7 +35,7 @@ from ..workspace_contracts import (
     SourceConfiguration,
     SourceSelection,
 )
-from .mapping_field_catalog_query import (
+from .workspace.mapping.field_catalog import (
     MappingFieldCatalogQueryRepository,
     MappingFieldCatalogSnapshot,
 )
@@ -330,4 +330,3 @@ class BrowserQueryService:
         return self._transformation_impacts.iter_transformation_impact_rows(
             workspace_id, identity, filters
         )
-

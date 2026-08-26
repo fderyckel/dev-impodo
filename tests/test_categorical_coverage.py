@@ -8,7 +8,7 @@ import unittest
 import polars as pl
 
 from impodo.access import ActorIdentity
-from impodo.application.categorical_coverage_service import (
+from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
 from impodo.domain.mapping.contracts import (

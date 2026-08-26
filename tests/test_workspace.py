@@ -53,8 +53,8 @@ from impodo.workspace_state import (
     SourceMode,
     SourceFile,
 )
-from impodo.application.mapping_workspace_service import MappingWorkspaceService
-from impodo.application.categorical_coverage_service import (
+from impodo.application.workspace.mapping.service import MappingWorkspaceService
+from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
 from impodo.application.schema_workspace_service import SchemaWorkspaceService
@@ -1575,4 +1575,3 @@ def _model_catalog_snapshot() -> RecordSnapshot:
         },
         complete=True,
     )
-

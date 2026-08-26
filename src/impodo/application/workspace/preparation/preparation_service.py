@@ -18,44 +18,44 @@ from __future__ import annotations
 from contextlib import ExitStack
 from typing import Callable, Iterable, Protocol
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import GovernedArtifactStores, ArtifactStoreError
-from ..derived_entities import DerivedEntityPlan
-from ..domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
-from ..domain.coverage import ReferenceBundle
-from ..domain.source_snapshot import SourceSnapshot
-from ..domain.odoo_provenance import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.artifacts import GovernedArtifactStores, ArtifactStoreError
+from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
+from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.odoo_provenance import (
     OdooCaptureManifest,
     OdooCaptureOriginHeader,
     OdooOriginBatch,
 )
-from ..domain.source_binding import (
+from impodo.domain.source_binding import (
     OdooSourceBinding,
     SourceOriginKind,
     require_file_source,
 )
-from ..domain.staging.evaluator import (
+from impodo.domain.staging.evaluator import (
     StagedBrowserMapping,
     evaluate_browser_mapping,
 )
-from ..domain.staging.scale import (
+from impodo.domain.staging.scale import (
     require_supported_browser_scale,
 )
-from ..domain.staging.transformation_impact import TransformationImpactRow
-from ..domain.staging.preparation_session import StoredCanonicalStagingRun
-from ..inspection import SourceFileCatalog
-from ..domain.mapping.contracts import MappingDefinition
-from ..normalization import NormalizationRunSummary
-from ..preparation_jobs import PreparationPhase
-from ..workspace_state import WorkspaceState
-from ..source import SourceTable, load_selected_source_table
-from ..source_snapshot_io import (
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.inspection import SourceFileCatalog
+from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.normalization import NormalizationRunSummary
+from impodo.preparation_jobs import PreparationPhase
+from impodo.workspace_state import WorkspaceState
+from impodo.source import SourceTable, load_selected_source_table
+from impodo.source_snapshot_io import (
     load_source_snapshot_table,
     validate_snapshot_for_dataset,
 )
-from ..workspace_contracts import SourceSelection
-from ..domain.errors import ReadinessError
-from ..workspace_errors import WorkspaceError
+from impodo.workspace_contracts import SourceSelection
+from impodo.domain.errors import ReadinessError
+from impodo.workspace_errors import WorkspaceError
 from .bounded_preparation import (
     prepare_bounded_direct_session,
     supports_bounded_direct_preparation,

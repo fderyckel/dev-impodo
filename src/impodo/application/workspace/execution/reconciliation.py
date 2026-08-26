@@ -9,36 +9,36 @@ import re
 from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..domain.execution import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.execution import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
 )
-from ..domain.execution_snapshot import (
+from impodo.domain.execution_snapshot import (
     ExecutionDataset,
     ExecutionRow,
     ExecutionSnapshot,
     FieldIntent,
 )
-from ..domain.reconciliation import (
+from impodo.domain.reconciliation import (
     ReconciliationRow,
     ReconciliationRowStatus,
     ReconciliationRun,
     ReconciliationRunStatus,
 )
-from ..models import BusinessReference, LogicalReference, OdooWriteIdentity
-from ..odoo_readback import (
+from impodo.models import BusinessReference, LogicalReference, OdooWriteIdentity
+from impodo.odoo_readback import (
     MAX_READBACK_IDS,
     MAX_READBACK_LOOKUPS,
     OdooReadbackReader,
     ReadbackLookup,
     ReadbackRecord,
 )
-from ..workspace_errors import WorkspaceError
-from .execution_service import _identity_domain, _portable_key, execution_api_scope
-from .preflight_service import PreflightService
+from impodo.workspace_errors import WorkspaceError
+from .service import _identity_domain, _portable_key, execution_api_scope
+from impodo.application.preflight_service import PreflightService
 
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")

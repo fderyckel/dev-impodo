@@ -10,54 +10,54 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping, Protocol, Sequence
 
-from ..access import Actor
-from ..derived_entities import DerivedEntityPlan
-from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
-from ..domain.schema.governance import SchemaGovernance
-from ..connectors import MetadataSnapshot, RecordSnapshot
-from ..domain.preflight.reports import ReadinessReport, ReadinessRow, ReadinessRowPage
-from ..domain.resolution import EffectiveDataset
-from ..governance import DryRun
-from ..inspection import SourceFileCatalog
-from ..normalization import (
+from impodo.access import Actor
+from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
+from impodo.domain.schema.governance import SchemaGovernance
+from impodo.connectors import MetadataSnapshot, RecordSnapshot
+from impodo.domain.preflight.reports import ReadinessReport, ReadinessRow, ReadinessRowPage
+from impodo.domain.resolution import EffectiveDataset
+from impodo.governance import DryRun
+from impodo.inspection import SourceFileCatalog
+from impodo.normalization import (
     NormalizationEvaluation,
     NormalizationReviewGroup,
     NormalizationRunSummary,
     StoredNormalizationEvaluation,
 )
-from ..workspace_state import WorkspaceState
-from ..quality import (
+from impodo.workspace_state import WorkspaceState
+from impodo.quality import (
     QualityRuleSet,
     QualityRun,
     QualityRunSummary,
     StoredQualityRun,
 )
-from ..staging import StagingRunSummary
-from ..staging_contracts import (
+from impodo.staging import StagingRunSummary
+from impodo.staging_contracts import (
     CanonicalControlTotal,
     CanonicalStagingRun,
     StagingDatasetRole,
 )
-from ..workspace_contracts import (
+from impodo.workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SourceSelection,
 )
-from ..domain.staging.preparation_session import (
+from impodo.domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparedCanonicalProjection,
     PreparationSessionBindings,
     PreparationSessionSummary,
     StoredCanonicalStagingRun,
 )
-from ..domain.staging.transformation_impact import (
+from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from ..domain.prepared_snapshot import PreparedSnapshot
-from ..domain.derived_value_artifact import DerivedValueArtifact
-from ..domain.source_snapshot import SourceSnapshot
-from ..models import Issue
+from impodo.domain.prepared_snapshot import PreparedSnapshot
+from impodo.domain.derived_value_artifact import DerivedValueArtifact
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.models import Issue
 
 
 class PreparationWorkspaceRepository(Protocol):

@@ -31,7 +31,7 @@ from impodo.web.target_readers import (
     _read_readiness_snapshots,
     _read_supporting_lookup_snapshots,
 )
-from impodo.application.test_run_setup_service import (
+from impodo.application.run.test_setup_service import (
     OdooCheckRelationshipRequirement,
     OdooCheckSupportingRequirement,
 )
@@ -575,4 +575,3 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

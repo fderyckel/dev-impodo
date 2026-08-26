@@ -4,24 +4,25 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from ..access import Actor, Capability
-from ..data_version_sources import (
+from impodo.access import Actor, Capability
+from impodo.data_version_sources import (
     DataVersionSourcePackage,
     SourcePackageOrigin,
     SourcePackageState,
 )
-from ..domain.data_version.models import DataVersionPurpose, DataVersionState
-from ..domain.serialization import content_hash
-from ..migration_foundation import (
+from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
+from impodo.domain.serialization import content_hash
+from impodo.migration_foundation import (
     MigrationFoundationError,
     require_revision,
     require_uuid,
     required_text,
     utc_now,
 )
-from ..migration_run_planning import RecipeDependency
-from ..migration_test import TestRunSetupBinding, TestRunSetupState
-from ..workspace_state import SourceMode, WorkspaceStateNotFoundError
+from impodo.migration_run_planning import RecipeDependency
+from impodo.migration_test import TestRunSetupBinding, TestRunSetupState
+from impodo.workspace_state import SourceMode, WorkspaceStateNotFoundError
+from .fresh_data_values import normalize_export_date
 
 
 class TestRunSetupStartUseCase:
@@ -51,7 +52,7 @@ class TestRunSetupStartUseCase:
             "expected_workspace_revision",
         )
         clean_label = required_text(label, "label", maximum=200)
-        clean_export_as_of = self._service._export_date(export_as_of)
+        clean_export_as_of = normalize_export_date(export_as_of)
         self._service.authorization.require(
             actor,
             Capability.MIGRATION_RUN_CREATE,

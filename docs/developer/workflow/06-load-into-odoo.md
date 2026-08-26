@@ -45,11 +45,11 @@ affected scope and publishes a separate reconciliation run.
 
 | Role | Code |
 | --- | --- |
-| Execution orchestration | [`ExecutionService`](../../../src/impodo/application/execution_service.py) |
-| Background load jobs | [`LoadJobManager`](../../../src/impodo/application/load_job_service.py) |
+| Execution orchestration | [`ExecutionService`](../../../src/impodo/application/workspace/execution/service.py) |
+| Background load jobs | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 | Journal states | [`execution.py`](../../../src/impodo/domain/execution.py) |
-| Reconciliation | [`ReconciliationService`](../../../src/impodo/application/reconciliation_service.py) |
+| Reconciliation | [`ReconciliationService`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
 
 ## Evidence and state

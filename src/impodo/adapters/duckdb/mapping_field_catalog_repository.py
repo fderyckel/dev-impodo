@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import duckdb
 
-from ...application.mapping_field_catalog_query import (
+from ...application.workspace.mapping.field_catalog import (
     MappingFieldCatalogSnapshot,
 )
 from ...derived_entities import (
@@ -180,4 +180,3 @@ class MappingFieldCatalogRepository(DuckDbRepository):
                 for rule in plan.rules
             )
         )
-

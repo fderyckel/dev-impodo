@@ -43,11 +43,11 @@ from impodo.adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
 )
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
-from impodo.application.mapping_workspace_service import MappingWorkspaceService
+from impodo.application.workspace.mapping.service import MappingWorkspaceService
 from impodo.application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
-from impodo.application.migration_run_planning_service import (
+from impodo.application.run.planning_service import (
     MigrationRunPlanningService,
 )
 from impodo.application.recipe_application_service import (
@@ -59,12 +59,15 @@ from impodo.application.recipe_compilation_service import CompiledRecipeDefiniti
 from impodo.application.recipe_publication_service import (
     RecipePublicationService,
 )
-from impodo.application.test_run_setup_service import (
+from impodo.application.run.test_setup_service import (
     FreshDataInputRequirement,
     FreshDataMatchStatus,
     FreshDataParameterRequirement,
     FreshDataRecipeRequirement,
     TestRunSetupService,
+)
+from impodo.application.run.fresh_data_values import (
+    build_fresh_data_run_value_plan,
 )
 from impodo.connectors import MetadataSnapshot
 from impodo.data_version_sources import (
@@ -1543,7 +1546,7 @@ class FreshDataRecipeMatchingTests(unittest.TestCase):
             )
         )
 
-        plan = TestRunSetupService._fresh_data_run_value_plan(
+        plan = build_fresh_data_run_value_plan(
             requirements,
             None,
         )

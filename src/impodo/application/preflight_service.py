@@ -58,7 +58,7 @@ from .odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
 )
-from .readiness_ports import (
+from .workspace.preparation.readiness_ports import (
     PreflightEffectiveRepository,
     PreflightMappingRepository,
     PreflightNormalizationRepository,

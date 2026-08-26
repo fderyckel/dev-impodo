@@ -7,71 +7,71 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
 
-from ..access import Actor
-from ..artifacts import GovernedArtifactStores, ArtifactStoreError
-from ..derived_entities import DerivedEntityPlan
-from ..domain.compiler.browser_mapping_compiler import compile_browser_mapping
-from ..domain.compiler.columnar_transformation import (
+from impodo.access import Actor
+from impodo.artifacts import GovernedArtifactStores, ArtifactStoreError
+from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
+from impodo.domain.compiler.columnar_transformation import (
     ColumnarCompilationError,
     ColumnarSupport,
     ColumnarTransformationProgram,
     compile_columnar_transformation_programs,
 )
-from ..domain.mapping.contracts import MappingDefinition
-from ..domain.prepared_snapshot import (
+from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.prepared_snapshot import (
     PREPARED_WRITER_CONTRACT_VERSION,
     PreparedSnapshot,
     prepared_snapshot_logical_hash,
 )
-from ..domain.staging.control_totals import CompiledControlTotalAccumulator
-from ..domain.staging.canonical_projection import (
+from impodo.domain.staging.control_totals import CompiledControlTotalAccumulator
+from impodo.domain.staging.canonical_projection import (
     canonical_prepared_session_row,
     canonical_quality_identity_key,
     canonical_quality_record_label,
 )
-from ..domain.staging.evaluator import (
+from impodo.domain.staging.evaluator import (
     canonical_field_sources,
     compile_browser_row_transformer,
     compile_reference_indexes,
 )
-from ..domain.coverage import ReferenceBundle
-from ..domain.source_snapshot import SourceSnapshot
-from ..domain.source_binding import SourceOriginKind, require_file_source
-from ..domain.staging.preparation_session import (
+from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.source_binding import SourceOriginKind, require_file_source
+from impodo.domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparedCanonicalProjection,
     PreparationSessionBindings,
     StoredCanonicalStagingRun,
 )
-from ..domain.staging.scale import (
+from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
-from ..domain.staging.transformation_impact import (
+from impodo.domain.staging.transformation_impact import (
     TransformationImpactRow,
     _TransformationImpactCollector,
     reviewable_rule_impact_definitions,
 )
-from ..inspection import SourceFileCatalog
-from ..models import Issue, PreparedRecord, canonical_json_bytes
-from ..workspace_state import WorkspaceState, SourceFile
-from ..source import (
+from impodo.inspection import SourceFileCatalog
+from impodo.models import Issue, PreparedRecord, canonical_json_bytes
+from impodo.workspace_state import WorkspaceState, SourceFile
+from impodo.source import (
     CompiledPreparedRowTransformer,
     SourceLoadError,
     open_selected_source_batches,
 )
-from ..source_snapshot_io import (
+from impodo.source_snapshot_io import (
     open_source_snapshot_batches,
     validate_snapshot_for_dataset,
 )
-from ..staging_contracts import (
+from impodo.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,
     canonical_row_from_prepared,
 )
-from ..workspace_contracts import SourceDataset, SourceSelection
-from ..domain.errors import ReadinessError
+from impodo.workspace_contracts import SourceDataset, SourceSelection
+from impodo.domain.errors import ReadinessError
 from .columnar_transformation_port import (
     DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,
     ColumnarTransformationPort,

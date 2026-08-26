@@ -18,11 +18,11 @@ from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
-from impodo.application.bounded_quality import (
+from impodo.application.workspace.preparation.bounded_quality import (
     BoundedQualityUnsupported,
     build_bounded_quality_run,
 )
-from impodo.application.quality_service import (
+from impodo.application.workspace.preparation.quality_service import (
     QualityConfigurationContext,
     QualityService,
 )
@@ -113,12 +113,12 @@ class QualityEvaluationTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.application.quality_service."
+                "impodo.application.workspace.preparation.quality_service."
                 "build_bounded_quality_run",
                 side_effect=BoundedQualityUnsupported,
             ),
             patch(
-                "impodo.application.quality_service.evaluate_quality",
+                "impodo.application.workspace.preparation.quality_service.evaluate_quality",
                 side_effect=AssertionError("whole-run fallback executed"),
             ),
             self.assertRaisesRegex(
@@ -1688,4 +1688,3 @@ def _prepared_record(row: CanonicalRow) -> PreparedRecord:
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
-from datetime import date
-from enum import StrEnum
-from pathlib import Path
+from dataclasses import dataclass
 from uuid import UUID, uuid5
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..domain.data_version.models import DataVersionPurpose, DataVersionState
-from ..domain.recipe_parameters import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
+from impodo.domain.recipe_parameters import (
     EXPORT_AS_OF_PARAMETER_ID,
     RecipeParameterValueError,
     normalize_recipe_parameter_values,
 )
-from ..domain.serialization import canonical_json, content_hash
-from ..inspection import SourceFileCatalog
-from ..migration_foundation import (
+from impodo.domain.serialization import content_hash
+from impodo.inspection import SourceFileCatalog
+from impodo.migration_foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     MigrationNotFoundError,
@@ -27,54 +24,36 @@ from ..migration_foundation import (
     require_uuid,
     utc_now,
 )
-from ..migration_run_planning import RecipeDependency, RecipeRevisionSelection
-from ..domain.run.models import MigrationRunPurpose
-from ..migration_test import (
+from impodo.migration_run_planning import RecipeDependency, RecipeRevisionSelection
+from impodo.domain.run.models import MigrationRunPurpose
+from impodo.migration_test import (
     RecipeRunParameterValue,
     TestRunParameterValues,
     TestRunSetupBinding,
     TestRunSetupBundle,
 )
-from ..recipe_source_binding import (
-    logical_dataset_storage_name,
-    normalize_recipe_source_name,
+from impodo.domain.recipe.models import RecipeError
+from .test_credential_workspace import TestRunCredentialWorkspaceUseCase
+from .test_setup_start import TestRunSetupStartUseCase
+from .fresh_data_matching import (
+    FreshDataInputRequirement,
+    FreshDataMatchPlan,
+    FreshDataMatchStatus,
+    FreshDataParameterRequirement,
+    FreshDataRecipeRequirement,
+    build_fresh_data_match_plan,
 )
-from ..domain.recipe.models import RecipeError
-from .test_run_credential_workspace import TestRunCredentialWorkspaceUseCase
-from .test_run_setup_start import TestRunSetupStartUseCase
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataInputRequirement:
-    """Describe one logical source table that a Recipe expects."""
-
-    logical_dataset_id: str
-    label: str
-    columns: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataParameterRequirement:
-    """Describe one value supplied by this run rather than by source rows."""
-
-    logical_parameter_id: str
-    label: str
-    value_type: str
-    required: bool
-    constraints: Mapping[str, object]
-    supplied_value: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataRecipeRequirement:
-    """Present the source contract of one exact selected Recipe revision."""
-
-    recipe_id: str
-    recipe_revision: int
-    display_name: str
-    business_purpose: str
-    inputs: tuple[FreshDataInputRequirement, ...]
-    parameters: tuple[FreshDataParameterRequirement, ...]
+from .fresh_data_values import (
+    FreshDataRunValue,
+    FreshDataRunValuePlan,
+    assert_run_value_ownership,
+    build_fresh_data_run_value_plan,
+    fresh_input_requirements,
+    fresh_parameter_requirements,
+    normalize_export_date,
+    parameter_definitions,
+    recipe_definition,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,177 +95,6 @@ class OdooCheckRequirementPlan:
     @property
     def model_names(self) -> tuple[str, ...]:
         return tuple(item.model_name for item in self.models)
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataRunValue:
-    """Present one shared answer requested by one or more selected Recipes."""
-
-    logical_parameter_id: str
-    label: str
-    value_type: str
-    required: bool
-    constraints: Mapping[str, object]
-    recipe_ids: tuple[str, ...]
-    recipe_names: tuple[str, ...]
-    supplied_value: str | None
-    automatic: bool
-    conflict: str | None = None
-
-    @property
-    def input_type(self) -> str:
-        return {
-            "date": "date",
-            "decimal": "number",
-            "integer": "number",
-        }.get(self.value_type, "text")
-
-    @property
-    def input_step(self) -> str | None:
-        if self.value_type == "decimal":
-            return "any"
-        if self.value_type == "integer":
-            return "1"
-        return None
-
-    @property
-    def max_length(self) -> int | None:
-        value = self.constraints.get("max_length")
-        return int(value) if value is not None else None
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataRunValuePlan:
-    """Hold every Recipe-declared run value and its current confirmation."""
-
-    values: tuple[FreshDataRunValue, ...]
-    revision: int | None
-    confirmed: bool
-
-    @property
-    def editable_values(self) -> tuple[FreshDataRunValue, ...]:
-        return tuple(item for item in self.values if not item.automatic)
-
-    @property
-    def automatic_values(self) -> tuple[FreshDataRunValue, ...]:
-        return tuple(item for item in self.values if item.automatic)
-
-    @property
-    def ready_to_continue(self) -> bool:
-        if not self.can_confirm:
-            return False
-        if any(
-            item.required and not item.supplied_value for item in self.values
-        ):
-            return False
-        return not self.editable_values or self.confirmed
-
-    @property
-    def can_confirm(self) -> bool:
-        if any(item.conflict for item in self.values):
-            return False
-        return not any(
-            item.automatic and item.required and not item.supplied_value
-            for item in self.values
-        )
-
-
-class FreshDataMatchStatus(StrEnum):
-    """Describe whether one Recipe input has a safe physical table choice."""
-
-    MATCHED = "MATCHED"
-    AMBIGUOUS = "AMBIGUOUS"
-    MISSING = "MISSING"
-    CONFLICT = "CONFLICT"
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataTableCandidate:
-    """Present one detected physical table that satisfies an input shape."""
-
-    candidate_id: str
-    file_id: str
-    file_name: str
-    table_key: str
-    table_name: str
-    table_kind: str
-    worksheet_name: str
-    row_count: int
-    columns: tuple[str, ...]
-    warnings: tuple[str, ...]
-    name_matches: bool
-
-    @property
-    def display_name(self) -> str:
-        if self.table_key == "csv":
-            return self.file_name
-        return f"{self.file_name} / {self.table_name}"
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataInputMatch:
-    """Explain one Recipe logical input and its current physical match."""
-
-    logical_dataset_id: str
-    label: str
-    dataset_name: str
-    columns: tuple[str, ...]
-    recipe_names: tuple[str, ...]
-    status: FreshDataMatchStatus
-    candidates: tuple[FreshDataTableCandidate, ...]
-    selected_candidate_id: str | None
-    explanation: str
-
-    @property
-    def selected_candidate(self) -> FreshDataTableCandidate | None:
-        return next(
-            (
-                item
-                for item in self.candidates
-                if item.candidate_id == self.selected_candidate_id
-            ),
-            None,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class FreshDataMatchPlan:
-    """Hold the complete explainable table match for one fresh delivery."""
-
-    inputs: tuple[FreshDataInputMatch, ...]
-    unused_files: tuple[str, ...]
-    warnings: tuple[str, ...]
-
-    @property
-    def ready_to_accept(self) -> bool:
-        return bool(self.inputs) and all(
-            item.status is FreshDataMatchStatus.MATCHED for item in self.inputs
-        ) and not self.unused_files
-
-    @property
-    def can_submit(self) -> bool:
-        return bool(self.inputs) and all(
-            item.status
-            in {FreshDataMatchStatus.MATCHED, FreshDataMatchStatus.AMBIGUOUS}
-            for item in self.inputs
-        ) and not self.unused_files
-
-    @property
-    def needs_choice(self) -> bool:
-        return any(
-            item.status is FreshDataMatchStatus.AMBIGUOUS for item in self.inputs
-        )
-
-
-@dataclass(slots=True)
-class _FreshDataInputDefinition:
-    """Merge one logical input declared by one or more selected Recipes."""
-
-    columns: tuple[str, ...]
-    dataset_name: str
-    label: str
-    recipe_names: list[str]
-    signature: tuple[str, ...]
 
 
 class TestRunSetupService:
@@ -425,15 +233,15 @@ class TestRunSetupService:
             if str(envelope.get("semantic_hash", "")) != selection.semantic_hash:
                 raise RecipeError("The selected Recipe version has changed")
             recipe = revision_read.recipe
-            definition = self._recipe_definition(envelope)
+            definition = recipe_definition(envelope)
             requirements.append(
                 FreshDataRecipeRequirement(
                     recipe_id=recipe.recipe_id,
                     recipe_revision=selection.recipe_revision,
                     display_name=recipe.display_name,
                     business_purpose=recipe.business_purpose,
-                    inputs=self._fresh_inputs(definition),
-                    parameters=self._fresh_parameters(
+                    inputs=fresh_input_requirements(definition),
+                    parameters=fresh_parameter_requirements(
                         definition,
                         data_version.export_as_of,
                     ),
@@ -454,8 +262,8 @@ class TestRunSetupService:
         if current_binding.content_hash != binding.content_hash:
             raise MigrationConflictError("Test setup changed; reload and retry")
         current = self.test_runs.get_parameter_values(binding.migration_run_id)
-        self._assert_run_value_ownership(binding, current)
-        return self._fresh_data_run_value_plan(requirements, current)
+        assert_run_value_ownership(binding, current)
+        return build_fresh_data_run_value_plan(requirements, current)
 
     def replace_fresh_data_run_values(
         self,
@@ -480,11 +288,11 @@ class TestRunSetupService:
             actor=actor,
         )
         current = self.test_runs.get_parameter_values(binding.migration_run_id)
-        self._assert_run_value_ownership(binding, current)
+        assert_run_value_ownership(binding, current)
         current_revision = current.revision if current is not None else None
         if expected_revision != current_revision:
             raise MigrationConflictError("Run values changed; reload and retry")
-        plan = self._fresh_data_run_value_plan(requirements, current)
+        plan = build_fresh_data_run_value_plan(requirements, current)
         conflicts = tuple(item.conflict for item in plan.values if item.conflict)
         if conflicts:
             raise MigrationFoundationError(conflicts[0])
@@ -570,237 +378,10 @@ class TestRunSetupService:
         overrides: Mapping[str, str] | None = None,
     ) -> FreshDataMatchPlan:
         """Match Recipe logical inputs to bounded detected-table evidence."""
-
-        selected_overrides = dict(overrides or {})
-        definitions: dict[str, _FreshDataInputDefinition] = {}
-        conflicts: dict[str, str] = {}
-        storage_owners: dict[str, str] = {}
-        for recipe in requirements:
-            for source_input in recipe.inputs:
-                logical_id = source_input.logical_dataset_id
-                signature = tuple(
-                    sorted(
-                        normalize_recipe_source_name(column)
-                        for column in source_input.columns
-                    )
-                )
-                current = definitions.get(logical_id)
-                if current is None:
-                    dataset_name = logical_dataset_storage_name(logical_id)
-                    owner = storage_owners.get(dataset_name)
-                    if owner is not None and owner != logical_id:
-                        conflicts[logical_id] = (
-                            "Two Recipe inputs resolve to the same accepted table name"
-                        )
-                        conflicts[owner] = conflicts[logical_id]
-                    storage_owners[dataset_name] = logical_id
-                    definitions[logical_id] = _FreshDataInputDefinition(
-                        columns=tuple(source_input.columns),
-                        dataset_name=dataset_name,
-                        label=source_input.label,
-                        recipe_names=[recipe.display_name],
-                        signature=signature,
-                    )
-                elif current.signature != signature:
-                    conflicts[logical_id] = (
-                        "Selected Recipes disagree about this logical source input"
-                    )
-                else:
-                    if recipe.display_name not in current.recipe_names:
-                        current.recipe_names.append(recipe.display_name)
-
-        matches: list[FreshDataInputMatch] = []
-        explicitly_selected: set[str] = set()
-        for logical_id, definition in definitions.items():
-            label = definition.label
-            required_columns = definition.columns
-            candidates = _fresh_table_candidates(
-                catalogs,
-                label=label,
-                required_columns=required_columns,
-            )
-            if logical_id in conflicts:
-                matches.append(
-                    FreshDataInputMatch(
-                        logical_dataset_id=logical_id,
-                        label=label,
-                        dataset_name=definition.dataset_name,
-                        columns=required_columns,
-                        recipe_names=tuple(definition.recipe_names),
-                        status=FreshDataMatchStatus.CONFLICT,
-                        candidates=candidates,
-                        selected_candidate_id=None,
-                        explanation=conflicts[logical_id],
-                    )
-                )
-                continue
-
-            override = selected_overrides.get(logical_id, "").strip()
-            selected: FreshDataTableCandidate | None = None
-            status = FreshDataMatchStatus.MISSING
-            explanation = (
-                "No safe detected table contains every required column."
-            )
-            if override:
-                explicitly_selected.add(logical_id)
-                selected = next(
-                    (item for item in candidates if item.candidate_id == override),
-                    None,
-                )
-                if selected is None:
-                    status = FreshDataMatchStatus.CONFLICT
-                    explanation = (
-                        "The selected table is no longer a current compatible choice."
-                    )
-                else:
-                    status = FreshDataMatchStatus.MATCHED
-                    explanation = (
-                        "You selected this table from the compatible choices."
-                    )
-            elif len(candidates) == 1:
-                selected = candidates[0]
-                status = FreshDataMatchStatus.MATCHED
-                explanation = (
-                    "All required columns were found in the only compatible table."
-                )
-            elif candidates:
-                name_matches = tuple(item for item in candidates if item.name_matches)
-                if len(name_matches) == 1:
-                    selected = name_matches[0]
-                    status = FreshDataMatchStatus.MATCHED
-                    explanation = (
-                        "All required columns were found and the table name matches "
-                        "the Recipe input."
-                    )
-                else:
-                    status = FreshDataMatchStatus.AMBIGUOUS
-                    explanation = (
-                        "More than one detected table contains every required column."
-                    )
-            matches.append(
-                FreshDataInputMatch(
-                    logical_dataset_id=logical_id,
-                    label=label,
-                    dataset_name=definition.dataset_name,
-                    columns=required_columns,
-                    recipe_names=tuple(definition.recipe_names),
-                    status=status,
-                    candidates=candidates,
-                    selected_candidate_id=(
-                        selected.candidate_id if selected is not None else None
-                    ),
-                    explanation=explanation,
-                )
-            )
-
-        chosen: dict[str, list[int]] = {}
-        for index, match in enumerate(matches):
-            if match.selected_candidate_id is not None:
-                chosen.setdefault(match.selected_candidate_id, []).append(index)
-        for indexes in chosen.values():
-            if len(indexes) < 2:
-                continue
-            for index in indexes:
-                match = matches[index]
-                can_choose_another = len(match.candidates) > 1
-                matches[index] = replace(
-                    match,
-                    status=(
-                        FreshDataMatchStatus.AMBIGUOUS
-                        if can_choose_another
-                        else FreshDataMatchStatus.CONFLICT
-                    ),
-                    selected_candidate_id=(
-                        match.selected_candidate_id
-                        if match.logical_dataset_id in explicitly_selected
-                        else None
-                    ),
-                    explanation=(
-                        "One physical table cannot fill two different Recipe inputs. "
-                        + (
-                            "Choose another compatible table."
-                            if can_choose_another
-                            else "Add a separate table for one of these inputs."
-                        )
-                    ),
-                )
-
-        overlapping_indexes: set[int] = set()
-        for left_index, left in enumerate(matches):
-            left_candidate = left.selected_candidate
-            if left_candidate is None:
-                continue
-            for right_index in range(left_index + 1, len(matches)):
-                right_candidate = matches[right_index].selected_candidate
-                if right_candidate is not None and _fresh_candidates_overlap(
-                    left_candidate,
-                    right_candidate,
-                ):
-                    overlapping_indexes.update((left_index, right_index))
-        for index in overlapping_indexes:
-            match = matches[index]
-            can_choose_another = len(match.candidates) > 1
-            matches[index] = replace(
-                match,
-                status=(
-                    FreshDataMatchStatus.AMBIGUOUS
-                    if can_choose_another
-                    else FreshDataMatchStatus.CONFLICT
-                ),
-                selected_candidate_id=(
-                    match.selected_candidate_id
-                    if match.logical_dataset_id in explicitly_selected
-                    else None
-                ),
-                explanation=(
-                    "A worksheet and one of its Excel tables cover the same "
-                    "workbook area. "
-                    + (
-                        "Choose a non-overlapping table."
-                        if can_choose_another
-                        else "Supply separate tables for these Recipe inputs."
-                    )
-                ),
-            )
-
-        resolved = all(
-            item.status is FreshDataMatchStatus.MATCHED for item in matches
-        )
-        relevant_file_ids = (
-            {
-                item.selected_candidate.file_id
-                for item in matches
-                if item.selected_candidate is not None
-            }
-            if resolved
-            else {
-                candidate.file_id
-                for item in matches
-                for candidate in item.candidates
-            }
-        )
-        unused_files = tuple(
-            catalog.display_name
-            for catalog in catalogs
-            if catalog.file_id not in relevant_file_ids
-        )
-        warning_values = tuple(
-            dict.fromkeys(
-                warning
-                for item in matches
-                for candidate in (
-                    (item.selected_candidate,)
-                    if item.selected_candidate is not None
-                    else item.candidates
-                )
-                if candidate is not None
-                for warning in candidate.warnings
-            )
-        )
-        return FreshDataMatchPlan(
-            inputs=tuple(matches),
-            unused_files=unused_files,
-            warnings=warning_values,
+        return build_fresh_data_match_plan(
+            requirements,
+            catalogs,
+            overrides=overrides,
         )
 
     @staticmethod
@@ -896,7 +477,7 @@ class TestRunSetupService:
             revision = revisions[(selection.recipe_id, selection.recipe_revision)]
             if str(revision.envelope.get("semantic_hash", "")) != selection.semantic_hash:
                 raise RecipeError("The selected Recipe version has changed")
-            definition = self._recipe_definition(revision.envelope)
+            definition = recipe_definition(revision.envelope)
             recipe_name = revision.recipe.display_name
             contract = dict(definition.get("odoo_target_contract", {}))
             for model in contract.get("models", ()):  # type: ignore[union-attr]
@@ -1043,7 +624,7 @@ class TestRunSetupService:
             actor=actor,
         )
         stored = self.test_runs.get_parameter_values(binding.migration_run_id)
-        self._assert_run_value_ownership(binding, stored)
+        assert_run_value_ownership(binding, stored)
         stored_by_recipe = stored.by_recipe if stored is not None else {}
         selected_recipe_ids = {
             item.recipe_id for item in binding.selected_revisions
@@ -1055,10 +636,10 @@ class TestRunSetupService:
         values = {}
         editable_declared = False
         for selection in binding.selected_revisions:
-            definition = self._recipe_definition(
+            definition = recipe_definition(
                 revisions[(selection.recipe_id, selection.recipe_revision)].envelope
             )
-            definitions = self._parameter_definitions(definition)
+            definitions = parameter_definitions(definition)
             declared = {
                 str(item.get("logical_parameter_id", "")) for item in definitions
             }
@@ -1070,7 +651,7 @@ class TestRunSetupService:
             recipe_values = dict(stored_by_recipe.get(selection.recipe_id, {}))
             if EXPORT_AS_OF_PARAMETER_ID in declared:
                 recipe_values[EXPORT_AS_OF_PARAMETER_ID] = (
-                    self._export_date(export_as_of)
+                    normalize_export_date(export_as_of)
                 )
             try:
                 values[selection.recipe_id] = normalize_recipe_parameter_values(
@@ -1084,188 +665,6 @@ class TestRunSetupService:
                 "Confirm the Recipe details for this run on Fresh data"
             )
         return values
-
-    @staticmethod
-    def _recipe_definition(envelope) -> Mapping[str, object]:
-        definition = envelope.get("recipe")
-        if not isinstance(definition, Mapping):
-            raise RecipeError("Stored Recipe source requirements are invalid")
-        return definition
-
-    @staticmethod
-    def _parameter_definitions(definition) -> tuple[Mapping[str, object], ...]:
-        payload = definition.get("parameter_definitions", {})
-        if not isinstance(payload, Mapping):
-            raise RecipeError("Stored Recipe run values are invalid")
-        parameters = payload.get("parameters", ())
-        if not isinstance(parameters, (list, tuple)) or any(
-            not isinstance(item, Mapping) for item in parameters
-        ):
-            raise RecipeError("Stored Recipe run values are invalid")
-        return tuple(parameters)
-
-    @classmethod
-    def _fresh_parameters(cls, definition, export_as_of):
-        return tuple(
-            FreshDataParameterRequirement(
-                logical_parameter_id=str(item.get("logical_parameter_id", "")),
-                label=str(item.get("label", "Run value")),
-                value_type=str(item.get("type", "string")),
-                required=bool(item.get("required", False)),
-                constraints=dict(item.get("constraints", {})),
-                supplied_value=(
-                    cls._export_date(export_as_of)
-                    if item.get("logical_parameter_id")
-                    == "parameter:export_as_of_date"
-                    else None
-                ),
-            )
-            for item in cls._parameter_definitions(definition)
-        )
-
-    @staticmethod
-    def _fresh_data_run_value_plan(
-        requirements: tuple[FreshDataRecipeRequirement, ...],
-        current: TestRunParameterValues | None,
-    ) -> FreshDataRunValuePlan:
-        stored = current.by_recipe if current is not None else {}
-        grouped: dict[
-            str,
-            list[tuple[FreshDataRecipeRequirement, FreshDataParameterRequirement]],
-        ] = {}
-        for recipe in requirements:
-            for parameter in recipe.parameters:
-                grouped.setdefault(parameter.logical_parameter_id, []).append(
-                    (recipe, parameter)
-                )
-
-        values: list[FreshDataRunValue] = []
-        for logical_id, uses in grouped.items():
-            first = uses[0][1]
-            signature = canonical_json(
-                {
-                    "constraints": dict(first.constraints),
-                    "required": first.required,
-                    "type": first.value_type,
-                }
-            )
-            conflict = None
-            if any(
-                canonical_json(
-                    {
-                        "constraints": dict(parameter.constraints),
-                        "required": parameter.required,
-                        "type": parameter.value_type,
-                    }
-                )
-                != signature
-                for _recipe, parameter in uses[1:]
-            ):
-                conflict = (
-                    "Selected Recipes disagree about the meaning of "
-                    f"{first.label}. Start a new Test run with compatible "
-                    "Recipe versions."
-                )
-
-            automatic_flags = {
-                parameter.supplied_value is not None
-                for _recipe, parameter in uses
-            }
-            if len(automatic_flags) != 1:
-                conflict = (
-                    "Selected Recipes disagree about who supplies "
-                    f"{first.label}. Start a new Test run with compatible "
-                    "Recipe versions."
-                )
-            automatic = automatic_flags == {True}
-            candidate_values: list[object] = []
-            for recipe, parameter in uses:
-                if automatic:
-                    candidate_values.append(parameter.supplied_value)
-                elif logical_id in stored.get(recipe.recipe_id, {}):
-                    candidate_values.append(stored[recipe.recipe_id][logical_id])
-            if candidate_values and (
-                len(candidate_values) != len(uses)
-                or any(value != candidate_values[0] for value in candidate_values[1:])
-            ):
-                conflict = f"Saved answers for {first.label} are inconsistent"
-            supplied_value = (
-                str(candidate_values[0]) if candidate_values else None
-            )
-            values.append(
-                FreshDataRunValue(
-                    logical_parameter_id=logical_id,
-                    label=first.label,
-                    value_type=first.value_type,
-                    required=first.required,
-                    constraints=dict(first.constraints),
-                    recipe_ids=tuple(recipe.recipe_id for recipe, _item in uses),
-                    recipe_names=tuple(
-                        recipe.display_name for recipe, _item in uses
-                    ),
-                    supplied_value=supplied_value,
-                    automatic=automatic,
-                    conflict=conflict,
-                )
-            )
-        return FreshDataRunValuePlan(
-            values=tuple(values),
-            revision=current.revision if current is not None else None,
-            confirmed=current is not None,
-        )
-
-    @staticmethod
-    def _assert_run_value_ownership(
-        binding: TestRunSetupBinding,
-        current: TestRunParameterValues | None,
-    ) -> None:
-        if current is not None and (
-            current.test_run_setup_id != binding.test_run_setup_id
-            or current.project_id != binding.project_id
-            or current.migration_run_id != binding.migration_run_id
-        ):
-            raise MigrationConflictError(
-                "Saved run values do not belong to this Test setup"
-            )
-
-    @staticmethod
-    def _export_date(export_as_of):
-        candidate = str(export_as_of).strip()[:10]
-        try:
-            return date.fromisoformat(candidate).isoformat()
-        except ValueError as error:
-            raise MigrationFoundationError(
-                "The Test delivery cutoff must start with a year-month-day date"
-            ) from error
-
-    @staticmethod
-    def _fresh_inputs(definition) -> tuple[FreshDataInputRequirement, ...]:
-        source_shape = definition.get("source_shape", {})
-        if not isinstance(source_shape, Mapping):
-            raise RecipeError("Stored Recipe source requirements are invalid")
-        datasets = source_shape.get("datasets", ())
-        if not isinstance(datasets, (list, tuple)) or any(
-            not isinstance(item, Mapping) for item in datasets
-        ):
-            raise RecipeError("Stored Recipe source requirements are invalid")
-        result = []
-        for dataset in datasets:
-            columns = dataset.get("columns", ())
-            if not isinstance(columns, (list, tuple)) or any(
-                not isinstance(item, Mapping) for item in columns
-            ):
-                raise RecipeError("Stored Recipe source requirements are invalid")
-            result.append(
-                FreshDataInputRequirement(
-                    logical_dataset_id=str(dataset.get("logical_dataset_id", "")),
-                    label=str(dataset.get("logical_name", "Required table")),
-                    columns=tuple(
-                        str(column.get("source_name", "Required column"))
-                        for column in columns
-                    ),
-                )
-            )
-        return tuple(sorted(result, key=lambda item: item.logical_dataset_id))
 
     def _committed_setup(
         self,
@@ -1415,94 +814,3 @@ class TestRunSetupService:
     @staticmethod
     def _child_operation(operation_id: str, name: str) -> str:
         return str(uuid5(UUID(operation_id), name))
-
-
-def _fresh_table_candidates(
-    catalogs: tuple[SourceFileCatalog, ...],
-    *,
-    label: str,
-    required_columns: tuple[str, ...],
-) -> tuple[FreshDataTableCandidate, ...]:
-    """Return safe tables whose detected headers cover one Recipe input."""
-
-    required_tokens = tuple(
-        normalize_recipe_source_name(item) for item in required_columns
-    )
-    if (
-        not required_tokens
-        or any(not token for token in required_tokens)
-        or len(set(required_tokens)) != len(required_tokens)
-    ):
-        return ()
-    candidates = []
-    for catalog in catalogs:
-        for table in catalog.tables:
-            if table.formula_cell_count or table.error_cell_count:
-                continue
-            columns_by_token: dict[str, list[str]] = {}
-            for column in table.columns:
-                columns_by_token.setdefault(
-                    normalize_recipe_source_name(column.name),
-                    [],
-                ).append(column.name)
-            if any(
-                len(columns_by_token.get(token, ())) != 1
-                for token in required_tokens
-            ):
-                continue
-            candidate_id = content_hash(
-                {
-                    "catalog_hash": catalog.content_hash,
-                    "file_id": catalog.file_id,
-                    "table_key": table.table_key,
-                }
-            )
-            name_token = normalize_recipe_source_name(label)
-            candidates.append(
-                FreshDataTableCandidate(
-                    candidate_id=candidate_id,
-                    file_id=catalog.file_id,
-                    file_name=catalog.display_name,
-                    table_key=table.table_key,
-                    table_name=table.name,
-                    table_kind=table.kind,
-                    worksheet_name=table.worksheet_name,
-                    row_count=table.row_count,
-                    columns=tuple(column.name for column in table.columns),
-                    warnings=tuple(
-                        dict.fromkeys((*catalog.warnings, *table.warnings))
-                    ),
-                    name_matches=(
-                        normalize_recipe_source_name(table.name) == name_token
-                        or normalize_recipe_source_name(Path(catalog.display_name).stem)
-                        == name_token
-                    ),
-                )
-            )
-    return tuple(
-        sorted(
-            candidates,
-            key=lambda item: (
-                item.display_name.casefold(),
-                item.candidate_id,
-            ),
-        )
-    )
-
-
-def _fresh_candidates_overlap(
-    left: FreshDataTableCandidate,
-    right: FreshDataTableCandidate,
-) -> bool:
-    """Reject selecting both a worksheet and one of its named Excel tables."""
-
-    if left.file_id != right.file_id:
-        return False
-    for named, worksheet in ((left, right), (right, left)):
-        if (
-            named.table_kind == "NAMED_TABLE"
-            and worksheet.table_kind == "WORKSHEET"
-            and named.worksheet_name == worksheet.table_name
-        ):
-            return True
-    return False

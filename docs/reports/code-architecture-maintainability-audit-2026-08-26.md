@@ -153,8 +153,8 @@ older top-level modules remain a second organizational scheme.
 
 For example, a run change may require navigating among
 `migration_runs.py`, `migration_test.py`, `migration_run_planning.py`,
-`application/test_run_setup_service.py`,
-`application/migration_run_planning_service.py`, several DuckDB repositories,
+`application/run/test_setup_service.py`,
+`application/run/planning_service.py`, several DuckDB repositories,
 and run routers. A workspace change has a similar split between
 `migration_workspaces.py`, `workspace_state.py`, workspace contracts,
 application services, and several repositories.
@@ -179,7 +179,7 @@ across local and future hosted composition roots. Most current dependencies
 follow that direction, but the import graph has these direct inward-layer
 violations:
 
-- `application/bounded_preparation.py` imports the concrete Polars adapter.
+- `application/workspace/preparation/bounded_preparation.py` imports the concrete Polars adapter.
 - `application/odoo_provenance_service.py` imports the protected provenance
   and comparison adapter codecs.
 

@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 
 from ...access import AuthorizationError, Capability
-from ...application.bounded_preparation import (
+from ...application.workspace.preparation.bounded_preparation import (
     supports_bounded_direct_preparation,
 )
 from ...application.odoo_connection_service import OdooConnectionPurpose
@@ -16,7 +16,7 @@ from ...application.odoo_read_failures import (
     OdooReadFailure,
     classify_odoo_read_failure,
 )
-from ...application.preparation_capability import (
+from ...application.workspace.preparation.preparation_capability import (
     compile_preparation_capability,
 )
 from ...domain.errors import ReadinessError

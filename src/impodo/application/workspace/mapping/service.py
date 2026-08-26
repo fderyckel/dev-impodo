@@ -20,9 +20,9 @@ from datetime import datetime, timezone
 from typing import Iterable, Protocol
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..domain.schema.governance import SchemaGovernance
-from ..domain.mapping.contracts import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
     MappingTargetMode,
@@ -30,35 +30,35 @@ from ..domain.mapping.contracts import (
     TargetFieldDisposition,
     TargetFieldHandling,
 )
-from ..domain.mapping.create_field_policy import (
+from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
     evaluate_create_field,
     supports_create_default_capture,
 )
-from ..domain.mapping.artifacts import (
+from impodo.domain.mapping.artifacts import (
     MappingRevision,
     MappingSubmission,
 )
-from ..domain.mapping.canonicalization import canonicalize_mapping_definition
-from ..domain.mapping.validation.evidence import (
+from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
+from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
-from ..domain.mapping.validation.validator import MappingSemanticValidator
-from ..reference_keys import REFERENCE_POLICY_HASH, standard_reference_key
-from ..supporting_lookups import (
+from impodo.domain.mapping.validation.validator import MappingSemanticValidator
+from impodo.reference_keys import REFERENCE_POLICY_HASH, standard_reference_key
+from impodo.supporting_lookups import (
     SupportingLookupSnapshot,
     supporting_lookup_key,
 )
-from .categorical_coverage_service import CategoricalCoverageService
-from ..workspace_contracts import (
+from .categorical_coverage import CategoricalCoverageService
+from impodo.workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SchemaOrigin,
     SourceSelection,
 )
-from ..workspace_errors import WorkspaceError
+from impodo.workspace_errors import WorkspaceError
 
 
 class MappingSourceRepository(Protocol):

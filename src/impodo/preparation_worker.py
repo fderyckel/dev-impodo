@@ -25,11 +25,11 @@ from .adapters.duckdb.staging_repository import StagingRepository
 from .adapters.polars_transformation import PolarsTransformationAdapter
 from .adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from .adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
-from .application.normalization_service import NormalizationService
+from .application.workspace.preparation.normalization_service import NormalizationService
 from .application.odoo_provenance_service import OdooProvenanceService
-from .application.preparation_service import PreparationService
-from .application.quality_service import QualityService
-from .application.resolution_service import ResolutionService
+from .application.workspace.preparation.preparation_service import PreparationService
+from .application.workspace.preparation.quality_service import QualityService
+from .application.workspace.preparation.resolution_service import ResolutionService
 from .artifacts import LocalArtifactStore
 from .preparation_jobs import PreparationWorkspace
 from .secrets import CredentialVault

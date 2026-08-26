@@ -15,7 +15,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from ..application.columnar_transformation_port import (
+from ..application.workspace.preparation.columnar_transformation_port import (
     ColumnarPreparedSnapshotCandidate,
     ColumnarTransformationBatch,
 )

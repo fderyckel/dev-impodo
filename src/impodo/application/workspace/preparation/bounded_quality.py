@@ -14,9 +14,9 @@ from dataclasses import dataclass
 import json
 from typing import overload
 
-from ..domain.staging.preparation_session import StoredCanonicalStagingRun
-from ..workspace_state import WorkspaceState
-from ..quality import (
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.workspace_state import WorkspaceState
+from impodo.quality import (
     MANDATORY_QUALITY_FAMILIES,
     QualityError,
     QualityDisposition,
@@ -42,8 +42,8 @@ from ..quality import (
     quality_identity_key,
     retention_context_hash,
 )
-from ..models import canonical_json_bytes, portable_value
-from ..staging_contracts import (
+from impodo.models import canonical_json_bytes, portable_value
+from impodo.staging_contracts import (
     CanonicalIssue,
     CanonicalRow,
     CanonicalStagingRun,

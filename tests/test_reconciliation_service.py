@@ -8,8 +8,8 @@ import unittest
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.application.execution_service import execution_api_scope
-from impodo.application.reconciliation_service import ReconciliationService
+from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.application.workspace.execution.reconciliation import ReconciliationService
 from impodo.connectors import Json2Config
 from impodo.domain.execution import (
     ExecutionRowAttempt,

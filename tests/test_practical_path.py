@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock
 
 from impodo.access import LOCAL_ACTOR
-from impodo.application.resolution_service import ResolutionService
+from impodo.application.workspace.preparation.resolution_service import ResolutionService
 
 
 HASH = "sha256:" + "a" * 64

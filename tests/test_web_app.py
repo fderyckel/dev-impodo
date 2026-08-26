@@ -88,7 +88,7 @@ from impodo.domain.odoo_source_capture import (
 from impodo.domain.odoo_comparison import OdooComparisonOutcome
 from impodo.application.preflight_service import MANIFEST_NAME
 from impodo.application.odoo_connection_service import OdooConnectionTestService
-from impodo.application.load_job_service import LoadJobResult
+from impodo.application.workspace.execution.load_jobs import LoadJobResult
 from impodo.application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     OdooReadFailureCode,
@@ -1755,10 +1755,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("Read-only access to edu-ucaps succeeded.", changed_target.text)
         self.assertEqual(self.secrets.values, {})
 
-        script = self.client.get("/static/app.js")
+        self.assertIn('/static/target-connection.js', changed_target.text)
+        script = self.client.get("/static/target-connection.js")
         self.assertIn("resetRemoteConnectionStatus", script.text)
         self.assertIn('window.location.hash === "#remote-connection-status"', script.text)
-        styles = self.client.get("/static/app.css")
+        self.assertIn('/static/target-connection.css', changed_target.text)
+        styles = self.client.get("/static/target-connection.css")
         self.assertIn("[data-local-stack-entry][hidden]", styles.text)
 
     def test_stage_two_can_keep_the_checking_key_for_loading(self) -> None:
@@ -7886,7 +7888,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("[data-transformation-impact-prepare]", impact_script.text)
         self.assertIn("Preparing the comparison…", impact_script.text)
         with patch(
-            "impodo.application.transformation_impact_service.stage_browser_mapping",
+            "impodo.application.workspace.mapping.transformation_impact.stage_browser_mapping",
             side_effect=fake_stage,
         ) as staged:
             prepared = self.client.post(

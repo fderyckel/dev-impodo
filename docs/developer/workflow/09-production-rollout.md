@@ -125,7 +125,7 @@ call per source row, or N+1 workspace open for Project status.
 | --- | --- |
 | Domain binding | [`migration_production.py`](../../../src/impodo/migration_production.py) |
 | Setup and authority guard | [`production_cutover_service.py`](../../../src/impodo/application/production_cutover_service.py) |
-| Shared review and compiler path | [`migration_run_planning_service.py`](../../../src/impodo/application/migration_run_planning_service.py) |
+| Shared review and compiler path | [`planning_service.py`](../../../src/impodo/application/run/planning_service.py) |
 | Production registry binding | [`production_run_repository.py`](../../../src/impodo/adapters/duckdb/production_run_repository.py) |
 | Run activation and recovery | [`migration_run_planning_repository.py`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
 | Browser workflow | [`production_runs.py`](../../../src/impodo/web/routers/production_runs.py), [`execution.py`](../../../src/impodo/web/routers/execution.py), [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |

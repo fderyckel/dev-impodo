@@ -135,12 +135,12 @@ stages:
       - src/impodo/web/templates/project_integrated_run.html
       - src/impodo/web/templates/project_recipe_odoo_defaults.html
     code_references:
-      - src/impodo/application/test_run_setup_service.py::TestRunSetupService
-      - src/impodo/application/test_run_setup_service.py::TestRunSetupService.fresh_data_requirements
-      - src/impodo/application/test_run_setup_service.py::TestRunSetupService.fresh_data_match_plan
-      - src/impodo/application/test_run_setup_service.py::TestRunSetupService.fresh_data_run_value_plan
-      - src/impodo/application/test_run_setup_service.py::TestRunSetupService.replace_fresh_data_run_values
-      - src/impodo/application/test_run_setup_service.py::TestRunSetupService.odoo_check_requirements_for_workspace
+      - src/impodo/application/run/test_setup_service.py::TestRunSetupService
+      - src/impodo/application/run/test_setup_service.py::TestRunSetupService.fresh_data_requirements
+      - src/impodo/application/run/test_setup_service.py::TestRunSetupService.fresh_data_match_plan
+      - src/impodo/application/run/test_setup_service.py::TestRunSetupService.fresh_data_run_value_plan
+      - src/impodo/application/run/test_setup_service.py::TestRunSetupService.replace_fresh_data_run_values
+      - src/impodo/application/run/test_setup_service.py::TestRunSetupService.odoo_check_requirements_for_workspace
       - src/impodo/domain/recipe_parameters.py::normalize_recipe_parameter_values
       - src/impodo/recipe_source_binding.py::logical_dataset_storage_name
       - src/impodo/web/source_file_commands.py::accept_source_uploads
@@ -149,14 +149,14 @@ stages:
       - src/impodo/web/run_review.py::build_integrated_run_review
       - src/impodo/web/run_review.py::start_next_preparation
       - src/impodo/application/recipe/service.py::RecipeService.read_revisions
-      - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService
-      - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService.confirm_application_odoo_defaults
-      - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService.recover_blocked_test_run_defaults
+      - src/impodo/application/run/planning_service.py::MigrationRunPlanningService
+      - src/impodo/application/run/planning_service.py::MigrationRunPlanningService.confirm_application_odoo_defaults
+      - src/impodo/application/run/planning_service.py::MigrationRunPlanningService.recover_blocked_test_run_defaults
       - src/impodo/adapters/duckdb/test_run_repository.py::TestRunRepository
       - src/impodo/adapters/duckdb/schema/migration_registry.py::ensure_migration_registry_schema
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService
-      - src/impodo/application/preparation_job_service.py::PreparationJobManager
-      - src/impodo/application/load_job_service.py::LoadJobManager
+      - src/impodo/application/workspace/preparation/preparation_job_service.py::PreparationJobManager
+      - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository
       - src/impodo/migration_run_planning.py::MigrationRunTargetSchema
       - src/impodo/migration_run_planning.py::MigrationRunReferenceBundle
@@ -209,7 +209,7 @@ stages:
       - src/impodo/web/templates/project_production_activation.html
     code_references:
       - src/impodo/application/production_cutover_service.py::ProductionCutoverService
-      - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService.activate_production_run
+      - src/impodo/application/run/planning_service.py::MigrationRunPlanningService.activate_production_run
       - src/impodo/adapters/duckdb/production_run_repository.py::ProductionRunRepository
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository.activate_production_run
       - src/impodo/migration_production.py::ProductionRunBinding
@@ -264,10 +264,10 @@ stages:
       - src/impodo/web/templates/mapping/page.html
       - src/impodo/web/templates/workspace_transformation_impact.html
     code_references:
-      - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService
-      - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService.submit_current
-      - src/impodo/application/transformation_impact_service.py::TransformationImpactService
-      - src/impodo/application/categorical_coverage_service.py::CategoricalCoverageService
+      - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
+      - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService.submit_current
+      - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/scalar_values.py::evaluate_scalar_mapping_value
       - src/impodo/domain/staging/transformation_impact.py::selection_rule_impact_definitions
@@ -299,13 +299,13 @@ stages:
       - src/impodo/web/templates/workspace_resolution.html
       - src/impodo/web/templates/workspace_normalization.html
     code_references:
-      - src/impodo/application/preparation_service.py::PreparationService
-      - src/impodo/application/preparation_job_service.py::PreparationJobManager
+      - src/impodo/application/workspace/preparation/preparation_service.py::PreparationService
+      - src/impodo/application/workspace/preparation/preparation_job_service.py::PreparationJobManager
       - src/impodo/build_contract.py::ApplicationBuildContract
       - src/impodo/web/security.py::BuildConsistencyMiddleware
-      - src/impodo/application/quality_service.py::QualityService
-      - src/impodo/application/resolution_service.py::ResolutionService
-      - src/impodo/application/normalization_service.py::NormalizationService
+      - src/impodo/application/workspace/preparation/quality_service.py::QualityService
+      - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
+      - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService
     tests:
       - tests/test_preparation_jobs.py
       - tests/test_build_contract.py
@@ -361,11 +361,11 @@ stages:
       - src/impodo/web/templates/workspace_load.html
       - src/impodo/web/templates/workspace_load_progress.html
     code_references:
-      - src/impodo/application/execution_service.py::ExecutionService
-      - src/impodo/application/execution_service.py::ExecutionService.execute
-      - src/impodo/application/load_job_service.py::LoadJobManager
-      - src/impodo/application/reconciliation_service.py::ReconciliationService
-      - src/impodo/application/reconciliation_service.py::ReconciliationService.reconcile
+      - src/impodo/application/workspace/execution/service.py::ExecutionService
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
+      - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
+      - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService
+      - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.reconcile
     tests:
       - tests/test_execution_service.py
       - tests/test_execution_web.py

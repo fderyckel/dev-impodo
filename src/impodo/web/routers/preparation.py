@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from ...application.preparation_job_registry import (
+from ...application.workspace.preparation.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobStateError,
 )

@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ..access import Actor, Capability
-from ..domain.data_version.models import DataVersionPurpose, DataVersionState
-from ..domain.coverage import ReferenceBundle
-from ..migration_foundation import require_revision, require_uuid
-from ..migration_run_planning import RecipeDependency, RecipeRevisionSelection
-from ..workspace_contracts import OdooSchemaCatalog
+from impodo.access import Actor, Capability
+from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
+from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.run.planning import (
+    blocking_run_issue,
+    collect_write_collision_issues,
+    order_recipe_applications,
+    union_model_requirements,
+    union_reference_requirements,
+)
+from impodo.migration_foundation import require_revision, require_uuid
+from impodo.migration_run_planning import RecipeDependency, RecipeRevisionSelection
+from impodo.workspace_contracts import OdooSchemaCatalog
 
 
 class RunReviewUseCase:
@@ -29,11 +36,6 @@ class RunReviewUseCase:
         reviewed_application_type,
         review_type,
         package_selection,
-        application_order,
-        write_collision_issues,
-        union_requirements,
-        union_reference_requirements,
-        blocker,
     ) -> None:
         self._projects = projects
         self._data_versions = data_versions
@@ -46,11 +48,6 @@ class RunReviewUseCase:
         self._reviewed_application_type = reviewed_application_type
         self._review_type = review_type
         self._package_selection = package_selection
-        self._application_order = application_order
-        self._write_collision_issues = write_collision_issues
-        self._union_requirements = union_requirements
-        self._union_reference_requirements = union_reference_requirements
-        self._blocker = blocker
 
     def review(
         self,
@@ -174,20 +171,20 @@ class RunReviewUseCase:
             )
         selected_ids = {item.selection.recipe_id for item in applications}
         planning_issues = []
-        application_order = self._application_order(
+        application_order, dependency_issues = order_recipe_applications(
             selected_ids,
             dependencies,
-            planning_issues,
         )
-        self._write_collision_issues(applications, planning_issues)
-        requirements = self._union_requirements(applications)
-        reference_requirements = self._union_reference_requirements(
-            applications,
-            planning_issues,
+        planning_issues.extend(dependency_issues)
+        planning_issues.extend(collect_write_collision_issues(applications))
+        requirements = union_model_requirements(applications)
+        reference_requirements, reference_issues = union_reference_requirements(
+            applications
         )
+        planning_issues.extend(reference_issues)
         if target_schema.connection_target_hash.strip() == "":
             planning_issues.append(
-                self._blocker(
+                blocking_run_issue(
                     "RUN_TARGET_IDENTITY_MISSING",
                     "The selected Odoo evidence has no exact target identity.",
                     "Capture current Odoo 19 evidence before starting the "

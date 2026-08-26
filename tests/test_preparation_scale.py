@@ -20,14 +20,24 @@ import unittest
 from unittest.mock import patch
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from impodo.application import normalization_service as normalization_module
-from impodo.application import bounded_normalization as bounded_normalization_module
-from impodo.application import bounded_preparation as bounded_preparation_module
-from impodo.application import preparation_service as preparation_module
-from impodo.application import quality_service as quality_module
+from impodo.application.workspace.preparation import (
+    bounded_normalization as bounded_normalization_module,
+)
+from impodo.application.workspace.preparation import (
+    bounded_preparation as bounded_preparation_module,
+)
+from impodo.application.workspace.preparation import (
+    normalization_service as normalization_module,
+)
+from impodo.application.workspace.preparation import (
+    preparation_service as preparation_module,
+)
+from impodo.application.workspace.preparation import quality_service as quality_module
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
-from impodo.application.bounded_preparation import BOUNDED_SOURCE_BATCH_SIZE
-from impodo.application.preparation_capability import (
+from impodo.application.workspace.preparation.bounded_preparation import (
+    BOUNDED_SOURCE_BATCH_SIZE,
+)
+from impodo.application.workspace.preparation.preparation_capability import (
     compile_preparation_capability,
 )
 from impodo.domain.coverage import (
@@ -465,7 +475,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             memory_sampler = stack.enter_context(_PeakWorkingSetSampler(process))
             stack.enter_context(
                 patch(
-                    "impodo.application.preparation_service."
+                    "impodo.application.workspace.preparation.preparation_service."
                     "require_supported_browser_scale",
                 )
             )
@@ -476,11 +486,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
             patches = (
                 patch(
-                    "impodo.application.preparation_service.stage_browser_mapping",
+                    "impodo.application.workspace.preparation.preparation_service."
+                    "stage_browser_mapping",
                     timed("load_and_evaluate", original_stage),
                 ),
                 patch(
-                    "impodo.application.preparation_service."
+                    "impodo.application.workspace.preparation.preparation_service."
                     "prepare_bounded_direct_session",
                     timed("bounded_load_and_evaluate", original_bounded_stage),
                 ),
@@ -500,7 +511,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     timed("quality", original_quality),
                 ),
                 patch(
-                    "impodo.application.quality_service.build_bounded_quality_run",
+                    "impodo.application.workspace.preparation.quality_service."
+                    "build_bounded_quality_run",
                     timed("quality_evaluation", original_quality_evaluation),
                 ),
                 patch.object(
@@ -517,7 +529,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     timed("normalization", original_normalization),
                 ),
                 patch(
-                    "impodo.application.normalization_service."
+                    "impodo.application.workspace.preparation.normalization_service."
                     "build_bounded_normalization_evaluation",
                     timed(
                         "normalization_aggregation",
@@ -2388,7 +2400,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 ),
             ),
             patch(
-                "impodo.application.normalization_service.evaluate_normalization",
+                "impodo.application.workspace.preparation.normalization_service."
+                "evaluate_normalization",
                 side_effect=AssertionError(
                     "bounded preparation must not materialize normalization"
                 ),

@@ -7,39 +7,39 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from uuid import UUID, uuid4, uuid5
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..data_version_sources import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.data_version_sources import (
     DataVersionDatasetView,
     DataVersionSourcePackage,
     SourcePackageOrigin,
     WorkspaceSourceProjectionService,
 )
-from ..domain.data_version.models import DataVersionPurpose, DataVersionState
-from .data_version.service import DataVersionService
-from ..domain.coverage import ReferenceBundle
-from ..domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
-from ..domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
-from ..domain.serialization import content_hash
-from ..domain.cutover.models import (
+from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
+from impodo.application.data_version.service import DataVersionService
+from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
+from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
+from impodo.domain.serialization import content_hash
+from impodo.domain.cutover.models import (
     PROJECT_SHARED_CONTROL_IDS,
     CutoverPlanRevision,
     CutoverWriteOwnership,
 )
-from ..migration_foundation import (
+from impodo.migration_foundation import (
     FaultInjector,
     require_revision,
     require_uuid,
     required_text,
     utc_now,
 )
-from ..migration_production import (
+from impodo.migration_production import (
     ProductionRunBinding,
     ProductionRunBindingState,
     ProductionRunError,
     activation_evidence_hash,
 )
-from .project.service import MigrationProjectService
-from ..migration_run_planning import (
+from impodo.application.project.service import MigrationProjectService
+from impodo.migration_run_planning import (
     IntegratedRunBundle,
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
@@ -56,28 +56,29 @@ from ..migration_run_planning import (
     RunRecipeApplication,
     RunTargetBinding,
 )
-from ..domain.run.models import MigrationRun, MigrationRunPurpose, MigrationRunState
-from ..migration_test import TestRunSetupBinding, TestRunSetupState
-from ..domain.workspace.models import (
+from impodo.domain.run.models import MigrationRun, MigrationRunPurpose, MigrationRunState
+from impodo.domain.run.planning import blocking_run_issue, run_requirement_hash
+from impodo.migration_test import TestRunSetupBinding, TestRunSetupState
+from impodo.domain.workspace.models import (
     MigrationWorkspace,
     MigrationWorkspaceState,
 )
-from .workspace.service import MigrationWorkspaceService
-from ..models import OdooWriteIdentity
-from ..domain.recipe.models import Recipe
-from .recipe.service import RecipeService
-from ..workspace_contracts import OdooSchemaCatalog
-from ..workspace_state import (
+from impodo.application.workspace.service import MigrationWorkspaceService
+from impodo.models import OdooWriteIdentity
+from impodo.domain.recipe.models import Recipe
+from impodo.application.recipe.service import RecipeService
+from impodo.workspace_contracts import OdooSchemaCatalog
+from impodo.workspace_state import (
     SourceMode,
     WorkspaceStateNotFoundError,
     WorkspaceStateService,
 )
-from .recipe_application_service import (
+from impodo.application.recipe_application_service import (
     RecipeApplicationAssessment,
     RecipeApplicationService,
 )
-from .run_review import RunReviewUseCase
-from .run_target_evidence import RunTargetEvidenceUseCase
+from .review import RunReviewUseCase
+from .target_evidence import RunTargetEvidenceUseCase
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,11 +157,6 @@ class MigrationRunPlanningService:
             reviewed_application_type=ReviewedRecipeApplication,
             review_type=IntegratedRunReview,
             package_selection=self._package_selection,
-            application_order=self._application_order,
-            write_collision_issues=self._write_collision_issues,
-            union_requirements=self._union_requirements,
-            union_reference_requirements=self._union_reference_requirements,
-            blocker=self._block,
         )
 
     def review_test_run(
@@ -236,7 +232,7 @@ class MigrationRunPlanningService:
         issues = list(review.planning_issues)
         if target_schema.connection_target_hash == test_connection_target_hash:
             issues.append(
-                self._block(
+                blocking_run_issue(
                     "PRODUCTION_TARGET_NOT_INDEPENDENT",
                     "Production uses the same Odoo target as Integrated Test.",
                     "Capture the compatible Odoo 19 Production database instead.",
@@ -249,16 +245,16 @@ class MigrationRunPlanningService:
             odoo_major = -1
         if odoo_major != 19 or target_schema.origin.value != "LIVE_API":
             issues.append(
-                self._block(
+                blocking_run_issue(
                     "PRODUCTION_TARGET_EVIDENCE_UNSUPPORTED",
                     "Production target evidence is not a current live Odoo 19 capture.",
                     "Capture the Production Odoo 19 fields and supporting lists again.",
                     tuple(item.recipe_id for item in plan.selected_revisions),
                 )
             )
-        if self._semantic_requirement_hash(review) != plan.requirement_plan_hash:
+        if run_requirement_hash(review) != plan.requirement_plan_hash:
             issues.append(
-                self._block(
+                blocking_run_issue(
                     "PRODUCTION_PLAN_MEANING_CHANGED",
                     "The current Recipe requirements no longer match the qualified plan.",
                     "Publish and qualify a new CutoverPlan revision.",
@@ -278,7 +274,7 @@ class MigrationRunPlanningService:
         )
         if current_ownership != plan.write_ownership:
             issues.append(
-                self._block(
+                blocking_run_issue(
                     "PRODUCTION_WRITE_OWNERSHIP_CHANGED",
                     "Current Recipe write ownership differs from the qualified plan.",
                     "Publish and qualify the corrected CutoverPlan before Production.",
@@ -287,7 +283,7 @@ class MigrationRunPlanningService:
             )
         if set(shared_control_values) != set(PROJECT_SHARED_CONTROL_IDS):
             issues.append(
-                self._block(
+                blocking_run_issue(
                     "PRODUCTION_SHARED_CONTROLS_INCOMPLETE",
                     "The Production run does not contain every Project control.",
                     "Review package completeness and integrated reconciliation controls.",
@@ -298,7 +294,7 @@ class MigrationRunPlanningService:
             "control:project.package_completeness"
         ]:
             issues.append(
-                self._block(
+                blocking_run_issue(
                     "PRODUCTION_PACKAGE_INCOMPLETE",
                     "The latest Production delivery is not confirmed complete.",
                     "Accept the complete Production data version before activation.",
@@ -309,7 +305,7 @@ class MigrationRunPlanningService:
             "control:project.integrated_reconciliation"
         ):
             issues.append(
-                self._block(
+                blocking_run_issue(
                     "PRODUCTION_RECONCILIATION_PREMATURE",
                     "Production reconciliation was marked complete before execution.",
                     "Leave it pending until every application is verified.",
@@ -1813,166 +1809,6 @@ class MigrationRunPlanningService:
             data_version_id=package.data_version_id,
             package_hash=package.content_hash,
             datasets=datasets,
-        )
-
-    @staticmethod
-    def _union_requirements(
-        applications: list[ReviewedRecipeApplication],
-    ) -> tuple[OdooModelRequirement, ...]:
-        by_model: dict[str, set[str]] = {}
-        for item in applications:
-            for requirement in item.requirements:
-                by_model.setdefault(requirement.model, set()).update(
-                    requirement.fields
-                )
-        return tuple(
-            OdooModelRequirement(model=model, fields=tuple(fields))
-            for model, fields in sorted(by_model.items())
-        )
-
-    @staticmethod
-    def _union_reference_requirements(
-        applications: list[ReviewedRecipeApplication],
-        issues: list[MigrationRunPlanIssue],
-    ) -> tuple[ReferenceRequirement, ...]:
-        by_name: dict[str, ReferenceRequirement] = {}
-        owners: dict[str, str] = {}
-        for application in applications:
-            for requirement in application.reference_requirements:
-                current = by_name.get(requirement.name)
-                if current is None:
-                    by_name[requirement.name] = requirement
-                    owners[requirement.name] = application.selection.recipe_id
-                    continue
-                if current.content_hash != requirement.content_hash:
-                    issues.append(
-                        MigrationRunPlanningService._block(
-                            "RUN_REFERENCE_REQUIREMENT_COLLISION",
-                            (
-                                f"Two Recipes require different versions of "
-                                f"reference data {requirement.name}."
-                            ),
-                            (
-                                "Publish compatible Recipe revisions or use "
-                                "one shared reviewed reference version."
-                            ),
-                            (
-                                owners[requirement.name],
-                                application.selection.recipe_id,
-                            ),
-                        )
-                    )
-        return tuple(sorted(by_name.values()))
-
-    @staticmethod
-    def _semantic_requirement_hash(review: IntegratedRunReview) -> str:
-        """Match the reusable requirement meaning stored by the CutoverPlan."""
-
-        return content_hash(
-            {
-                "application_order": list(review.application_order),
-                "contract_version": 1,
-                "dependencies": [
-                    item.to_dict() for item in review.dependencies
-                ],
-                "model_requirements": [
-                    item.to_dict() for item in review.model_requirements
-                ],
-                "reference_requirements": [
-                    item.to_dict() for item in review.reference_requirements
-                ],
-                "selected_revisions": [
-                    item.selection.to_dict() for item in review.applications
-                ],
-            }
-        )
-
-    @staticmethod
-    def _write_collision_issues(applications, issues) -> None:
-        owners: dict[tuple[str, str], str] = {}
-        for item in applications:
-            for claim in item.write_claims:
-                previous = owners.setdefault(claim, item.selection.recipe_id)
-                if previous != item.selection.recipe_id:
-                    issues.append(
-                        MigrationRunPlanningService._block(
-                            "RUN_RECIPE_WRITE_COLLISION",
-                            (
-                                f"Two Recipes may both write {claim[0]}.{claim[1]}."
-                            ),
-                            (
-                                "Choose one owning Recipe for this Odoo field or "
-                                "publish non-overlapping Recipe meaning. Reordering "
-                                "does not resolve the collision."
-                            ),
-                            (previous, item.selection.recipe_id),
-                        )
-                    )
-
-    @staticmethod
-    def _application_order(selected_ids, dependencies, issues) -> tuple[str, ...]:
-        following = {recipe_id: set() for recipe_id in selected_ids}
-        indegree = {recipe_id: 0 for recipe_id in selected_ids}
-        seen = set()
-        for edge in dependencies:
-            key = (edge.before_recipe_id, edge.after_recipe_id)
-            if key in seen:
-                issues.append(
-                    MigrationRunPlanningService._block(
-                        "RUN_DEPENDENCY_DUPLICATED",
-                        "The same Recipe dependency was selected more than once.",
-                        "Keep one copy of each dependency.",
-                        key,
-                    )
-                )
-                continue
-            seen.add(key)
-            if (
-                edge.before_recipe_id not in selected_ids
-                or edge.after_recipe_id not in selected_ids
-            ):
-                issues.append(
-                    MigrationRunPlanningService._block(
-                        "RUN_DEPENDENCY_RECIPE_MISSING",
-                        "A dependency refers to a Recipe outside this Test run.",
-                        "Select both Recipes or remove that dependency.",
-                        key,
-                    )
-                )
-                continue
-            following[edge.before_recipe_id].add(edge.after_recipe_id)
-            indegree[edge.after_recipe_id] += 1
-        ready = sorted(recipe_id for recipe_id, count in indegree.items() if count == 0)
-        order = []
-        while ready:
-            current = ready.pop(0)
-            order.append(current)
-            for after in sorted(following[current]):
-                indegree[after] -= 1
-                if indegree[after] == 0:
-                    ready.append(after)
-                    ready.sort()
-        if len(order) != len(selected_ids):
-            cycle_ids = tuple(sorted(key for key, value in indegree.items() if value))
-            issues.append(
-                MigrationRunPlanningService._block(
-                    "RUN_RECIPE_DEPENDENCY_CYCLE",
-                    "The selected Recipes form a dependency cycle.",
-                    "Remove one dependency so the applications have a clear order.",
-                    cycle_ids,
-                )
-            )
-            return tuple(sorted(selected_ids))
-        return tuple(order)
-
-    @staticmethod
-    def _block(code, message, recovery, recipe_ids):
-        return MigrationRunPlanIssue(
-            code=code,
-            level=MigrationRunPlanIssueLevel.BLOCKER,
-            message=message,
-            recovery_action=recovery,
-            recipe_ids=tuple(recipe_ids),
         )
 
     @staticmethod

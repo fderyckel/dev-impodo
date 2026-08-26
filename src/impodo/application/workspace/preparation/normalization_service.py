@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..domain.staging.transformation_impact import TransformationImpactRow
-from ..domain.resolution import EffectiveDataset
-from ..domain.staging.preparation_session import StoredCanonicalStagingRun
-from ..governance import DryRun
-from ..domain.mapping.artifacts import MappingRevision
-from ..normalization import (
+from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
+from impodo.domain.resolution import EffectiveDataset
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.governance import DryRun
+from impodo.domain.mapping.artifacts import MappingRevision
+from impodo.normalization import (
     NormalizationCandidate,
     NormalizationError,
     NormalizationEvaluation,
@@ -20,12 +20,12 @@ from ..normalization import (
     StoredNormalizationEvaluation,
     evaluate_normalization,
 )
-from ..workspace_state import WorkspaceState
-from ..quality import QualityRun, QualityRunSummary, StoredQualityRun
-from ..staging import StagingRunSummary
-from ..staging_contracts import CanonicalStagingRun
-from ..workspace_contracts import SourceSelection
-from ..domain.errors import NormalizationReviewPolicyError, ReadinessError
+from impodo.workspace_state import WorkspaceState
+from impodo.quality import QualityRun, QualityRunSummary, StoredQualityRun
+from impodo.staging import StagingRunSummary
+from impodo.staging_contracts import CanonicalStagingRun
+from impodo.workspace_contracts import SourceSelection
+from impodo.domain.errors import NormalizationReviewPolicyError, ReadinessError
 from .readiness_ports import NormalizationRepository
 from .bounded_normalization import (
     BoundedNormalizationUnsupported,

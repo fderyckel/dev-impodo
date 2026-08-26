@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{% if workspace_state.source_mode.value == 'ODOO' %}Odoo source{% else %}Odoo destination{% endif %} · Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/target-connection.css') }}">
+{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/target-connection.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   {% set step = "target" %}
   {% set is_odoo_source = workspace_state.source_mode.value == 'ODOO' %}

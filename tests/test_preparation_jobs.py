@@ -14,15 +14,19 @@ from impodo.build_contract import (
     ApplicationBuildContract,
     PROCESS_BUILD_CONTRACT,
 )
-from impodo.application.preparation_job_registry import (
+from impodo.application.workspace.preparation.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobRegistry,
     PreparationJobStateError,
 )
-from impodo.application.preparation_job_service import PreparationCancelled
-from impodo.application.preparation_job_service import PreparationJobManager
-from impodo.application.preparation_job_service import _run_preparation_worker
-from impodo.application.preparation_service import PreparationService
+from impodo.application.workspace.preparation.preparation_job_service import (
+    PreparationCancelled,
+    PreparationJobManager,
+    _run_preparation_worker,
+)
+from impodo.application.workspace.preparation.preparation_service import (
+    PreparationService,
+)
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.data_version.models import DataVersionPurpose
@@ -261,11 +265,12 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.application.preparation_service.supports_bounded_direct_preparation",
+                "impodo.application.workspace.preparation.preparation_service."
+                "supports_bounded_direct_preparation",
                 return_value=True,
             ),
             patch(
-                "impodo.application.preparation_service."
+                "impodo.application.workspace.preparation.preparation_service."
                 "compile_preparation_capability",
                 return_value=SimpleNamespace(
                     require_supported=lambda: None,
@@ -273,7 +278,8 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
                 ),
             ),
             patch(
-                "impodo.application.preparation_service.prepare_bounded_direct_session",
+                "impodo.application.workspace.preparation.preparation_service."
+                "prepare_bounded_direct_session",
                 side_effect=bounded_batch,
             ),
             self.assertRaises(PreparationCancelled),

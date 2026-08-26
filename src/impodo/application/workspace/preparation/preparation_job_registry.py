@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 from threading import RLock
 from uuid import uuid4
 
-from ..access import ActorIdentity
-from ..build_contract import ApplicationBuildContract
-from ..preparation_jobs import (
+from impodo.access import ActorIdentity
+from impodo.build_contract import ApplicationBuildContract
+from impodo.preparation_jobs import (
     PHASE_LABELS,
     PreparationJob,
     PreparationJobStatus,
