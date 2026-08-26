@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid5
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
-from impodo.data_version_sources import (
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageOrigin,
     SourcePackageState,
@@ -14,7 +14,7 @@ from impodo.data_version_sources import (
 from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.serialization import content_hash
-from impodo.migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     MigrationNotFoundError,
@@ -25,13 +25,13 @@ from impodo.migration_foundation import (
     required_text,
     utc_now,
 )
-from impodo.migration_run_planning import RecipeDependency, RecipeRevisionSelection
-from impodo.migration_test import (
+from impodo.domain.run.contracts import RecipeDependency, RecipeRevisionSelection
+from impodo.domain.run.test_setup import (
     TestRunSetupBinding,
     TestRunSetupBundle,
     TestRunSetupState,
 )
-from impodo.workspace_state import SourceMode, WorkspaceStateNotFoundError
+from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateNotFoundError
 
 from .fresh_data_values import normalize_export_date
 

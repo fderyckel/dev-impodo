@@ -13,7 +13,7 @@ from ..application.protected_evidence_codecs import (
     EncodedOdooComparison as PortEncodedOdooComparison,
 )
 from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
-from ..workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 _MAGIC = b"IPODOCMP1"

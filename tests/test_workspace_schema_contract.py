@@ -6,7 +6,7 @@ import duckdb
 
 from impodo.adapters.duckdb.constants import SCHEMA_GENERATION, SCHEMA_VERSION
 from impodo.adapters.duckdb.schema.workspace_engine import WorkspaceEngineSchemaMixin
-from impodo.workspace_state import WorkspaceStateCompatibilityError
+from impodo.domain.workspace.workbench import WorkspaceStateCompatibilityError
 
 
 class WorkspaceSchemaContractTests(unittest.TestCase):

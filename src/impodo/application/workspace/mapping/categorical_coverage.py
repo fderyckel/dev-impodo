@@ -6,8 +6,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
-from impodo.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
-from impodo.columnar_runtime import configure_columnar_runtime
+from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from impodo.application.shared.columnar_runtime import configure_columnar_runtime
 from impodo.domain.mapping.contracts import (
     MAX_VALUE_MAPPINGS,
     CategoricalCoveragePolicy,
@@ -29,13 +29,13 @@ from impodo.domain.mapping.validation.evidence import (
 )
 from impodo.domain.serialization import content_hash
 from impodo.domain.source_snapshot import SourceSnapshot
-from impodo.source import SourceLoadError
-from impodo.source_snapshot_io import (
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.application.data_version.source_snapshots import (
     validate_snapshot_for_dataset,
     validate_source_snapshot_path,
 )
-from impodo.workspace_contracts import OdooSchemaCatalog, SourceSelection
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 configure_columnar_runtime()

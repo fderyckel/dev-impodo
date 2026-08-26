@@ -20,7 +20,7 @@ import json
 from typing import Any, Mapping
 from uuid import UUID
 
-from ...value_rules import (
+from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     TextTransformStep,

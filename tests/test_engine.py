@@ -8,11 +8,12 @@ import unittest
 
 import yaml
 
-from impodo.catalog import TargetCatalog
-from impodo.connectors import MetadataSnapshot, SnapshotConnector
+from impodo.domain.data_version.catalog import TargetCatalog
+from impodo.domain.odoo.contracts import MetadataSnapshot
+from impodo.adapters.odoo.connectors import SnapshotConnector
 from impodo.domain.compiler import CompiledMigrationPlan, compile_profile_document
-from impodo.engine import PreflightEngine, _relation_difference, _resolve_records
-from impodo.models import (
+from impodo.domain.preparation.preflight import PreflightEngine, _relation_difference, _resolve_records
+from impodo.domain.shared.models import (
     BusinessReference,
     Classification,
     FieldMetadata,
@@ -22,18 +23,14 @@ from impodo.models import (
     assert_no_numeric_odoo_ids,
     canonical_json_bytes,
 )
-from impodo.planner import (
+from impodo.domain.execution.planner import (
     plan_metadata_requests,
     plan_record_requests,
 )
-from impodo.profile import (
-    ProfileDocument,
-    RelationSpec,
-    ResolveSpec,
-    load_profile,
-)
-from impodo.source import prepare_sources
-from impodo.workspace_contracts import (
+from impodo.domain.recipe.profile import ProfileDocument, RelationSpec, ResolveSpec
+from impodo.adapters.artifacts.profile_loader import load_profile
+from impodo.application.data_version.source_files import prepare_sources
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

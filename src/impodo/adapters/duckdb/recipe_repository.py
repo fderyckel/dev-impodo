@@ -7,10 +7,10 @@ import json
 from typing import Mapping
 from uuid import uuid4
 
-from ...access import Actor
+from impodo.domain.shared.access import Actor
 from ...adapters.protected_recipe_store import ProtectedRecipeStore
 from ...domain.serialization import canonical_json, content_hash
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationNotFoundError,

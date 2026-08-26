@@ -32,7 +32,7 @@ from ...domain.source_snapshot import (
 )
 from ...domain.staging.preparation_session import PreparedCanonicalProjection
 from ...domain.staging.transformation_impact import TransformationImpactCounts
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 _ISSUE_COLUMN = "__impodo_columnar_issues"

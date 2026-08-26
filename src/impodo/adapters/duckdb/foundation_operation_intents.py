@@ -6,9 +6,9 @@ from typing import Mapping
 
 import duckdb
 
-from ...access import Actor
+from impodo.domain.shared.access import Actor
 from ...domain.serialization import canonical_json
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationNotFoundError,
     MigrationOperationIntent,

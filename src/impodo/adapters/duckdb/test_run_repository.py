@@ -6,9 +6,9 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 
-from ...access import Actor, ActorIdentity
+from impodo.domain.shared.access import Actor, ActorIdentity
 from ...domain.serialization import canonical_json
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationNotFoundError,
     MigrationOperationKind,
@@ -17,7 +17,7 @@ from ...migration_foundation import (
     require_revision,
     require_uuid,
 )
-from ...migration_test import (
+from impodo.domain.run.test_setup import (
     RecipeRunParameterValue,
     TestRunParameterValues,
     TestRunSetupBinding,

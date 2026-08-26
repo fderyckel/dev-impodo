@@ -9,8 +9,8 @@ import re
 from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
-from impodo.domain.execution import (
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
@@ -28,15 +28,15 @@ from impodo.domain.reconciliation import (
     ReconciliationRun,
     ReconciliationRunStatus,
 )
-from impodo.models import BusinessReference, LogicalReference, OdooWriteIdentity
-from impodo.odoo_readback import (
+from impodo.domain.shared.models import BusinessReference, LogicalReference, OdooWriteIdentity
+from impodo.domain.execution.odoo_readback import (
     MAX_READBACK_IDS,
     MAX_READBACK_LOOKUPS,
     OdooReadbackReader,
     ReadbackLookup,
     ReadbackRecord,
 )
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .service import _identity_domain, _portable_key, execution_api_scope
 from impodo.application.preflight_service import PreflightService
 

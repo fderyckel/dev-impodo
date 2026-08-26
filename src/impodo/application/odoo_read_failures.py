@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ..artifacts import ArtifactStoreError
-from ..connectors import (
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.domain.odoo.contracts import (
     ConnectorAuthenticationError,
     ConnectorAuthorizationError,
     ConnectorConfigurationError,
@@ -16,8 +16,8 @@ from ..connectors import (
     ConnectorTransportError,
 )
 from ..domain.errors import ReadinessError
-from ..secrets import SecretStoreError
-from ..workspace_errors import WorkspaceDatabaseBusyError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
 
 
 class OdooReadFailureCode(StrEnum):

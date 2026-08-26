@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Iterable, Protocol
 from uuid import uuid4
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
@@ -46,19 +46,19 @@ from impodo.domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
-from impodo.reference_keys import REFERENCE_POLICY_HASH, standard_reference_key
-from impodo.supporting_lookups import (
+from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH, standard_reference_key
+from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupSnapshot,
     supporting_lookup_key,
 )
 from .categorical_coverage import CategoricalCoverageService
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SchemaOrigin,
     SourceSelection,
 )
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 class MappingSourceRepository(Protocol):

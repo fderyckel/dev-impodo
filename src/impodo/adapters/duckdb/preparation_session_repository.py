@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ...artifacts import LocalArtifactStore, WorkspaceArtifactStore
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from ...domain.derived_value_artifact import DerivedValueArtifact
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import (

@@ -10,10 +10,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from ...connectors import ConnectorError
-from ...migration_foundation import MigrationFoundationError
-from ...secrets import SecretStoreError
-from ...workspace_state import SourceMode
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.workspace.workbench import SourceMode
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render

@@ -16,11 +16,11 @@ import hashlib
 import json
 from uuid import UUID, uuid4
 
-from ..access import Actor
+from impodo.domain.shared.access import Actor
 from ..domain.serialization import content_hash
-from ..models import target_identity_hash
-from ..workspace_state import WorkspaceState, WorkspaceStateService
-from ..secrets import SecretStore, SecretStoreError
+from impodo.domain.shared.models import target_identity_hash
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateService
+from impodo.application.shared.secrets import SecretStore, SecretStoreError
 
 
 class TargetCredentialRole(StrEnum):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 
-from ...data_version_sources import (
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageCatalog,
     SourcePackageConfiguration,
@@ -15,7 +15,7 @@ from ...data_version_sources import (
     SourcePackageState,
 )
 from ...domain.source_binding import source_binding_from_dict
-from ...migration_foundation import MigrationConflictError
+from impodo.domain.project.foundation import MigrationConflictError
 
 
 class FoundationSourcePackageReader:

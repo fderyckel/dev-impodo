@@ -19,11 +19,12 @@ from uuid import UUID, uuid4
 
 import duckdb
 
-from ...access import Actor
-from ...artifacts import WorkspaceArtifactStore, LocalArtifactStore
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...staging import StagingRunStatus, StagingRunSummary
-from ...staging_contracts import (
+from impodo.domain.shared.access import Actor
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.preparation.staging import StagingRunStatus, StagingRunSummary
+from impodo.domain.preparation.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     CanonicalControlTotal,
@@ -33,8 +34,8 @@ from ...staging_contracts import (
     StagingDatasetReconciliation,
     StagingReconciliation,
 )
-from ...workspace_contracts import SourceSelection
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.contracts import SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
 from ...domain.staging.preparation_session import StoredCanonicalStagingRun
 from .preparation_session_repository import PreparationSessionRepository
@@ -741,7 +742,7 @@ class StagingRepository(DuckDbRepository):
         workspace_id: str,
         row: Sequence[object],
     ) -> StagingRunSummary:
-        from ...staging_contracts import (
+        from impodo.domain.preparation.staging_contracts import (
             CanonicalControlTotal,
             StagingDatasetReconciliation,
             StagingReconciliation,

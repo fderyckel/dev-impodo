@@ -23,7 +23,7 @@ from impodo.domain.odoo_source_policy import (
 )
 from impodo.domain.source_binding import FileSourceBinding, SourceOriginKind
 from impodo.domain.serialization import content_hash
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,

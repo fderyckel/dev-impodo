@@ -147,15 +147,15 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
 | Clean roots | [`MigrationProjectService`](../../../src/impodo/application/project/service.py), [`DataVersionService`](../../../src/impodo/application/data_version/service.py), [`MigrationRunService`](../../../src/impodo/application/run/service.py), [`MigrationWorkspaceService`](../../../src/impodo/application/workspace/service.py) |
-| Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/workspace_access.py) and [`FoundationWorkspaceRecords.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/foundation_workspace_records.py) |
+| Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/application/workspace/access.py) and [`FoundationWorkspaceRecords.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/foundation_workspace_records.py) |
 | Forward-only storage upgrades | [`ensure_current_schema`](../../../src/impodo/adapters/duckdb/schema/forward_upgrades.py) |
 | Workspace authorization middleware | [`WorkspaceAccessMiddleware`](../../../src/impodo/web/security.py) |
 | Workspace setup root | [`MigrationWorkspaceService`](../../../src/impodo/application/workspace/service.py) and `MigrationWorkspaceService.complete_setup` |
-| Contained workbench | [`WorkspaceStateService`](../../../src/impodo/workspace_state.py) |
-| Canonical workspace page | [`WorkspaceOwnerViewService`](../../../src/impodo/workspace_views.py) |
+| Contained workbench | [`WorkspaceStateService`](../../../src/impodo/domain/workspace/workbench.py) |
+| Canonical workspace page | [`WorkspaceOwnerViewService`](../../../src/impodo/application/workspace/views.py) |
 | Source ownership cutover | [`DataVersionOwnedSourceRepository`](../../../src/impodo/adapters/duckdb/data_version_source_repository.py), [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
-| Owner-specific artifact stores | [`DataVersionSourceArtifactStore` and `WorkspaceArtifactStore`](../../../src/impodo/artifacts.py) |
-| Run target setup | [`MigrationRunTargetSetupService`](../../../src/impodo/migration_run_setup.py) |
+| Owner-specific artifact stores | [`DataVersionSourceArtifactStore` and `WorkspaceArtifactStore`](../../../src/impodo/application/shared/artifacts.py) |
+| Run target setup | [`MigrationRunTargetSetupService`](../../../src/impodo/domain/run/setup.py) |
 | Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Navigation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |

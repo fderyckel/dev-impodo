@@ -6,9 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.recipe.models import RecipeError
-from impodo.migration_test import TestRunSetupBinding
+from impodo.domain.run.test_setup import TestRunSetupBinding
 
 from .fresh_data_values import recipe_definition
 

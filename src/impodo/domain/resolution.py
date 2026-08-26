@@ -16,13 +16,13 @@ from typing import Any, Iterable, Mapping
 import unicodedata
 from uuid import UUID
 
-from ..access import ActorIdentity
-from ..models import (
+from impodo.domain.shared.access import ActorIdentity
+from impodo.domain.shared.models import (
     assert_no_numeric_odoo_ids,
     portable_value,
     restore_portable_value,
 )
-from ..staging_contracts import CanonicalLineage, CanonicalRow, StagingDisposition
+from impodo.domain.preparation.staging_contracts import CanonicalLineage, CanonicalRow, StagingDisposition
 from .serialization import content_hash
 
 

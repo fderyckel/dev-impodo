@@ -9,8 +9,8 @@ import shutil
 
 import duckdb
 
-from ...access import Actor
-from ...workspace_state import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStateConflictError,
     WorkspaceStateError,

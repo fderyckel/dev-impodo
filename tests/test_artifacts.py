@@ -4,11 +4,8 @@ import os
 from pathlib import Path
 import unittest
 
-from impodo.artifacts import (
-    ArtifactPathTooLongError,
-    WINDOWS_PORTABLE_PATH_LIMIT,
-    _require_portable_windows_path,
-)
+from impodo.application.shared.artifacts import ArtifactPathTooLongError
+from impodo.adapters.artifacts.local_store import WINDOWS_PORTABLE_PATH_LIMIT, _require_portable_windows_path
 
 
 @unittest.skipUnless(os.name == "nt", "Windows path-budget policy")

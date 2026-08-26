@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ...access import Actor
-from ...migration_foundation import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationOperationKind,

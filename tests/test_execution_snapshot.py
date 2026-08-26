@@ -10,24 +10,25 @@ import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy
+from impodo.domain.shared.access import CapabilityAuthorizationPolicy
 from impodo.application.preflight_service import (
     EXECUTION_SNAPSHOT_NAME,
     MANIFEST_NAME,
     PreflightService,
 )
-from impodo.artifacts import LocalArtifactStore
-from impodo.connectors import SnapshotConnector, bind_snapshot_hashes
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.adapters.odoo.connectors import SnapshotConnector
+from impodo.domain.odoo.contracts import bind_snapshot_hashes
 from impodo.domain.compiler import compile_profile_document
 from impodo.domain.execution_snapshot import (
     ExecutionSnapshot,
     build_execution_snapshot,
 )
-from impodo.engine import PreflightEngine
-from impodo.models import BusinessReference, Classification, LogicalReference
-from impodo.planner import plan_metadata_requests, plan_record_requests
-from impodo.profile import load_profile
-from impodo.source import prepare_sources
+from impodo.domain.preparation.preflight import PreflightEngine
+from impodo.domain.shared.models import BusinessReference, Classification, LogicalReference
+from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
+from impodo.adapters.artifacts.profile_loader import load_profile
+from impodo.application.data_version.source_files import prepare_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]

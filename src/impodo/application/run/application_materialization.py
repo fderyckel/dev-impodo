@@ -6,13 +6,13 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import UUID, uuid4, uuid5
 
-from impodo.access import Actor
-from impodo.data_version_sources import DataVersionSourcePackage, SourcePackageOrigin
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import DataVersionSourcePackage, SourcePackageOrigin
 from impodo.domain.run.models import MigrationRun, MigrationRunState
 from impodo.domain.serialization import content_hash
 from impodo.domain.workspace.models import MigrationWorkspace, MigrationWorkspaceState
-from impodo.migration_foundation import utc_now
-from impodo.migration_run_planning import (
+from impodo.domain.project.foundation import utc_now
+from impodo.domain.run.contracts import (
     IntegratedRunBundle,
     MigrationRunPlanningError,
     PlannedRecipeApplication,
@@ -20,7 +20,7 @@ from impodo.migration_run_planning import (
     RunRecipeApplication,
     RunTargetBinding,
 )
-from impodo.workspace_state import SourceMode, WorkspaceStateNotFoundError
+from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateNotFoundError
 
 from .planning_models import IntegratedRunReview, ReviewedRecipeApplication
 

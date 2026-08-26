@@ -10,35 +10,35 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping, Protocol, Sequence
 
-from impodo.access import Actor
-from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.schema.governance import SchemaGovernance
-from impodo.connectors import MetadataSnapshot, RecordSnapshot
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.preflight.reports import ReadinessReport, ReadinessRow, ReadinessRowPage
 from impodo.domain.resolution import EffectiveDataset
-from impodo.governance import DryRun
-from impodo.inspection import SourceFileCatalog
-from impodo.normalization import (
+from impodo.domain.cutover.governance import DryRun
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.preparation.normalization import (
     NormalizationEvaluation,
     NormalizationReviewGroup,
     NormalizationRunSummary,
     StoredNormalizationEvaluation,
 )
-from impodo.workspace_state import WorkspaceState
-from impodo.quality import (
+from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.preparation.quality import (
     QualityRuleSet,
     QualityRun,
     QualityRunSummary,
     StoredQualityRun,
 )
-from impodo.staging import StagingRunSummary
-from impodo.staging_contracts import (
+from impodo.domain.preparation.staging import StagingRunSummary
+from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalStagingRun,
     StagingDatasetRole,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SourceSelection,
@@ -57,7 +57,7 @@ from impodo.domain.staging.transformation_impact import (
 from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.derived_value_artifact import DerivedValueArtifact
 from impodo.domain.source_snapshot import SourceSnapshot
-from impodo.models import Issue
+from impodo.domain.shared.models import Issue
 
 
 class PreparationWorkspaceRepository(Protocol):

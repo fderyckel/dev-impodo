@@ -34,10 +34,10 @@ Run the inventory check from the repository root:
 .venv/bin/python -m unittest tests.test_architecture_inventory -v
 ```
 
-The reviewed snapshot contains 342 production modules and 1,965 runtime
+The reviewed snapshot contains 363 production modules and 1,996 runtime
 internal import edges. It records one type-only edge. Phase 1 removed the three
-application-to-adapter edges and the runtime cycle between
-`impodo.inspection` and `impodo.source_worker`. Phase 2 added named
+application-to-adapter edges and the former inspection-worker runtime cycle.
+Phase 2 added named
 composition, registry-record, preparation-session, and focused-use-case
 collaborators without adding a forbidden layer dependency or runtime cycle.
 Phase 3 moves the Project, Data version, workspace, Recipe, and Run domain
@@ -50,7 +50,10 @@ guided Test setup, fresh-data matching, and fresh-data value decisions now
 live below `application/run`. The run-owned Odoo requirement query also lives
 there and proves that selected Recipe revisions are read in one bulk operation.
 Deterministic ordering and collision decisions live below `domain/run`. These
-moves preserve the zero-cycle and zero-forbidden-edge baseline.
+moves preserve the zero-cycle and zero-forbidden-edge baseline. Phase 3 also
+split artifact, credential, Odoo transport, writer, read-back, and local job
+contracts from their concrete adapters. The package root now contains only
+`__init__.py` and the `python -m impodo` entry point.
 
 Phase 2 also splits the two large DuckDB adapters without changing their
 public ports. The migration foundation facade assembles owner-specific record
@@ -80,12 +83,12 @@ Run the direction gate from the repository root:
 .venv/bin/python -m unittest tests.test_architecture_dependency_rules -v
 ```
 
-The test reads the complete temporary ownership manifest for every remaining
-flat production module. It rejects domain imports of application, adapter, or
-web modules; application imports of adapter or web modules; runtime module
-cycles; and direct concrete-adapter construction outside a composition module
-or worker entry point. It prints the exact offending import path or
-construction site when a rule fails.
+The test rejects every flat or otherwise unclassified production module,
+domain imports of application, adapter, or web modules, application imports of
+adapter or web modules, runtime module cycles, and direct concrete-adapter
+construction outside a composition module or worker entry point. The Phase 1
+ownership manifest was deleted when the final flat module moved. A failure
+prints the exact offending module, import path, or construction site.
 
 ## Reproducible test order
 

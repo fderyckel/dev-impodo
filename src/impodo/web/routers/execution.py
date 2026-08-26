@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from ...access import AuthorizationError, Capability
+from impodo.domain.shared.access import AuthorizationError, Capability
 from ...application.workspace.execution.service import (
     ExecutionPreview,
     validated_create_batch_rows,
@@ -24,16 +24,16 @@ from ...application.workspace.execution.load_jobs import (
     LoadJobResult,
     LoadJobStateError,
 )
-from ...connectors import ConnectorError
-from ...odoo_readback import OdooReadbackError
-from ...models import OdooReadIdentity, OdooWriteIdentity
-from ...load_jobs import LoadJob, LoadJobStatus
-from ...migration_foundation import MigrationConflictError
-from ...migration_production import ProductionRunError
-from ...workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStateError
-from ...secrets import SecretStoreError
-from ...workspace_errors import WorkspaceError
-from ...workspace_access import WorkspaceAccessContext
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.execution.odoo_readback import OdooReadbackError
+from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
+from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
+from impodo.domain.project.foundation import MigrationConflictError
+from impodo.domain.run.production import ProductionRunError
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.application.workspace.access import WorkspaceAccessContext
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
 from ..forms import _secure_form, _text

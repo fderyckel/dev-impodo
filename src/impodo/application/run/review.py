@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from impodo.access import Actor, Capability
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.run.planning import (
@@ -14,9 +14,9 @@ from impodo.domain.run.planning import (
     union_model_requirements,
     union_reference_requirements,
 )
-from impodo.migration_foundation import require_revision, require_uuid
-from impodo.migration_run_planning import RecipeDependency, RecipeRevisionSelection
-from impodo.workspace_contracts import OdooSchemaCatalog
+from impodo.domain.project.foundation import require_revision, require_uuid
+from impodo.domain.run.contracts import RecipeDependency, RecipeRevisionSelection
+from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 
 class RunReviewUseCase:

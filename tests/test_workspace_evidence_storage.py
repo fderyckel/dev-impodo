@@ -12,10 +12,10 @@ from uuid import uuid4
 
 import duckdb
 
-from impodo.artifacts import LocalArtifactStore
-from impodo.migration_foundation import MigrationStorageCompatibilityError
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.domain.project.foundation import MigrationStorageCompatibilityError
 from impodo.web.app import create_local_app
-from impodo.workspace_contracts import SourceSelection
+from impodo.domain.workspace.contracts import SourceSelection
 
 
 ROOT = Path(__file__).resolve().parents[1]

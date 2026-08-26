@@ -27,7 +27,7 @@ dependencies = [
 
 [project.scripts]
 impodo = "impodo.web.launcher:main"
-impodo-cli = "impodo.cli:main"
+impodo-cli = "impodo.web.composition.cli:main"
 
 [project.optional-dependencies]
 test = [

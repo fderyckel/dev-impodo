@@ -8,18 +8,18 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from ...access import Capability
+from impodo.domain.shared.access import Capability
 from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
-from ...connectors import ConnectorError
-from ...local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
-from ...migration_foundation import (
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
+from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
     require_uuid,
 )
-from ...secrets import SecretStoreError
-from ...workspace_errors import WorkspaceError
-from ...workspace_state import (
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     SourceMode,
     WorkspaceSetupStep,
@@ -51,7 +51,7 @@ from ..target_credentials import (
     target_read_credential_id,
     target_write_credential_id,
 )
-from ..target_readers import _selected_local_profile
+from impodo.web.composition.target_readers import _selected_local_profile
 
 _LOCAL_STACK_RETURN_TARGET = "target"
 _LOCAL_STACK_RETURN_SUMMARY_COMPARE = "summary_compare"

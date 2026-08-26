@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from ....reference_keys import (
+from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
     ReferencePolicyDenial,
     ReferenceReadPurpose,

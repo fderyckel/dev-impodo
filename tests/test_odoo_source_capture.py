@@ -8,10 +8,10 @@ import math
 import unittest
 
 from impodo.adapters.odoo_source_capture import Json2OdooSourceCapture
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
-from impodo.connectors import Json2Config
-from impodo.connectors import MetadataSnapshot
+from impodo.adapters.odoo.connectors import Json2Config
+from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.odoo_capture import (
     OdooCaptureConsistency,
     OdooCaptureFilterClause,
@@ -34,20 +34,20 @@ from impodo.domain.odoo_source_policy import (
     ODOO_SOURCE_POLICY_HASH,
     TargetInstanceAssurance,
 )
-from impodo.models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
     ProtectedOdooReadContext,
     TargetFingerprint,
 )
-from impodo.workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStatus,
     SourceMode,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

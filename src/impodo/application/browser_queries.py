@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Protocol
 
-from ..derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from ..domain.source_snapshot import SourceSnapshot
 from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
@@ -25,10 +25,10 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
     TransformationImpactSnapshot,
 )
-from ..inspection import SourceFileCatalog
-from ..workspace_state import WorkspaceState
-from ..quality import QualityReviewPage, QualityRuleSet
-from ..workspace_contracts import (
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.preparation.quality import QualityReviewPage, QualityRuleSet
+from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooModelCatalog,
     OdooSchemaCatalog,

@@ -6,8 +6,8 @@ import json
 from collections.abc import Iterable
 from dataclasses import replace
 
-from ...access import Actor
-from ...data_version_sources import (
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageCatalog,
     SourcePackageConfiguration,
@@ -19,9 +19,9 @@ from ...domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from ...inspection import SourceFileCatalog
-from ...migration_foundation import MigrationFoundationError, utc_now
-from ...workspace_contracts import SourceConfiguration, SourceSelection
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.project.foundation import MigrationFoundationError, utc_now
+from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
 from .migration_foundation_repository import MigrationFoundationRepository
 from .source_repository import SourceRepository
 

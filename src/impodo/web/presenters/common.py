@@ -6,8 +6,8 @@ import re
 
 from fastapi import Request
 
-from ...access import Capability
-from ...workspace_state import (
+from impodo.domain.shared.access import Capability
+from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     WorkspaceState,
     WorkspaceStatus,

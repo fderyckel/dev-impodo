@@ -11,7 +11,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from impodo.artifacts import LocalArtifactStore
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.web.app import create_local_app
 
 from tests import test_preparation_scale as preparation_scale

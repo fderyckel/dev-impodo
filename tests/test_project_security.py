@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.project_security import (
+from impodo.adapters.protected_evidence.project_security import (
     ProjectRootSecurityError,
     _apply_private_windows_acl,
     _current_windows_user_sid,
@@ -73,8 +73,8 @@ class ProjectRootPolicyTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Windows project-root policy")
     def test_normal_windows_mode_rejects_a_removable_drive(self) -> None:
         with (
-            patch("impodo.project_security._reject_reparse_points"),
-            patch("impodo.project_security._windows_drive_type", return_value=2),
+            patch("impodo.adapters.protected_evidence.project_security._reject_reparse_points"),
+            patch("impodo.adapters.protected_evidence.project_security._windows_drive_type", return_value=2),
         ):
             with self.assertRaisesRegex(ProjectRootSecurityError, "fixed local"):
                 _validate_windows_location(Path(r"X:\Impodo\projects"), {})

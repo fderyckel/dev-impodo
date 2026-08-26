@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Callable, Iterable
 
-from ..access import Actor
-from ..artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
-from ..connectors import (
+from impodo.domain.shared.access import Actor
+from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
     RecordRequest,
@@ -37,17 +37,17 @@ from ..domain.preflight.reports import (
     ReadinessRow,
 )
 from ..domain.source_snapshot import SourceSnapshot
-from ..models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     TargetRecord,
     assert_no_numeric_odoo_ids,
     canonical_json_bytes,
 )
-from ..planner import PreflightRequirementPlan
-from ..workspace_state import WorkspaceState
-from ..source_snapshot_io import load_source_snapshot_table, validate_snapshot_for_dataset
-from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SourceSelection
-from ..workspace_errors import WorkspaceError
+from impodo.domain.execution.planner import PreflightRequirementPlan
+from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.application.data_version.source_snapshots import load_source_snapshot_table, validate_snapshot_for_dataset
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField, SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
 from .odoo_provenance_service import (
     OdooProvenanceService,
     ProtectedOdooComparisonCandidate,

@@ -37,16 +37,16 @@ from ...domain.mapping.contracts import (
     TargetFieldDisposition,
     TargetFieldHandling,
 )
-from ...value_rules import (
+from impodo.domain.recipe.value_rules import (
     MAX_TEXT_TRANSFORM_STEPS,
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     TextTransformStep,
 )
 from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
-from ...workspace_state import WorkspaceState, WorkspaceStatus
-from ...reference_keys import standard_reference_key
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
+from impodo.domain.workspace.reference_keys import standard_reference_key
+from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
 from ..forms import (
     _checked,

@@ -1,10 +1,13 @@
 """Shared DuckDB schema and write-batch settings."""
 
+from impodo.domain.shared.schema import (
+    WORKSPACE_SCHEMA_BASELINE_VERSION as SCHEMA_BASELINE_VERSION,
+    WORKSPACE_SCHEMA_GENERATION as SCHEMA_GENERATION,
+    WORKSPACE_SCHEMA_VERSION as SCHEMA_VERSION,
+)
+
 # This build upgrades older versions within this generation before repository
 # access. A different generation remains an incompatible semantic contract.
-SCHEMA_GENERATION = "impodo-workspace-engine-2026-08-workspace-owned"
-SCHEMA_BASELINE_VERSION = 1
-SCHEMA_VERSION = 2
 PREFLIGHT_ROW_BATCH_SIZE = 1_000
 STAGING_ROW_BATCH_SIZE = 1_000
 QUALITY_ROW_BATCH_SIZE = 1_000

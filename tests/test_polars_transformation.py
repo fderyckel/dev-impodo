@@ -46,15 +46,15 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactCounts,
     _TransformationImpactCollector,
 )
-from impodo.models import PreparedRecord
-from impodo.source import CompiledPreparedRowTransformer, SourceRow
-from impodo.source_snapshot_io import SourceSnapshotCandidateWriter
-from impodo.value_rules import (
+from impodo.domain.shared.models import PreparedRecord
+from impodo.domain.preparation.source import CompiledPreparedRowTransformer, SourceRow
+from impodo.application.data_version.source_snapshots import SourceSnapshotCandidateWriter
+from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     TextTransformStep,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,

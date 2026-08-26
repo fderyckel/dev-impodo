@@ -11,8 +11,8 @@ from __future__ import annotations
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
-from ..intake import SourceIntakeError
-from ..workspace_state import SourceFile, WorkspaceStateError
+from impodo.application.data_version.intake import SourceIntakeError
+from impodo.domain.workspace.workbench import SourceFile, WorkspaceStateError
 from .context import WebContext
 from .forms import _revision
 

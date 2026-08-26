@@ -9,7 +9,7 @@ from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
-from impodo.normalization import (
+from impodo.domain.preparation.normalization import (
     NORMALIZATION_POLICY_VERSION,
     NormalizationCandidate,
     NormalizationEffect,
@@ -26,8 +26,8 @@ from impodo.normalization import (
     compile_normalization_review_policy,
     normalization_change_language,
 )
-from impodo.workspace_state import DataClassification, WorkspaceState
-from impodo.quality import (
+from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
+from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     StoredQualityRun,
     retention_context_hash,

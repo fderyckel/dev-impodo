@@ -4,18 +4,20 @@ from datetime import datetime, timezone
 import json
 import unittest
 
-from impodo.connectors import (
+from impodo.adapters.odoo.connectors import (
+    Json2Config,
+    Json2ReadConnector,
+    Json2WriteIdentityConnector,
+    _NoRedirectHandler,
+    target_record_read_config,
+)
+from impodo.domain.odoo.contracts import (
     ConnectorAuthorizationError,
     ConnectorConfigurationError,
     ConnectorIncompleteResultError,
     ConnectorTransportError,
-    Json2Config,
-    Json2ReadConnector,
-    Json2WriteIdentityConnector,
     MetadataRequest,
     RecordRequest,
-    _NoRedirectHandler,
-    target_record_read_config,
 )
 
 

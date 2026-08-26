@@ -7,16 +7,16 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Mapping
 
-from ...access import ActorIdentity
+from impodo.domain.shared.access import ActorIdentity
 from ...domain.serialization import content_hash
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     require_aware,
     require_hash,
     require_revision,
     require_uuid,
     required_text,
 )
-from ...migration_run_planning import RecipeDependency, RecipeRevisionSelection
+from impodo.domain.run.contracts import RecipeDependency, RecipeRevisionSelection
 
 
 PROJECT_SHARED_CONTROL_IDS = (

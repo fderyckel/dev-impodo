@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..access import AuthorizationPolicy, CapabilityAuthorizationPolicy
+from impodo.domain.shared.access import AuthorizationPolicy, CapabilityAuthorizationPolicy
 from ..adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from ..adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
@@ -19,8 +19,10 @@ from ..adapters.duckdb.migration_workspace_engine_database import (
 from ..adapters.duckdb.production_run_repository import ProductionRunRepository
 from ..adapters.duckdb.recipe_repository import RecipeRepository
 from ..adapters.duckdb.test_run_repository import TestRunRepository
-from ..artifacts import GovernedArtifactStores, LocalArtifactStore
-from ..secrets import CredentialVault, SecretStore
+from impodo.application.shared.artifacts import GovernedArtifactStores
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.adapters.protected_evidence.credential_vault import CredentialVault
+from impodo.application.shared.secrets import SecretStore
 from ..adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
 )

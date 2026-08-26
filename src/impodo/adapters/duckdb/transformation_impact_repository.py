@@ -15,8 +15,8 @@ from typing import (
 )
 
 
-from ...access import Actor
-from ...workspace_state import WorkspaceStateNotFoundError
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
@@ -26,7 +26,7 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
     TransformationRuleImpact,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 

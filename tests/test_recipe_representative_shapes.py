@@ -7,10 +7,10 @@ import json
 import unittest
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.recipe_compilation_service import RecipeCompiler
 from impodo.application.recipe_application_service import RecipeApplicationService
-from impodo.derived_entities import DerivedEntityPlan, RelatedDatasetRule
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan, RelatedDatasetRule
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
@@ -35,8 +35,8 @@ from impodo.domain.schema.governance import (
     SchemaGovernance,
 )
 from impodo.domain.source_binding import DerivedSourceBinding
-from impodo.quality import default_quality_ruleset
-from impodo.workspace_contracts import (
+from impodo.domain.preparation.quality import default_quality_ruleset
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

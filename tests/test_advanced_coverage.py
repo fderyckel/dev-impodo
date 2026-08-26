@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from uuid import UUID, uuid4
 
-from impodo.access import Capability, LOCAL_ACTOR
+from impodo.domain.shared.access import Capability, LOCAL_ACTOR
 from impodo.adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
@@ -45,7 +45,7 @@ from impodo.domain.resolution import (
 )
 from impodo.domain.serialization import content_hash
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.derived_entities import DerivedEntityPlan, mapping_source_selection
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan, mapping_source_selection
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
@@ -71,8 +71,8 @@ from impodo.domain.structural import (
     structural_dataset_id,
     structural_mapping_selection,
 )
-from impodo.source import SourceRow, SourceTable
-from impodo.staging_contracts import (
+from impodo.domain.preparation.source import SourceRow, SourceTable
+from impodo.domain.preparation.staging_contracts import (
     CanonicalLineage,
     CanonicalRow,
     CanonicalStagingRun,
@@ -81,8 +81,8 @@ from impodo.staging_contracts import (
     StagingDatasetRole,
     StagingReconciliation,
 )
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
-from impodo.quality import (
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
+from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
     QualityRule,
@@ -92,7 +92,7 @@ from impodo.quality import (
     default_quality_ruleset,
     evaluate_quality,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

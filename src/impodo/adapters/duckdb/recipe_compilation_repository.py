@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from ...access import Actor
+from impodo.domain.shared.access import Actor
 from ...domain.recipe_parameters import RecipeParameterDefinitions
-from ...workspace_state import WorkspaceStateNotFoundError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from .repository import DuckDbRepository
 
 

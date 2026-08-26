@@ -559,52 +559,44 @@ remain unchanged and green.
 
 ### Phase 3: Move capability packages
 
-Phase 3 is in progress. The completed Project slice moves Project identity and
-governance state to `domain/project/models.py`, and moves Project commands and
-the consumer-owned persistence port to `application/project`. The completed
-Data version slice moves data-delivery identity and accepted-state rules to
-`domain/data_version/models.py`, and moves Data version commands and their port
-to `application/data_version`. The completed workspace slice moves isolated
-workspace identity, lifecycle, and setup state to `domain/workspace/models.py`,
-and moves workspace lifecycle commands and their port to
-`application/workspace`. The old flat module paths are deleted; composition,
-adapters, workflow references, and focused tests now import the owner-and-layer
-locations directly. The completed Recipe slice moves Recipe identity,
-immutable revisions, and publication diagnostics to `domain/recipe/models.py`,
-and moves Recipe reads and their port to `application/recipe`. The completed
-Run slice moves run identity and lifecycle state to `domain/run/models.py`,
-and moves run commands and their port to `application/run`. Integrated
-planning, review, target evidence, and guided Test setup now also live under
-that application owner instead of flat application paths. The completed
-Cutover slice moves immutable plans, qualification evidence, and selection
-contracts to `domain/cutover/models.py`; the existing focused Cutover
-application services remain at their current application paths.
+Phase 3 is complete. Project, Data version, workspace, Recipe, run, and
+Cutover identities and contracts now live below their `domain` owners. Their
+commands, queries, and consumer-owned ports live below `application`. The
+workspace Mapping, Preparation, and Execution use cases remain explicitly
+workspace-qualified; run-wide coordination remains below `application/run`.
 
-The completed Mapping application slice places the field catalogue, Mapping
-lifecycle, categorical source evidence, and transformation-impact coordination
-under `application/workspace/mapping`. The old flat application paths are
-absent.
+The cross-cutting capabilities now expose unambiguous seams:
 
-The completed Preparation application slice places preparation orchestration,
-background jobs, capability routing, bounded evaluation, quality, resolution,
-normalization, and its consumer-owned readiness and columnar-transformation
-ports under `application/workspace/preparation`. The completed Execution slice
-places execution coordination, load jobs, and reconciliation under
-`application/workspace/execution`. Both slices delete their old flat
-application paths.
+- workspace-owned Mapping evidence uses `domain/workspace` contracts,
+  portable decisions use `domain/mapping`, and use cases use
+  `application/workspace/mapping`;
+- workspace-owned preparation evidence uses `domain/workspace` and
+  `domain/preparation` contracts, while orchestration uses
+  `application/workspace/preparation` and process construction uses
+  `web/composition`; and
+- run meaning uses `domain/run`, workspace journals and target ports use
+  `domain/execution`, run coordination uses `application/run`, isolated load
+  and reconciliation use `application/workspace/execution`, and Odoo
+  implementations use `adapters/odoo`.
 
-- Move one capability at a time with `git mv`.
-- Update all imports, code-map entries, workflow references, and focused tests
-  in the same change.
-- Delete the old module path in the same change. Do not leave import aliases.
-- Start with the accepted ownership roots: Project, Data version, workspace,
-  Recipe, run, and cutover.
-- Preparation, Mapping, and Execution now have owner-qualified workspace
-  destinations.
+Mixed flat modules were split rather than hidden under a new directory.
+Artifact and secret-store ports now live in `application/shared`; their local
+filesystem, keyring, and in-memory implementations live under `adapters`.
+Transport-neutral Odoo requests and snapshots live in `domain/odoo`, while
+JSON-2, local-reader, writer, and read-back implementations live in
+`adapters/odoo`. CLI, worker, storage-recovery, and target-adapter construction
+live in `web/composition`.
 
-**Exit condition:** Not yet met. Remaining flat production modules need
-explicit final homes, and the architecture test must continue to enforce the
-target dependency matrix throughout those moves.
+Every old flat production path is deleted in the same change as its direct
+imports. There are no runtime compatibility aliases. The temporary Phase 1
+ownership manifest is deleted, `__main__.py` remains only as the package entry
+point, and the architecture gate now fails on any flat, nested-unclassified,
+or forbidden-direction production module.
+
+**Exit condition:** Met. The deterministic inventory contains 363 production
+modules, 1,996 runtime internal edges, one type-only edge, no unclassified
+module, no runtime or type-inclusive cycle, and no application-to-adapter
+edge.
 
 ### Phase 4: Organize tests and browser assets
 

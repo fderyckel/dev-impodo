@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from ...staging import StagingRunStatus
-from ...workspace_errors import WorkspaceError
+from impodo.domain.preparation.staging import StagingRunStatus
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 class PreparationFailureCleanup:

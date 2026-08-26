@@ -5,7 +5,7 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from impodo.build_contract import (
+from impodo.application.shared.build_contract import (
     ApplicationBuildContract,
     PROCESS_BUILD_CONTRACT,
     calculate_application_build_contract,

@@ -9,7 +9,7 @@ from unittest.mock import patch
 from uuid import uuid4
 from uuid import NAMESPACE_URL, uuid5
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
@@ -34,8 +34,9 @@ from impodo.application.workspace.preparation.preparation_service import (
     _verify_odoo_preparation_evidence,
     canonical_source_hashes,
 )
-from impodo.artifacts import ArtifactSizeError, LocalArtifactStore
-from impodo.connectors import MetadataSnapshot
+from impodo.application.shared.artifacts import ArtifactSizeError
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.odoo_capture import OdooCaptureFilterPolicy, OdooCaptureSelection
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
@@ -51,33 +52,33 @@ from impodo.domain.mapping.contracts import (
     MappingTargetMode,
     ScalarFieldMapping,
 )
-from impodo.odoo_capture_jobs import OdooCapturePhase
+from impodo.application.workspace.odoo_capture_jobs import OdooCapturePhase
 from impodo.domain.source_snapshot import SourceSnapshotColumn, SourceSnapshotSchema
-from impodo.models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
     ProtectedOdooReadContext,
     TargetFingerprint,
 )
-from impodo.workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStatus,
     SourceMode,
 )
-from impodo.secrets import MemorySecretStore
-from impodo.source_snapshot_io import (
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.application.data_version.source_snapshots import (
     SourceSnapshotCandidateWriter,
     load_source_snapshot_table,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
     SchemaOrigin,
 )
-from impodo.workspace_access import WorkspaceAccessContext
+from impodo.application.workspace.access import WorkspaceAccessContext
 
 
 HASHES = tuple("sha256:" + digit * 64 for digit in "123456789")
@@ -373,7 +374,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
     def test_disk_preflight_fails_before_any_target_call(self) -> None:
         gateway = _Gateway(self.schema, self.now)
         with patch(
-            "impodo.artifacts.shutil.disk_usage",
+            "impodo.adapters.artifacts.local_store.shutil.disk_usage",
             return_value=DiskUsage(total=100, used=100, free=0),
         ):
             with self.assertRaises(ArtifactSizeError):

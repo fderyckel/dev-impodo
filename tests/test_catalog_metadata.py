@@ -4,13 +4,13 @@ from dataclasses import replace
 from pathlib import Path
 import unittest
 
-from impodo.catalog import TargetCatalog
-from impodo.connectors import SnapshotConnector
+from impodo.domain.data_version.catalog import TargetCatalog
+from impodo.adapters.odoo.connectors import SnapshotConnector
 from impodo.domain.compiler import compile_profile_document
-from impodo.metadata import validate_plan_metadata
-from impodo.models import TargetRecord
-from impodo.planner import plan_metadata_requests
-from impodo.profile import load_profile
+from impodo.domain.data_version.metadata import validate_plan_metadata
+from impodo.domain.shared.models import TargetRecord
+from impodo.domain.execution.planner import plan_metadata_requests
+from impodo.adapters.artifacts.profile_loader import load_profile
 
 
 ROOT = Path(__file__).resolve().parents[1]

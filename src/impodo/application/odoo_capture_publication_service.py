@@ -8,8 +8,8 @@ from threading import RLock
 from typing import Callable, Protocol
 from uuid import uuid4
 
-from ..access import Actor, Capability
-from ..artifacts import DataVersionSourceArtifactStore
+from impodo.domain.shared.access import Actor, Capability
+from impodo.application.shared.artifacts import DataVersionSourceArtifactStore
 from ..domain.odoo_provenance import (
     OdooCaptureManifest,
     OdooCaptureOriginHeader,
@@ -22,22 +22,22 @@ from ..domain.odoo_source_capture import (
 )
 from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..domain.serialization import content_hash
-from ..odoo_capture_jobs import OdooCapturePhase, OdooCaptureProgress
+from impodo.application.workspace.odoo_capture_jobs import OdooCapturePhase, OdooCaptureProgress
 from ..domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from ..source import SourceLoadError
-from ..source_snapshot_io import SourceSnapshotCandidateWriter
-from ..workspace_contracts import (
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.application.data_version.source_snapshots import SourceSnapshotCandidateWriter
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
     WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
 )
-from ..workspace_errors import WorkspaceError
-from ..workspace_access import WorkspaceAccessService
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.application.workspace.access import WorkspaceAccessService
 from .odoo_provenance_service import OdooProvenanceService
 from .odoo_source_capture_service import (
     OdooSourceCapturePort,

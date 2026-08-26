@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from uuid import NAMESPACE_URL, uuid5
 
-from impodo.access import AuthorizationPolicy, CapabilityAuthorizationPolicy
-from impodo.workspace_access import WorkspaceAccessContext, WorkspaceAccessService
+from impodo.domain.shared.access import AuthorizationPolicy, CapabilityAuthorizationPolicy
+from impodo.application.workspace.access import WorkspaceAccessContext, WorkspaceAccessService
 
 
 def lineage_id(kind: str, workspace_id: str) -> str:

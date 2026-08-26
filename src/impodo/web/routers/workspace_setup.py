@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ...workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceStateError,
     WorkspaceRegistrationError,
     WorkspaceStatus,

@@ -14,9 +14,9 @@ from dataclasses import replace
 from hashlib import sha256
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import ArtifactStoreError, WorkspaceArtifactStore
-from ..connectors import (
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.application.shared.artifacts import ArtifactStoreError, WorkspaceArtifactStore
+from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
     RecordRequest,
@@ -43,12 +43,12 @@ from ..domain.preflight.reports import (
     ReviewWorkbookEvidence,
     _readiness_report,
 )
-from ..engine import PreflightEngine
-from ..models import canonical_json_bytes, target_identity_hash
-from ..planner import PreflightRequirementPlan, plan_preflight_requirements
-from ..staging import StagingRunSummary
-from ..workspace_errors import WorkspaceError
-from ..workspace_state import SourceMode
+from impodo.domain.preparation.preflight import PreflightEngine
+from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
+from impodo.domain.execution.planner import PreflightRequirementPlan, plan_preflight_requirements
+from impodo.domain.preparation.staging import StagingRunSummary
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import SourceMode
 from .odoo_comparison_service import (
     ODOO_COMPARISON_ARTIFACT_NAME,
     build_odoo_comparison_publication,

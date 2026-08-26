@@ -45,17 +45,17 @@ from ..domain.staging.transformation_impact import (
     _display_value,
     selection_rule_impact_definition,
 )
-from ..models import (
+from impodo.domain.shared.models import (
     Issue,
     LogicalReference,
     PreparedRecord,
     canonical_json_bytes,
     portable_value,
 )
-from ..source import SourceLoadError
-from ..source_snapshot_io import validate_source_snapshot_path
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.application.data_version.source_snapshots import validate_source_snapshot_path
 from ..domain.staging.fields import synthetic_field
-from ..columnar_runtime import configure_columnar_runtime
+from impodo.application.shared.columnar_runtime import configure_columnar_runtime
 
 
 configure_columnar_runtime()

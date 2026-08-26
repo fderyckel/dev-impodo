@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Callable
 
-from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from ..workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStateError
+from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError
 
 
 class OdooConnectionPurpose(StrEnum):

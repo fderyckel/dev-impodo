@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceSetupRequirement,
     WorkspaceSetupStep,

@@ -5,19 +5,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from impodo.domain.run.models import MigrationRunPurpose, MigrationRunState
 from impodo.domain.serialization import content_hash
-from impodo.migration_foundation import utc_now
-from impodo.migration_run_planning import (
+from impodo.domain.project.foundation import utc_now
+from impodo.domain.run.contracts import (
     MigrationRunPlanIssueLevel,
     MigrationRunPlanningError,
     RecipeApplicationStatus,
     RunRecipeApplication,
 )
-from impodo.workspace_contracts import OdooSchemaCatalog
+from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 
 class RunApplicationRecoveryUseCase:

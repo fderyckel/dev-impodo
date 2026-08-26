@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from ..domain.serialization import content_hash
-from ..migration_foundation import FaultInjector, require_revision, require_uuid
+from impodo.domain.project.foundation import FaultInjector, require_revision, require_uuid
 from ..domain.recipe.models import (
     Recipe,
     RecipeDraftIssue,

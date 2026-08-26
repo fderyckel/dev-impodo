@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.workspace.preparation.bounded_normalization import (
     BoundedNormalizationUnsupported,
     _BoundedNormalizationEffects,
@@ -25,7 +25,7 @@ from impodo.application.workspace.preparation.normalization_service import (
     NormalizationService,
 )
 from impodo.domain.errors import NormalizationReviewPolicyError, ReadinessError
-from impodo.governance import DryRun, DryRunStatus
+from impodo.domain.cutover.governance import DryRun, DryRunStatus
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     ReferenceLookupMapping,
@@ -34,7 +34,7 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
-from impodo.normalization import (
+from impodo.domain.preparation.normalization import (
     NormalizationCandidate,
     NormalizationEvaluation,
     NormalizationOutcome,
@@ -48,16 +48,16 @@ from impodo.adapters.duckdb.normalization_repository import NormalizationReposit
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
-from impodo.workspace_state import DataClassification
+from impodo.domain.workspace.workbench import DataClassification
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.quality import default_quality_ruleset, evaluate_quality
-from impodo.workspace_contracts import (
+from impodo.domain.preparation.quality import default_quality_ruleset, evaluate_quality
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.workspace_errors import WorkspaceError
-from impodo.value_rules import ScalarTransformPolicy, TextTransformStep
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.recipe.value_rules import ScalarTransformPolicy, TextTransformStep
 
 from tests.test_quality import (
     MAPPING_HASH,

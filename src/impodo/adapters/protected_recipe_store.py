@@ -16,8 +16,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from ..domain.serialization import canonical_json
 from ..domain.recipe.models import RecipeIntegrityError
-from ..migration_foundation import require_hash, require_uuid
-from ..secrets import SecretStore, SecretStoreError
+from impodo.domain.project.foundation import require_hash, require_uuid
+from impodo.application.shared.secrets import SecretStore, SecretStoreError
 
 
 _MAGIC = b"IPRCP001"

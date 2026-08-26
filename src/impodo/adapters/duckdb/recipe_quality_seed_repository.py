@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 
-from ...access import Actor
+from impodo.domain.shared.access import Actor
 from ...domain.serialization import canonical_json, content_hash
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...quality import QualityRule
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.preparation.quality import QualityRule
+from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 

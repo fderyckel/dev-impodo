@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     Capability,
@@ -30,7 +30,7 @@ from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.protected_odoo_provenance import (
     ProtectedOdooProvenanceError,
 )
-from impodo.artifacts import LocalArtifactStore
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from impodo.adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
@@ -53,15 +53,16 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from impodo.workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStatus,
     SourceMode,
 )
-from impodo.secrets import MemorySecretStore, SecretStoreError
-from impodo.source_snapshot_io import SourceSnapshotCandidateWriter
-from impodo.workspace_contracts import (
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.data_version.source_snapshots import SourceSnapshotCandidateWriter
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
@@ -71,8 +72,8 @@ from impodo.workspace_contracts import (
     SourceSelection,
     WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
 )
-from impodo.workspace_access import WorkspaceAccessContext, WorkspaceAccessService
-from impodo.workspace_errors import WorkspaceError
+from impodo.application.workspace.access import WorkspaceAccessContext, WorkspaceAccessService
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...profile import ProfileDocument
+from impodo.domain.recipe.profile import ProfileDocument
 from .contracts import CompiledMigrationPlan, compiled_profile_origin_hash
 
 

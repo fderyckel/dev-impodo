@@ -5,8 +5,8 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Any, Mapping
 
-from ...models import Issue, canonical_json_bytes, portable_issue, portable_value
-from ...staging_contracts import CanonicalIssue, StagingDisposition
+from impodo.domain.shared.models import Issue, canonical_json_bytes, portable_issue, portable_value
+from impodo.domain.preparation.staging_contracts import CanonicalIssue, StagingDisposition
 from .preparation_session import CanonicalPreparedSessionRow
 
 

@@ -17,9 +17,9 @@ from datetime import (
 from typing import Protocol
 
 
-from ...access import Actor
-from ...derived_entities import DerivedEntityPlan, mapping_source_selection
-from ...inspection import SourceFileCatalog
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan, mapping_source_selection
+from impodo.application.data_version.inspection import SourceFileCatalog
 from ...domain.schema.governance import SchemaGovernance
 from ...domain.mapping.artifacts import (
     MappingRevision,
@@ -30,13 +30,13 @@ from ...domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...workspace_contracts import (
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SourceSelection,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 

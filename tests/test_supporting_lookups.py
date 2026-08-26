@@ -7,17 +7,17 @@ import tempfile
 import unittest
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.supporting_lookup_repository import (
     SupportingLookupRepository,
 )
 from impodo.application.supporting_lookup_service import SupportingLookupService
-from impodo.models import target_identity_hash
-from impodo.reference_keys import StandardReferenceFieldContract
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode
-from impodo.supporting_lookups import SupportingLookupChoice
+from impodo.domain.shared.models import target_identity_hash
+from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
+from impodo.domain.workspace.supporting_lookups import SupportingLookupChoice
 
 
 ROOT = Path(__file__).resolve().parents[1]

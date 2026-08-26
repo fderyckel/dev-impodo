@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import duckdb
 
-from ....workspace_state import WorkspaceStateCompatibilityError
+from impodo.domain.workspace.workbench import WorkspaceStateCompatibilityError
 from ..constants import (
     SCHEMA_BASELINE_VERSION,
     SCHEMA_GENERATION,

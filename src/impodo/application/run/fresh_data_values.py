@@ -8,11 +8,11 @@ from datetime import date
 
 from ...domain.recipe.models import RecipeError
 from ...domain.serialization import canonical_json
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
 )
-from ...migration_test import TestRunParameterValues, TestRunSetupBinding
+from impodo.domain.run.test_setup import TestRunParameterValues, TestRunSetupBinding
 from .fresh_data_matching import (
     FreshDataInputRequirement,
     FreshDataParameterRequirement,

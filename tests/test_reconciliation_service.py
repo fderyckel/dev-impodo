@@ -7,11 +7,11 @@ from types import SimpleNamespace
 import unittest
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.application.workspace.execution.service import execution_api_scope
 from impodo.application.workspace.execution.reconciliation import ReconciliationService
-from impodo.connectors import Json2Config
-from impodo.domain.execution import (
+from impodo.adapters.odoo.connectors import Json2Config
+from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
@@ -22,16 +22,11 @@ from impodo.domain.reconciliation import (
     ReconciliationRunStatus,
 )
 from impodo.domain.execution_snapshot import FieldIntent
-from impodo.models import BusinessReference, OdooWriteIdentity
-from impodo.odoo_readback import (
-    ExternalIdBinding,
-    Json2ReadbackReader,
-    OdooReadbackError,
-    ReadbackLookup,
-    ReadbackRecord,
-)
-from impodo.odoo_scope import OdooApiScope, OdooModelScope
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.shared.models import BusinessReference, OdooWriteIdentity
+from impodo.domain.execution.odoo_readback import ExternalIdBinding, OdooReadbackError, ReadbackLookup, ReadbackRecord
+from impodo.adapters.odoo.readback import Json2ReadbackReader
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.domain.workspace.errors import WorkspaceError
 
 from tests.test_execution_service import (
     HASH,

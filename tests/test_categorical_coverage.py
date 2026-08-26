@@ -7,7 +7,7 @@ import unittest
 
 import polars as pl
 
-from impodo.access import ActorIdentity
+from impodo.domain.shared.access import ActorIdentity
 from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
@@ -29,8 +29,8 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.value_rules import ScalarTransformPolicy
-from impodo.workspace_contracts import (
+from impodo.domain.recipe.value_rules import ScalarTransformPolicy
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

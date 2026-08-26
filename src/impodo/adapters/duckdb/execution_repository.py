@@ -6,16 +6,16 @@ from datetime import datetime, timezone
 from typing import Sequence
 from uuid import UUID
 
-from ...access import Actor
-from ...domain.execution import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
     MAX_CREATE_BATCH_ROWS,
 )
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.errors import WorkspaceError
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 

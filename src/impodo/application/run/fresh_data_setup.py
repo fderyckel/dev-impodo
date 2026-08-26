@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.recipe.models import RecipeError
 from impodo.domain.recipe_parameters import (
@@ -12,13 +12,13 @@ from impodo.domain.recipe_parameters import (
     RecipeParameterValueError,
     normalize_recipe_parameter_values,
 )
-from impodo.inspection import SourceFileCatalog
-from impodo.migration_foundation import (
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     utc_now,
 )
-from impodo.migration_test import (
+from impodo.domain.run.test_setup import (
     RecipeRunParameterValue,
     TestRunParameterValues,
     TestRunSetupBinding,

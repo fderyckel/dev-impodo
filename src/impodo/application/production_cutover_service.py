@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import Mapping
 from uuid import UUID, uuid5
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..data_version_sources import (
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageOrigin,
     SourcePackageState,
 )
 from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.serialization import content_hash
-from ..migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationNotFoundError,
     MigrationOperationKind,
@@ -23,16 +23,16 @@ from ..migration_foundation import (
     required_text,
     utc_now,
 )
-from ..migration_production import (
+from impodo.domain.run.production import (
     ProductionRunBinding,
     ProductionRunBindingState,
     ProductionRunError,
     ProductionRunSetupBundle,
 )
 from ..domain.run.models import MigrationRunPurpose
-from ..models import OdooReadIdentity, OdooWriteIdentity
-from ..odoo_scope import OdooApiScope, OdooModelScope
-from ..workspace_state import WorkspaceStateNotFoundError, SourceMode
+from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, SourceMode
 
 
 class ProductionCutoverService:

@@ -12,8 +12,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from impodo.access import LOCAL_ACTOR
-from impodo.models import Issue, LogicalReference, PreparedRecord
+from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.models import Issue, LogicalReference, PreparedRecord
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
@@ -28,11 +28,11 @@ from impodo.application.workspace.preparation.quality_service import (
 )
 from impodo.domain.errors import ReadinessError
 from impodo.domain.compiler import compile_profile_document
-from impodo.planner import plan_record_requests
+from impodo.domain.execution.planner import plan_record_requests
 from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bundle
-from impodo.profile import load_profile
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
-from impodo.quality import (
+from impodo.adapters.artifacts.profile_loader import load_profile
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
+from impodo.domain.preparation.quality import (
     QualityDisposition,
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -45,8 +45,9 @@ from impodo.quality import (
     evaluate_quality,
     manager_quality_rule,
 )
-from impodo.source import PreparedBundle, prepare_sources
-from impodo.staging_contracts import (
+from impodo.domain.preparation.source import PreparedBundle
+from impodo.application.data_version.source_files import prepare_sources
+from impodo.domain.preparation.staging_contracts import (
     CanonicalIssue,
     CanonicalLineage,
     CanonicalRow,
@@ -58,7 +59,7 @@ from impodo.staging_contracts import (
 )
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,

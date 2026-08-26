@@ -16,9 +16,9 @@ from ..application.odoo_read_failures import (
     OdooReadFailureCode,
     classify_odoo_read_failure,
 )
-from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
+from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..application.odoo_connection_service import OdooConnectionPurpose
-from ..workspace_state import WorkspaceState
+from impodo.domain.workspace.workbench import WorkspaceState
 
 
 class RemoteConnectionLevel(str, Enum):

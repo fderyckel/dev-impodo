@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.invalidation import EvidenceInvalidationMixin
 from impodo.adapters.duckdb.preparation_session_repository import (
@@ -27,13 +27,13 @@ from impodo.domain.staging.preparation_session import (
     PreparationSessionStatus,
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactReport
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
-from impodo.staging_contracts import (
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
+from impodo.domain.preparation.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,
 )
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]

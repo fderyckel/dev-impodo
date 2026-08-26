@@ -49,7 +49,7 @@ from impodo.adapters.duckdb.schema.workspace_engine import (
 )
 from impodo.domain.data_version.models import DataVersion
 from impodo.domain.workspace.models import MigrationWorkspace
-from impodo.workspace_state import WorkspaceStateCompatibilityError
+from impodo.domain.workspace.workbench import WorkspaceStateCompatibilityError
 
 
 PROJECT_ID = "10000000-0000-4000-8000-000000000001"

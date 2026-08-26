@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import duckdb
 
-from ...artifacts import ArtifactStoreError
+from impodo.application.shared.artifacts import ArtifactStoreError
 from ...domain.derived_value_artifact import DerivedValueArtifact
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.serialization import CanonicalJsonObjectHasher
@@ -19,7 +19,7 @@ from ...domain.staging.preparation_session import (
     PreparedCanonicalProjection,
     StoredCanonicalStagingRun,
 )
-from ...staging_contracts import (
+from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalIssue,
     CanonicalRow,
@@ -28,7 +28,7 @@ from ...staging_contracts import (
     StagingDisposition,
     StagingReconciliation,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from ..polars_transformation import iter_polars_prepared_batches
 from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,

@@ -44,12 +44,12 @@ from impodo.domain.mapping.scalar_values import (
     ScalarValueRuleError,
     evaluate_scalar_mapping_value,
 )
-from impodo.value_rules import (
+from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     TextTransformStep,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,

@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 from ....domain.data_version.models import DataVersion
-from ....migration_foundation import MigrationStorageCompatibilityError
+from impodo.domain.project.foundation import MigrationStorageCompatibilityError
 from .forward_upgrades import (
     SCHEMA_MIGRATION_COLUMNS,
     ForwardSchemaUpgrade,

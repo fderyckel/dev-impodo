@@ -11,8 +11,8 @@ from ...domain.staging.preparation_session import (
     PreparationSessionStatus,
     PreparationSessionSummary,
 )
-from ...staging import StagingRunStatus
-from ...workspace_errors import WorkspaceError
+from impodo.domain.preparation.staging import StagingRunStatus
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 _FAILURE_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")

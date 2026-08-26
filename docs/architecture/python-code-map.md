@@ -52,12 +52,22 @@ owner module.
 | Registry operation and serialization support | `foundation_operation_intents.py`, `foundation_source_package_records.py`, `foundation_registry_support.py`, and `foundation_record_codecs.py` | private adapter support only; application services never receive a connection |
 | Preparation publication | `preparation_direct_writer.py`, `preparation_quality_index.py`, `preparation_normalization_records.py`, `preparation_stored_run_reader.py`, and `preparation_failure_cleanup.py` | `preparation_session_repository.py` keeps the public preparation port and connection policy |
 | Preparation bindings | `preparation_snapshot_bindings.py`, `preparation_derived_artifact_bindings.py`, `preparation_canonical_projection_bindings.py`, and `preparation_session_lifecycle.py` | each collaborator reuses the transaction opened for its one publication or lifecycle action |
+| Mapping state and decisions | `domain/workspace/contracts.py`, `domain/mapping`, and `application/workspace/mapping` | a workspace owns mutable evidence; Recipe publication receives only portable rules |
+| Preparation state and decisions | `domain/preparation` and `application/workspace/preparation` | `web/composition/preparation_job_manager.py` and `preparation_worker.py` own the local process runtime |
+| Execution state and decisions | `domain/run`, `domain/execution`, `application/run`, and `application/workspace/execution` | `adapters/odoo` implements the target ports; `web/composition/target_readers.py` and `target_writers.py` select implementations |
+| Artifact and secret storage | `application/shared/artifacts.py` and `application/shared/secrets.py` | concrete filesystem and credential implementations live below `adapters/artifacts` and `adapters/protected_evidence` |
 
 Do not add a DuckDB connection parameter to an application use case. Add a
 named atomic command to the consumer-owned port, implement it behind the
 adapter facade, and preserve its fault-replay and query-count test. When a
 preparation test must patch an implementation detail, patch the focused module
 that owns it, not `preparation_session_repository.py`.
+
+Do not add a new module directly below `src/impodo`. `__main__.py` is the only
+root entry point. Put portable meaning below `domain`, coordination and its
+consumer-owned ports below `application`, implementations below `adapters`,
+and runtime construction below `web/composition`. The architecture test fails
+on a flat or otherwise unclassified production path.
 
 ## Creation trace
 

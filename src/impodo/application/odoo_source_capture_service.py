@@ -6,8 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..access import Actor, Capability
-from ..connectors import MetadataSnapshot
+from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.odoo.contracts import MetadataSnapshot
 from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.odoo_source_capture import (
     CancellationProbe,
@@ -19,11 +19,11 @@ from ..domain.odoo_source_capture import (
     plan_odoo_source_capture,
     require_not_cancelled,
 )
-from ..models import FieldMetadata, OdooReadIdentity, ProtectedOdooReadContext
-from ..workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
-from ..workspace_contracts import OdooSchemaCatalog, SchemaField, SchemaOrigin
-from ..workspace_errors import WorkspaceError
-from ..workspace_access import WorkspaceAccessService
+from impodo.domain.shared.models import FieldMetadata, OdooReadIdentity, ProtectedOdooReadContext
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus, SourceMode
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField, SchemaOrigin
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.application.workspace.access import WorkspaceAccessService
 
 
 class OdooCaptureWorkspaceReader(Protocol):

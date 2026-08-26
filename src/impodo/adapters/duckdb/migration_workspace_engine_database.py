@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
     MigrationNotFoundError,
     require_uuid,
 )
-from ...workspace_access import (
+from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     current_workspace_access_context,
 )

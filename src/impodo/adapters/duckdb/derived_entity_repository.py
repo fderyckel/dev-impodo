@@ -13,11 +13,11 @@ from __future__ import annotations
 
 
 
-from ...access import Actor
-from ...derived_entities import DerivedEntityPlan
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...workspace_contracts import SourceSelection
-from ...workspace_errors import WorkspaceError
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.contracts import SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 

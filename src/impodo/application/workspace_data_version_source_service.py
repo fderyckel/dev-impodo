@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 import json
 from uuid import UUID, uuid5
 
-from ..access import Actor
-from ..data_version_sources import (
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
     SourcePackageCatalog,
@@ -24,11 +24,11 @@ from .data_version.service import DataVersionService
 from ..domain.odoo_provenance import OdooCaptureManifest
 from ..domain.source_binding import require_file_source
 from ..domain.source_snapshot import SourceSnapshot
-from ..inspection import SourceFileCatalog
-from ..migration_foundation import MigrationFoundationError
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.project.foundation import MigrationFoundationError
 from .workspace.service import MigrationWorkspaceService
-from ..workspace_state import WorkspaceStateService
-from ..workspace_contracts import SourceConfiguration, SourceSelection
+from impodo.domain.workspace.workbench import WorkspaceStateService
+from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
 
 
 class WorkspaceDataVersionSourceService:

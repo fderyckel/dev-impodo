@@ -26,21 +26,21 @@ from fastapi.responses import (
 )
 from starlette.concurrency import run_in_threadpool
 
-from ...access import Capability
+from impodo.domain.shared.access import Capability
 from ...application.odoo_read_failures import classify_odoo_read_failure
-from ...artifacts import ArtifactStoreError
-from ...connectors import ConnectorError
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.errors import ReadinessError
 from ...domain.mapping.contracts import TargetFieldHandling
 from ...domain.staging.transformation_impact import TransformationImpactFilter
-from ...migration_run_planning import (
+from impodo.domain.run.contracts import (
     MigrationRunPlanningError,
     RecipeApplicationStatus,
 )
-from ...secrets import SecretStoreError
-from ...source import SourceLoadError
-from ...workspace_errors import WorkspaceError
-from ...workspace_state import WorkspaceStateError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateError
 from ..constants import (
     TRANSFORMATION_IMPACT_OUTCOMES,
     TRANSFORMATION_IMPACT_PAGE_SIZE,
@@ -80,7 +80,7 @@ from ..presenters.mapping_view import (
     _safe_spreadsheet_text,
 )
 from ..security import require_csrf, require_session
-from ..target_readers import (
+from impodo.web.composition.target_readers import (
     _refresh_mapping_odoo_defaults,
     _relationship_value_choices,
     _source_value_choices,

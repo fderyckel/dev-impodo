@@ -6,33 +6,33 @@ from collections.abc import Mapping
 from dataclasses import replace
 from uuid import UUID, uuid5
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.cutover.models import CutoverPlanRevision
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.serialization import content_hash
-from impodo.migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     require_revision,
     require_uuid,
     required_text,
     utc_now,
 )
-from impodo.migration_production import (
+from impodo.domain.run.production import (
     ProductionRunBinding,
     ProductionRunBindingState,
     ProductionRunError,
     activation_evidence_hash,
 )
-from impodo.migration_run_planning import (
+from impodo.domain.run.contracts import (
     IntegratedRunBundle,
     MigrationRunReferenceBundle,
     MigrationRunRequirementPlan,
     MigrationRunTargetSchema,
     RunTargetBinding,
 )
-from impodo.models import OdooWriteIdentity
-from impodo.workspace_contracts import OdooSchemaCatalog
+from impodo.domain.shared.models import OdooWriteIdentity
+from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 from .application_materialization import RunApplicationMaterializer
 from .production_review import ProductionRunReviewUseCase

@@ -9,8 +9,8 @@ import re
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from uuid import uuid4
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
-from impodo.domain.execution import (
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
@@ -23,7 +23,7 @@ from impodo.domain.execution_snapshot import (
     ExecutionSnapshot,
     FieldIntent,
 )
-from impodo.models import (
+from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
     OdooReadIdentity,
@@ -31,14 +31,14 @@ from impodo.models import (
     canonical_json_text,
     portable_value,
 )
-from impodo.odoo_scope import OdooApiScope, OdooModelScope
-from impodo.odoo_writer import (
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.domain.execution.odoo_write import (
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode, SourceMode
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.preflight_service import PreflightService
 
 

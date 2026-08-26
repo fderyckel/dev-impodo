@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from impodo.access import Actor, ActorIdentity, Capability
+from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 from impodo.application.run.odoo_requirements import (
     TestRunOdooRequirementsUseCase,
 )

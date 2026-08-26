@@ -7,12 +7,12 @@ import tempfile
 import unittest
 from uuid import uuid4
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.execution_repository import ExecutionRepository
 from impodo.adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
-from impodo.domain.execution import (
+from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
@@ -24,7 +24,7 @@ from impodo.domain.reconciliation import (
     ReconciliationRun,
     ReconciliationRunStatus,
 )
-from impodo.workspace_state import WorkspaceState
+from impodo.domain.workspace.workbench import WorkspaceState
 
 
 ROOT = Path(__file__).resolve().parents[1]

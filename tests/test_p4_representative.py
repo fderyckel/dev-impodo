@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from impodo.domain.compiler import compile_profile_document
-from impodo.profile import load_profile
-from impodo.source import prepare_sources
+from impodo.adapters.artifacts.profile_loader import load_profile
+from impodo.application.data_version.source_files import prepare_sources
 from scripts.p4_representative_runner import (
     PROFILE,
     TOTAL_ROWS,

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
-from impodo.artifacts import WorkspaceArtifactStore
-from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactIdentity,
     TransformationImpactReport,
@@ -15,15 +15,15 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
 )
 from impodo.domain.source_snapshot import SourceSnapshot
-from impodo.inspection import SourceFileCatalog
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )
-from impodo.workspace_state import WorkspaceState
-from impodo.workspace_contracts import MappingWorkingDraft, SourceSelection
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.workspace.contracts import MappingWorkingDraft, SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
 )

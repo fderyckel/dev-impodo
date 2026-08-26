@@ -10,14 +10,14 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from ...inspection import SourceInspectionError
-from ...migration_foundation import MigrationFoundationError
-from ...migration_run_planning import MigrationRunPlanningError, RecipeDependency
+from impodo.application.data_version.inspection import SourceInspectionError
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.run.contracts import MigrationRunPlanningError, RecipeDependency
 from ...domain.run.models import MigrationRunPurpose
 from ...domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from ...domain.recipe.models import RecipeError
-from ...workspace_errors import WorkspaceError
-from ...workspace_state import (
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceRegistrationError,
     WorkspaceStateError,

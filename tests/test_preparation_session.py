@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
@@ -31,16 +31,16 @@ from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
 )
-from impodo.models import LogicalReference, PreparedRecord, canonical_json_bytes
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
-from impodo.quality import (
+from impodo.domain.shared.models import LogicalReference, PreparedRecord, canonical_json_bytes
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
+from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityRuleFamily,
     QualityRun,
     default_quality_ruleset,
     evaluate_quality,
 )
-from impodo.staging_contracts import (
+from impodo.domain.preparation.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,

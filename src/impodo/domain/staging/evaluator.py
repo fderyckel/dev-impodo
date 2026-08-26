@@ -14,7 +14,7 @@ from typing import (
 )
 import unicodedata
 
-from ...derived_entities import (
+from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
     DerivedEntityPlan,
     DerivedEntityRule,
@@ -33,30 +33,30 @@ from ..mapping.contracts import (
 )
 from ..coverage import ReferenceBundle, ReferenceDataSet, ReferenceEntry
 from ..serialization import content_hash
-from ...models import portable_value
+from impodo.domain.shared.models import portable_value
 from ..mapping.scalar_values import (
     ScalarValueError,
     ScalarValueRuleError,
     evaluate_scalar_mapping_value,
 )
 from ..mapping.descriptions import transformation_rule_summary
-from ...models import (
+from impodo.domain.shared.models import (
     InvalidPreparedValue,
     Issue,
     Severity,
 )
 from ..compiler.contracts import CompiledMigrationPlan
-from ...source import (
+from impodo.domain.preparation.source import (
     PreparedBundle,
     SourceRow,
     SourceTable,
     prepare_source_tables,
 )
-from ...staging_contracts import (
+from impodo.domain.preparation.staging_contracts import (
     CanonicalStagingRun,
     StagingDatasetRole,
 )
-from ...workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceSelection,
 )

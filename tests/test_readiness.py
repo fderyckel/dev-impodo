@@ -12,23 +12,23 @@ import unittest
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     AuthorizationError,
     CapabilityAuthorizationPolicy,
 )
 from impodo.application.preflight_service import PreflightService
-from impodo.connectors import MetadataSnapshot, RecordSnapshot
-from impodo.derived_entities import (
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
     RelatedDatasetRule,
     derived_dataset_links,
     mapping_source_selection,
 )
-from impodo.engine import PreflightEngine
-from impodo.inspection import (
+from impodo.domain.preparation.preflight import PreflightEngine
+from impodo.application.data_version.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
     SourceTableCatalog,
@@ -49,18 +49,18 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.mapping.scalar_values import evaluate_scalar_mapping_value
-from impodo.value_rules import (
+from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
 )
-from impodo.models import (
+from impodo.domain.shared.models import (
     Classification,
     FieldMetadata,
     ModelMetadata,
     TargetFingerprint,
     target_identity_hash,
 )
-from impodo.workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStatus,
@@ -80,12 +80,12 @@ from impodo.domain.staging.scale import (
     browser_evaluation_scale,
     require_supported_browser_scale,
 )
-from impodo.source import load_selected_source_table
-from impodo.staging_contracts import (
+from impodo.application.data_version.source_files import load_selected_source_table
+from impodo.domain.preparation.staging_contracts import (
     CanonicalStagingRun,
     StagingDisposition,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,

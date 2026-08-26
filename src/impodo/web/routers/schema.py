@@ -18,18 +18,18 @@ from ...application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     classify_odoo_read_failure,
 )
-from ...connectors import ConnectorError
+from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ...local_stack import LocalStackError
-from ...migration_foundation import MigrationFoundationError
+from impodo.adapters.odoo.local_stack import LocalStackError
+from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.recipe.models import RecipeError
-from ...secrets import SecretStoreError
-from ...workspace_contracts import OdooSchemaCatalog, SchemaOrigin
-from ...workspace_errors import WorkspaceError
-from ...workspace_state import WorkspaceState, WorkspaceStateError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateError
 from ..context import WebContext
 from ..forms import (
     _checked,
@@ -49,7 +49,7 @@ from ..target_credentials import (
     get_target_credential,
     local_read_credential_binding_hash,
 )
-from ..target_readers import (
+from impodo.web.composition.target_readers import (
     _capture_recipe_supporting_values,
     _missing_schema_reader_message,
     _refresh_model_catalog,

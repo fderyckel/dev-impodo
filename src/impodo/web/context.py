@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Callable
 
-from ..access import Actor, AuthorizationPolicy
+from impodo.domain.shared.access import Actor, AuthorizationPolicy
 from ..application.browser_queries import BrowserQueryService
 from ..application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
@@ -47,7 +47,7 @@ from ..application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
 )
 from ..application.workspace.preparation.preparation_service import PreparationService
-from ..application.workspace.preparation.preparation_job_service import (
+from impodo.web.composition.preparation_job_manager import (
     PreparationJobManager,
 )
 from ..application.workspace.preparation.quality_service import QualityService
@@ -58,38 +58,38 @@ from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
 )
-from ..artifacts import WorkspaceArtifactStore
-from ..connectors import (
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
     RecordRequest,
     RecordSnapshot,
 )
-from ..derived_entities import DerivedEntityWorkspaceService
-from ..intake import SourceIntakeService
-from ..inspection import SourceInspectionService
-from ..incompatible_project_storage import UnavailableProjectSummary
-from ..jobs import JobDispatcher
-from ..local_odoo_reader import (
+from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
+from impodo.application.data_version.intake import SourceIntakeService
+from impodo.application.data_version.inspection import SourceInspectionService
+from impodo.web.composition.incompatible_project_storage import UnavailableProjectSummary
+from impodo.application.shared.jobs import JobDispatcher
+from impodo.adapters.odoo.local_reader import (
     LocalOdooMetadataReader,
 )
-from ..migration_run_setup import MigrationRunTargetSetupService
-from ..local_stack import LocalStackService
-from ..migration_foundation import MigrationIdentifierConfusionError
-from ..models import OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
-from ..odoo_writer import OdooWriteExecutor
-from ..odoo_readback import OdooReadbackReader
-from ..odoo_scope import OdooApiScope
-from ..workspace_state import WorkspaceState, WorkspaceStateService
-from ..workspace_access import WorkspaceAccessService
-from ..workspace_views import WorkspaceOwnerViewService
+from impodo.domain.run.setup import MigrationRunTargetSetupService
+from impodo.adapters.odoo.local_stack import LocalStackService
+from impodo.domain.project.foundation import MigrationIdentifierConfusionError
+from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
+from impodo.domain.execution.odoo_write import OdooWriteExecutor
+from impodo.domain.execution.odoo_readback import OdooReadbackReader
+from impodo.domain.execution.odoo_scope import OdooApiScope
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateService
+from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.application.workspace.views import WorkspaceOwnerViewService
 from ..application.data_version.service import DataVersionService
 from ..application.project.service import MigrationProjectService
 from ..application.run.service import MigrationRunService
 from ..application.workspace.service import MigrationWorkspaceService
 from ..application.recipe.service import RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
-from ..secrets import SecretStore
+from impodo.application.shared.secrets import SecretStore
 from .remote_connection import RemoteConnectionStatusService
 
 ConnectionTester = Callable[[WorkspaceState, str], TargetFingerprint]

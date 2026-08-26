@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import json
 from pathlib import Path
 import unittest
 
@@ -17,7 +16,6 @@ from scripts.architecture_inventory import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FLAT_OWNERSHIP = ROOT / "tests" / "architecture_phase1_flat_module_ownership.json"
 FORBIDDEN_IMPORTS = {
     "domain": frozenset({"application", "adapters", "web"}),
     "application": frozenset({"adapters", "web"}),
@@ -26,31 +24,13 @@ ADAPTER_CONSTRUCTION_MODULES = frozenset(
     {
         "impodo.web.app",
         "impodo.web.capability_builders",
-        "impodo.preparation_worker",
-        "impodo.incompatible_project_storage",
+        "impodo.web.composition.cli",
+        "impodo.web.composition.preparation_worker",
+        "impodo.web.composition.incompatible_project_storage",
+        "impodo.web.composition.target_readers",
+        "impodo.web.composition.target_writers",
     }
 )
-
-
-def _flat_ownership() -> dict[str, str]:
-    """Load the complete transitional capability decision for flat modules."""
-
-    raw = json.loads(FLAT_OWNERSHIP.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or any(
-        not isinstance(module, str) or not isinstance(capability, str)
-        for module, capability in raw.items()
-    ):
-        raise AssertionError("Phase 1 flat-module ownership manifest is invalid")
-    return raw
-
-
-def _capability(module: ProductionModule, flat_ownership: dict[str, str]) -> str:
-    """Return the recorded owner capability without inferring flat modules."""
-
-    if module.location == "legacy_root":
-        return flat_ownership[module.name]
-    parts = module.name.split(".")
-    return parts[2] if len(parts) > 2 else "shared"
 
 
 def _edge_text(edge: ImportEdge) -> str:
@@ -67,7 +47,9 @@ def _adapter_construction_violations(
     for module in modules:
         if module.location == "adapters":
             continue
-        tree = ast.parse(module.path.read_text(encoding="utf-8"), filename=str(module.path))
+        tree = ast.parse(
+            module.path.read_text(encoding="utf-8"), filename=str(module.path)
+        )
         package = module.name if module.is_package else module.name.rpartition(".")[0]
         adapter_classes: set[str] = set()
         for node in ast.walk(tree):
@@ -88,7 +70,7 @@ def _adapter_construction_violations(
             adapter_classes.update(
                 alias.asname or alias.name
                 for alias in node.names
-                if alias.name[:1].isupper()
+                if alias.name[:1].isupper() and not alias.name.endswith("Error")
             )
         if module.name in ADAPTER_CONSTRUCTION_MODULES:
             continue
@@ -109,18 +91,14 @@ class ArchitectureDependencyRuleTests(unittest.TestCase):
         """Keep Phase 1 direction, ownership, construction, and cycle rules true."""
 
         modules = discover_modules()
-        flat_ownership = _flat_ownership()
-        flat_modules = {
-            module.name for module in modules if module.location == "legacy_root"
-        }
         self.assertEqual(
-            set(flat_ownership),
-            flat_modules,
-            "Each remaining flat module needs one explicit capability owner.",
-        )
-        self.assertTrue(
-            all(_capability(module, flat_ownership) for module in modules),
-            "Each production module needs a current layer and intended capability.",
+            tuple(
+                module.name
+                for module in modules
+                if module.location in {"legacy_root", "unclassified"}
+            ),
+            (),
+            "Every production module must have an owner-qualified layer path.",
         )
 
         layers = {module.name: module.location for module in modules}

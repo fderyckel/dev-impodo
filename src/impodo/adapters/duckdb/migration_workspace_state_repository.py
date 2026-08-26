@@ -7,20 +7,20 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 
-from ...access import Actor
-from ...data_version_sources import (
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageFile,
     SourcePackageOrigin,
     SourcePackageState,
 )
-from ...migration_foundation import MigrationConflictError, utc_now
-from ...migration_run_setup import MigrationRunTargetSetup
+from impodo.domain.project.foundation import MigrationConflictError, utc_now
+from impodo.domain.run.setup import MigrationRunTargetSetup
 from ...domain.workspace.models import (
     MigrationWorkspaceSetupState,
     MigrationWorkspaceState,
 )
-from ...workspace_state import (
+from impodo.domain.workspace.workbench import (
     DataClassification,
     OdooConnectionMode,
     SourceFile,

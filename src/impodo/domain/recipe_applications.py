@@ -8,8 +8,8 @@ from enum import StrEnum
 import re
 from typing import Mapping
 
-from ..access import ActorIdentity
-from ..migration_foundation import require_uuid
+from impodo.domain.shared.access import ActorIdentity
+from impodo.domain.project.foundation import require_uuid
 from .serialization import content_hash, portable
 
 

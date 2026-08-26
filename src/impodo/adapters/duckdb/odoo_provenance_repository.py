@@ -8,8 +8,8 @@ from pathlib import Path
 import os
 from typing import Callable
 
-from ...access import Actor
-from ...artifacts import DataVersionSourceArtifactStore
+from impodo.domain.shared.access import Actor
+from impodo.application.shared.artifacts import DataVersionSourceArtifactStore
 from ...domain.odoo_capture import OdooCaptureSelection
 from ...domain.odoo_provenance import OdooCaptureManifest
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
@@ -20,12 +20,12 @@ from ...domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from ...workspace_state import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
-from ...workspace_contracts import (
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
+from impodo.domain.workspace.contracts import (
     SourceSelection,
     WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 

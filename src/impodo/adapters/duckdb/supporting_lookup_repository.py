@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from ...access import Actor
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...supporting_lookups import SupportingLookupSnapshot
-from ...workspace_errors import WorkspaceError
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 

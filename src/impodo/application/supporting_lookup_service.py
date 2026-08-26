@@ -5,13 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..supporting_lookups import (
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupChoice,
     SupportingLookupSnapshot,
     supporting_lookup_key,
 )
-from ..reference_keys import (
+from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     StandardReferenceFieldContract,
 )

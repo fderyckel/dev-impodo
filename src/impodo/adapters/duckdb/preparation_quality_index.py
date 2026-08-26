@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from ...domain.staging.preparation_session import (
     PreparationSessionStatus,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )

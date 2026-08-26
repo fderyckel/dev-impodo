@@ -20,27 +20,27 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from ...access import Capability
+from impodo.domain.shared.access import Capability
 from ...application.odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
     classify_odoo_read_failure,
 )
 from ...application.preflight_service import MANIFEST_NAME
-from ...artifacts import ArtifactStoreError
-from ...connectors import ConnectorError
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.errors import ReadinessError
-from ...migration_foundation import MigrationFoundationError
+from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.run.models import MigrationRunPurpose
-from ...reporting import (
+from impodo.adapters.artifacts.reporting import (
     WORKBOOK_NAME,
     ReportGenerationError,
     write_review_workbook,
 )
-from ...secrets import SecretStoreError
-from ...workspace_access import bind_workspace_access_context
-from ...workspace_errors import WorkspaceDatabaseBusyError, WorkspaceError
-from ...workspace_state import OdooConnectionMode, WorkspaceStateError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.access import bind_workspace_access_context
+from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError, WorkspaceError
+from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceStateError
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash
@@ -56,7 +56,7 @@ from ..target_credentials import (
     get_target_credential,
     store_target_credential,
 )
-from ..target_readers import (
+from impodo.web.composition.target_readers import (
     LocalOdooRecoveryRequired,
     _read_readiness_snapshots,
 )

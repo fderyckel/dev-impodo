@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ...migration_run_planning import (
+from impodo.domain.run.contracts import (
     MigrationRunReferenceBundle,
     MigrationRunTargetSchema,
     OdooModelRequirement,

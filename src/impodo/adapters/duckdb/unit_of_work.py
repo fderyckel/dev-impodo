@@ -15,7 +15,7 @@ from typing import Callable, Iterator
 
 import duckdb
 
-from ...workspace_errors import WorkspaceDatabaseBusyError
+from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
 
 
 DUCKDB_CONFIG = {

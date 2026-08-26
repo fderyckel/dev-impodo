@@ -10,17 +10,17 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Iterable, Mapping
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from ..canonical import ValueParseError, parse_value
+from impodo.domain.preparation.canonical import ValueParseError, parse_value
 from ..domain.serialization import content_hash
 from ..domain.source_binding import DerivedSourceBinding
-from ..models import portable_value
-from ..profile import NormalizationSpec
-from ..source import SourceRow, SourceTable
-from ..workspace_contracts import (
+from impodo.domain.shared.models import portable_value
+from impodo.domain.recipe.profile import NormalizationSpec
+from impodo.domain.preparation.source import SourceRow, SourceTable
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
@@ -664,7 +664,7 @@ def _table(rule, rows, headers, tables):
     }
     return SourceTable(
         dataset=rule.output_dataset_name,
-        path=Path(f"structural/{structural_dataset_id(rule)}"),
+        path=PurePosixPath(f"structural/{structural_dataset_id(rule)}"),
         headers=headers,
         rows=tuple(rows),
         content_hash=content_hash(

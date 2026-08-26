@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from impodo.secrets import MemorySecretStore
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
 from impodo.web.presenters.concepts import CONCEPTS, CONCEPTS_BY_SLUG
 

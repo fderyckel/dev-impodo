@@ -31,26 +31,26 @@ from types import SimpleNamespace
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
-from ...access import Capability
+from impodo.domain.shared.access import Capability
 from ...application.odoo_capture_job_service import (
     OdooCaptureJobNotFoundError,
     OdooCaptureJobStateError,
 )
-from ...connectors import ConnectorError
+from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES
-from ...odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
+from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...domain.data_version.models import DataVersionState
-from ...inspection import SourceInspectionError, SourceInspectionOptions
-from ...migration_foundation import MigrationFoundationError
-from ...workspace_state import (
+from impodo.application.data_version.inspection import SourceInspectionError, SourceInspectionOptions
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceState,
     WorkspaceStateError,
     WorkspaceStatus,
 )
-from ...secrets import SecretStoreError
-from ...workspace_errors import WorkspaceError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.workspace.errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext

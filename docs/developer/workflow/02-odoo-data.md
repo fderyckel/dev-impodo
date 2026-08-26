@@ -104,9 +104,9 @@ remains outside the migration write scope.
 | Schema orchestration | [`SchemaWorkspaceService`](../../../src/impodo/application/schema_workspace_service.py) |
 | Purpose-specific connection check | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Schema governance | [`governance.py`](../../../src/impodo/domain/schema/governance.py) |
-| Governed supporting references | [`reference_keys.py`](../../../src/impodo/reference_keys.py) |
+| Governed supporting references | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
-| Local reader | [`local_odoo_reader.py`](../../../src/impodo/local_odoo_reader.py) |
+| Local reader | [`local_odoo_reader.py`](../../../src/impodo/adapters/odoo/local_reader.py) |
 
 ## Evidence and state
 

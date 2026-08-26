@@ -10,15 +10,15 @@ from impodo.application.workspace.execution.load_jobs import (
     LoadJobManager,
     LoadJobResult,
 )
-from impodo.domain.execution import (
+from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
 )
-from impodo.migration_foundation import MigrationIdentifierConfusionError
-from impodo.load_jobs import LoadJobStatus
-from impodo.workspace_access import WorkspaceAccessContext
+from impodo.domain.project.foundation import MigrationIdentifierConfusionError
+from impodo.application.workspace.execution.job_models import LoadJobStatus
+from impodo.application.workspace.access import WorkspaceAccessContext
 
 
 PROJECT_ID = "10000000-0000-4000-8000-000000000001"

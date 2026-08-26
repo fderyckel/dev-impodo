@@ -5,14 +5,14 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from impodo.connectors import MetadataRequest, RecordRequest
-from impodo.local_odoo_reader import (
+from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
+from impodo.adapters.odoo.local_reader import (
     LocalOdooMetadataReader,
     LocalOdooReaderError,
     LocalShellResult,
 )
-from impodo.local_stack import LocalStackProfile
-from impodo.workspace_state import (
+from impodo.adapters.odoo.local_stack import LocalStackProfile
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
 )

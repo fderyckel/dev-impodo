@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     Capability,
@@ -21,8 +21,8 @@ from impodo.application.preflight_service import (
     PreflightService,
     _validate_snapshot_projection,
 )
-from impodo.artifacts import LocalArtifactStore
-from impodo.connectors import (
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
     RecordRequest,
@@ -33,7 +33,7 @@ from impodo.connectors import (
 )
 from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.reports import ReadinessReport
-from impodo.models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     PreflightResult,
@@ -43,8 +43,8 @@ from impodo.models import (
     canonical_json_text,
     target_identity_hash,
 )
-from impodo.workspace_errors import WorkspaceError
-from impodo.workspace_state import OdooConnectionMode, SourceMode
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
 
 
 class PreflightPublicationTests(unittest.TestCase):

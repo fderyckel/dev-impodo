@@ -8,7 +8,7 @@ from time import perf_counter
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
-from ...derived_entities import (
+from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     derived_dataset_links,
     derived_mapping_samples,
@@ -33,14 +33,14 @@ from ...domain.mapping.scalar_values import (
 )
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
 from ...domain.mapping.create_field_policy import supports_create_default_capture
-from ...quality import (
+from impodo.domain.preparation.quality import (
     MAX_MANAGER_RULES_PER_DATASET,
     QualityOutcomePolicy,
     QualityOwnerRole,
     QualityRuleFamily,
     manager_quality_rule,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
 from ..forms import (

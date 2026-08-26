@@ -11,7 +11,7 @@ from uuid import UUID
 import duckdb
 
 from ...domain.data_version.models import DataVersion
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationNotFoundError,
     MigrationStorageCompatibilityError,

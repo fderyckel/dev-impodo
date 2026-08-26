@@ -10,8 +10,9 @@ from uuid import uuid4
 
 import polars as pl
 
-from impodo.artifacts import ArtifactStoreError, LocalArtifactStore
-from impodo.derived_value_io import (
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.adapters.artifacts.derived_values import (
     DerivedValueArtifactCandidateWriter,
     DerivedValueArtifactPublisher,
     DerivedValueArtifactWriteError,
@@ -191,7 +192,7 @@ class DerivedValueArtifactIoTests(unittest.TestCase):
     def test_failed_read_back_removes_only_the_new_artifact(self) -> None:
         with (
             patch(
-                "impodo.derived_value_io.validate_derived_value_artifact",
+                "impodo.adapters.artifacts.derived_values.validate_derived_value_artifact",
                 side_effect=DerivedValueArtifactWriteError("injected failure"),
             ),
             self.assertRaisesRegex(DerivedValueArtifactWriteError, "injected"),

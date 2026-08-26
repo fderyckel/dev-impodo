@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...domain.derived_value_artifact import DerivedValueArtifact
 from ...domain.staging.preparation_session import PreparationSessionStatus
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 class PreparationDerivedArtifactBindings:

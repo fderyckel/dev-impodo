@@ -10,9 +10,9 @@ from pathlib import Path
 from openpyxl import load_workbook
 from test_engine import ROOT, golden_result
 
-from impodo.cli import build_parser, main
-from impodo.models import Issue, PreparedRecord, Severity
-from impodo.reporting import (
+from impodo.web.composition.cli import build_parser, main
+from impodo.domain.shared.models import Issue, PreparedRecord, Severity
+from impodo.adapters.artifacts.reporting import (
     MANIFEST_NAME,
     WORKBOOK_NAME,
     write_preflight_outputs,

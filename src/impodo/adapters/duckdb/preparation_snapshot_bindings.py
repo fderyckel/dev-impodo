@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import PreparationSessionStatus
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 class PreparationSnapshotBindings:

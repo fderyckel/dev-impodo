@@ -45,6 +45,8 @@ def module_location(relative_path: Path) -> str:
         parts = parts[:-1]
     if not parts:
         return "package_root"
+    if parts == ("__main__",):
+        return "package_root"
     if parts[0] in CURRENT_LOCATIONS:
         return parts[0]
     if len(parts) == 1:
@@ -52,7 +54,9 @@ def module_location(relative_path: Path) -> str:
     return "unclassified"
 
 
-def discover_modules(package_root: Path = DEFAULT_PACKAGE_ROOT) -> tuple[ProductionModule, ...]:
+def discover_modules(
+    package_root: Path = DEFAULT_PACKAGE_ROOT,
+) -> tuple[ProductionModule, ...]:
     """Return production modules in a stable path order."""
 
     modules: list[ProductionModule] = []

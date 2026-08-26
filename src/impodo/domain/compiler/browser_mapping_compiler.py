@@ -7,7 +7,7 @@ from ..mapping.contracts import (
     ResolverOrigin,
     ScalarValueSource,
 )
-from ...profile import (
+from impodo.domain.recipe.profile import (
     DatasetSpec,
     FieldSpec,
     IdentityComponent,
@@ -19,7 +19,7 @@ from ...profile import (
     TargetIdentitySpec,
     TargetSpec,
 )
-from ...workspace_contracts import SourceSelection
+from impodo.domain.workspace.contracts import SourceSelection
 from ..errors import ReadinessError
 from ..staging.fields import synthetic_field, synthetic_relationship_field
 from .contracts import CompiledMigrationPlan

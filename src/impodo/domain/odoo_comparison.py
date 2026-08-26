@@ -14,7 +14,7 @@ import json
 from typing import Any, Mapping
 from uuid import UUID
 
-from ..models import canonical_json_text, portable_value, restore_portable_value
+from impodo.domain.shared.models import canonical_json_text, portable_value, restore_portable_value
 from .serialization import content_hash
 
 

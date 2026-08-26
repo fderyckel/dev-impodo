@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from impodo.artifacts import ArtifactStoreError
+from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     OdooReadFailureCode,
@@ -13,14 +13,14 @@ from impodo.application.odoo_read_failures import (
     RecoveryOwner,
     classify_odoo_read_failure,
 )
-from impodo.connectors import (
+from impodo.domain.odoo.contracts import (
     ConnectorAuthenticationError,
     ConnectorAuthorizationError,
     ConnectorConfigurationError,
     ConnectorIncompleteResultError,
     ConnectorTransportError,
 )
-from impodo.secrets import SecretStoreError
+from impodo.application.shared.secrets import SecretStoreError
 
 
 class OdooReadFailureClassificationTests(unittest.TestCase):

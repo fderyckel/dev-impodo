@@ -74,13 +74,13 @@ class DocumentationQualityTests(unittest.TestCase):
         self.assertTrue(
             resolve_code_reference(
                 ROOT,
-                "src/impodo/workspace_state.py::WorkspaceStateService.register",
+                "src/impodo/domain/workspace/workbench.py::WorkspaceStateService.register",
             )
         )
         self.assertFalse(
             resolve_code_reference(
                 ROOT,
-                "src/impodo/workspace_state.py::WorkspaceStateService.not_a_method",
+                "src/impodo/domain/workspace/workbench.py::WorkspaceStateService.not_a_method",
             )
         )
 
@@ -148,4 +148,3 @@ class DocumentationQualityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

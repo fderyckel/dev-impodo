@@ -46,12 +46,12 @@ from impodo.domain.staging.transformation_impact import (
     TransformationRuleImpact,
     transformation_rule_impact_definitions,
 )
-from impodo.value_rules import (
+from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     TextTransformStep,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

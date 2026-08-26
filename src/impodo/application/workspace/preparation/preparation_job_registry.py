@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 from threading import RLock
 from uuid import uuid4
 
-from impodo.access import ActorIdentity
-from impodo.build_contract import ApplicationBuildContract
-from impodo.preparation_jobs import (
+from impodo.domain.shared.access import ActorIdentity
+from impodo.application.shared.build_contract import ApplicationBuildContract
+from impodo.application.workspace.preparation.job_models import (
     PHASE_LABELS,
     PreparationJob,
     PreparationJobStatus,

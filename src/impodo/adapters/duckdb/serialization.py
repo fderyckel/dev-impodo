@@ -14,7 +14,7 @@ from datetime import datetime
 import json
 
 
-from ...workspace_state import (
+from impodo.domain.workspace.workbench import (
     ApprovalStatus,
     DataClassification,
     WorkspaceState,

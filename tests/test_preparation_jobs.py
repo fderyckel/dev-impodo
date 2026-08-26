@@ -9,8 +9,8 @@ from uuid import uuid4
 
 import duckdb
 
-from impodo.access import LOCAL_ACTOR
-from impodo.build_contract import (
+from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.application.shared.build_contract import (
     ApplicationBuildContract,
     PROCESS_BUILD_CONTRACT,
 )
@@ -19,7 +19,7 @@ from impodo.application.workspace.preparation.preparation_job_registry import (
     PreparationJobRegistry,
     PreparationJobStateError,
 )
-from impodo.application.workspace.preparation.preparation_job_service import (
+from impodo.web.composition.preparation_job_manager import (
     PreparationCancelled,
     PreparationJobManager,
     _run_preparation_worker,
@@ -30,9 +30,9 @@ from impodo.application.workspace.preparation.preparation_service import (
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.data_version.models import DataVersionPurpose
-from impodo.migration_run_planning import RecipeApplicationStatus
+from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.run.models import MigrationRunPurpose
-from impodo.preparation_jobs import (
+from impodo.application.workspace.preparation.job_models import (
     PreparationJobStatus,
     PreparationPhase,
     PreparationWorkspace,
@@ -40,7 +40,7 @@ from impodo.preparation_jobs import (
 from impodo.web.routers.preparation import (
     _assert_recipe_application_can_prepare,
 )
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -357,7 +357,7 @@ class PreparationWorkerFailureTests(unittest.TestCase):
         cancel = MagicMock()
 
         with patch(
-            "impodo.preparation_worker.create_preparation_worker",
+            "impodo.web.composition.preparation_worker.create_preparation_worker",
             side_effect=duckdb.IOException("IO Error: No space left on device"),
         ):
             _run_preparation_worker(
@@ -391,7 +391,7 @@ class PreparationWorkerFailureTests(unittest.TestCase):
         )
 
         with patch(
-            "impodo.preparation_worker.create_preparation_worker"
+            "impodo.web.composition.preparation_worker.create_preparation_worker"
         ) as create_worker:
             _run_preparation_worker(
                 "impodo-root",

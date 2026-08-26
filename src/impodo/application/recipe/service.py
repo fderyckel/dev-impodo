@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from ...access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from ...domain.recipe.models import (
     Recipe,
     RecipeError,
     RecipeRevision,
     RecipeRevisionRead,
 )
-from ...migration_foundation import require_revision, require_uuid
+from impodo.domain.project.foundation import require_revision, require_uuid
 from .ports import RecipeRepository
 
 

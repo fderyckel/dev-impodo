@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 import re
 from typing import Any, Callable, Mapping
 
-from ...value_rules import (
+from impodo.domain.recipe.value_rules import (
     ScalarRuleError,
     ScalarTransformPolicy,
     prepare_rule_text,

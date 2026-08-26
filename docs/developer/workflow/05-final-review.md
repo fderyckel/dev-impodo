@@ -79,12 +79,12 @@ mapping, preparation, transport, and storage failures never open that form.
 | Protected comparison contract | [`odoo_comparison.py`](../../../src/impodo/domain/odoo_comparison.py) |
 | Frozen input | [`frozen_input.py`](../../../src/impodo/domain/preflight/frozen_input.py) |
 | Review reports | [`reports.py`](../../../src/impodo/domain/preflight/reports.py) |
-| Workbook projection | [`reporting.py`](../../../src/impodo/reporting.py) |
+| Workbook projection | [`reporting.py`](../../../src/impodo/adapters/artifacts/reporting.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
 | Failure classification | [`odoo_read_failures.py`](../../../src/impodo/application/odoo_read_failures.py) |
 | Recovery presentation | [`comparison_recovery.py`](../../../src/impodo/web/presenters/comparison_recovery.py) |
 | Local recovery routes | [`target.py`](../../../src/impodo/web/routers/target.py) |
-| Local target reader | [`target_readers.py`](../../../src/impodo/web/target_readers.py) |
+| Local target reader | [`target_readers.py`](../../../src/impodo/web/composition/target_readers.py) |
 | Shared recovery dialog | [`_local_odoo_dialog.html`](../../../src/impodo/web/templates/_local_odoo_dialog.html) |
 
 ## Evidence and state

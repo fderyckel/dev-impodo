@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Mapping
 from uuid import uuid4
 
-from ..access import Actor
+from impodo.domain.shared.access import Actor
 from ..domain.mapping.contracts import MappingDefinition
 from ..domain.coverage import ReferenceBundle
 from ..domain.recipe_applications import (
@@ -18,15 +18,15 @@ from ..domain.recipe_applications import (
     RecipeControlValues,
 )
 from ..domain.serialization import content_hash
-from ..migration_run_planning import (
+from impodo.domain.run.contracts import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
     OdooModelRequirement,
     ReferenceRequirement,
     RecipeApplicationStatus,
 )
-from ..workspace_contracts import OdooSchemaCatalog, SourceDatasetSet
-from ..workspace_errors import WorkspaceError
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDatasetSet
+from impodo.domain.workspace.errors import WorkspaceError
 from .recipe_application_compilation import RecipeApplicationCompiler
 
 

@@ -7,15 +7,9 @@ from unittest.mock import patch
 
 from keyring.errors import KeyringError
 
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode
-from impodo.secrets import (
-    CredentialVault,
-    MemorySecretStore,
-    PROTECTED_EVIDENCE_SERVICE_NAME,
-    READ_SERVICE_NAME,
-    SecretStoreError,
-    WRITE_SERVICE_NAME,
-)
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
+from impodo.adapters.protected_evidence.credential_vault import CredentialVault, MemorySecretStore, PROTECTED_EVIDENCE_SERVICE_NAME, READ_SERVICE_NAME, WRITE_SERVICE_NAME
+from impodo.application.shared.secrets import SecretStoreError
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     TargetCredentialRemovalReason,
@@ -289,7 +283,7 @@ class TargetCredentialTests(unittest.TestCase):
         write_id = target_write_credential_id(self.workspace_state)
         protected_id = f"{self.workspace_state.workspace_id}:protected:origin-v1"
 
-        with patch("impodo.secrets.keyring") as keyring:
+        with patch("impodo.adapters.protected_evidence.credential_vault.keyring") as keyring:
             vault.set(read_id, "read-secret", persistent=True)
             vault.set(write_id, "write-secret", persistent=True)
             vault.set(protected_id, "protected-key", persistent=True)
@@ -324,7 +318,7 @@ class TargetCredentialTests(unittest.TestCase):
         vault = CredentialVault()
         read_id = target_read_credential_id(self.workspace_state)
 
-        with patch("impodo.secrets.keyring") as keyring:
+        with patch("impodo.adapters.protected_evidence.credential_vault.keyring") as keyring:
             keyring.set_password.side_effect = KeyringError("unavailable")
             keyring.get_password.return_value = None
             with self.assertRaisesRegex(SecretStoreError, "Could not save"):
@@ -333,7 +327,7 @@ class TargetCredentialTests(unittest.TestCase):
             self.assertIsNone(vault.get(read_id))
 
     def test_session_key_is_missing_from_a_fresh_vault_process(self) -> None:
-        with patch("impodo.secrets.keyring") as keyring:
+        with patch("impodo.adapters.protected_evidence.credential_vault.keyring") as keyring:
             keyring.get_password.return_value = None
             current = CredentialVault()
             store_target_credential(
@@ -362,7 +356,7 @@ class TargetCredentialTests(unittest.TestCase):
         def get_password(service, credential_id):
             return stored.get((service, credential_id))
 
-        with patch("impodo.secrets.keyring") as keyring:
+        with patch("impodo.adapters.protected_evidence.credential_vault.keyring") as keyring:
             keyring.set_password.side_effect = set_password
             keyring.get_password.side_effect = get_password
             current = CredentialVault()
@@ -397,7 +391,7 @@ class TargetCredentialTests(unittest.TestCase):
         def delete_password(service, credential_id):
             stored.pop((service, credential_id), None)
 
-        with patch("impodo.secrets.keyring") as keyring:
+        with patch("impodo.adapters.protected_evidence.credential_vault.keyring") as keyring:
             keyring.set_password.side_effect = set_password
             keyring.get_password.side_effect = get_password
             keyring.delete_password.side_effect = delete_password

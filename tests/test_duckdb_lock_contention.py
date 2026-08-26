@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import duckdb
 
 from impodo.adapters.duckdb.unit_of_work import DuckDbConnectionFactory
-from impodo.workspace_errors import WorkspaceDatabaseBusyError
+from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
 
 
 LOCK_ERROR = (

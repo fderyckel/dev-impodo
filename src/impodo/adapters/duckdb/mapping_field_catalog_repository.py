@@ -7,21 +7,21 @@ import duckdb
 from ...application.workspace.mapping.field_catalog import (
     MappingFieldCatalogSnapshot,
 )
-from ...derived_entities import (
+from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
     RelatedDatasetRule,
 )
 from ...domain.mapping.artifacts import MappingRevision
 from ...domain.schema.governance import SchemaGovernance
-from ...inspection import SourceFileCatalog
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...workspace_contracts import (
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SourceSelection,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 

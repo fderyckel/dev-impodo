@@ -5,6 +5,6 @@ commands used before target comparison). The browser application has a
 separate launcher in :mod:`impodo.web.launcher`.
 """
 
-from .cli import main
+from impodo.web.composition.cli import main
 
 raise SystemExit(main())

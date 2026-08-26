@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
-from ..derived_entities import (
+from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
     RelatedDatasetRule,
@@ -66,18 +66,18 @@ from ..domain.structural import (
     UnionAllRule,
     UnionBranch,
 )
-from ..quality import (
+from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
     QualityRule,
     QualityRuleFamily,
     QualityRuleSource,
 )
-from ..recipe_source_binding import (
+from impodo.domain.recipe.source_binding import (
     logical_dataset_storage_name,
     normalize_recipe_source_name,
 )
-from ..reference_keys import (
+from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     GovernedReferenceRequest,
     ReferenceEvidenceKind,
@@ -85,7 +85,7 @@ from ..reference_keys import (
     authorize_governed_reference,
     captured_reference_field_contracts,
 )
-from ..value_rules import (
+from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     TextTransformStep,

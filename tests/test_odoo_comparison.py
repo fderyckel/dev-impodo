@@ -20,9 +20,9 @@ from impodo.domain.odoo_comparison import (
     OdooComparisonOutcome,
     OdooFieldComparisonOutcome,
 )
-from impodo.models import TargetRecord
-from impodo.workspace_contracts import SchemaField
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.shared.models import TargetRecord
+from impodo.domain.workspace.contracts import SchemaField
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 HASH = "sha256:" + "1" * 64

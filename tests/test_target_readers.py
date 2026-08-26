@@ -5,13 +5,13 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from impodo.connectors import (
+from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
     RecordRequest,
     RecordSnapshot,
 )
-from impodo.models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
@@ -19,14 +19,14 @@ from impodo.models import (
     TargetRecord,
     target_identity_hash,
 )
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode
-from impodo.planner import PreflightRequirementPlan, ReferenceReadRequirement
-from impodo.secrets import MemorySecretStore
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
+from impodo.domain.execution.planner import PreflightRequirementPlan, ReferenceReadRequirement
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     store_target_credential,
 )
-from impodo.web.target_readers import (
+from impodo.web.composition.target_readers import (
     _capture_recipe_supporting_values,
     _read_readiness_snapshots,
     _read_supporting_lookup_snapshots,
@@ -35,13 +35,13 @@ from impodo.application.run.odoo_requirements import (
     OdooCheckRelationshipRequirement,
     OdooCheckSupportingRequirement,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
     SchemaOrigin,
 )
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 HASH = "sha256:" + "1" * 64
@@ -358,7 +358,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
 
         connector = FakeConnector()
         with patch(
-            "impodo.web.target_readers.Json2ReadConnector",
+            "impodo.web.composition.target_readers.Json2ReadConnector",
             return_value=connector,
         ):
             _metadata, _records, access = _read_supporting_lookup_snapshots(

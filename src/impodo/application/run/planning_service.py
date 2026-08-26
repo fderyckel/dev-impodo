@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from impodo.access import Actor, AuthorizationPolicy
+from impodo.domain.shared.access import Actor, AuthorizationPolicy
 from impodo.application.data_version.service import DataVersionService
 from impodo.application.project.service import MigrationProjectService
 from impodo.application.recipe.service import RecipeService
 from impodo.application.recipe_application_service import RecipeApplicationService
-from impodo.data_version_sources import (
+from impodo.application.data_version.source_packages import (
     DataVersionDatasetView,
     DataVersionSourcePackage,
     WorkspaceSourceProjectionService,
@@ -17,18 +17,18 @@ from impodo.data_version_sources import (
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.cutover.models import CutoverPlanRevision
 from impodo.domain.data_version.models import DataVersionPurpose
-from impodo.migration_foundation import FaultInjector
-from impodo.migration_production import ProductionRunBinding
-from impodo.migration_run_planning import (
+from impodo.domain.project.foundation import FaultInjector
+from impodo.domain.run.production import ProductionRunBinding
+from impodo.domain.run.contracts import (
     IntegratedRunBundle,
     MigrationRunPlanningError,
     RecipeDependency,
     RunRecipeApplication,
 )
-from impodo.migration_test import TestRunSetupBinding
-from impodo.models import OdooWriteIdentity
-from impodo.workspace_contracts import OdooSchemaCatalog
-from impodo.workspace_state import WorkspaceStateService
+from impodo.domain.run.test_setup import TestRunSetupBinding
+from impodo.domain.shared.models import OdooWriteIdentity
+from impodo.domain.workspace.contracts import OdooSchemaCatalog
+from impodo.domain.workspace.workbench import WorkspaceStateService
 
 from .application_materialization import RunApplicationMaterializer
 from .application_recovery import RunApplicationRecoveryUseCase

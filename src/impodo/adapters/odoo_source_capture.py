@@ -12,15 +12,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from ..connectors import (
-    ConnectorError,
-    Json2CaptureIdentityProbe,
-    Json2Config,
-    Json2ReadConnector,
-    MetadataRequest,
-    MetadataSnapshot,
-    Transport,
-)
+from impodo.domain.odoo.contracts import ConnectorError, MetadataRequest, MetadataSnapshot
+from impodo.adapters.odoo.connectors import Json2CaptureIdentityProbe, Json2Config, Json2ReadConnector, Transport
 from ..domain.odoo_capture import (
     OdooCaptureFilterOperator,
     OdooCaptureFilterPolicy,
@@ -39,7 +32,7 @@ from ..domain.odoo_source_capture import (
     normalize_odoo_datetime,
     require_not_cancelled,
 )
-from ..models import OdooReadIdentity, ProtectedOdooReadContext
+from impodo.domain.shared.models import OdooReadIdentity, ProtectedOdooReadContext
 from ..domain.serialization import canonical_json
 
 

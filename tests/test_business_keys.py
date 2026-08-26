@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from impodo.business_keys import recommend_business_key
-from impodo.models import UniqueConstraintMetadata
-from impodo.reference_keys import standard_reference_key
-from impodo.workspace_contracts import SchemaField, SchemaModel
+from impodo.domain.workspace.business_keys import recommend_business_key
+from impodo.domain.shared.models import UniqueConstraintMetadata
+from impodo.domain.workspace.reference_keys import standard_reference_key
+from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 
 
 class BusinessKeyRecommendationTests(unittest.TestCase):

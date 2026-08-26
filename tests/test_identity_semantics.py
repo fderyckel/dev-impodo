@@ -23,7 +23,7 @@ CANONICAL_IDENTITY_FIELDS = {
         "data_version_id",
         "migration_run_id",
     },
-    ("src/impodo/migration_run_setup.py", "MigrationRunTargetSetup"): {
+    ("src/impodo/domain/run/setup.py", "MigrationRunTargetSetup"): {
         "project_id",
         "migration_run_id",
     },
@@ -34,7 +34,7 @@ CANONICAL_IDENTITY_FIELDS = {
         "workspace_id",
         "recipe_application_id",
     },
-    ("src/impodo/workspace_access.py", "WorkspaceAccessContext"): {
+    ("src/impodo/application/workspace/access.py", "WorkspaceAccessContext"): {
         "project_id",
         "data_version_id",
         "migration_run_id",
@@ -46,31 +46,31 @@ CANONICAL_IDENTITY_FIELDS = {
 
 TRUE_PROJECT_ID_TYPES = frozenset(
     {
-        "data_version_sources.py::DataVersionSourcePackage",
-        "data_version_sources.py::WorkspaceSourceProjection",
+        "application/data_version/source_packages.py::DataVersionSourcePackage",
+        "application/data_version/source_packages.py::WorkspaceSourceProjection",
         "domain/data_version/models.py::DataVersion",
-        "incompatible_project_storage.py::UnavailableProjectSummary",
+        "web/composition/incompatible_project_storage.py::UnavailableProjectSummary",
         "domain/cutover/models.py::ApplicationQualificationEvidence",
         "domain/cutover/models.py::CutoverPlan",
         "domain/cutover/models.py::CutoverPlanQualification",
         "domain/cutover/models.py::CutoverPlanRevision",
         "domain/cutover/models.py::ProjectCutoverSelection",
         "domain/cutover/models.py::RecipeApplicationQualification",
-        "migration_foundation.py::MigrationOperationIntent",
-        "migration_production.py::ProductionRunBinding",
+        "domain/project/foundation.py::MigrationOperationIntent",
+        "domain/run/production.py::ProductionRunBinding",
         "domain/project/models.py::MigrationProject",
         "domain/project/models.py::MigrationProjectSummary",
-        "migration_run_planning.py::MigrationRunRequirementPlan",
-        "migration_run_planning.py::RunRecipeApplication",
-        "migration_run_planning.py::RunTargetBinding",
+        "domain/run/contracts.py::MigrationRunRequirementPlan",
+        "domain/run/contracts.py::RunRecipeApplication",
+        "domain/run/contracts.py::RunTargetBinding",
         "domain/run/models.py::MigrationRun",
-        "migration_run_setup.py::MigrationRunTargetSetup",
+        "domain/run/setup.py::MigrationRunTargetSetup",
         "domain/workspace/models.py::MigrationWorkspace",
-        "migration_test.py::TestRunParameterValues",
-        "migration_test.py::TestRunSetupBinding",
-        "preparation_jobs.py::PreparationWorkspace",
+        "domain/run/test_setup.py::TestRunParameterValues",
+        "domain/run/test_setup.py::TestRunSetupBinding",
+        "application/workspace/preparation/job_models.py::PreparationWorkspace",
         "domain/recipe/models.py::Recipe",
-        "workspace_access.py::WorkspaceAccessContext",
+        "application/workspace/access.py::WorkspaceAccessContext",
         "application/cutover_plan_service.py::IntegratedQualificationReview",
         "application/run/planning_models.py::IntegratedRunReview",
         "application/recipe_publication_service.py::RecipeDraft",
@@ -87,13 +87,13 @@ REMOVED_AMBIGUITY_COUNTS = {
 
 CURRENT_IDENTITY_SURFACES = {
     "semantic hashes and portable payloads": (
-        ("src/impodo/workspace_contracts.py", "class SourceSelection"),
-        ("src/impodo/workspace_contracts.py", "class OdooModelCatalog"),
-        ("src/impodo/workspace_contracts.py", "class OdooSchemaCatalog"),
-        ("src/impodo/workspace_contracts.py", "class MappingWorkingDraft"),
+        ("src/impodo/domain/workspace/contracts.py", "class SourceSelection"),
+        ("src/impodo/domain/workspace/contracts.py", "class OdooModelCatalog"),
+        ("src/impodo/domain/workspace/contracts.py", "class OdooSchemaCatalog"),
+        ("src/impodo/domain/workspace/contracts.py", "class MappingWorkingDraft"),
     ),
     "persisted workspace identity": (
-        ("src/impodo/workspace_state.py", "class WorkspaceState"),
+        ("src/impodo/domain/workspace/workbench.py", "class WorkspaceState"),
         (
             "src/impodo/adapters/duckdb/workspace_state_repository.py",
             '"workspace_id": workspace.workspace_id',
@@ -123,7 +123,7 @@ CURRENT_IDENTITY_SURFACES = {
     ),
     "operation and revision requests": (
         (
-            "src/impodo/migration_foundation.py",
+            "src/impodo/domain/project/foundation.py",
             "class MigrationOperationIntent",
         ),
         (
@@ -140,14 +140,23 @@ CURRENT_IDENTITY_SURFACES = {
         ),
     ),
     "background job packets": (
-        ("src/impodo/jobs.py", "class JobRequest"),
-        ("src/impodo/preparation_jobs.py", "class PreparationWorkspace"),
-        ("src/impodo/load_jobs.py", "class LoadJob"),
-        ("src/impodo/odoo_capture_jobs.py", "class OdooCaptureJob"),
+        ("src/impodo/domain/shared/jobs.py", "class JobRequest"),
+        (
+            "src/impodo/application/workspace/preparation/job_models.py",
+            "class PreparationWorkspace",
+        ),
+        (
+            "src/impodo/application/workspace/execution/job_models.py",
+            "class LoadJob",
+        ),
+        (
+            "src/impodo/application/workspace/odoo_capture_jobs.py",
+            "class OdooCaptureJob",
+        ),
     ),
     "workspace-scoped browser session state": (
-        ("src/impodo/local_stack.py", "def forget_workspace"),
-        ("src/impodo/local_stack.py", "workspace_id: str"),
+        ("src/impodo/adapters/odoo/local_stack.py", "def forget_workspace"),
+        ("src/impodo/adapters/odoo/local_stack.py", "workspace_id: str"),
     ),
     "browser forms and links": (
         (
@@ -190,7 +199,7 @@ class IdentitySemanticsTests(unittest.TestCase):
 
     def test_workspace_state_uses_its_actual_identity(self) -> None:
         fields = _class_annotation_fields(
-            "src/impodo/workspace_state.py",
+            "src/impodo/domain/workspace/workbench.py",
             "WorkspaceState",
         )
         self.assertIn("workspace_id", fields)
@@ -198,7 +207,7 @@ class IdentitySemanticsTests(unittest.TestCase):
 
     def test_source_and_workspace_evidence_use_their_actual_owners(self) -> None:
         for path, class_name in (
-            ("src/impodo/workspace_contracts.py", "SourceSelection"),
+            ("src/impodo/domain/workspace/contracts.py", "SourceSelection"),
             ("src/impodo/domain/source_snapshot.py", "SourceSnapshot"),
             ("src/impodo/domain/odoo_capture.py", "OdooCaptureSelection"),
             ("src/impodo/domain/odoo_provenance.py", "OdooCaptureManifest"),
@@ -220,7 +229,7 @@ class IdentitySemanticsTests(unittest.TestCase):
                 self.assertNotIn("project_id", fields)
 
         run_reference_fields = _class_annotation_fields(
-            "src/impodo/migration_run_planning.py",
+            "src/impodo/domain/run/contracts.py",
             "MigrationRunReferenceBundle",
         )
         self.assertIn("migration_run_id", run_reference_fields)
@@ -229,7 +238,7 @@ class IdentitySemanticsTests(unittest.TestCase):
         self.assertNotIn("workspace_id", run_reference_fields)
 
         run_schema_fields = _class_annotation_fields(
-            "src/impodo/migration_run_planning.py",
+            "src/impodo/domain/run/contracts.py",
             "MigrationRunTargetSchema",
         )
         self.assertIn("migration_run_id", run_schema_fields)
@@ -237,7 +246,7 @@ class IdentitySemanticsTests(unittest.TestCase):
         self.assertNotIn("workspace_id", run_schema_fields)
 
     def test_artifact_ports_expose_explicit_owners_without_alias_adapter(self) -> None:
-        artifact_text = (ROOT / "src/impodo/artifacts.py").read_text(
+        artifact_text = (ROOT / "src/impodo/application/shared/artifacts.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("class DataVersionSourceArtifactStore", artifact_text)
@@ -252,10 +261,16 @@ class IdentitySemanticsTests(unittest.TestCase):
 
     def test_background_jobs_use_workspace_identity(self) -> None:
         for path, class_name in (
-            ("src/impodo/jobs.py", "JobRequest"),
-            ("src/impodo/load_jobs.py", "LoadJob"),
-            ("src/impodo/odoo_capture_jobs.py", "OdooCaptureJob"),
-            ("src/impodo/preparation_jobs.py", "PreparationJob"),
+            ("src/impodo/domain/shared/jobs.py", "JobRequest"),
+            ("src/impodo/application/workspace/execution/job_models.py", "LoadJob"),
+            (
+                "src/impodo/application/workspace/odoo_capture_jobs.py",
+                "OdooCaptureJob",
+            ),
+            (
+                "src/impodo/application/workspace/preparation/job_models.py",
+                "PreparationJob",
+            ),
         ):
             with self.subTest(class_name=class_name):
                 fields = _class_annotation_fields(path, class_name)
@@ -264,7 +279,7 @@ class IdentitySemanticsTests(unittest.TestCase):
                 self.assertNotIn("project_name", fields)
 
     def test_local_stack_session_state_uses_workspace_identity(self) -> None:
-        local_stack_text = (ROOT / "src/impodo/local_stack.py").read_text(
+        local_stack_text = (ROOT / "src/impodo/adapters/odoo/local_stack.py").read_text(
             encoding="utf-8"
         )
         service_text = local_stack_text.split("class LocalStackService:", 1)[1]

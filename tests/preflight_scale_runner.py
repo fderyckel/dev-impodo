@@ -18,16 +18,16 @@ from impodo.application.preflight_service import (
     EXECUTION_SNAPSHOT_NAME,
     MANIFEST_NAME,
 )
-from impodo.connectors import MetadataSnapshot, RecordSnapshot
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.preflight import frozen_input as frozen_input_module
-from impodo.models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     TargetFingerprint,
     TargetRecord,
     target_identity_hash,
 )
-from impodo.reporting import WORKBOOK_NAME, write_review_workbook
+from impodo.adapters.artifacts.reporting import WORKBOOK_NAME, write_review_workbook
 from impodo.web.app import create_local_app
 
 

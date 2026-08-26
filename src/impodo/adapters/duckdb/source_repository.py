@@ -17,23 +17,23 @@ from datetime import (
 from typing import Iterable, Protocol
 
 
-from ...access import Actor
-from ...derived_entities import mapping_source_selection
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.derived_entities import mapping_source_selection
 from ...domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
 from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES, OdooCaptureSelection
-from ...inspection import SourceFileCatalog, SourceInspectionError
-from ...workspace_state import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
-from ...workspace_contracts import (
+from impodo.application.data_version.inspection import SourceFileCatalog, SourceInspectionError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
+from impodo.domain.workspace.contracts import (
     SourceConfiguration,
     SourceDataset,
     SourceSelection,
     OdooSchemaCatalog,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .database import DuckDbWorkspaceDatabase
 from .derived_entity_repository import DerivedEntityRepository
 from .repository import DuckDbRepository

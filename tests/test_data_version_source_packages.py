@@ -12,14 +12,14 @@ from uuid import uuid4
 
 import duckdb
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     AuthorizationError,
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from impodo.artifacts import StoredArtifact
+from impodo.application.shared.artifacts import StoredArtifact
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
 )
@@ -38,7 +38,7 @@ from impodo.adapters.duckdb.schema.migration_workspace_store import (
 from impodo.application.workspace_source_projection import (
     WorkspaceMappingSourceProjection,
 )
-from impodo.data_version_sources import (
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
     DataVersionSourceIntakeService,
@@ -55,7 +55,7 @@ from impodo.application.data_version.service import DataVersionService
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.serialization import content_hash
 from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
-from impodo.migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     MigrationOperationState,
@@ -65,7 +65,7 @@ from impodo.migration_foundation import (
 from impodo.application.project.service import MigrationProjectService
 from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
-from impodo.workspace_contracts import SourceDatasetColumn
+from impodo.domain.workspace.contracts import SourceDatasetColumn
 
 
 ROOT = Path(__file__).resolve().parents[1]

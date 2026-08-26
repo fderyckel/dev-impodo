@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...data_version_sources import (
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     WorkspaceSourceProjection,
 )

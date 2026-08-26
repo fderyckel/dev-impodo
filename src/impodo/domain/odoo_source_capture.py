@@ -13,7 +13,7 @@ import re
 from typing import Callable
 from uuid import UUID
 
-from ..workspace_contracts import OdooSchemaCatalog, SchemaField
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField
 from .odoo_capture import (
     ODOO_CAPTURE_FIELD_TYPES,
     OdooCaptureConsistency,

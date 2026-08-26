@@ -12,7 +12,7 @@ import webbrowser
 
 import uvicorn
 
-from ..project_security import (
+from impodo.adapters.protected_evidence.project_security import (
     DEVELOPMENT_MODE_ENV,
     PROJECT_ROOT_ENV,
     ProjectRootSecurityError,

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from starlette.requests import Request
 
-from impodo.migration_foundation import MigrationIdentifierConfusionError
+from impodo.domain.project.foundation import MigrationIdentifierConfusionError
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.web.workspace_journeys import (
     WorkspaceJourney,
@@ -15,7 +15,7 @@ from impodo.web.workspace_journeys import (
     enforce_workspace_journey,
     workspace_route_is_allowed,
 )
-from impodo.workspace_access import WorkspaceAccessContext
+from impodo.application.workspace.access import WorkspaceAccessContext
 
 
 class WorkspaceJourneyTests(unittest.TestCase):

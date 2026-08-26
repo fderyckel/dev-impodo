@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...workspace_contracts import SourceSelection
+from impodo.domain.workspace.contracts import SourceSelection
 from ..errors import ReadinessError
 
 

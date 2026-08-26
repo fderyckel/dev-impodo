@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from ....metadata import TYPE_COMPATIBILITY
+from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
 from ..contracts import DatasetMapping, IdentityComponentMapping, ResolverOrigin
 from .common import (
     _VALUE_TYPES,

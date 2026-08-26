@@ -26,7 +26,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.application.workspace.execution.service import (
     ExecutionService,
     execution_api_scope,
@@ -34,24 +34,22 @@ from impodo.application.workspace.execution.service import (
 from impodo.application.workspace.execution.reconciliation import (
     ReconciliationService,
 )
-from impodo.connectors import (
-    Json2Config,
-    Json2ReadConnector,
-    bind_snapshot_hashes,
-)
+from impodo.adapters.odoo.connectors import Json2Config, Json2ReadConnector
+from impodo.domain.odoo.contracts import bind_snapshot_hashes
 from impodo.domain.compiler import compile_profile_document
-from impodo.domain.execution import ExecutionRunStatus
+from impodo.domain.execution.models import ExecutionRunStatus
 from impodo.domain.execution_snapshot import build_execution_snapshot
 from impodo.domain.preflight.frozen_input import FrozenPreflightInput
-from impodo.engine import PreflightEngine
-from impodo.models import Classification
-from impodo.odoo_readback import Json2ReadbackReader
-from impodo.odoo_scope import OdooApiScope, OdooModelScope
-from impodo.odoo_writer import Json2WriteExecutor
-from impodo.planner import plan_metadata_requests, plan_record_requests
-from impodo.profile import load_profile
-from impodo.workspace_state import OdooConnectionMode
-from impodo.source import PreparedBundle, prepare_sources
+from impodo.domain.preparation.preflight import PreflightEngine
+from impodo.domain.shared.models import Classification
+from impodo.adapters.odoo.readback import Json2ReadbackReader
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.adapters.odoo.writer import Json2WriteExecutor
+from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
+from impodo.adapters.artifacts.profile_loader import load_profile
+from impodo.domain.workspace.workbench import OdooConnectionMode
+from impodo.domain.preparation.source import PreparedBundle
+from impodo.application.data_version.source_files import prepare_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]

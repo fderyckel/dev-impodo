@@ -6,7 +6,7 @@ validation errors into this type; browser routes present its message as a
 recoverable workflow action rather than an internal server failure.
 """
 
-from ..workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 class ReadinessError(WorkspaceError):

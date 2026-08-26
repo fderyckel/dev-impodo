@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 import unittest
 
-from impodo.reference_keys import (
+from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     GovernedReferenceRequest,
     ReferenceEvidenceKind,

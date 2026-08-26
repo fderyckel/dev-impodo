@@ -11,22 +11,16 @@ from threading import Event, Thread
 import unittest
 from uuid import uuid4
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     Capability,
 )
-from impodo.approvals import ExportPlanApproval, FrozenExportPlan
-from impodo.artifacts import (
-    ArtifactStoreError,
-    LocalArtifactStore,
-)
-from impodo.jobs import (
-    InlineJobDispatcher,
-    JobKind,
-    JobRequest,
-    JobStatus,
-)
+from impodo.domain.cutover.approvals import ExportPlanApproval, FrozenExportPlan
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.adapters.jobs.inline import InlineJobDispatcher
+from impodo.domain.shared.jobs import JobKind, JobRequest, JobStatus
 
 
 ROOT = Path(__file__).resolve().parents[1]

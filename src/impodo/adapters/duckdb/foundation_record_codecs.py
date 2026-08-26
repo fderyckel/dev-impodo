@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import duckdb
 
-from ...access import Actor, ActorIdentity
+from impodo.domain.shared.access import Actor, ActorIdentity
 from ...domain.data_version.models import (
     DataVersion,
     DataVersionPurpose,
@@ -31,7 +31,7 @@ from ...domain.workspace.models import (
     MigrationWorkspaceSetupState,
     MigrationWorkspaceState,
 )
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationOperationIntent,
     MigrationOperationKind,

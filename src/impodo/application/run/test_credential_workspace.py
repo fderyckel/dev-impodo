@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
-from impodo.migration_foundation import require_uuid
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.project.foundation import require_uuid
 
 
 class TestRunCredentialWorkspaceUseCase:

@@ -7,7 +7,7 @@ import json
 from typing import Mapping
 from uuid import UUID, uuid5
 
-from ...access import Actor, ActorIdentity
+from impodo.domain.shared.access import Actor, ActorIdentity
 from ...domain.serialization import canonical_json, content_hash
 from ...domain.cutover.models import (
     ApplicationQualificationEvidence,
@@ -21,7 +21,7 @@ from ...domain.cutover.models import (
     RecipeApplicationQualification,
     RunCutoverPlanBinding,
 )
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationNotFoundError,
@@ -33,7 +33,7 @@ from ...migration_foundation import (
     required_text,
     utc_now,
 )
-from ...migration_run_planning import (
+from impodo.domain.run.contracts import (
     MigrationRunRequirementPlan,
     RecipeApplicationStatus,
     RecipeDependency,

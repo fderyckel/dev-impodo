@@ -7,23 +7,13 @@ import tempfile
 import unittest
 from uuid import uuid4
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from impodo.derived_entities import (
-    DerivedEntityPlan,
-    DerivedEntityRule,
-    DerivedEntityWorkspaceService,
-    RelatedDatasetRule,
-    derived_dataset_links,
-    derived_mapping_samples,
-    mapping_source_selection,
-    preview_derived_entities,
-    preview_related_datasets,
-    related_dataset_links,
-)
-from impodo.inspection import (
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan, DerivedEntityRule, RelatedDatasetRule, derived_dataset_links, derived_mapping_samples, mapping_source_selection, preview_derived_entities, preview_related_datasets, related_dataset_links
+from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
+from impodo.application.data_version.inspection import (
     CATALOG_CONTRACT_VERSION,
     SourceColumnProfile,
     SourceFileCatalog,
@@ -39,8 +29,8 @@ from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
-from impodo.workspace_state import WorkspaceState, WorkspaceStatus
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
@@ -50,7 +40,7 @@ from impodo.workspace_contracts import (
     SourceSelection,
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from tests.workspace_access_helpers import data_version_id
 from impodo.web.presenters.mapping_view import _mapping_dataset_views
 

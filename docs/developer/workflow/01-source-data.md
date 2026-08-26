@@ -90,11 +90,11 @@ field path.
 | Role | Code |
 | --- | --- |
 | File and selection orchestration | [`SourceWorkspaceService`](../../../src/impodo/application/source_workspace_service.py) |
-| Isolated source workers | [`source_worker.py`](../../../src/impodo/source_worker.py) |
+| Isolated source workers | [`source_worker.py`](../../../src/impodo/application/data_version/source_worker.py) |
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
 | Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
-| Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/derived_entities.py) |
+| Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/application/workspace/derived_entities.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
 | Related-dataset routes | [`derived_entities.py`](../../../src/impodo/web/routers/derived_entities.py) |
 

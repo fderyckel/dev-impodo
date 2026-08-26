@@ -240,11 +240,11 @@ second registry read.
 | Exact registry and isolated stores | `adapters/duckdb/migration_foundation_database.py`, `migration_foundation_repository.py` |
 | Forward-only storage upgrades | `adapters/duckdb/schema/forward_upgrades.py` plus one versioned registry in each store schema module |
 | Project-native creation | `application/migration_project_authoring_service.py` |
-| DataVersion source ownership | `data_version_sources.py`, `application/workspace_data_version_source_service.py` |
+| DataVersion source ownership | `application/data_version/source_packages.py`, `application/workspace_data_version_source_service.py` |
 | Mapping read projection | `application/workspace_source_projection.py` |
-| Owner-specific artifact storage | `artifacts.py` (`DataVersionSourceArtifactStore`, `WorkspaceArtifactStore`) |
+| Owner-specific artifact storage | ports in `application/shared/artifacts.py`; local implementation in `adapters/artifacts/local_store.py` |
 | Optional Recipe publication | `domain/recipe/models.py`, `application/recipe/service.py`, `application/recipe_publication_service.py`, `adapters/duckdb/recipe_repository.py` |
-| Integrated Test planning | `migration_run_planning.py`, `application/run/planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
+| Integrated Test planning | `domain/run/contracts.py`, `application/run/planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
 | Fresh Recipe application | `application/recipe_application_service.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |
 | Browser composition | `web/app.py`, `web/routers/migration_projects.py`, `web/routers/integrated_runs.py`, `web/routers/workspace_setup.py` |
 

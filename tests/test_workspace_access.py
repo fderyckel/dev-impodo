@@ -13,7 +13,7 @@ from uuid import uuid4
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, StreamingResponse
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     LOCAL_ACTOR,
     Actor,
     ActorIdentity,
@@ -27,9 +27,9 @@ from impodo.adapters.duckdb.migration_foundation_database import (
 from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
-from impodo.artifacts import LocalArtifactStore
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.application.data_version.service import DataVersionService
-from impodo.migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationIdentifierConfusionError,
     MigrationNotFoundError,
@@ -39,11 +39,11 @@ from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.web.routers.preflight import _report_chunks
 from impodo.web.security import WorkspaceAccessMiddleware
-from impodo.workspace_access import (
+from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     WorkspaceAccessService,
 )
-from impodo.workspace_state import WorkspaceStateService
+from impodo.domain.workspace.workbench import WorkspaceStateService
 
 ROOT = Path(__file__).resolve().parents[1]
 

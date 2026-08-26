@@ -19,10 +19,10 @@ from uuid import UUID, uuid4
 
 import duckdb
 
-from ...access import Actor
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...governance import DryRun
-from ...normalization import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.cutover.governance import DryRun
+from impodo.domain.preparation.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
     NORMALIZATION_EVALUATOR_VERSION,
     NormalizationEvaluation,
@@ -32,8 +32,8 @@ from ...normalization import (
     StoredNormalizationEvaluation,
     start_dry_run,
 )
-from ...quality import retention_context_hash
-from ...workspace_errors import WorkspaceError
+from impodo.domain.preparation.quality import retention_context_hash
+from impodo.domain.workspace.errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository, WorkspaceAggregateReader

@@ -16,8 +16,8 @@ from uuid import UUID
 
 import duckdb
 
-from ...access import Actor
-from ...workspace_state import WorkspaceStateNotFoundError
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from .audit import AuditMixin
 from .invalidation import EvidenceInvalidationMixin
 from .schema.workspace_engine import WorkspaceEngineSchemaMixin

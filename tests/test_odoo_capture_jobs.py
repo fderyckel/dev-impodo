@@ -6,16 +6,16 @@ import time
 from types import SimpleNamespace
 import unittest
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.odoo_capture_job_service import OdooCaptureJobManager
 from impodo.domain.odoo_source_capture import OdooSourceCaptureCancelled
-from impodo.odoo_capture_jobs import (
+from impodo.application.workspace.odoo_capture_jobs import (
     OdooCaptureJobStatus,
     OdooCapturePhase,
     OdooCaptureProgress,
 )
-from impodo.migration_foundation import MigrationIdentifierConfusionError
-from impodo.workspace_access import WorkspaceAccessContext
+from impodo.domain.project.foundation import MigrationIdentifierConfusionError
+from impodo.application.workspace.access import WorkspaceAccessContext
 
 
 PROJECT_ID = "10000000-0000-4000-8000-000000000001"

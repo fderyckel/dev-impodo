@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.production_run_repository import (
     ProductionRunRepository,
 )
@@ -18,11 +18,11 @@ from impodo.application.production_cutover_service import (
 )
 from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
 from impodo.domain.serialization import content_hash
-from impodo.migration_production import (
+from impodo.domain.run.production import (
     ProductionRunBindingState,
     ProductionRunError,
 )
-from impodo.models import OdooReadIdentity, OdooWriteIdentity
+from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.web.app import create_local_app
 from tests import test_cutover_qualification as qualification
 from tests import test_integrated_recipe_runs as integrated_runs

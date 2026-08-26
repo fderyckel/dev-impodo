@@ -9,15 +9,15 @@ import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.models import BusinessReference, LogicalReference
-from impodo.workspace_state import WorkspaceState, OdooConnectionMode, WorkspaceStatus
-from impodo.staging import StagingRunStatus
-from impodo.staging_contracts import (
+from impodo.domain.shared.models import BusinessReference, LogicalReference
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
+from impodo.domain.preparation.staging import StagingRunStatus
+from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalLineage,
     CanonicalRow,
@@ -27,12 +27,12 @@ from impodo.staging_contracts import (
     StagingDisposition,
     StagingReconciliation,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from tests.workspace_access_helpers import data_version_id
 
 

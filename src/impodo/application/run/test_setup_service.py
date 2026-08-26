@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
-from impodo.inspection import SourceFileCatalog
-from impodo.migration_foundation import (
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.project.foundation import (
     MigrationFoundationError,
     require_uuid,
 )
-from impodo.migration_run_planning import RecipeDependency
-from impodo.migration_test import (
+from impodo.domain.run.contracts import RecipeDependency
+from impodo.domain.run.test_setup import (
     TestRunParameterValues,
     TestRunSetupBinding,
     TestRunSetupBundle,

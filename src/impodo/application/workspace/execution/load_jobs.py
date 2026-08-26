@@ -10,19 +10,19 @@ import logging
 from threading import Condition, RLock, Thread
 from uuid import uuid4
 
-from impodo.domain.execution import (
+from impodo.domain.execution.models import (
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
 )
-from impodo.load_jobs import (
+from impodo.application.workspace.execution.job_models import (
     LOAD_PHASE_LABELS,
     LoadJob,
     LoadJobStatus,
     LoadPhase,
 )
-from impodo.migration_foundation import MigrationIdentifierConfusionError
-from impodo.workspace_access import (
+from impodo.domain.project.foundation import MigrationIdentifierConfusionError
+from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     bind_workspace_access_context,
 )

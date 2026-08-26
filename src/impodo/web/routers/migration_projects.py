@@ -8,9 +8,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ...domain.data_version.models import DataVersionPurpose
-from ...migration_foundation import MigrationFoundationError
+from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.recipe.models import RecipeError
-from ...workspace_state import SourceMode
+from impodo.domain.workspace.workbench import SourceMode
 from ..context import WebContext
 from ..forms import _form_values, _secure_form, _text
 from ..presenters.common import _flash, _render

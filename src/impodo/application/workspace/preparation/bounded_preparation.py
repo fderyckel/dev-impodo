@@ -7,9 +7,9 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
 
-from impodo.access import Actor
-from impodo.artifacts import GovernedArtifactStores, ArtifactStoreError
-from impodo.derived_entities import DerivedEntityPlan
+from impodo.domain.shared.access import Actor
+from impodo.application.shared.artifacts import GovernedArtifactStores, ArtifactStoreError
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarCompilationError,
@@ -52,25 +52,22 @@ from impodo.domain.staging.transformation_impact import (
     _TransformationImpactCollector,
     reviewable_rule_impact_definitions,
 )
-from impodo.inspection import SourceFileCatalog
-from impodo.models import Issue, PreparedRecord, canonical_json_bytes
-from impodo.workspace_state import WorkspaceState, SourceFile
-from impodo.source import (
-    CompiledPreparedRowTransformer,
-    SourceLoadError,
-    open_selected_source_batches,
-)
-from impodo.source_snapshot_io import (
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.shared.models import Issue, PreparedRecord, canonical_json_bytes
+from impodo.domain.workspace.workbench import WorkspaceState, SourceFile
+from impodo.domain.preparation.source import CompiledPreparedRowTransformer, SourceLoadError
+from impodo.application.data_version.source_files import open_selected_source_batches
+from impodo.application.data_version.source_snapshots import (
     open_source_snapshot_batches,
     validate_snapshot_for_dataset,
 )
-from impodo.staging_contracts import (
+from impodo.domain.preparation.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,
     canonical_row_from_prepared,
 )
-from impodo.workspace_contracts import SourceDataset, SourceSelection
+from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
 from impodo.domain.errors import ReadinessError
 from .columnar_transformation_port import (
     DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,

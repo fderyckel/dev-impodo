@@ -15,17 +15,17 @@ from dataclasses import asdict, dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import datetime, timezone
 
-from ...access import Actor
-from ...models import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.shared.models import (
     Classification,
     Decision,
     PreflightResult,
     PreparedRecord,
 )
-from ...normalization import NormalizationRunSummary
-from ...quality import QualityRunSummary
-from ...staging import StagingRunSummary
-from ...workspace_state import WorkspaceState
+from impodo.domain.preparation.normalization import NormalizationRunSummary
+from impodo.domain.preparation.quality import QualityRunSummary
+from impodo.domain.preparation.staging import StagingRunSummary
+from impodo.domain.workspace.workbench import WorkspaceState
 from ..contracts import READINESS_CONTRACT_VERSION
 from ..mapping.artifacts import MappingRevision
 from ..staging.transformation_impact import _display_value

@@ -3,11 +3,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from impodo.build_contract import (
+from impodo.application.shared.build_contract import (
     ApplicationBuildContract,
     PROCESS_BUILD_CONTRACT,
 )
-from impodo.source_worker import _worker
+from impodo.application.data_version.source_worker import _worker
 
 
 class SourceWorkerBuildContractTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class SourceWorkerBuildContractTests(unittest.TestCase):
             ),
         )
 
-        with patch("impodo.source_worker.validate_source_file") as validate:
+        with patch("impodo.application.data_version.source_worker.validate_source_file") as validate:
             _worker("customers.csv", changed, sender, start_event)
 
         start_event.wait.assert_called_once_with()

@@ -12,11 +12,11 @@ from dataclasses import dataclass, replace
 
 from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
-from ...load_jobs import LoadJob
-from ...preparation_jobs import PreparationJob
-from ...workspace_errors import WorkspaceError
-from ...workspace_state import SourceMode, WorkspaceState, WorkspaceStatus
-from ...workspace_views import WorkspaceOwnerView
+from impodo.application.workspace.execution.job_models import LoadJob
+from impodo.application.workspace.preparation.job_models import PreparationJob
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import SourceMode, WorkspaceState, WorkspaceStatus
+from impodo.application.workspace.views import WorkspaceOwnerView
 from ..context import WebContext
 from ..workspace_journeys import (
     WorkspaceJourney,

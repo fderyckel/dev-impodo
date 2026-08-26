@@ -10,14 +10,14 @@ from uuid import uuid4
 from fastapi import Request
 from starlette.datastructures import FormData
 
-from ...business_keys import (
+from impodo.domain.workspace.business_keys import (
     describe_business_key,
     recommend_business_key,
     selectable_business_key_fields,
 )
-from ...derived_entities import DerivedEntityRule
-from ...inspection import SourceFileCatalog
-from ...workspace_contracts import (
+from impodo.domain.workspace.derived_entities import DerivedEntityRule
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
     SchemaField,
@@ -25,8 +25,8 @@ from ...workspace_contracts import (
     SchemaOrigin,
     SourceConfiguration,
 )
-from ...workspace_errors import WorkspaceError
-from ...workspace_state import WorkspaceState
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceState
 from ..constants import (
     _APPLICATION_MODULE_PREFIXES,
     _MANUAL_FIELD_NAME,

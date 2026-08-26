@@ -6,9 +6,9 @@ from dataclasses import dataclass
 import json
 from typing import Mapping, Protocol
 
-from ..access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from ..domain.data_version.models import DataVersionPurpose, DataVersionState
-from ..domain.execution import ExecutionRunStatus
+from impodo.domain.execution.models import ExecutionRunStatus
 from ..domain.errors import ReadinessError
 from ..domain.reconciliation import ReconciliationRunStatus
 from ..domain.serialization import content_hash
@@ -22,7 +22,7 @@ from ..domain.cutover.models import (
     QualifiedOutcomes,
     integrated_evidence_payload,
 )
-from ..migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationNotFoundError,
@@ -31,7 +31,7 @@ from ..migration_foundation import (
     require_uuid,
 )
 from ..domain.run.models import MigrationRunPurpose
-from ..migration_run_planning import RunRecipeApplication
+from impodo.domain.run.contracts import RunRecipeApplication
 
 
 class IntegratedQualificationEvidenceReader(Protocol):

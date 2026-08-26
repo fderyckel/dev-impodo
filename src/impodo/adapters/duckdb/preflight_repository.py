@@ -19,8 +19,8 @@ from itertools import islice
 import json
 from uuid import UUID
 
-from ...access import Actor
-from ...connectors import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.odoo.contracts import (
     MetadataSnapshot,
     RecordSnapshot,
     metadata_snapshot_payload,
@@ -31,9 +31,9 @@ from ...domain.preflight.reports import (
     ReadinessRow,
     ReadinessRowPage,
 )
-from ...models import canonical_json_text, target_identity_hash
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...workspace_errors import WorkspaceError
+from impodo.domain.shared.models import canonical_json_text, target_identity_hash
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.errors import WorkspaceError
 from .constants import PREFLIGHT_ROW_BATCH_SIZE
 from .database import DuckDbWorkspaceDatabase
 from .workspace_state_repository import WorkspaceStateRepository

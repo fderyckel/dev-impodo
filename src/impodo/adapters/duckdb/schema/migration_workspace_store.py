@@ -6,9 +6,9 @@ from pathlib import Path
 
 import duckdb
 
-from ....migration_foundation import MigrationStorageCompatibilityError
+from impodo.domain.project.foundation import MigrationStorageCompatibilityError
 from ....domain.workspace.models import MigrationWorkspace
-from ....workspace_access import WorkspaceAccessContext
+from impodo.application.workspace.access import WorkspaceAccessContext
 from .forward_upgrades import (
     SCHEMA_MIGRATION_COLUMNS,
     ForwardSchemaUpgrade,

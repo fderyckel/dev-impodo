@@ -10,8 +10,8 @@ from ...schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
-from ....reference_keys import StandardReferenceFieldContract
-from ....supporting_lookups import SupportingLookupSnapshot
+from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from ..contracts import DatasetMapping, MappingDefinition
 
 

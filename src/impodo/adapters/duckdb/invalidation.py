@@ -15,8 +15,8 @@ from datetime import (
 
 import duckdb
 
-from ...quality import QualityRunStatus
-from ...staging import StagingRunStatus
+from impodo.domain.preparation.quality import QualityRunStatus
+from impodo.domain.preparation.staging import StagingRunStatus
 
 
 

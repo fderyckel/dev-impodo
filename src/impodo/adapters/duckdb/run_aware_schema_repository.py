@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from ...migration_run_planning import MigrationRunPlanningError
+from impodo.domain.run.contracts import MigrationRunPlanningError
 from .migration_run_planning_repository import MigrationRunPlanningRepository
 
 

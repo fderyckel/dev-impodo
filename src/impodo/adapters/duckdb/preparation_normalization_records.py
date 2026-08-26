@@ -13,9 +13,9 @@ from ...domain.staging.preparation_session import (
 from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
 )
-from ...normalization import NormalizationEffect
-from ...quality import QualityIssue
-from ...workspace_errors import WorkspaceError
+from impodo.domain.preparation.normalization import NormalizationEffect
+from impodo.domain.preparation.quality import QualityIssue
+from impodo.domain.workspace.errors import WorkspaceError
 from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )

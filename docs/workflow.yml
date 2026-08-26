@@ -42,20 +42,20 @@ stages:
       - src/impodo/application/project/service.py::MigrationProjectService
       - src/impodo/application/data_version/service.py::DataVersionService
       - src/impodo/application/run/service.py::MigrationRunService
-      - src/impodo/migration_run_setup.py::MigrationRunTargetSetupService
+      - src/impodo/domain/run/setup.py::MigrationRunTargetSetupService
       - src/impodo/application/workspace/service.py::MigrationWorkspaceService
-      - src/impodo/workspace_access.py::WorkspaceAccessService
+      - src/impodo/application/workspace/access.py::WorkspaceAccessService
       - src/impodo/web/security.py::WorkspaceAccessMiddleware
       - src/impodo/adapters/duckdb/foundation_workspace_records.py::FoundationWorkspaceRecords.resolve_workspace_access_context
       - src/impodo/adapters/duckdb/schema/forward_upgrades.py::ensure_current_schema
       - src/impodo/application/recipe_publication_service.py::RecipePublicationService
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
       - src/impodo/adapters/duckdb/data_version_source_repository.py::DataVersionOwnedSourceRepository
-      - src/impodo/artifacts.py::DataVersionSourceArtifactStore
-      - src/impodo/artifacts.py::WorkspaceArtifactStore
-      - src/impodo/workspace_views.py::WorkspaceOwnerViewService
-      - src/impodo/workspace_state.py::WorkspaceStateService
-      - src/impodo/workspace_state.py::WorkspaceStateService.register
+      - src/impodo/application/shared/artifacts.py::DataVersionSourceArtifactStore
+      - src/impodo/application/shared/artifacts.py::WorkspaceArtifactStore
+      - src/impodo/application/workspace/views.py::WorkspaceOwnerViewService
+      - src/impodo/domain/workspace/workbench.py::WorkspaceStateService
+      - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.register
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/application/recipe_compilation_service.py::RecipeCompiler.compile_workspace
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
@@ -103,8 +103,8 @@ stages:
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.freeze_selection
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService
       - src/impodo/application/odoo_capture_job_service.py::OdooCaptureJobManager
-      - src/impodo/derived_entities.py::DerivedEntityWorkspaceService
-      - src/impodo/source_worker.py::validate_source_file_isolated
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService
+      - src/impodo/application/data_version/source_worker.py::validate_source_file_isolated
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/web/source_file_commands.py::remove_source_file
     tests:
@@ -143,10 +143,10 @@ stages:
       - src/impodo/application/run/fresh_data_setup.py::TestRunFreshDataUseCase.replace_run_values
       - src/impodo/application/run/odoo_requirements.py::TestRunOdooRequirementsUseCase.for_workspace
       - src/impodo/domain/recipe_parameters.py::normalize_recipe_parameter_values
-      - src/impodo/recipe_source_binding.py::logical_dataset_storage_name
+      - src/impodo/domain/recipe/source_binding.py::logical_dataset_storage_name
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/web/source_file_commands.py::remove_source_file
-      - src/impodo/web/target_readers.py::_capture_recipe_supporting_values
+      - src/impodo/web/composition/target_readers.py::_capture_recipe_supporting_values
       - src/impodo/web/run_review.py::build_integrated_run_review
       - src/impodo/web/run_review.py::start_next_preparation
       - src/impodo/application/recipe/service.py::RecipeService.read_revisions
@@ -157,11 +157,11 @@ stages:
       - src/impodo/adapters/duckdb/test_run_repository.py::TestRunRepository
       - src/impodo/adapters/duckdb/schema/migration_registry.py::ensure_migration_registry_schema
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService
-      - src/impodo/application/workspace/preparation/preparation_job_service.py::PreparationJobManager
+      - src/impodo/web/composition/preparation_job_manager.py::PreparationJobManager
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository
-      - src/impodo/migration_run_planning.py::MigrationRunTargetSchema
-      - src/impodo/migration_run_planning.py::MigrationRunReferenceBundle
+      - src/impodo/domain/run/contracts.py::MigrationRunTargetSchema
+      - src/impodo/domain/run/contracts.py::MigrationRunReferenceBundle
       - src/impodo/adapters/duckdb/run_aware_schema_repository.py::RunAwareSchemaRepository
       - src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py::RunAwareAdvancedCoverageRepository
       - src/impodo/web/workspace_journeys.py::enforce_workspace_journey
@@ -215,7 +215,7 @@ stages:
       - src/impodo/application/run/planning_service.py::MigrationRunPlanningService.activate_production_run
       - src/impodo/adapters/duckdb/production_run_repository.py::ProductionRunRepository
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository.activate_production_run
-      - src/impodo/migration_production.py::ProductionRunBinding
+      - src/impodo/domain/run/production.py::ProductionRunBinding
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
       - tests/test_production_rollout.py
@@ -303,8 +303,8 @@ stages:
       - src/impodo/web/templates/workspace_normalization.html
     code_references:
       - src/impodo/application/workspace/preparation/preparation_service.py::PreparationService
-      - src/impodo/application/workspace/preparation/preparation_job_service.py::PreparationJobManager
-      - src/impodo/build_contract.py::ApplicationBuildContract
+      - src/impodo/web/composition/preparation_job_manager.py::PreparationJobManager
+      - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/web/security.py::BuildConsistencyMiddleware
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
@@ -338,8 +338,8 @@ stages:
       - src/impodo/application/preflight_service.py::PreflightService.compare
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
-      - src/impodo/reporting.py::write_review_workbook
-      - src/impodo/web/target_readers.py::LocalOdooRecoveryRequired
+      - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
+      - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
     tests:
       - tests/test_preflight_service.py
       - tests/test_preflight_scale.py

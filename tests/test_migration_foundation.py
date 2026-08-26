@@ -12,7 +12,7 @@ import duckdb
 
 from tests._database_probe import StatementCountingConnection
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     AuthorizationError,
@@ -39,11 +39,11 @@ from impodo.adapters.duckdb.schema.migration_workspace_store import (
     MIGRATION_WORKSPACE_GENERATION,
 )
 from impodo.application.data_version.service import DataVersionService
-from impodo.development_reset import (
+from impodo.web.composition.development_reset import (
     execute_development_reset,
     plan_development_reset,
 )
-from impodo.migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     MigrationIdentifierConfusionError,

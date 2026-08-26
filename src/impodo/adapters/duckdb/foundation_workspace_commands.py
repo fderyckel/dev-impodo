@@ -5,15 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from ...access import Actor
-from ...data_version_sources import (
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import (
     SourcePackageState,
     WorkspaceSourceProjection,
 )
 from ...domain.workspace.models import (
     MigrationWorkspace,
 )
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationNotFoundError,

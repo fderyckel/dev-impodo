@@ -9,8 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...domain.errors import ReadinessError
-from ...workspace_state import WorkspaceStateError, SourceMode
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateError, SourceMode
+from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash

@@ -12,13 +12,13 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 
-from impodo.inspection import (
+from impodo.application.data_version.inspection import (
     SourceFileCatalog,
     SourceInspectionError,
     SourceInspectionOptions,
     inspect_source_file,
 )
-from impodo.workspace_state import SourceFile
+from impodo.domain.workspace.workbench import SourceFile
 
 
 ROOT = Path(__file__).resolve().parents[1]

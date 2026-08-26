@@ -17,7 +17,7 @@ from ..contracts import CategoricalCoveragePolicy, MAX_VALUE_MAPPINGS
 from ...serialization import canonical_json as _canonical_json
 from ...serialization import content_hash as _content_hash
 from ...serialization import portable as _portable
-from ....reference_keys import REFERENCE_POLICY_HASH
+from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
 
 
 MAPPING_VALIDATOR_VERSION = "10.0.0"

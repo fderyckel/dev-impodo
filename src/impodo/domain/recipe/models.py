@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Mapping
 
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationFoundationError,
     require_aware,
     require_hash,

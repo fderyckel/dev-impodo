@@ -14,14 +14,14 @@ from fastapi.testclient import TestClient
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
 )
-from impodo.incompatible_project_storage import (
+from impodo.web.composition.incompatible_project_storage import (
     LEGACY_RECIPE_ROOT_MIGRATION_CHECKSUM,
     LEGACY_RECIPE_ROOT_MIGRATION_ID,
     UNAVAILABLE_PROJECT_MESSAGE,
     prepare_incompatible_project_storage,
 )
-from impodo.migration_foundation import MigrationStorageCompatibilityError
-from impodo.secrets import MemorySecretStore
+from impodo.domain.project.foundation import MigrationStorageCompatibilityError
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
 
 

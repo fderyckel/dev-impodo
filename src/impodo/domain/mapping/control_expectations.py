@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 from uuid import UUID
 
-from ...access import ActorIdentity
+from impodo.domain.shared.access import ActorIdentity
 from ..serialization import content_hash
 
 

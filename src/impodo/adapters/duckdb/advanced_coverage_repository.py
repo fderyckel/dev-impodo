@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import json
 from uuid import uuid4
 
-from ...access import Actor, AuthorizationError, Capability
+from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from ...domain.coverage import (
     CoverageScopeRevision,
     ReferenceBundle,
@@ -29,8 +29,8 @@ from ...domain.resolution import (
     pass_through_effective_row,
 )
 from ...domain.serialization import canonical_json
-from ...workspace_errors import WorkspaceError
-from ...workspace_contracts import OdooSchemaCatalog, SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from .constants import RESOLUTION_ROW_BATCH_SIZE
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
@@ -919,7 +919,7 @@ def _restore_effective_row(record) -> EffectiveRow:
         return EffectiveRow.from_dict(json.loads(str(payload)))
     if str(payload) != "null" or canonical_json_value is None:
         raise WorkspaceError("Effective canonical-row reference is invalid")
-    from ...staging_contracts import CanonicalRow
+    from impodo.domain.preparation.staging_contracts import CanonicalRow
 
     canonical = CanonicalRow.from_dict(json.loads(str(canonical_json_value)))
     if canonical.row_id != str(canonical_row_id):

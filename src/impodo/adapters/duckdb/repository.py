@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Protocol
 import duckdb
 
-from ...access import Actor
-from ...workspace_state import WorkspaceState
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import WorkspaceState
 from .database import DuckDbWorkspaceDatabase
 from .unit_of_work import DuckDbUnitOfWork
 

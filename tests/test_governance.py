@@ -14,13 +14,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import unittest
 
-from impodo.access import (
+from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     Capability,
     LOCAL_ACTOR,
 )
-from impodo.governance import (
+from impodo.domain.cutover.governance import (
     ApprovalMode,
     CorrectionGroupKey,
     CorrectionImpact,

@@ -20,22 +20,22 @@ import re
 from typing import Iterable, Mapping, Protocol
 from uuid import uuid4
 
-from ..access import Actor, AuthorizationPolicy, Capability
-from ..connectors import MetadataSnapshot, RecordSnapshot
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from ..domain.schema.governance import (
     BusinessKeyDefinition,
     SchemaGovernance,
 )
 from ..domain.mapping.create_field_policy import supports_create_default_capture
-from ..models import FieldMetadata, OdooReadIdentity, target_identity_hash
+from impodo.domain.shared.models import FieldMetadata, OdooReadIdentity, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
-from ..workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStatus,
     SourceMode,
 )
-from ..workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
     OdooSchemaChange,
@@ -46,7 +46,7 @@ from ..workspace_contracts import (
     SchemaOrigin,
     SourceSelection,
 )
-from ..workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from ..domain.serialization import content_hash
 
 

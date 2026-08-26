@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from typing import Protocol
 
 from ..serialization import content_hash
-from ...migration_run_planning import (
+from impodo.domain.run.contracts import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
     OdooModelRequirement,

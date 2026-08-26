@@ -11,7 +11,7 @@ from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
@@ -29,7 +29,8 @@ from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
 )
 from impodo.application.source_workspace_service import SourceWorkspaceService
-from impodo.artifacts import ArtifactStoreError, LocalArtifactStore
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
@@ -43,23 +44,23 @@ from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
-from impodo.inspection import (
+from impodo.application.data_version.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from impodo.models import canonical_json_bytes
-from impodo.workspace_state import WorkspaceState, WorkspaceStatus, SourceFile
-from impodo.staging_contracts import StagingDisposition
-from impodo.source_snapshot_io import (
+from impodo.domain.shared.models import canonical_json_bytes
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus, SourceFile
+from impodo.domain.preparation.staging_contracts import StagingDisposition
+from impodo.application.data_version.source_snapshots import (
     SourceSnapshotPublisher,
     load_source_snapshot_table,
     open_source_snapshot_batches,
     source_snapshot_batch_rows,
 )
-from impodo.value_rules import ScalarTransformPolicy, TextTransformStep
-from impodo.workspace_errors import WorkspaceError
-from impodo.workspace_access import WorkspaceAccessContext
+from impodo.domain.recipe.value_rules import ScalarTransformPolicy, TextTransformStep
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.application.workspace.access import WorkspaceAccessContext
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -273,7 +274,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         selection = _selection_for(workspace_state, source_file, catalog)
         with patch(
-            "impodo.source_snapshot_io.SOURCE_SNAPSHOT_TARGET_BATCH_ROWS",
+            "impodo.application.data_version.source_snapshots.SOURCE_SNAPSHOT_TARGET_BATCH_ROWS",
             2,
         ):
             publication = SourceSnapshotPublisher(self.artifacts).publish(
@@ -989,7 +990,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             _column_key,
             _dataset_key,
         )
-        from impodo.workspace_contracts import (
+        from impodo.domain.workspace.contracts import (
             SourceDataset,
             SourceDatasetColumn,
             SourceSelection,
@@ -1156,7 +1157,7 @@ def _selection_for(
     catalog: SourceFileCatalog,
 ):
     from impodo.application.source_workspace_service import _column_key, _dataset_key
-    from impodo.workspace_contracts import (
+    from impodo.domain.workspace.contracts import (
         SourceDataset,
         SourceDatasetColumn,
         SourceSelection,

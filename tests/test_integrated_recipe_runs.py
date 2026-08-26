@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from tests._database_probe import StatementCountingConnection
 
-from impodo.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
@@ -74,8 +74,8 @@ from impodo.application.run.test_setup_service import (
 from impodo.application.run.fresh_data_values import (
     build_fresh_data_run_value_plan,
 )
-from impodo.connectors import MetadataSnapshot
-from impodo.data_version_sources import (
+from impodo.domain.odoo.contracts import MetadataSnapshot
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
     SourcePackageCatalog,
@@ -104,20 +104,20 @@ from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.serialization import content_hash
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.inspection import (
+from impodo.application.data_version.inspection import (
     CATALOG_CONTRACT_VERSION,
     SourceColumnProfile,
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from impodo.migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     MigrationOperationState,
     utc_now,
 )
 from impodo.application.project.service import MigrationProjectService
-from impodo.migration_run_planning import (
+from impodo.domain.run.contracts import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
     MigrationRunPlanningError,
@@ -131,10 +131,10 @@ from impodo.domain.run.models import (
     MigrationRunState,
 )
 from impodo.application.run.service import MigrationRunService
-from impodo.migration_test import TestRunSetupState
+from impodo.domain.run.test_setup import TestRunSetupState
 from impodo.application.workspace.service import MigrationWorkspaceService
-from impodo.preparation_jobs import PreparationJobStatus
-from impodo.models import (
+from impodo.application.workspace.preparation.job_models import PreparationJobStatus
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
@@ -142,8 +142,8 @@ from impodo.models import (
     target_identity_hash,
 )
 from impodo.application.recipe.service import RecipeService
-from impodo.reference_keys import REFERENCE_POLICY_HASH
-from impodo.secrets import MemorySecretStore
+from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
 from impodo.web.routers.mapping import (
     _confirmed_recipe_mapping_destination,
@@ -156,7 +156,7 @@ from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
@@ -165,7 +165,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.workspace_state import WorkspaceStateService
+from impodo.domain.workspace.workbench import WorkspaceStateService
 from tests.workspace_access_helpers import workspace_access_service
 
 ROOT = Path(__file__).resolve().parents[1]

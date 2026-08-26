@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ...access import Actor
-from ...data_version_sources import (
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageState,
 )
@@ -13,7 +13,7 @@ from ...domain.data_version.models import (
     DataVersion,
     DataVersionState,
 )
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationNotFoundError,

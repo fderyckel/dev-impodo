@@ -9,8 +9,8 @@ from uuid import uuid4
 
 import duckdb
 
-from ...access import Actor
-from ...data_version_sources import (
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageState,
 )
@@ -18,10 +18,10 @@ from ...domain.data_version.models import (
     DataVersion,
 )
 from ...domain.serialization import canonical_json
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationConflictError,
 )
-from ...workspace_contracts import SourceDatasetColumn
+from impodo.domain.workspace.contracts import SourceDatasetColumn
 
 
 class FoundationSourcePackageRecords:

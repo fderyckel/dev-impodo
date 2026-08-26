@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from impodo.local_stack import (
+from impodo.adapters.odoo.local_stack import (
     LocalStackCheck,
     LocalStackError,
     LocalStackService,
@@ -103,8 +103,8 @@ class LocalStackConfigurationTests(unittest.TestCase):
         with self.assertRaisesRegex(LocalStackError, "existing .conf"):
             read_odoo_config(self.workspace / "config" / "missing.conf")
 
-    @patch("impodo.local_stack._open_loopback")
-    @patch("impodo.local_stack.subprocess.run")
+    @patch("impodo.adapters.odoo.local_stack._open_loopback")
+    @patch("impodo.adapters.odoo.local_stack.subprocess.run")
     def test_checks_postgresql_then_odoo_without_a_shell(
         self,
         run,
@@ -206,29 +206,29 @@ class LocalStackConfigurationTests(unittest.TestCase):
         )
 
         with (
-            patch("impodo.local_stack.os.name", "nt"),
+            patch("impodo.adapters.odoo.local_stack.os.name", "nt"),
             patch(
-                "impodo.local_stack.probe_local_stack",
+                "impodo.adapters.odoo.local_stack.probe_local_stack",
                 side_effect=(initial, ready),
             ) as probe,
             patch(
-                "impodo.local_stack.subprocess.run",
+                "impodo.adapters.odoo.local_stack.subprocess.run",
                 side_effect=completed,
             ) as run,
             patch(
-                "impodo.local_stack._probe_postgresql",
+                "impodo.adapters.odoo.local_stack._probe_postgresql",
                 return_value=ready.checks[1],
             ),
             patch(
-                "impodo.local_stack._probe_odoo",
+                "impodo.adapters.odoo.local_stack._probe_odoo",
                 return_value=ready.checks[2],
             ),
             patch(
-                "impodo.local_stack.subprocess.Popen",
+                "impodo.adapters.odoo.local_stack.subprocess.Popen",
                 return_value=process,
             ) as popen,
             patch.dict(
-                "impodo.local_stack.os.environ",
+                "impodo.adapters.odoo.local_stack.os.environ",
                 {"PGPASSWORD": "must-not-be-inherited"},
             ),
         ):
@@ -296,20 +296,20 @@ class LocalStackConfigurationTests(unittest.TestCase):
         )
 
         with (
-            patch("impodo.local_stack.os.name", "nt"),
-            patch("impodo.local_stack.probe_local_stack", return_value=initial),
+            patch("impodo.adapters.odoo.local_stack.os.name", "nt"),
+            patch("impodo.adapters.odoo.local_stack.probe_local_stack", return_value=initial),
             patch(
-                "impodo.local_stack.subprocess.run",
+                "impodo.adapters.odoo.local_stack.subprocess.run",
                 side_effect=(
                     subprocess.CompletedProcess(args=[], returncode=3),
                     subprocess.CompletedProcess(args=[], returncode=0),
                 ),
             ),
             patch(
-                "impodo.local_stack._probe_postgresql",
+                "impodo.adapters.odoo.local_stack._probe_postgresql",
                 return_value=not_ready,
             ),
-            patch("impodo.local_stack.subprocess.Popen") as popen,
+            patch("impodo.adapters.odoo.local_stack.subprocess.Popen") as popen,
         ):
             with self.assertRaisesRegex(
                 LocalStackError,
@@ -331,18 +331,18 @@ class LocalStackConfigurationTests(unittest.TestCase):
         process.poll.return_value = None
 
         with (
-            patch("impodo.local_stack.os.name", "nt"),
-            patch("impodo.local_stack.probe_local_stack", return_value=initial),
+            patch("impodo.adapters.odoo.local_stack.os.name", "nt"),
+            patch("impodo.adapters.odoo.local_stack.probe_local_stack", return_value=initial),
             patch(
-                "impodo.local_stack._probe_odoo",
+                "impodo.adapters.odoo.local_stack._probe_odoo",
                 return_value=not_ready,
             ),
             patch(
-                "impodo.local_stack.subprocess.Popen",
+                "impodo.adapters.odoo.local_stack.subprocess.Popen",
                 return_value=process,
             ),
             patch(
-                "impodo.local_stack.time.monotonic",
+                "impodo.adapters.odoo.local_stack.time.monotonic",
                 side_effect=(0, 31),
             ),
         ):
@@ -384,17 +384,17 @@ class LocalStackConfigurationTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.local_stack._stop_owned_odoo",
+                "impodo.adapters.odoo.local_stack._stop_owned_odoo",
                 side_effect=lambda _process: events.append("odoo"),
             ),
             patch(
-                "impodo.local_stack._stop_postgresql",
+                "impodo.adapters.odoo.local_stack._stop_postgresql",
                 side_effect=lambda _profile, **_kwargs: events.append(
                     "postgresql"
                 ),
             ),
             patch(
-                "impodo.local_stack._wait_for_loopback_port_closed",
+                "impodo.adapters.odoo.local_stack._wait_for_loopback_port_closed",
                 return_value=True,
             ),
         ):
@@ -414,8 +414,8 @@ class LocalStackConfigurationTests(unittest.TestCase):
         service.select_config("workspace-1", self.config)
 
         with (
-            patch("impodo.local_stack._stop_owned_odoo") as stop_odoo,
-            patch("impodo.local_stack._stop_postgresql") as stop_postgresql,
+            patch("impodo.adapters.odoo.local_stack._stop_owned_odoo") as stop_odoo,
+            patch("impodo.adapters.odoo.local_stack._stop_postgresql") as stop_postgresql,
         ):
             with self.assertRaisesRegex(
                 LocalStackError,
@@ -524,7 +524,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
         service.start("workspace-1")
 
         with patch(
-            "impodo.local_stack.subprocess.run",
+            "impodo.adapters.odoo.local_stack.subprocess.run",
             side_effect=(
                 subprocess.CompletedProcess(args=[], returncode=0),
                 subprocess.CompletedProcess(args=[], returncode=0),
@@ -575,7 +575,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
         )
 
         with patch(
-            "impodo.local_stack.subprocess.run",
+            "impodo.adapters.odoo.local_stack.subprocess.run",
             return_value=subprocess.CompletedProcess(args=[], returncode=0),
         ) as run:
             with self.assertRaisesRegex(

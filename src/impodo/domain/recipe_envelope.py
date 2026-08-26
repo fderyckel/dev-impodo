@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from ..models import assert_no_numeric_odoo_ids
+from impodo.domain.shared.models import assert_no_numeric_odoo_ids
 from .recipe.models import RecipeIntegrityError
 from .serialization import content_hash
 

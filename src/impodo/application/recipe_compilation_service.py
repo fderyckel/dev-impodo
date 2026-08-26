@@ -7,8 +7,8 @@ import re
 from typing import Mapping, Protocol
 import unicodedata
 
-from ..access import Actor
-from ..derived_entities import DerivedEntityPlan
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..domain.mapping.contracts import (
@@ -26,8 +26,8 @@ from ..domain.recipe_envelope import (
     CURRENT_RECIPE_CONTRACT_VERSIONS,
     validate_recipe_envelope,
 )
-from ..quality import QualityRuleSet, QualityRuleSource
-from ..reference_keys import (
+from impodo.domain.preparation.quality import QualityRuleSet, QualityRuleSource
+from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     GovernedReferenceDecision,
     GovernedReferenceRequest,
@@ -43,7 +43,7 @@ from ..domain.recipe.models import (
     RecipeDraftRecoveryStep,
     RecipeIntegrityError,
 )
-from ..workspace_contracts import OdooSchemaCatalog, SourceDataset, SourceSelection
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDataset, SourceSelection
 
 
 class RecipeAuthoringSourceRepository(Protocol):

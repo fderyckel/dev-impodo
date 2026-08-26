@@ -8,12 +8,12 @@ from types import SimpleNamespace
 import unittest
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.application.workspace.execution.service import (
     ExecutionService,
     execution_api_scope,
 )
-from impodo.domain.execution import (
+from impodo.domain.execution.models import (
     ExecutionRowStatus,
     ExecutionRunStatus,
 )
@@ -23,22 +23,19 @@ from impodo.domain.execution_snapshot import (
     ExecutionSnapshot,
     FieldIntent,
 )
-from impodo.models import (
+from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
     OdooReadIdentity,
     OdooWriteIdentity,
 )
-from impodo.odoo_writer import (
-    Json2WriteExecutor,
-    OdooWriteOutcomeUnknown,
-    OdooWriteRejected,
-)
-from impodo.odoo_scope import OdooApiScope, OdooModelScope
-from impodo.connectors import Json2Config
-from impodo.workspace_state import OdooConnectionMode, SourceMode
-from impodo.web.target_writers import _write_executor
-from impodo.workspace_errors import WorkspaceError
+from impodo.adapters.odoo.writer import Json2WriteExecutor
+from impodo.domain.execution.odoo_write import OdooWriteOutcomeUnknown, OdooWriteRejected
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.adapters.odoo.connectors import Json2Config
+from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
+from impodo.web.composition.target_writers import _write_executor
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 HASH = "sha256:" + "1" * 64

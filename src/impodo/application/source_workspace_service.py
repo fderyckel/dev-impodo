@@ -21,8 +21,8 @@ from threading import RLock
 from typing import Iterable, Mapping, Protocol
 from uuid import uuid4
 
-from ..access import Actor, Capability
-from ..artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from impodo.domain.shared.access import Actor, Capability
+from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from ..domain.source_snapshot import (
     SourceSnapshot,
 )
@@ -35,17 +35,17 @@ from ..domain.odoo_capture import (
 )
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..domain.source_binding import FileSourceBinding, require_file_source
-from ..inspection import (
+from impodo.application.data_version.inspection import (
     SourceFileCatalog,
     SourceInspectionError,
     SourceTableCatalog,
 )
-from ..workspace_state import WorkspaceState, WorkspaceStatus, SourceMode
-from ..source import SourceLoadError
-from ..source_snapshot_io import (
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus, SourceMode
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.application.data_version.source_snapshots import (
     SourceSnapshotPublisher,
 )
-from ..workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceConfiguration,
     SourceDataset,
     SourceDatasetColumn,
@@ -54,8 +54,8 @@ from ..workspace_contracts import (
     OdooSchemaCatalog,
     SchemaOrigin,
 )
-from ..workspace_errors import WorkspaceError
-from ..workspace_access import WorkspaceAccessService
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.application.workspace.access import WorkspaceAccessService
 from ..domain.serialization import content_hash
 
 

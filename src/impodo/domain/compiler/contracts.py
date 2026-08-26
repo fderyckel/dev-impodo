@@ -8,8 +8,8 @@ from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ...models import canonical_json_bytes
-from ...profile import DatasetSpec, validate_dataset_graph
+from impodo.domain.shared.models import canonical_json_bytes
+from impodo.domain.recipe.profile import DatasetSpec, validate_dataset_graph
 
 
 COMPILED_MIGRATION_PLAN_VERSION = 1

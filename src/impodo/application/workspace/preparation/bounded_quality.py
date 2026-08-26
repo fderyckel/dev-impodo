@@ -15,8 +15,8 @@ import json
 from typing import overload
 
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
-from impodo.workspace_state import WorkspaceState
-from impodo.quality import (
+from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.preparation.quality import (
     MANDATORY_QUALITY_FAMILIES,
     QualityError,
     QualityDisposition,
@@ -42,8 +42,8 @@ from impodo.quality import (
     quality_identity_key,
     retention_context_hash,
 )
-from impodo.models import canonical_json_bytes, portable_value
-from impodo.staging_contracts import (
+from impodo.domain.shared.models import canonical_json_bytes, portable_value
+from impodo.domain.preparation.staging_contracts import (
     CanonicalIssue,
     CanonicalRow,
     CanonicalStagingRun,

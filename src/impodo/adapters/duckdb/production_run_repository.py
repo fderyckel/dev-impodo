@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Mapping
 
-from ...access import Actor
-from ...migration_foundation import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationNotFoundError,
@@ -15,7 +15,7 @@ from ...migration_foundation import (
     require_hash,
     require_uuid,
 )
-from ...migration_production import ProductionRunBinding
+from impodo.domain.run.production import ProductionRunBinding
 from .migration_foundation_repository import MigrationFoundationRepository
 
 

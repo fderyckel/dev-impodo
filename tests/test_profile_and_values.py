@@ -8,23 +8,20 @@ import unittest
 
 import yaml
 
-from impodo.canonical import (
+from impodo.domain.preparation.canonical import (
     ValueParseError,
     parse_value,
     values_equal,
 )
 from impodo.domain.compiler import CompiledMigrationPlan, compile_profile_document
-from impodo.models import (
+from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
     portable_value,
     restore_portable_value,
 )
-from impodo.profile import (
-    NormalizationSpec,
-    ProfileLoadError,
-    load_profile,
-)
+from impodo.domain.recipe.profile import NormalizationSpec
+from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
 
 
 ROOT = Path(__file__).resolve().parents[1]

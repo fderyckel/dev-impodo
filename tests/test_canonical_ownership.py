@@ -11,10 +11,10 @@ from uuid import uuid4
 
 import duckdb
 
-from impodo.migration_run_setup import OdooConnectionMode
+from impodo.domain.run.setup import OdooConnectionMode
 from impodo.domain.workspace.models import MigrationWorkspaceSetupState
 from impodo.web.app import create_local_app
-from impodo.workspace_state import SourceMode, WorkspaceStatus
+from impodo.domain.workspace.workbench import SourceMode, WorkspaceStatus
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +43,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
     def test_project_and_data_version_values_override_workbench_cache(self) -> None:
         workspace_id = self.bundle.workspace.workspace_id
         current = self.context.queries.get(workspace_id)
-        with patch("impodo.intake.validate_source_file_isolated"):
+        with patch("impodo.application.data_version.intake.validate_source_file_isolated"):
             self.context.intake.accept(
                 workspace_id,
                 actor=self.context.actor,
@@ -85,7 +85,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
     def test_registration_advances_only_the_workspace_setup_root(self) -> None:
         workspace_id = self.bundle.workspace.workspace_id
         current = self.context.queries.get(workspace_id)
-        with patch("impodo.intake.validate_source_file_isolated"):
+        with patch("impodo.application.data_version.intake.validate_source_file_isolated"):
             self.context.intake.accept(
                 workspace_id,
                 actor=self.context.actor,

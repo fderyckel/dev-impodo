@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from ...access import Actor
-from ...migration_foundation import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationNotFoundError,
     require_revision,
     require_uuid,
 )
 from ...domain.workspace.models import MigrationWorkspace
-from ...workspace_access import WorkspaceAccessContext
+from impodo.application.workspace.access import WorkspaceAccessContext
 
 
 class FoundationWorkspaceRecords:

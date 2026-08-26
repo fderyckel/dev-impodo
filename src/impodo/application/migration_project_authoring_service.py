@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID, uuid5
 
-from ..access import Actor
-from ..data_version_sources import (
+from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
     SourcePackageOrigin,
@@ -15,7 +15,7 @@ from ..data_version_sources import (
 )
 from ..domain.data_version.models import DataVersion, DataVersionPurpose
 from .data_version.service import DataVersionService
-from ..migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationNotFoundError,
     MigrationOperationState,
@@ -27,7 +27,7 @@ from .run.service import MigrationRunService
 from ..domain.run.models import MigrationRun, MigrationRunPurpose
 from ..domain.workspace.models import MigrationWorkspace
 from .workspace.service import MigrationWorkspaceService
-from ..workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceStateNotFoundError,
     WorkspaceStateService,
     SourceMode,

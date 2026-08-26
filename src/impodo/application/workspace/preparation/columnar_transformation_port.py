@@ -19,7 +19,7 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactRow,
     TransformationRuleImpact,
 )
-from impodo.models import Issue, PreparedRecord
+from impodo.domain.shared.models import Issue, PreparedRecord
 
 
 DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS = 1_000

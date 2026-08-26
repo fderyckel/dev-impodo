@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from impodo.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
-from impodo.governance import DryRun
+from impodo.domain.cutover.governance import DryRun
 from impodo.domain.mapping.artifacts import MappingRevision
-from impodo.normalization import (
+from impodo.domain.preparation.normalization import (
     NormalizationCandidate,
     NormalizationError,
     NormalizationEvaluation,
@@ -20,11 +20,11 @@ from impodo.normalization import (
     StoredNormalizationEvaluation,
     evaluate_normalization,
 )
-from impodo.workspace_state import WorkspaceState
-from impodo.quality import QualityRun, QualityRunSummary, StoredQualityRun
-from impodo.staging import StagingRunSummary
-from impodo.staging_contracts import CanonicalStagingRun
-from impodo.workspace_contracts import SourceSelection
+from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.preparation.quality import QualityRun, QualityRunSummary, StoredQualityRun
+from impodo.domain.preparation.staging import StagingRunSummary
+from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
+from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.errors import NormalizationReviewPolicyError, ReadinessError
 from .readiness_ports import NormalizationRepository
 from .bounded_normalization import (

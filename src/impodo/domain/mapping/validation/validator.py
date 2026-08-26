@@ -34,7 +34,7 @@ from ..create_field_policy import (
     CreateFieldCoverage,
     evaluate_create_field,
 )
-from ....supporting_lookups import SupportingLookupSnapshot
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from .control_totals import _validate_control_totals
 from .dependencies import _validate_dependencies
 from .evidence import (

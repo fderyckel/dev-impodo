@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
 )
@@ -36,7 +36,7 @@ from impodo.application.recipe_publication_service import (
     RecipePublicationService,
 )
 from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
-from impodo.data_version_sources import DataVersionSourcePackageService
+from impodo.application.data_version.source_packages import DataVersionSourcePackageService
 from impodo.application.data_version.service import DataVersionService
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.serialization import content_hash
@@ -46,15 +46,15 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from impodo.migration_foundation import MigrationOperationState, utc_now
+from impodo.domain.project.foundation import MigrationOperationState, utc_now
 from impodo.application.project.service import MigrationProjectService
 from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
-from impodo.inspection import inspect_source_file
-from impodo.workspace_state import WorkspaceStateService
-from impodo.secrets import MemorySecretStore
+from impodo.application.data_version.inspection import inspect_source_file
+from impodo.domain.workspace.workbench import WorkspaceStateService
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
@@ -539,7 +539,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         )
         workspace_id = bundle.workspace.workspace_id
         with patch(
-            "impodo.intake.validate_source_file_isolated",
+            "impodo.application.data_version.intake.validate_source_file_isolated",
             lambda _path: None,
         ):
             source_file = context.intake.accept(
@@ -555,7 +555,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             expected_revision=context.queries.get(workspace_id).revision,
         )
         with patch(
-            "impodo.source_worker.inspect_source_file_isolated",
+            "impodo.application.data_version.source_worker.inspect_source_file_isolated",
             side_effect=lambda path, *, source_file, options, inspector, catalog_from_json, inspection_error: inspector(
                 path,
                 source_file=source_file,

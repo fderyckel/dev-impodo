@@ -12,11 +12,11 @@ from typing import (
     Mapping,
 )
 
-from ...models import (
+from impodo.domain.shared.models import (
     canonical_json_bytes,
     portable_value,
 )
-from ...staging_contracts import BROWSER_EVALUATOR_VERSION
+from impodo.domain.preparation.staging_contracts import BROWSER_EVALUATOR_VERSION
 from ..contracts import (
     TRANSFORMATION_IMPACT_CONTRACT_VERSION,
     TRANSFORMATION_IMPACT_DETAIL_LIMIT,

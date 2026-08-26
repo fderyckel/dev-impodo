@@ -92,7 +92,7 @@ the setup also redirects without changing the Recipe-derived scope. On
 setup's saved scope with the pinned Recipes and calls the existing bounded
 Odoo 19 metadata capture.
 
-The same command uses the [target reader](../../../src/impodo/web/target_readers.py)
+The same command uses the [target reader](../../../src/impodo/web/composition/target_readers.py)
 to union fields for each related Odoo model, make one combined supporting-value
 reader call, and cap every related model at 2,001 returned rows so 2,000 values
 is the accepted maximum. It verifies one exact target, reader, access context,
@@ -292,13 +292,13 @@ queries must not scale with Recipe count.
 
 | Role | Code |
 | --- | --- |
-| Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/migration_run_planning.py) |
-| Test setup binding | [`migration_test.py`](../../../src/impodo/migration_test.py) |
+| Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/domain/run/contracts.py) |
+| Test setup binding | [`migration_test.py`](../../../src/impodo/domain/run/test_setup.py) |
 | Stable Test setup facade | [`TestRunSetupService`](../../../src/impodo/application/run/test_setup_service.py) |
 | Restart-safe Test setup creation | [`TestRunSetupStartUseCase`](../../../src/impodo/application/run/test_setup_start.py) |
 | Fresh-data values and matching | [`TestRunFreshDataUseCase`](../../../src/impodo/application/run/fresh_data_setup.py) |
 | Run-owned Odoo requirement query | [`TestRunOdooRequirementsUseCase`](../../../src/impodo/application/run/odoo_requirements.py) |
-| Stable logical source binding | [`recipe_source_binding.py`](../../../src/impodo/recipe_source_binding.py) |
+| Stable logical source binding | [`recipe_source_binding.py`](../../../src/impodo/domain/recipe/source_binding.py) |
 | Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/application/recipe/service.py) |
 | Stable run-planning facade | [`MigrationRunPlanningService`](../../../src/impodo/application/run/planning_service.py) |
 | Test activation | [`TestRunActivationUseCase`](../../../src/impodo/application/run/test_activation.py) |
@@ -306,7 +306,7 @@ queries must not scale with Recipe count.
 | Application materialization and recovery | [`RunApplicationMaterializer`](../../../src/impodo/application/run/application_materialization.py) and [`RunApplicationRecoveryUseCase`](../../../src/impodo/application/run/application_recovery.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |
-| Background preparation summary | [`PreparationJobManager`](../../../src/impodo/application/workspace/preparation/preparation_job_service.py) |
+| Background preparation summary | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
 | Background load summary | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
 | Test setup persistence | [`TestRunRepository`](../../../src/impodo/adapters/duckdb/test_run_repository.py) |

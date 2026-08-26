@@ -16,7 +16,7 @@ from typing import Any, Mapping
 
 from .compiler.contracts import CompiledMigrationPlan
 from .preflight.frozen_input import FrozenPreflightInput
-from ..models import (
+from impodo.domain.shared.models import (
     BusinessReference,
     Classification,
     Decision,
@@ -28,7 +28,7 @@ from ..models import (
     portable_value,
     restore_portable_value,
 )
-from ..profile import DatasetSpec, IdentityComponent, ResolveSpec
+from impodo.domain.recipe.profile import DatasetSpec, IdentityComponent, ResolveSpec
 
 
 EXECUTION_SNAPSHOT_VERSION = 4

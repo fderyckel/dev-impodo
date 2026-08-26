@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from uuid import uuid4
 
-from ...access import Actor
+from impodo.domain.shared.access import Actor
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
@@ -25,9 +25,9 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from ...models import Issue, LogicalReference, canonical_json_bytes, portable_value
-from ...staging import StagingRunStatus
-from ...staging_contracts import (
+from impodo.domain.shared.models import Issue, LogicalReference, canonical_json_bytes, portable_value
+from impodo.domain.preparation.staging import StagingRunStatus
+from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalIssue,
     CanonicalRow,
@@ -35,8 +35,8 @@ from ...staging_contracts import (
     StagingDisposition,
     validate_canonical_row_bindings,
 )
-from ...workspace_errors import WorkspaceError
-from ...workspace_state import WorkspaceStateNotFoundError
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from .constants import (
     DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
     DUCKDB_JSON_BATCH_MAX_BYTES,

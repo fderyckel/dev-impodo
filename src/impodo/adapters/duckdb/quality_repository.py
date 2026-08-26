@@ -22,9 +22,9 @@ from uuid import UUID, uuid4
 
 import duckdb
 
-from ...access import Actor
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...quality import (
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.preparation.quality import (
     QUALITY_CONTRACT_VERSION,
     QUALITY_EVALUATOR_VERSION,
     QUALITY_RULESET_CONTRACT_VERSION,
@@ -43,8 +43,8 @@ from ...quality import (
     StoredQualityRun,
     retention_context_hash,
 )
-from ...staging_contracts import CanonicalRow
-from ...workspace_errors import WorkspaceError
+from impodo.domain.preparation.staging_contracts import CanonicalRow
+from impodo.domain.workspace.errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository, WorkspaceAggregateReader

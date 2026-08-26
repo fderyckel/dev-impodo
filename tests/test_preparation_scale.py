@@ -80,24 +80,25 @@ from impodo.domain.staging.scale import (
 from impodo.domain.staging import evaluator as evaluator_module
 from impodo.domain.staging import canonical_projection as canonical_projection_module
 from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
-from impodo.inspection import (
+from impodo.application.data_version.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from impodo.intake import CHUNK_BYTES, MAX_SOURCE_BYTES
-from impodo.workspace_state import (
+from impodo.application.data_version.intake import CHUNK_BYTES, MAX_SOURCE_BYTES
+from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     WorkspaceStatus,
     SourceFile,
 )
 
-from impodo import source as source_module
-from impodo.normalization import (
+from impodo.application.data_version import source_files as source_files_module
+from impodo.domain.preparation import source as preparation_source_module
+from impodo.domain.preparation.normalization import (
     NormalizationCandidate,
     evaluate_normalization,
 )
-from impodo.quality import (
+from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
     QualityRule,
@@ -107,10 +108,10 @@ from impodo.quality import (
     default_quality_ruleset,
     evaluate_quality,
 )
-from impodo.preparation_jobs import PreparationJobStatus, PreparationWorkspace
-from impodo.value_rules import ScalarTransformPolicy
+from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
+from impodo.domain.recipe.value_rules import ScalarTransformPolicy
 from impodo.web.app import create_local_app
-from impodo.workspace_contracts import MappingWorkingDraft
+from impodo.domain.workspace.contracts import MappingWorkingDraft
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -336,7 +337,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
             return invoke
 
-        original_iter_batches = source_module.SelectedSourceBatchStream.iter_batches
+        original_iter_batches = source_files_module.SelectedSourceBatchStream.iter_batches
 
         def timed_iter_batches(stream):
             iterator = original_iter_batches(stream)
@@ -387,7 +388,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_project_row = evaluator_module.CompiledBrowserRowTransformer.project
         original_finish_row = evaluator_module.CompiledBrowserRowTransformer.finish
         original_scalar_value = evaluator_module.evaluate_scalar_mapping_value
-        original_prepare_row = source_module.CompiledPreparedRowTransformer.transform
+        original_prepare_row = (
+            preparation_source_module.CompiledPreparedRowTransformer.transform
+        )
         original_canonical_row = bounded_preparation_module.canonical_row_from_prepared
         original_columnar_canonical_row = (
             bounded_preparation_module.canonical_prepared_session_row
@@ -570,7 +573,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     instrumented_projected_rows,
                 ),
                 patch.object(
-                    source_module.SelectedSourceBatchStream,
+                    source_files_module.SelectedSourceBatchStream,
                     "iter_batches",
                     timed_iter_batches,
                 ),
@@ -590,7 +593,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     accumulated("scalar_value_evaluation", original_scalar_value),
                 ),
                 patch.object(
-                    source_module.CompiledPreparedRowTransformer,
+                    preparation_source_module.CompiledPreparedRowTransformer,
                     "transform",
                     accumulated(
                         "prepared_record_construction",
@@ -1088,7 +1091,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_prepared_batches = PolarsTransformationAdapter.iter_prepared_batches
         original_project_row = evaluator_module.CompiledBrowserRowTransformer.project
         original_finish_row = evaluator_module.CompiledBrowserRowTransformer.finish
-        original_prepare_row = source_module.CompiledPreparedRowTransformer.transform
+        original_prepare_row = (
+            preparation_source_module.CompiledPreparedRowTransformer.transform
+        )
         original_canonical_adapter = bounded_preparation_module._canonical_session_row
 
         def timed_prepared_batches(*args, **kwargs):
@@ -1143,7 +1148,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
             stack.enter_context(
                 patch.object(
-                    source_module.CompiledPreparedRowTransformer,
+                    preparation_source_module.CompiledPreparedRowTransformer,
                     "transform",
                     timed_call("python_prepared_record", original_prepare_row),
                 )

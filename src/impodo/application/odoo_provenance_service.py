@@ -9,7 +9,7 @@ import os
 from typing import Iterable, Protocol
 from uuid import uuid4
 
-from ..access import Actor, Capability
+from impodo.domain.shared.access import Actor, Capability
 from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.odoo_provenance import (
     OdooCaptureManifest,
@@ -17,11 +17,11 @@ from ..domain.odoo_provenance import (
     OdooOriginBatch,
     OdooProvenanceBinding,
 )
-from ..workspace_state import WorkspaceState, WorkspaceStateRepository, SourceMode
-from ..models import canonical_json_bytes
-from ..secrets import SecretStore, SecretStoreError
-from ..workspace_errors import WorkspaceError
-from ..workspace_access import WorkspaceAccessService
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateRepository, SourceMode
+from impodo.domain.shared.models import canonical_json_bytes
+from impodo.application.shared.secrets import SecretStore, SecretStoreError
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.application.workspace.access import WorkspaceAccessService
 from .protected_evidence_codecs import (
     OdooComparisonCodec,
     OdooProvenanceCodec,

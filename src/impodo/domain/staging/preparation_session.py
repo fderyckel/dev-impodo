@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any, Mapping, Sequence
 
 from ..compiler.columnar_transformation import ColumnarTransformationProgram
-from ...staging_contracts import (
+from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalIssue,
     CanonicalRow,

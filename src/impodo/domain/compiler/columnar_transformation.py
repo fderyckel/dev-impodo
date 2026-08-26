@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Mapping, Sequence, cast
 
-from ...workspace_contracts import SourceDataset, SourceSelection
+from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
 from ..mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,

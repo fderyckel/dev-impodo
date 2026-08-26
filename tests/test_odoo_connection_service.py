@@ -6,8 +6,8 @@ from impodo.application.odoo_connection_service import (
     OdooConnectionPurpose,
     OdooConnectionTestService,
 )
-from impodo.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from impodo.workspace_state import (
+from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStateError,

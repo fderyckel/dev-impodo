@@ -12,7 +12,7 @@ from impodo.domain.run.planning import (
     union_model_requirements,
     union_reference_requirements,
 )
-from impodo.migration_run_planning import (
+from impodo.domain.run.contracts import (
     OdooModelRequirement,
     RecipeDependency,
     RecipeRevisionSelection,

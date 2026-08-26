@@ -9,7 +9,7 @@ from hashlib import sha256
 import json
 import re
 
-from ..models import canonical_json_bytes
+from impodo.domain.shared.models import canonical_json_bytes
 
 
 RECONCILIATION_CONTRACT_VERSION = 3

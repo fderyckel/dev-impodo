@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from ...access import Actor
+from impodo.domain.shared.access import Actor
 from ...domain.reconciliation import ReconciliationRun
-from ...workspace_state import WorkspaceStateNotFoundError
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.errors import WorkspaceError
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 

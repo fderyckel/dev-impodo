@@ -11,11 +11,11 @@ from ...application.workspace.preparation.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobStateError,
 )
-from ...migration_foundation import MigrationFoundationError
-from ...migration_run_planning import RecipeApplicationStatus
-from ...preparation_jobs import PreparationJob, PreparationJobStatus
-from ...preparation_jobs import PreparationWorkspace
-from ...workspace_errors import WorkspaceError
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.run.contracts import RecipeApplicationStatus
+from impodo.application.workspace.preparation.job_models import PreparationJob, PreparationJobStatus
+from impodo.application.workspace.preparation.job_models import PreparationWorkspace
+from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render

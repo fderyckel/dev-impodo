@@ -10,7 +10,7 @@ import unittest
 from uuid import UUID
 
 from impodo.domain.serialization import content_hash
-from impodo.models import assert_no_numeric_odoo_ids
+from impodo.domain.shared.models import assert_no_numeric_odoo_ids
 
 
 ROOT = Path(__file__).resolve().parents[1]

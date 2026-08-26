@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ...preparation_jobs import PreparationWorkspace
-from ...workspace_state import (
+from impodo.application.workspace.preparation.job_models import PreparationWorkspace
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStateError,
     WorkspaceStateNotFoundError,

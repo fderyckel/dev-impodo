@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from impodo.application.recipe_application_service import RecipeApplicationAssessment
 from impodo.domain.recipe.models import Recipe
-from impodo.migration_run_planning import (
+from impodo.domain.run.contracts import (
     MigrationRunPlanIssue,
     OdooModelRequirement,
     RecipeDependency,

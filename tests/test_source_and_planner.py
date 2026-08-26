@@ -12,21 +12,17 @@ from openpyxl import Workbook
 from pydantic import ValidationError
 
 from impodo.domain.compiler import compile_profile_document
-from impodo.models import LogicalReference
-from impodo.planner import (
+from impodo.domain.shared.models import LogicalReference
+from impodo.domain.execution.planner import (
     plan_metadata_requests,
     plan_preflight_requirements,
     plan_record_requests,
 )
-from impodo.profile import SourceSpec, load_profile
-from impodo.source import (
-    SourceLoadError,
-    load_selected_source_table,
-    open_selected_source_batches,
-    prepare_sources,
-    validated_xlsx_table_bounds,
-)
-from impodo.reference_keys import REFERENCE_POLICY_HASH
+from impodo.domain.recipe.profile import SourceSpec
+from impodo.adapters.artifacts.profile_loader import load_profile
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.application.data_version.source_files import load_selected_source_table, open_selected_source_batches, prepare_sources, validated_xlsx_table_bounds
+from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
 
 
 ROOT = Path(__file__).resolve().parents[1]

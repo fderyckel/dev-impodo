@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
 
-from ...access import AuthorizationError, Capability
+from impodo.domain.shared.access import AuthorizationError, Capability
 from ...application.workspace.preparation.bounded_preparation import (
     supports_bounded_direct_preparation,
 )
@@ -25,10 +25,10 @@ from ...domain.staging.scale import (
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
 )
-from ...local_stack import LocalStackError, LocalStackStatus
-from ...workspace_state import WorkspaceState, OdooConnectionMode, SourceMode
-from ...reporting import WORKBOOK_NAME
-from ...workspace_errors import WorkspaceError
+from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
+from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
+from impodo.domain.workspace.errors import WorkspaceError
 from ..constants import (
     DEFAULT_SUMMARY_ROWS_PER_PAGE,
     NORMALIZATION_GROUPS_PER_PAGE,

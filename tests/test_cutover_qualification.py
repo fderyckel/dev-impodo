@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from impodo.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.cutover_plan_service import CutoverPlanService
 from impodo.domain.reconciliation import ReconciliationRunStatus
 from impodo.domain.serialization import content_hash
@@ -18,8 +18,8 @@ from impodo.domain.cutover.models import (
     CutoverQualificationState,
     QualifiedOutcomes,
 )
-from impodo.migration_foundation import MigrationConflictError
-from impodo.migration_run_planning import RecipeApplicationStatus
+from impodo.domain.project.foundation import MigrationConflictError
+from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.web.app import create_local_app
 from tests import test_integrated_recipe_runs as integrated_runs
 

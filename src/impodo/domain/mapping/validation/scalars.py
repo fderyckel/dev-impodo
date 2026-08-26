@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Mapping
 
-from ....metadata import TYPE_COMPATIBILITY
-from ....value_rules import (
+from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
+from impodo.domain.recipe.value_rules import (
     CASE_MODES,
     CHARACTER_CLASSES,
     MAX_RULE_SIZE,

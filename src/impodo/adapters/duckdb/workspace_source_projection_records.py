@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ...data_version_sources import SourcePackageState, WorkspaceSourceProjection
-from ...migration_foundation import MigrationConflictError
+from impodo.application.data_version.source_packages import SourcePackageState, WorkspaceSourceProjection
+from impodo.domain.project.foundation import MigrationConflictError
 
 
 class WorkspaceSourceProjectionRecords:

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from ...access import Actor
+from impodo.domain.shared.access import Actor
 from ...domain.run.models import (
     MigrationRun,
 )
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationOperationKind,
     MigrationOperationState,

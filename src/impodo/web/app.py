@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from ..access import (
+from impodo.domain.shared.access import (
     Actor,
     AuthorizationError,
     AuthorizationPolicy,
@@ -50,7 +50,7 @@ from ..application.recipe_compilation_service import RecipeCompiler
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
-from ..build_contract import ApplicationBuildContract, PROCESS_BUILD_CONTRACT
+from impodo.application.shared.build_contract import ApplicationBuildContract, PROCESS_BUILD_CONTRACT
 from ..application.run.planning_service import (
     MigrationRunPlanningService,
 )
@@ -69,7 +69,7 @@ from ..application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
 )
 from ..application.workspace.preparation.preparation_service import PreparationService
-from ..application.workspace.preparation.preparation_job_service import (
+from impodo.web.composition.preparation_job_manager import (
     PreparationJobManager,
 )
 from ..application.workspace.preparation.quality_service import QualityService
@@ -80,14 +80,15 @@ from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
 )
-from ..artifacts import GovernedArtifactStores
-from ..derived_entities import DerivedEntityWorkspaceService
-from ..intake import SourceIntakeService
-from ..inspection import SourceInspectionService
-from ..incompatible_project_storage import prepare_incompatible_project_storage
-from ..jobs import InlineJobDispatcher, JobDispatcher
-from ..local_odoo_reader import LocalOdooMetadataReader
-from ..local_stack import LocalStackService
+from impodo.application.shared.artifacts import GovernedArtifactStores
+from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
+from impodo.application.data_version.intake import SourceIntakeService
+from impodo.application.data_version.inspection import SourceInspectionService
+from impodo.web.composition.incompatible_project_storage import prepare_incompatible_project_storage
+from impodo.adapters.jobs.inline import InlineJobDispatcher
+from impodo.application.shared.jobs import JobDispatcher
+from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
+from impodo.adapters.odoo.local_stack import LocalStackService
 from ..adapters.duckdb.migration_workspace_state_repository import (
     MigrationWorkspaceStateRepository,
 )
@@ -136,7 +137,7 @@ from ..adapters.polars_transformation import PolarsTransformationAdapter
 from ..adapters.odoo_source_capture import Json2OdooSourceCapture
 from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
-from ..workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStateCompatibilityError,
@@ -144,29 +145,29 @@ from ..workspace_state import (
     WorkspaceStateService,
     SourceMode,
 )
-from ..connectors import Json2Config
-from ..data_version_sources import (
+from impodo.adapters.odoo.connectors import Json2Config
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackageService,
     WorkspaceSourceProjectionService,
 )
 from ..application.data_version.service import DataVersionService
 from ..application.project.service import MigrationProjectService
 from ..application.run.service import MigrationRunService
-from ..migration_run_setup import MigrationRunTargetSetupService
+from impodo.domain.run.setup import MigrationRunTargetSetupService
 from ..application.workspace.service import MigrationWorkspaceService
 from ..domain.recipe.models import RecipeError
 from ..application.recipe.service import RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
-from ..migration_foundation import (
+from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
     MigrationNotFoundError,
 )
-from ..workspace_access import (
+from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     WorkspaceAccessService,
 )
-from ..workspace_views import WorkspaceOwnerViewService
-from ..secrets import SecretStore, SecretStoreError
+from impodo.application.workspace.views import WorkspaceOwnerViewService
+from impodo.application.shared.secrets import SecretStore, SecretStoreError
 from .context import (
     BrowserReadinessReader,
     ConnectionTester,
@@ -184,7 +185,7 @@ from .capability_builders import (
     build_protected_run_capability,
 )
 from .presenters.common import _render
-from .target_readers import (
+from impodo.web.composition.target_readers import (
     _read_model_catalog,
     _read_schema,
     _probe_read_identity,
@@ -195,7 +196,7 @@ from .target_credentials import (
     get_target_credential,
     local_read_credential_binding_hash,
 )
-from .target_writers import _probe_write_identity, _readback_reader, _write_executor
+from impodo.web.composition.target_writers import _probe_write_identity, _readback_reader, _write_executor
 from .routers.derived_entities import build_derived_entities_router
 from .routers.concepts import build_concepts_router
 from .routers.lifecycle import build_lifecycle_router

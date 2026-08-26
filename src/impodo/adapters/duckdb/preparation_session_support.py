@@ -12,11 +12,11 @@ from ...domain.staging.preparation_session import (
 from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
 )
-from ...staging_contracts import (
+from impodo.domain.preparation.staging_contracts import (
     CanonicalRow,
     StagingDisposition,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .constants import (
     DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
 )

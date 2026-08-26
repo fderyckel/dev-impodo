@@ -6,17 +6,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping
 
 from ..domain.serialization import content_hash
-from ..load_jobs import LoadJob, LoadJobStatus
-from ..migration_foundation import MigrationConflictError
-from ..migration_run_planning import (
+from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
+from impodo.domain.project.foundation import MigrationConflictError
+from impodo.domain.run.contracts import (
     IntegratedRunBundle,
     MigrationRunPlanIssue,
     RecipeApplicationStatus,
     RunRecipeApplication,
 )
 from ..domain.run.models import MigrationRunPurpose
-from ..preparation_jobs import PreparationJob, PreparationJobStatus
-from ..workspace_errors import WorkspaceError
+from impodo.application.workspace.preparation.job_models import PreparationJob, PreparationJobStatus
+from impodo.domain.workspace.errors import WorkspaceError
 
 if TYPE_CHECKING:
     from .context import WebContext

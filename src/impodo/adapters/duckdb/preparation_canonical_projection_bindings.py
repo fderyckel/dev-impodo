@@ -9,7 +9,7 @@ from ...domain.staging.preparation_session import (
     PreparedCanonicalProjection,
     PreparationSessionStatus,
 )
-from ...workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from .serialization import _canonical_json
 
 

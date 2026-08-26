@@ -22,8 +22,8 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 
-from impodo.access import Actor, ActorIdentity, Capability
-from impodo.connectors import (
+from impodo.domain.shared.access import Actor, ActorIdentity, Capability
+from impodo.domain.odoo.contracts import (
     ConnectorAuthenticationError,
     ConnectorAuthorizationError,
     ConnectorError,
@@ -31,8 +31,8 @@ from impodo.connectors import (
     MetadataSnapshot,
     RecordSnapshot,
 )
-from impodo.local_odoo_reader import LocalOdooMetadataReader
-from impodo.local_stack import (
+from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
+from impodo.adapters.odoo.local_stack import (
     LocalStackCheck,
     LocalStackService,
     LocalStackStartResult,
@@ -63,7 +63,7 @@ from impodo.domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.data_version_sources import (
+from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageCatalog,
     SourcePackageConfiguration,
@@ -73,13 +73,13 @@ from impodo.data_version_sources import (
     SourcePackageState,
     source_column_contract_hash,
 )
-from impodo.inspection import (
+from impodo.application.data_version.inspection import (
     CATALOG_CONTRACT_VERSION,
     SourceColumnProfile,
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from impodo.domain.execution import ExecutionRowStatus, ExecutionRunStatus
+from impodo.domain.execution.models import ExecutionRowStatus, ExecutionRunStatus
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCapturePage,
@@ -94,7 +94,7 @@ from impodo.application.odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
 )
-from impodo.models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
@@ -104,12 +104,12 @@ from impodo.models import (
     TargetRecord,
     target_identity_hash,
 )
-from impodo.models import canonical_json_text
-from impodo.odoo_readback import ReadbackRecord
-from impodo.workspace_state import OdooConnectionMode, WorkspaceStatus, SourceMode
-from impodo.preparation_jobs import PreparationJobStatus, PreparationWorkspace
-from impodo.planner import PreflightRequirementPlan
-from impodo.quality import (
+from impodo.domain.shared.models import canonical_json_text
+from impodo.domain.execution.odoo_readback import ReadbackRecord
+from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceStatus, SourceMode
+from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
+from impodo.domain.execution.planner import PreflightRequirementPlan
+from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
     QualityRuleFamily,
@@ -118,17 +118,18 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from impodo.secrets import MemorySecretStore, SecretStoreError
-from impodo.staging_contracts import CanonicalControlTotal
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.preparation.staging_contracts import CanonicalControlTotal
 from impodo.web.app import create_local_app
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential,
     store_target_credential,
 )
-from impodo.web.target_readers import _source_value_choices
-from impodo.workspace_errors import WorkspaceError
-from impodo.workspace_contracts import (
+from impodo.web.composition.target_readers import _source_value_choices
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
@@ -7054,7 +7055,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context.readiness_reader = None
         context.read_identity_probe = changed_identity
         context.schema_reader = changed_schema
-        with patch("impodo.web.target_readers.Json2ReadConnector") as connector:
+        with patch("impodo.web.composition.target_readers.Json2ReadConnector") as connector:
             decision = self.client.post(
                 f"/workspaces/{workspace_id}/mapping/save",
                 json={

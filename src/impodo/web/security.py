@@ -19,13 +19,13 @@ from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
 
-from ..access import Actor, AuthorizationError, Capability
-from ..build_contract import (
+from impodo.domain.shared.access import Actor, AuthorizationError, Capability
+from impodo.application.shared.build_contract import (
     ApplicationBuildContract,
     calculate_application_build_contract,
 )
-from ..migration_foundation import MigrationFoundationError
-from ..workspace_access import (
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     WorkspaceAccessService,
     bind_workspace_access_context,

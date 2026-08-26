@@ -7,11 +7,11 @@ import json
 import os
 from pathlib import Path
 
-from impodo.development_reset import (
+from impodo.web.composition.development_reset import (
     execute_development_reset,
     plan_development_reset,
 )
-from impodo.project_security import development_mode_enabled
+from impodo.adapters.protected_evidence.project_security import development_mode_enabled
 
 
 def main() -> int:

@@ -8,7 +8,7 @@ from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
     evaluate_create_field,
 )
-from impodo.workspace_contracts import SchemaField
+from impodo.domain.workspace.contracts import SchemaField
 
 
 class CreateFieldPolicyTests(unittest.TestCase):

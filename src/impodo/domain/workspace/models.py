@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from ...migration_foundation import (
+from impodo.domain.project.foundation import (
     require_aware,
     require_revision,
     require_uuid,

@@ -48,7 +48,7 @@ affected scope and publishes a separate reconciliation run.
 | Execution orchestration | [`ExecutionService`](../../../src/impodo/application/workspace/execution/service.py) |
 | Background load jobs | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
-| Journal states | [`execution.py`](../../../src/impodo/domain/execution.py) |
+| Journal states | [`execution/models.py`](../../../src/impodo/domain/execution/models.py) |
 | Reconciliation | [`ReconciliationService`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
 

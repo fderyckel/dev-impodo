@@ -8,14 +8,14 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.access import LOCAL_ACTOR
-from impodo.connectors import MetadataSnapshot, RecordSnapshot
-from impodo.inspection import (
+from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.application.data_version.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from impodo.models import (
+from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
@@ -46,7 +46,7 @@ from impodo.adapters.duckdb.mapping_repository import MappingRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
-from impodo.workspace_state import (
+from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStatus,
@@ -59,16 +59,16 @@ from impodo.application.workspace.mapping.categorical_coverage import (
 )
 from impodo.application.schema_workspace_service import SchemaWorkspaceService
 from impodo.application.source_workspace_service import SourceWorkspaceService
-from impodo.derived_entities import (
+from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     RelatedDatasetRule,
 )
-from impodo.workspace_contracts import (
+from impodo.domain.workspace.contracts import (
     SchemaField,
     SchemaModel,
     SchemaOrigin,
 )
-from impodo.workspace_errors import WorkspaceError
+from impodo.domain.workspace.errors import WorkspaceError
 from tests.workspace_access_helpers import workspace_access_service
 
 
