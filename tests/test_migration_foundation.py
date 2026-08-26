@@ -10,6 +10,8 @@ from uuid import uuid4
 
 import duckdb
 
+from tests._database_probe import StatementCountingConnection
+
 from impodo.access import (
     Actor,
     ActorIdentity,
@@ -283,7 +285,16 @@ class MigrationFoundationTests(unittest.TestCase):
                 migration_purpose="Bounded Project-list fixture",
                 source_system_identity="Fictional ERP",
             )
+        opened = []
+        statements = []
+        original_connect = self.database.connect
+
+        def counted(path):
+            opened.append(path)
+            return StatementCountingConnection(original_connect(path), statements)
+
         with (
+            patch.object(self.database, "connect", side_effect=counted),
             patch.object(
                 self.database,
                 "ensure_data_version_store",
@@ -298,6 +309,8 @@ class MigrationFoundationTests(unittest.TestCase):
             summaries = self.projects.list(actor=LOCAL_ACTOR)
         self.assertEqual(len(summaries), 100)
         self.assertTrue(all(item.recipe_count == 0 for item in summaries))
+        self.assertEqual(opened, [self.database.registry_path])
+        self.assertEqual(len(statements), 1)
 
     def test_authorization_rejects_each_root_before_creation(self) -> None:
         denied = Actor(
@@ -713,4 +726,3 @@ class MigrationFoundationResetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

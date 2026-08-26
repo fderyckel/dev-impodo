@@ -1,0 +1,46 @@
+{
+  "application_to_adapter_edges": [
+    [
+      "impodo.application.bounded_preparation",
+      "impodo.adapters.polars_transformation",
+      "runtime"
+    ],
+    [
+      "impodo.application.odoo_provenance_service",
+      "impodo.adapters.protected_odoo_comparison",
+      "runtime"
+    ],
+    [
+      "impodo.application.odoo_provenance_service",
+      "impodo.adapters.protected_odoo_provenance",
+      "runtime"
+    ]
+  ],
+  "cycles_including_type_only": [
+    [
+      "impodo.inspection",
+      "impodo.source_worker"
+    ]
+  ],
+  "import_edge_digest": "67416ebcc505b9cd7efb5e127aafbcbd780245cb18fee3b6034b829c93793af5",
+  "module_count": 275,
+  "module_digest": "ecbf371afd42edab1d0aa6b2887d046fdcd7296243eaba45aaf40d4fd65f2e34",
+  "modules_by_location": {
+    "adapters": 64,
+    "application": 42,
+    "domain": 58,
+    "legacy_root": 65,
+    "package_root": 1,
+    "web": 45
+  },
+  "runtime_cycles": [
+    [
+      "impodo.inspection",
+      "impodo.source_worker"
+    ]
+  ],
+  "runtime_import_edge_count": 1688,
+  "schema_version": 1,
+  "type_only_import_edge_count": 1,
+  "unclassified_modules": []
+}

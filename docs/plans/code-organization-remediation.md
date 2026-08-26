@@ -1,17 +1,8 @@
 ---
 audience: developer
 kind: plan
-status: proposed
+status: active
 ---
-
-
-
-I would make these refinements before treating it as the execution contract:
-1. Clarify the home of cross-cutting mapping, preparation, and execution code. The proposed tree lists them as separate domain capabilities, while the placement rules also describe much of their evidence as workspace-owned. Define, for each, the owner of its state, its portable pure logic, and the allowed public contract. Otherwise the new tree can recreate the same ambiguity it aims to remove. See [target package shape (line 73)](dev-impodo\docs\plans\code-organization-remediation.md:73) and [workspace placement (line 144)](\dev-impodo\docs\plans\code-organization-remediation.md:144).
-2. Specify the transaction boundary as a narrow port or transaction-scoped repository interface—not a DuckDB connection passed through application services. Enumerate the atomic operations and fault/retry tests that protect them. The principle is right; the interface needs to prevent persistence details leaking inward. See [cross-owner transactions (line 181)](\dev-impodo\docs\plans\code-organization-remediation.md:181).
-3. Make the Phase 1 architecture check explicitly transitional. It must deterministically classify existing flat modules, resolve relative and type-only imports correctly, and fail on unclassified production code. This avoids replacing one hidden organization system with a fragile test-side mapping. See [executable architecture checks (line 332)](\dev-impodo\docs\plans\code-organization-remediation.md:332).
-4. Make the order-dependence proof reproducible: use recorded fixed shuffle seeds or process-isolated cases, rather than one nondeterministic shuffled run. See [Phase 0 (line 357)](\dev-impodo\docs\plans\code-organization-remediation.md:357).
-5. Add explicit batching and query-count preservation checks. Splitting broad repositories into narrow ports can accidentally introduce N+1 registry queries, workspace opens, or Odoo reads. The existing architecture requires bounded shared Odoo capture, so this deserves a regression gate alongside restart-safety tests.
 
 # Code organization remediation plan
 
@@ -95,18 +86,19 @@ src/impodo/
 |   |-- recipe/
 |   |-- run/
 |   |-- cutover/
-|   |-- mapping/
-|   |-- preparation/
-|   `-- execution/
+|   |-- mapping/       # portable rules and value semantics only
+|   |-- preparation/   # portable plans and row semantics only
+|   `-- execution/     # portable plan, status, and result semantics only
 |-- application/
 |   |-- project/
 |   |-- data_version/
 |   |-- workspace/
+|   |   |-- mapping/
+|   |   |-- preparation/
+|   |   `-- execution/
 |   |-- recipe/
 |   |-- run/
-|   |-- cutover/
-|   |-- preparation/
-|   `-- execution/
+|   `-- cutover/
 |-- adapters/
 |   |-- duckdb/
 |   |   |-- registry/
@@ -127,6 +119,11 @@ src/impodo/
 This is a destination, not a request for one large move. Current import paths
 should change in reviewed capability slices. The final structure must not keep
 old import modules as runtime aliases.
+
+The `mapping`, `preparation`, and `execution` domain packages do not own a
+second lifecycle. They contain portable logic that can be applied to
+owner-qualified state. Application use cases and persistence ports remain
+grouped under the owner whose state they change.
 
 ## Ownership and placement rules
 
@@ -162,6 +159,22 @@ eventual path and name must make that status explicit, such as
 `domain/workspace/workbench.py`. It must not become a second workspace
 identity or lifecycle owner.
 
+### Mapping, preparation, and execution
+
+These names describe operations that cross accepted owners. They do not create
+new aggregate roots. The following placement contract applies:
+
+| Capability | Owner of authoritative state | Portable pure logic | Allowed public application contract |
+| --- | --- | --- | --- |
+| Mapping | A workspace owns its working mapping draft, validation result, and current target-field evidence. An immutable Recipe revision owns only the portable mapping rules that were published from eligible work. | `domain/mapping` may define value objects, compatibility decisions, rule validation, and deterministic projections. It must not read a workspace, Data version, Recipe repository, credential, DuckDB connection, or Odoo service. | Workspace commands and queries live under `application/workspace/mapping`. Recipe compilation and publication live under `application/recipe`. Each use case receives a workspace-qualified or Recipe-qualified port, never a combined mapping repository. |
+| Preparation | A Recipe-application workspace owns prepared snapshots, derived artifacts, quality inputs, and their current pointers. The Data version continues to own immutable source evidence, while the run owns only shared selection and progress meaning. | `domain/preparation` may compile and evaluate deterministic transformation plans over supplied rows and contracts. It must not open source artifacts, workspaces, worker processes, or Odoo. | Preparation use cases live under `application/workspace/preparation` and identify the workspace, pinned Recipe revision, and accepted Data version input. They depend on separate source-reader, preparation-store, and worker-gateway ports. |
+| Execution | A migration run owns the shared target binding, ordering, and integrated result. Each Recipe application workspace owns its isolated execution journal and reconciliation evidence. A Recipe never owns a load result. | `domain/execution` may define load plans, status transitions, idempotency meaning, and result value objects. It must not hold credentials or call an Odoo transport, journal store, or DuckDB repository. | Run coordination lives under `application/run`; one-application execution and reconciliation live under `application/workspace/execution`. They depend on target-writer and workspace-journal ports. Only composition selects local or remote Odoo adapters. |
+
+A pure capability module may receive identifiers as opaque values when an
+algorithm must preserve lineage. It must not use those identifiers to locate
+state. The owner-qualified application use case performs that lookup through a
+narrow port.
+
 ### Recipe
 
 Place portable Recipe meaning, envelope validation, immutable revisions, and
@@ -190,13 +203,42 @@ selection coordination under `application/cutover`.
 ### Cross-owner transactions
 
 Keep `registry.duckdb` as one local registry unless a separate architecture
-decision changes it. Split its Python repository code by owner while sharing
-one explicit connection and transaction abstraction.
+decision changes it. Split its Python repository code by owner while keeping
+the physical connection and transaction inside the DuckDB adapter.
 
-An operation that atomically creates or changes several roots belongs in a
-named transaction coordinator. Owner-specific repositories should accept or
-reuse that transaction. They must not open independent transactions that make
-the operation appear atomic when it is not.
+An application coordinator must depend on an operation-oriented port such as
+`FoundationCommands`, `TestRunActivationCommands`, or
+`ProductionActivationCommands`. The port exposes the complete atomic command
+and its owner-qualified result. It must not expose `duckdb.DuckDBPyConnection`,
+a generic `connection`, `execute`, `commit`, or `rollback` method.
+
+The DuckDB adapter may implement a private transaction-scoped repository set.
+The adapter starts one transaction, passes its private transaction context to
+its owner-specific repository collaborators, and commits only after every
+registry mutation succeeds. No application service or domain object receives
+that transaction context. A retry returns through the same public command with
+the same operation identity.
+
+The protected artifact and workspace databases cannot join the registry's
+DuckDB transaction. Operations that cross those stores remain restart-safe
+workflows: the registry records an operation intent, a retry verifies the
+reserved meaning, and idempotent adapter steps complete missing stores without
+duplicating roots.
+
+The transaction and restart-safety baseline protects these operations:
+
+| Operation | Required boundary | Fault and retry evidence |
+| --- | --- | --- |
+| Create a Project, Data version, migration run, or workspace | Each root creation, operation intent, parent revision, and registry event commits as one registry transaction. Missing owner stores are resumed idempotently. | `MigrationFoundationTests.test_fault_injection_replays_each_root_without_duplicates` |
+| Publish a Recipe revision | The registry revision and reserved artifact meaning stay consistent across an artifact-store fault. A retry adds one revision only. | `ProjectAuthoringTests.test_publication_recovers_after_artifact_store_fault_and_adds_one_recipe` |
+| Accept a Data version and publish a workspace source projection | Data version source evidence remains authoritative while a retry completes an interrupted cross-store projection without changing its meaning. | `DataVersionSourcePackageTests.test_freeze_and_projection_recover_after_cross_store_faults` |
+| Activate an integrated Test run | The target binding, requirement plan, Recipe applications, isolated workspaces, and operation intent are one named activation command. A retry does not duplicate applications. | `IntegratedRecipeRunTests.test_same_operation_recovers_after_registry_fault_without_duplicates` |
+| Qualify a Cutover plan | Registry qualification meaning and protected evidence recover under the same operation identity. | `CutoverQualificationTests.test_qualification_recovers_after_protected_evidence_fault` |
+| Activate a Production run | Registry activation and workspace provisioning reuse the reserved meaning before and after the registry commit. | `ProductionRolloutTests.test_activation_recovers_after_registry_commit_before_workspace_stores` and `test_activation_retry_reuses_reserved_meaning_before_registry_commit` |
+
+Any repository decomposition must keep these public commands and tests intact.
+New atomic operations require a fault before commit, a fault after commit but
+before dependent-store completion, and an exact-operation retry assertion.
 
 ## Repository decomposition
 
@@ -334,23 +376,49 @@ end-to-end browser smoke path for the complete journey. Split the current
 1,911-line browser scenario into capability tests that share reviewed setup
 helpers, not shared mutable application state.
 
-Before reorganizing the test tree, fix the current order-dependent
-`test_review_projection_routes_required_default_recovery` failure. The full
-integrated module must pass in its normal order and in a shuffled order.
+Before reorganizing the test tree, preserve the fix for the former positional
+assumption in
+`test_review_projection_routes_required_default_recovery`. The full integrated
+module must pass in its normal order and in the two recorded, process-isolated
+orders defined by `scripts/run_seeded_unittest.py`.
+
+Repository and adapter decompositions must also preserve bounded I/O. The
+Phase 0 query and batching gates are listed in
+[the deterministic baseline](../testing/code-organization-phase0-baseline.md).
+Increasing one of those bounds requires an explicit performance explanation
+and a reviewed replacement expectation; it must not be an incidental effect of
+splitting a repository.
 
 ## Executable architecture checks
 
-Add one deterministic AST-based test with no new runtime dependency. It should:
+Phase 1 adds one deterministic AST-based test with no new runtime dependency.
+It is explicitly transitional while flat modules remain. It should:
 
-1. classify every production module by layer and capability;
-2. reject `domain -> application`, `domain -> adapters`, and `domain -> web`
-   imports;
-3. reject `application -> adapters` and `application -> web` imports;
-4. allow adapters to import the application ports they implement;
-5. restrict concrete adapter construction to composition modules and worker
-   entry points;
-6. reject non-trivial strongly connected module components; and
-7. print the exact offending import path when it fails.
+1. Start from a sorted module list and classify every production module by
+   current layer and intended capability. The temporary ownership manifest
+   must name every flat module rather than infer its owner from test order or a
+   partial prefix table.
+2. Resolve absolute imports, every level of relative import, imports from
+   package `__init__` modules, local imports, and imports beneath
+   `TYPE_CHECKING` or `typing.TYPE_CHECKING`. Type-only edges do not create a
+   runtime cycle, but they still participate in dependency-direction checks.
+3. Fail when any production module is unclassified. The failure must print the
+   module that needs an ownership decision.
+4. Reject `domain -> application`, `domain -> adapters`, and `domain -> web`
+   imports.
+5. Reject `application -> adapters` and `application -> web` imports.
+6. Allow adapters to import the application ports they implement.
+7. Restrict concrete adapter construction to composition modules and worker
+   entry points.
+8. Reject non-trivial runtime strongly connected module components.
+9. Print the exact offending import path when it fails.
+
+The Phase 0 inventory already resolves relative and type-only imports and
+fails when an unknown nested production package appears. Phase 1 adds the
+temporary complete flat-module ownership manifest and the zero-violation
+dependency rules. Delete that manifest as Phase 3 moves the last flat module
+to a path that communicates its owner. Do not let the transitional manifest
+become the permanent organization system.
 
 Do not create a permanent allow-list for the current application-to-adapter
 imports or the inspection-worker cycle. Remove those edges first, then make
@@ -365,14 +433,25 @@ or execution adapters.
 
 ### Phase 0: Establish a deterministic baseline
 
-- Fix the integrated-test order dependence.
-- Record the normal focused commands for Project, Data version, workspace,
-  Recipe, run, and cutover behavior.
-- Capture the current import graph and module-cycle result as test fixtures or
-  deterministic generated expectations.
+Phase 0 is implemented. Its maintained evidence is
+[the deterministic baseline](../testing/code-organization-phase0-baseline.md).
 
-**Exit condition:** The focused suites pass together, independently, and in a
-different order.
+- The integrated-run regression locates the intended Recipe application by
+  identity instead of relying on card position.
+- `scripts/run_seeded_unittest.py` sorts test identifiers before applying the
+  recorded seeds `1729` and `20260826`. It runs each seed in a new process and
+  also fixes `PYTHONHASHSEED` to that value.
+- `scripts/architecture_inventory.py` deterministically records the current
+  production modules, runtime and type-only imports, strongly connected
+  components, and current application-to-adapter edges.
+- `tests/architecture_phase0_baseline.json` is the reviewed current snapshot.
+  A structural change must update it deliberately and explain the diff.
+- Focused owner commands, atomic-operation tests, and bounded registry,
+  workspace, Odoo, and execution I/O checks are recorded as regression gates.
+
+**Exit condition:** The architecture fixture matches, the focused suites pass
+together and independently, and the integrated suite passes in normal order
+and both recorded process-isolated orders.
 
 ### Phase 1: Enforce dependency direction
 
@@ -496,6 +575,8 @@ Every remediation slice must preserve:
 - workspace authorization and identity-confusion tests;
 - storage generation and forward-upgrade tests;
 - restart-safe operation tests;
+- the Phase 0 registry statement counts, workspace-open counts, shared Odoo
+  capture counts, and bounded execution and reconciliation requests;
 - documentation quality and code-orientation checks; and
 - `git diff --check`.
 

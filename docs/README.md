@@ -76,8 +76,8 @@ applies those rules when documentation is created or rewritten.
 - [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
   delivery roadmap.
 - [Code organization remediation](plans/code-organization-remediation.md) — a
-  proposed layer-and-capability package structure, dependency rules, placement
-  guide, and incremental refactor sequence that preserves current behavior.
+  layer-and-capability execution contract, dependency rules, placement guide,
+  and incremental refactor sequence that preserves current behavior.
 - [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
   the approved plan for applying an existing Recipe to fresh data and an Odoo
   target without repeating the six authoring stages.
@@ -154,6 +154,9 @@ setup, CLI, release, and acceptance procedures live under
   and connector cases.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
   slice, determinism checks, and acceptance traceability.
+- [Code organization Phase 0 baseline](testing/code-organization-phase0-baseline.md)
+  — reproducible import, fixed-order, atomic-operation, and bounded-I/O gates
+  for the package remediation.
 - [Design QA evidence](testing/design-qa.md) — point-in-time visual fidelity
   findings, completed checks, and blocked browser-verification evidence.
 - [Glossary](glossary.md) — canonical project terminology.

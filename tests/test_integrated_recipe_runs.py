@@ -15,6 +15,8 @@ from uuid import UUID, uuid4, uuid5
 
 from fastapi.testclient import TestClient
 
+from tests._database_probe import StatementCountingConnection
+
 from impodo.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from impodo.adapters.duckdb.migration_foundation_database import (
@@ -2300,11 +2302,12 @@ class IntegratedRecipeRunTests(unittest.TestCase):
 
     def test_selected_recipe_revisions_use_one_registry_connection(self):
         opened = []
+        statements = []
         original_connect = self.database.connect
 
         def counted(path):
             opened.append(path)
-            return original_connect(path)
+            return StatementCountingConnection(original_connect(path), statements)
 
         with patch.object(self.database, "connect", side_effect=counted):
             revisions = self.recipe_service.read_revisions(
@@ -2315,6 +2318,7 @@ class IntegratedRecipeRunTests(unittest.TestCase):
 
         self.assertEqual(set(revisions), set(self._selected()))
         self.assertEqual(opened, [self.database.registry_path])
+        self.assertEqual(len(statements), 3)
 
     def test_fresh_data_keeps_the_pinned_revision_after_recipe_archive(self):
         service = TestRunSetupService(
@@ -2604,17 +2608,21 @@ class IntegratedRecipeRunTests(unittest.TestCase):
     def test_integrated_progress_reads_registry_without_workspace_open(self):
         result = self._start()
         opened = []
+        statements = []
         original = self.database.connect
 
         def counted(path):
             opened.append(path)
-            return original(path)
+            return StatementCountingConnection(original(path), statements)
 
         self.database.connect = counted
         progress = self.planning_repository.progress(result.run.migration_run_id)
         self.assertEqual(progress.total_applications, 2)
-        self.assertTrue(opened)
-        self.assertTrue(all(path == self.foundation.registry_path for path in opened))
+        self.assertEqual(
+            opened,
+            [self.foundation.registry_path, self.foundation.registry_path],
+        )
+        self.assertEqual(len(statements), 2)
 
     def test_review_projection_orders_recipes_without_workspace_open(self):
         result = self._start()
@@ -3551,5 +3559,3 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

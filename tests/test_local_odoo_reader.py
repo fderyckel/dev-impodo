@@ -255,6 +255,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
 
         self.assertEqual(metadata.fingerprint, records.fingerprint)
         self.assertEqual(records.records["res.partner"][0].values["ref"], "P-7")
+        self.assertEqual(len(calls), 1)
         script = calls[0][1]
         self.assertEqual(script.count(".fields_get("), 1)
         self.assertEqual(script.count(".search_read("), 1)
@@ -342,4 +343,3 @@ def _result(payload: dict[str, object]) -> LocalShellResult:
 
 if __name__ == "__main__":
     unittest.main()
-
