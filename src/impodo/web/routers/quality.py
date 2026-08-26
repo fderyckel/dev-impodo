@@ -7,14 +7,14 @@ from ...quality import MAX_MANAGER_RULES_PER_DATASET
 from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
-from ..context import WebContext
+from ..context import QualityRouteContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.mapping_impact import _mapping_return_url
 from ..presenters.mapping_view import _manager_quality_rules_from_form
 
 
-def build_quality_router(context: WebContext) -> APIRouter:
+def build_quality_router(context: QualityRouteContext) -> APIRouter:
     """Build routes that translate check forms into ``QualityService`` calls."""
 
     router = APIRouter()

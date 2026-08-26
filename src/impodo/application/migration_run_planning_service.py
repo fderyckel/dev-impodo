@@ -73,6 +73,8 @@ from .recipe_application_service import (
     RecipeApplicationAssessment,
     RecipeApplicationService,
 )
+from .run_review import RunReviewUseCase
+from .run_target_evidence import RunTargetEvidenceUseCase
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +135,30 @@ class MigrationRunPlanningService:
         self.compiler = compiler
         self.cutover_plans = cutover_plans
         self.authorization = authorization
+        self._target_evidence = RunTargetEvidenceUseCase(
+            foundation=repository.foundation,
+            compiler=compiler,
+            authorization=authorization,
+            planning_error=MigrationRunPlanningError,
+        )
+        self._review = RunReviewUseCase(
+            projects=projects,
+            data_versions=data_versions,
+            recipes=recipes,
+            repository=repository,
+            source_packages=source_packages,
+            compiler=compiler,
+            authorization=authorization,
+            planning_error=MigrationRunPlanningError,
+            reviewed_application_type=ReviewedRecipeApplication,
+            review_type=IntegratedRunReview,
+            package_selection=self._package_selection,
+            application_order=self._application_order,
+            write_collision_issues=self._write_collision_issues,
+            union_requirements=self._union_requirements,
+            union_reference_requirements=self._union_reference_requirements,
+            blocker=self._block,
+        )
 
     def review_test_run(
         self,
@@ -315,156 +341,18 @@ class MigrationRunPlanningService:
         required_target_workspace_id: str | None,
         actor: Actor,
     ) -> IntegratedRunReview:
-        """Validate one Test or Production plan without creating workspaces."""
-
-        project_id = require_uuid(project_id, "project_id")
-        data_version_id = require_uuid(data_version_id, "data_version_id")
-        self.authorization.require(
-            actor,
-            Capability.RECIPE_APPLY,
-            project_id=project_id,
-        )
-        project = self.projects.get(project_id, actor=actor)
-        target_workspace = self.repository.foundation.get_migration_workspace(
-            require_uuid(target_schema.workspace_id, "target evidence workspace_id")
-        )
-        target_data_version = self.data_versions.repository.get_data_version(
-            target_workspace.data_version_id
-        )
-        if (
-            target_workspace.project_id != project_id
-            or target_workspace.recipe_application_id is not None
-            or (
-                purpose is DataVersionPurpose.TEST
-                and target_data_version.purpose is DataVersionPurpose.PRODUCTION
-            )
-            or (
-                required_target_workspace_id is not None
-                and target_workspace.workspace_id != required_target_workspace_id
-            )
-        ):
-            raise MigrationRunPlanningError(
-                "Choose reviewed Odoo evidence from this run's setup workspace"
-            )
-        if (
-            target_reference_bundle is not None
-            and target_reference_bundle.workspace_id != target_workspace.workspace_id
-        ):
-            raise MigrationRunPlanningError(
-                "The supporting lists do not match the reviewed Odoo workspace"
-            )
-        data_version = self.data_versions.get(data_version_id, actor=actor)
-        if (
-            data_version.project_id != project.project_id
-            or data_version.purpose is not purpose
-            or data_version.state is not DataVersionState.FROZEN
-        ):
-            raise MigrationRunPlanningError(
-                f"Choose one accepted {purpose.value.title()} DataVersion from this Project"
-            )
-        package = self.source_packages.repository.get_source_package(data_version_id)
-        if package is None or package.content_hash != data_version.source_package_hash:
-            raise MigrationRunPlanningError(
-                f"The {purpose.value.title()} DataVersion source evidence is "
-                "missing or inconsistent"
-            )
-        normalized = tuple(
-            sorted(
-                (
-                    require_uuid(recipe_id, "recipe_id"),
-                    require_revision(version, "recipe_revision"),
-                )
-                for recipe_id, version in recipe_revisions
-            )
-        )
-        if not normalized or len({item[0] for item in normalized}) != len(normalized):
-            raise MigrationRunPlanningError(
-                f"Select one revision from each Recipe used by this {purpose.value.title()} run"
-            )
-        source_selection = self._package_selection(package)
-        supplied_parameters = parameter_values or {}
-        supplied_controls = control_values or {}
-        applications = []
-        for recipe_id, version in normalized:
-            recipe = self.recipes.get(recipe_id, actor=actor)
-            if recipe.project_id != project_id:
-                raise MigrationRunPlanningError(
-                    "Every selected Recipe must belong to this Project"
-                )
-            envelope = self.recipes.read_revision(recipe_id, version, actor=actor)
-            semantic_hash = str(envelope["semantic_hash"])
-            definition = dict(envelope["recipe"])
-            selection = RecipeRevisionSelection(
-                recipe_id=recipe_id,
-                recipe_revision=version,
-                semantic_hash=semantic_hash,
-            )
-            applications.append(
-                ReviewedRecipeApplication(
-                    recipe=recipe,
-                    selection=selection,
-                    definition=definition,
-                    requirements=self.compiler.requirements(definition),
-                    reference_requirements=(
-                        self.compiler.reference_requirements(definition)
-                    ),
-                    write_claims=self.compiler.write_claims(definition),
-                    assessment=self.compiler.assess(
-                        recipe_id=recipe_id,
-                        definition=definition,
-                        source_selection=source_selection,
-                        target_schema=target_schema,
-                        reference_bundle=target_reference_bundle,
-                        parameter_values=supplied_parameters.get(recipe_id, {}),
-                        control_values=supplied_controls.get(recipe_id, {}),
-                    ),
-                )
-            )
-        selected_ids = {item.selection.recipe_id for item in applications}
-        planning_issues = []
-        application_order = self._application_order(
-            selected_ids,
-            dependencies,
-            planning_issues,
-        )
-        self._write_collision_issues(applications, planning_issues)
-        requirements = self._union_requirements(applications)
-        reference_requirements = self._union_reference_requirements(
-            applications,
-            planning_issues,
-        )
-        if target_schema.connection_target_hash.strip() == "":
-            planning_issues.append(
-                self._block(
-                    "RUN_TARGET_IDENTITY_MISSING",
-                    "The selected Odoo evidence has no exact target identity.",
-                    "Capture current Odoo 19 evidence before starting the "
-                    f"{purpose.value.title()} run.",
-                    tuple(selected_ids),
-                )
-            )
-        return IntegratedRunReview(
-            project_id=project_id,
+        return self._review.review(
+            project_id,
             data_version_id=data_version_id,
-            applications=tuple(applications),
-            dependencies=tuple(
-                sorted(
-                    dependencies,
-                    key=lambda item: (
-                        item.before_recipe_id,
-                        item.after_recipe_id,
-                    ),
-                )
-            ),
-            model_requirements=requirements,
-            reference_requirements=reference_requirements,
-            application_order=application_order,
-            planning_issues=tuple(
-                sorted(
-                    planning_issues,
-                    key=lambda item: (item.code, item.recipe_ids),
-                )
-            ),
+            recipe_revisions=recipe_revisions,
+            dependencies=dependencies,
+            target_schema=target_schema,
+            target_reference_bundle=target_reference_bundle,
+            parameter_values=parameter_values,
+            control_values=control_values,
+            purpose=purpose,
+            required_target_workspace_id=required_target_workspace_id,
+            actor=actor,
         )
 
     def start_test_run(
@@ -1789,34 +1677,7 @@ class MigrationRunPlanningService:
         actor: Actor,
     ) -> tuple[OdooSchemaCatalog, ReferenceBundle | None]:
         """Read one reviewed schema and reference package for run-level reuse."""
-
-        project_id = require_uuid(project_id, "project_id")
-        workspace_id = require_uuid(workspace_id, "workspace_id")
-        workspace = self.repository.foundation.get_migration_workspace(workspace_id)
-        if workspace.project_id != project_id:
-            raise MigrationRunPlanningError(
-                "The selected Odoo evidence belongs to another Project"
-            )
-        self.authorization.require(
-            actor,
-            Capability.PROJECT_VIEW,
-            project_id=project_id,
-        )
-        schema = self.compiler.schemas.get_odoo_schema_catalog(workspace_id)
-        if schema is None or schema.origin.value != "LIVE_API":
-            raise MigrationRunPlanningError(
-                "Capture authenticated Odoo 19 evidence in the authoring workspace first"
-            )
-        try:
-            major = int(str(schema.odoo_version).split(".", 1)[0])
-        except ValueError:
-            major = -1
-        if major != 19:
-            raise MigrationRunPlanningError(
-                "The selected target evidence is not from Odoo 19"
-            )
-        references = self.compiler.references.get_reference_bundle(workspace_id)
-        return schema, references
+        return self._target_evidence.read(project_id, workspace_id, actor=actor)
 
     def _planned_application(
         self,
@@ -2114,4 +1975,3 @@ class MigrationRunPlanningService:
     @staticmethod
     def _child_operation(operation_id: str, name: str) -> str:
         return str(uuid5(UUID(operation_id), name))
-

@@ -46,7 +46,7 @@ stages:
       - src/impodo/migration_workspaces.py::MigrationWorkspaceService
       - src/impodo/workspace_access.py::WorkspaceAccessService
       - src/impodo/web/security.py::WorkspaceAccessMiddleware
-      - src/impodo/adapters/duckdb/migration_foundation_repository.py::MigrationFoundationRepository.resolve_workspace_access_context
+      - src/impodo/adapters/duckdb/foundation_workspace_records.py::FoundationWorkspaceRecords.resolve_workspace_access_context
       - src/impodo/adapters/duckdb/schema/forward_upgrades.py::ensure_current_schema
       - src/impodo/application/recipe_publication_service.py::RecipePublicationService
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService

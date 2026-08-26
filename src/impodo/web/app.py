@@ -30,7 +30,6 @@ from ..access import (
     Actor,
     AuthorizationError,
     AuthorizationPolicy,
-    CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
 from ..application.browser_queries import BrowserQueryService
@@ -75,7 +74,7 @@ from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.transformation_impact_service import TransformationImpactService
-from ..artifacts import GovernedArtifactStores, LocalArtifactStore
+from ..artifacts import GovernedArtifactStores
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
@@ -83,25 +82,12 @@ from ..incompatible_project_storage import prepare_incompatible_project_storage
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import LocalOdooMetadataReader
 from ..local_stack import LocalStackService
-from ..adapters.duckdb.migration_foundation_database import (
-    MigrationFoundationDatabase,
-)
-from ..adapters.duckdb.migration_foundation_repository import (
-    MigrationFoundationRepository,
-)
-from ..adapters.duckdb.migration_workspace_engine_database import (
-    MigrationWorkspaceEngineDatabase,
-)
 from ..adapters.duckdb.migration_workspace_state_repository import (
     MigrationWorkspaceStateRepository,
 )
-from ..adapters.duckdb.recipe_repository import RecipeRepository
 from ..adapters.duckdb.migration_run_planning_repository import (
     MigrationRunPlanningRepository,
 )
-from ..adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
-from ..adapters.duckdb.production_run_repository import ProductionRunRepository
-from ..adapters.duckdb.test_run_repository import TestRunRepository
 from ..adapters.duckdb.run_aware_schema_repository import (
     RunAwareSchemaRepository,
 )
@@ -144,10 +130,6 @@ from ..adapters.polars_transformation import PolarsTransformationAdapter
 from ..adapters.odoo_source_capture import Json2OdooSourceCapture
 from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
-from ..adapters.protected_recipe_store import ProtectedRecipeStore
-from ..adapters.protected_project_evidence_store import (
-    ProtectedProjectEvidenceStore,
-)
 from ..workspace_state import (
     WorkspaceState,
     OdooConnectionMode,
@@ -177,7 +159,7 @@ from ..workspace_access import (
     WorkspaceAccessService,
 )
 from ..workspace_views import WorkspaceOwnerViewService
-from ..secrets import CredentialVault, SecretStore, SecretStoreError
+from ..secrets import SecretStore, SecretStoreError
 from .context import (
     BrowserReadinessReader,
     ConnectionTester,
@@ -189,6 +171,10 @@ from .context import (
     SchemaReader,
     WriteIdentityProbe,
     WebContext,
+)
+from .capability_builders import (
+    build_foundation_capability,
+    build_protected_run_capability,
 )
 from .presenters.common import _render
 from .target_readers import (
@@ -297,18 +283,15 @@ def create_local_app(
         )
 
     unavailable_projects = prepare_incompatible_project_storage(project_root)
-    foundation_database = MigrationFoundationDatabase(
+    foundation = build_foundation_capability(
         project_root,
+        artifact_store=artifact_store,
         lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
     )
-    foundation_repository = MigrationFoundationRepository(foundation_database)
-    database = MigrationWorkspaceEngineDatabase(
-        foundation_database,
-        lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
-    )
-    artifacts = artifact_store or LocalArtifactStore(
-        Path(project_root) / "artifacts"
-    )
+    foundation_database = foundation.foundation_database
+    foundation_repository = foundation.foundation_repository
+    database = foundation.workspace_database
+    artifacts = foundation.artifacts
     workspace_state_repository = MigrationWorkspaceStateRepository(
         database,
         foundation_repository,
@@ -355,26 +338,22 @@ def create_local_app(
     execution_repository = ExecutionRepository(database)
     reconciliation_repository = ReconciliationRepository(database)
     transformation_impact_repository = TransformationImpactRepository(database)
-    resolved_authorization = authorization or CapabilityAuthorizationPolicy()
+    protected_runs = build_protected_run_capability(
+        project_root,
+        foundation_repository=foundation_repository,
+        authorization=authorization,
+        secret_store=secret_store,
+    )
+    resolved_authorization = protected_runs.authorization
     workspace_access = WorkspaceAccessService(
         foundation_repository,
         resolved_authorization,
     )
-    resolved_secret_store = secret_store or CredentialVault()
-    protected_recipe_store = ProtectedRecipeStore(
-        project_root,
-        resolved_secret_store,
-    )
-    cutover_plan_repository = CutoverPlanRepository(
-        foundation_repository,
-        ProtectedProjectEvidenceStore(project_root, resolved_secret_store),
-    )
-    production_run_repository = ProductionRunRepository(foundation_repository)
-    test_run_repository = TestRunRepository(foundation_repository)
-    recipe_repository = RecipeRepository(
-        foundation_repository,
-        protected_recipe_store,
-    )
+    resolved_secret_store = protected_runs.secret_store
+    cutover_plan_repository = protected_runs.cutover_plan_repository
+    production_run_repository = protected_runs.production_run_repository
+    test_run_repository = protected_runs.test_run_repository
+    recipe_repository = protected_runs.recipe_repository
     odoo_provenance_repository = OdooProvenanceRepository(
         database,
         artifacts,
@@ -943,7 +922,7 @@ def create_local_app(
         )
 
     for router in (
-        build_lifecycle_router(context),
+        build_lifecycle_router(context.lifecycle_routes()),
         build_concepts_router(),
         build_migration_projects_router(context),
         build_integrated_runs_router(context),
@@ -955,7 +934,7 @@ def create_local_app(
         build_schema_router(context),
         build_derived_entities_router(context),
         build_mapping_router(context),
-        build_quality_router(context),
+        build_quality_router(context.quality_routes()),
         build_preparation_router(context),
         build_resolution_router(context),
         build_normalization_router(context),

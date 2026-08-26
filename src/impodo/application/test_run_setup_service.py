@@ -4,17 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from uuid import UUID, uuid5
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..data_version_sources import (
-    DataVersionSourcePackage,
-    SourcePackageOrigin,
-    SourcePackageState,
-)
 from ..data_versions import DataVersionPurpose, DataVersionState
 from ..domain.recipe_parameters import (
     EXPORT_AS_OF_PARAMETER_ID,
@@ -29,9 +24,7 @@ from ..migration_foundation import (
     MigrationNotFoundError,
     MigrationOperationKind,
     MigrationOperationState,
-    require_revision,
     require_uuid,
-    required_text,
     utc_now,
 )
 from ..migration_run_planning import RecipeDependency, RecipeRevisionSelection
@@ -41,14 +34,14 @@ from ..migration_test import (
     TestRunParameterValues,
     TestRunSetupBinding,
     TestRunSetupBundle,
-    TestRunSetupState,
 )
 from ..recipe_source_binding import (
     logical_dataset_storage_name,
     normalize_recipe_source_name,
 )
 from ..recipes import RecipeError
-from ..workspace_state import SourceMode, WorkspaceStateNotFoundError
+from .test_run_credential_workspace import TestRunCredentialWorkspaceUseCase
+from .test_run_setup_start import TestRunSetupStartUseCase
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +316,12 @@ class TestRunSetupService:
         self.test_runs = test_runs
         self.run_planning = run_planning
         self.authorization = authorization
+        self._credential_workspace = TestRunCredentialWorkspaceUseCase(
+            test_runs=test_runs,
+            workspace_states=workspace_states,
+            authorization=authorization,
+        )
+        self._start_setup = TestRunSetupStartUseCase(self)
 
     def start_setup(
         self,
@@ -336,144 +335,16 @@ class TestRunSetupService:
         operation_id: str,
         actor: Actor,
     ) -> TestRunSetupBundle:
-        """Create one draft Test delivery and its shared setup workspace."""
-
-        project_id = require_uuid(project_id, "project_id")
-        operation_id = require_uuid(operation_id, "operation_id")
-        expected_workspace_revision = require_revision(
-            expected_workspace_revision,
-            "expected_workspace_revision",
-        )
-        clean_label = required_text(label, "label", maximum=200)
-        clean_export_as_of = self._export_date(export_as_of)
-        self.authorization.require(
-            actor,
-            Capability.MIGRATION_RUN_CREATE,
-            project_id=project_id,
-        )
-        selections = self._selections(project_id, recipe_revisions, actor=actor)
-        replay = self._committed_setup(
-            project_id,
-            operation_id=operation_id,
-            label=clean_label,
-            export_as_of=clean_export_as_of,
-            selections=selections,
-            dependencies=dependencies,
-            actor=actor,
-        )
-        if replay is not None:
-            return replay
-
-        authoring_versions = tuple(
-            item
-            for item in self.data_versions.list(project_id, actor=actor)
-            if item.purpose is DataVersionPurpose.AUTHORING
-            and item.state is DataVersionState.FROZEN
-        )
-        if not authoring_versions:
-            raise MigrationFoundationError(
-                "Save the Recipe from an accepted Authoring data version first"
-            )
-        parent = max(authoring_versions, key=lambda item: item.version_number)
-        parent_package = self.source_packages.repository.get_source_package(
-            parent.data_version_id
-        )
-        if (
-            parent_package is None
-            or parent_package.origin is not SourcePackageOrigin.FILE
-        ):
-            raise MigrationFoundationError(
-                "Testing with a newer delivery currently requires a file-source Recipe"
-            )
-
-        data_version = self._data_version(
+        return self._start_setup.start(
             project_id,
             expected_workspace_revision=expected_workspace_revision,
-            parent_data_version_id=parent.data_version_id,
-            label=clean_label,
-            export_as_of=clean_export_as_of,
-            operation_id=self._child_operation(operation_id, "test-data"),
-            actor=actor,
-        )
-        package = self.source_packages.repository.get_source_package(
-            data_version.data_version_id
-        )
-        if package is None:
-            self.source_packages.replace_draft(
-                DataVersionSourcePackage(
-                    data_version_id=data_version.data_version_id,
-                    project_id=project_id,
-                    revision=1,
-                    origin=SourcePackageOrigin.FILE,
-                    state=SourcePackageState.DRAFT,
-                    files=(),
-                    catalogs=(),
-                    configurations=(),
-                    datasets=(),
-                    updated_at=datetime.now(UTC),
-                ),
-                actor=actor,
-                expected_package_revision=None,
-            )
-        project = self.projects.get(project_id, actor=actor)
-        run = self._run(
-            project_id,
-            expected_workspace_revision=project.optimistic_revision,
-            data_version_id=data_version.data_version_id,
-            label=clean_label,
-            operation_id=self._child_operation(operation_id, "test-run"),
-            actor=actor,
-        )
-        project = self.projects.get(project_id, actor=actor)
-        setup_workspace = self._workspace(
-            project_id,
-            expected_workspace_revision=project.optimistic_revision,
-            data_version_id=data_version.data_version_id,
-            migration_run_id=run.migration_run_id,
-            label=f"{clean_label} data and Odoo target setup",
-            operation_id=self._child_operation(operation_id, "test-setup-workspace"),
-            actor=actor,
-        )
-        try:
-            self.workspace_states.repository.get(setup_workspace.workspace_id)
-        except WorkspaceStateNotFoundError:
-            project = self.projects.get(project_id, actor=actor)
-            self.workspace_states.provision_migration_workspace(
-                setup_workspace.workspace_id,
-                actor=actor,
-                name=setup_workspace.display_name,
-                source_system=project.source_system_identity,
-                source_mode=SourceMode.FILE,
-                data_classification=project.data_classification.value,
-                retention_days=project.retention_days,
-            )
-        binding = TestRunSetupBinding(
-            test_run_setup_id=self._child_operation(operation_id, "test-binding"),
-            project_id=project_id,
-            migration_run_id=run.migration_run_id,
-            data_version_id=data_version.data_version_id,
-            setup_workspace_id=setup_workspace.workspace_id,
-            selected_revisions=selections,
+            recipe_revisions=recipe_revisions,
             dependencies=dependencies,
-            state=TestRunSetupState.SETUP,
-            target_binding_id=None,
-            created_at=utc_now(),
-        )
-        project = self.projects.get(project_id, actor=actor)
-        stored = self.test_runs.bind_setup(
-            binding,
-            expected_workspace_revision=project.optimistic_revision,
-            operation_id=self._child_operation(operation_id, "bind-test-setup"),
-            request_hash=content_hash(
-                {
-                    "binding": binding.to_dict(),
-                    "export_as_of": clean_export_as_of,
-                    "label": clean_label,
-                }
-            ),
+            label=label,
+            export_as_of=export_as_of,
+            operation_id=operation_id,
             actor=actor,
         )
-        return self._bundle(stored, actor=actor)
 
     def activate(
         self,
@@ -1132,23 +1003,11 @@ class TestRunSetupService:
 
     def credential_workspace(self, workspace_id: str, *, actor: Actor):
         """Return the shared Test setup workspace that owns target credentials."""
-
-        workspace_id = self.credential_workspace_id(workspace_id, actor=actor)
-        return self.workspace_states.repository.get(workspace_id)
+        return self._credential_workspace.workspace(workspace_id, actor=actor)
 
     def credential_workspace_id(self, workspace_id: str, *, actor: Actor) -> str:
         """Return the credential owner without opening another workspace store."""
-
-        workspace_id = require_uuid(workspace_id, "workspace_id")
-        binding = self.test_runs.for_workspace(workspace_id)
-        if binding is None:
-            return workspace_id
-        self.authorization.require(
-            actor,
-            Capability.PROJECT_VIEW,
-            project_id=binding.project_id,
-        )
-        return binding.setup_workspace_id
+        return self._credential_workspace.workspace_id(workspace_id, actor=actor)
 
     def _selections(self, project_id, values, *, actor):
         normalized = tuple(values)

@@ -41,6 +41,7 @@ from ...migration_runs import MigrationRun
 from ...migration_test import TestRunSetupBinding
 from ...workspace_contracts import OdooSchemaCatalog
 from .migration_foundation_repository import MigrationFoundationRepository
+from .run_planning_operation_payloads import RunPlanningOperationPayloads
 
 
 class MigrationRunPlanningRepository:
@@ -50,6 +51,7 @@ class MigrationRunPlanningRepository:
         self.foundation = foundation
         self.database = foundation.database
         self.registry_path = foundation.registry_path
+        self._operation_payloads = RunPlanningOperationPayloads(self)
 
     def provision_integrated_run(
         self,
@@ -1569,63 +1571,11 @@ class MigrationRunPlanningRepository:
                     ],
                 )
 
-    @staticmethod
-    def _planned_dict(value: PlannedRecipeApplication) -> dict[str, object]:
-        return {
-            "application": MigrationRunPlanningRepository._application_dict(
-                value.application
-            ),
-            "dataset_ids": list(value.dataset_ids),
-            "issues": [item.to_dict() for item in value.issues],
-            "requirements": [item.to_dict() for item in value.requirements],
-            "reference_requirements": [
-                item.to_dict() for item in value.reference_requirements
-            ],
-            "workspace": MigrationFoundationRepository._workspace_dict(
-                value.workspace
-            ),
-        }
+    def _planned_dict(self, value: PlannedRecipeApplication) -> dict[str, object]:
+        return self._operation_payloads.planned_dict(value)
 
     def _stored_plan(self, detail: Mapping[str, object]):
-        applications = tuple(
-            PlannedRecipeApplication(
-                application=self._application_from_dict(dict(item["application"])),
-                workspace=self.foundation._workspace_from_dict(
-                    dict(item["workspace"])
-                ),
-                dataset_ids=tuple(str(value) for value in item["dataset_ids"]),
-                requirements=tuple(
-                    OdooModelRequirement(
-                        model=str(value["model"]),
-                        fields=tuple(str(field) for field in value["fields"]),
-                    )
-                    for value in item["requirements"]
-                ),
-                reference_requirements=tuple(
-                    ReferenceRequirement(
-                        name=str(value["name"]),
-                        content_hash=str(value["content_hash"]),
-                    )
-                    for value in item.get("reference_requirements", ())
-                ),
-                issues=tuple(self._issue_from_dict(value) for value in item["issues"]),
-            )
-            for item in detail["applications"]
-        )
-        return (
-            self.foundation._run_from_dict(dict(detail["run"])),
-            self._target_from_dict(dict(detail["target_binding"])),
-            self._plan_from_dict(dict(detail["requirement_plan"])),
-            applications,
-            MigrationRunTargetSchema.from_json(str(detail["target_schema_json"])),
-            (
-                MigrationRunReferenceBundle.from_dict(
-                    dict(detail["reference_bundle"])
-                )
-                if detail.get("reference_bundle") is not None
-                else None
-            ),
-        )
+        return self._operation_payloads.stored_plan(detail)
 
     @staticmethod
     def _target_values(value: RunTargetBinding) -> list[object]:

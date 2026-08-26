@@ -146,7 +146,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
 | Clean roots | [`MigrationProjectService`](../../../src/impodo/migration_projects.py), [`DataVersionService`](../../../src/impodo/data_versions.py), [`MigrationRunService`](../../../src/impodo/migration_runs.py), [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) |
-| Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/workspace_access.py) and [`MigrationFoundationRepository.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/migration_foundation_repository.py) |
+| Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/workspace_access.py) and [`FoundationWorkspaceRecords.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/foundation_workspace_records.py) |
 | Forward-only storage upgrades | [`ensure_current_schema`](../../../src/impodo/adapters/duckdb/schema/forward_upgrades.py) |
 | Workspace authorization middleware | [`WorkspaceAccessMiddleware`](../../../src/impodo/web/security.py) |
 | Workspace setup root | [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) and `MigrationWorkspaceService.complete_setup` |

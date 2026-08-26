@@ -34,10 +34,12 @@ Run the inventory check from the repository root:
 .venv/bin/python -m unittest tests.test_architecture_inventory -v
 ```
 
-The reviewed snapshot contains 277 production modules and 1,708 runtime
+The reviewed snapshot contains 294 production modules and 1,783 runtime
 internal import edges. It records one type-only edge. Phase 1 removed the three
 application-to-adapter edges and the runtime cycle between
-`impodo.inspection` and `impodo.source_worker`.
+`impodo.inspection` and `impodo.source_worker`. The Phase 2 work adds named
+composition, registry-record, preparation-session, and focused-use-case
+collaborators without adding a forbidden layer dependency or runtime cycle.
 
 When a remediation slice changes production modules or imports, inspect the
 JSON diff. Update the fixture only when the change is intended and the new

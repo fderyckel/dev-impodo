@@ -121,6 +121,23 @@ OdooSourceCaptureFactory = Callable[[WorkspaceState, str], OdooSourceCapturePort
 
 
 @dataclass(slots=True)
+class LifecycleRouteContext:
+    """Expose the one launch boundary used by lifecycle routes."""
+
+    launch_token: str
+
+
+@dataclass(frozen=True, slots=True)
+class QualityRouteContext:
+    """Expose only the services used to edit mapping quality checks."""
+
+    actor: Actor
+    queries: BrowserQueryService
+    quality: QualityService
+    transformation_impacts: TransformationImpactService
+
+
+@dataclass(slots=True)
 class WebContext:
     """Share one assembled set of local services and boundary callables.
 
@@ -190,6 +207,21 @@ class WebContext:
     odoo_connection_tests: OdooConnectionTestService
     remote_connections: RemoteConnectionStatusService
 
+    def lifecycle_routes(self) -> LifecycleRouteContext:
+        """Return the narrow dependency surface for lifecycle routes."""
+
+        return LifecycleRouteContext(launch_token=self.launch_token)
+
+    def quality_routes(self) -> QualityRouteContext:
+        """Return the narrow dependency surface for mapping-quality routes."""
+
+        return QualityRouteContext(
+            actor=self.actor,
+            queries=self.queries,
+            quality=self.quality,
+            transformation_impacts=self.transformation_impacts,
+        )
+
     def target_credential_workspace(
         self,
         workspace_id: str,
@@ -214,4 +246,3 @@ class WebContext:
         if owner_id == current.workspace_id:
             return current
         return replace(current, workspace_id=owner_id)
-

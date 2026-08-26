@@ -25,6 +25,7 @@ FORBIDDEN_IMPORTS = {
 ADAPTER_CONSTRUCTION_MODULES = frozenset(
     {
         "impodo.web.app",
+        "impodo.web.capability_builders",
         "impodo.preparation_worker",
         "impodo.incompatible_project_storage",
     }

@@ -6,12 +6,12 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from ..security import require_session
 from fastapi import APIRouter
-from ..context import WebContext
+from ..context import LifecycleRouteContext
 from ..forms import _secure_form
 from ..presenters.common import _render
 
 
-def build_lifecycle_router(context: WebContext) -> APIRouter:
+def build_lifecycle_router(context: LifecycleRouteContext) -> APIRouter:
     router = APIRouter()
 
     @router.get("/launch")

@@ -474,15 +474,37 @@ production module cycle.
 
 ### Phase 2: Decompose composition and change hubs
 
-- Split local composition into capability builders and narrow route contexts.
-- Decompose `MigrationFoundationRepository` behind the current ports and one
-  shared transaction coordinator.
-- Decompose run-planning and preparation-session persistence without changing
-  schema or transaction meaning.
-- Split Test setup and run planning into focused use cases.
 
-**Exit condition:** Each extracted component has one named reason to change,
-and existing behavior and restart-safety tests remain unchanged.
+Phase 2 is implemented. The completed slices give local browser composition two
+capability builders and sends the lifecycle and mapping-quality routes narrow
+contexts. `FoundationProjectRecords` now owns Project persistence, while
+`RegistryTransactionCoordinator` owns the shared registry commit or rollback
+boundary. `FoundationDataVersionRecords` now owns Data version numbering,
+reads, and revision-checked writes. `FoundationMigrationRunRecords` owns run
+reads, target-setup changes, and revision-checked writes;
+`FoundationWorkspaceRecords` owns workspace registry reads, access lineage,
+listings, and updates. Both use `RegistryTransactionCoordinator` for their
+registry commit or rollback boundary. `PreparationSnapshotBindings` and
+`PreparationDerivedArtifactBindings` own immutable artifact reuse and their
+building-session binding transactions, while `PreparationSessionLifecycle`
+owns value-free status reads and terminal cleanup. `RunPlanningOperationPayloads`
+owns the durable payload that lets a planned run resume without changing its
+meaning. `WorkspaceSourceProjectionRecords` owns the post-commit read-side
+validation of an immutable workspace source projection, and
+`PreparationCanonicalProjectionBindings` owns the atomic native-projection
+binding to its verified snapshot. `FoundationSourcePackageReader` owns
+hash-verified reconstruction of a Data version's immutable source package.
+
+The slice also gives Test credential-workspace lookup, reviewed Odoo
+target-evidence lookup, and pre-provisioning run review named focused use
+cases. `TestRunSetupStartUseCase` owns the restart-safe creation of a Test
+delivery, shared setup workspace, and durable setup binding. Public repository
+and service ports remain unchanged, so callers retain the existing schema,
+transaction, and restart-safety behavior.
+
+**Exit condition:** Met. Each extracted component has one named reason to
+change; public ports, schemas, transaction boundaries, bounded-I/O behavior,
+and restart-safety tests remain unchanged.
 
 ### Phase 3: Move capability packages
 
