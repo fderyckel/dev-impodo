@@ -333,11 +333,14 @@ stages:
     code_references:
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
+      - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
+      - src/impodo/reporting.py::write_review_workbook
       - src/impodo/web/target_readers.py::LocalOdooRecoveryRequired
     tests:
       - tests/test_preflight_service.py
       - tests/test_preflight_scale.py
+      - tests/test_reporting_cli.py
       - tests/test_engine.py
       - tests/test_connectors.py
       - tests/test_odoo_comparison.py

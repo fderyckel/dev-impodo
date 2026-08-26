@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from dataclasses import replace
+from pathlib import Path
 
 from openpyxl import load_workbook
+from test_engine import ROOT, golden_result
 
 from impodo.cli import build_parser, main
+from impodo.models import Issue, PreparedRecord, Severity
 from impodo.reporting import (
     MANIFEST_NAME,
     WORKBOOK_NAME,
     write_preflight_outputs,
 )
-from test_engine import ROOT, golden_result
 
 
 class CliTests(unittest.TestCase):
@@ -51,8 +53,11 @@ class WorkbookIntegrationTests(unittest.TestCase):
     def test_review_workbook_and_manifest_are_generated(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "report"
+            result = golden_result()
             manifest_path, workbook_path = write_preflight_outputs(
-                golden_result(), output
+                result,
+                output,
+                prepared_records=_prepared_records(result),
             )
             self.assertEqual(manifest_path.name, MANIFEST_NAME)
             self.assertEqual(workbook_path.name, WORKBOOK_NAME)
@@ -64,44 +69,57 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 worksheet_xml = [
                     archive.read(name).decode()
                     for name in archive_names
-                    if name.startswith("xl/worksheets/sheet")
-                    and name.endswith(".xml")
+                    if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
                 ]
             self.assertFalse(
                 any(name.startswith("xl/tables/") for name in archive_names)
             )
             self.assertFalse(any("<tableParts" in xml for xml in worksheet_xml))
-            self.assertTrue(
-                all(xml.count("<autoFilter") <= 1 for xml in worksheet_xml)
-            )
+            self.assertTrue(all(xml.count("<autoFilter") <= 1 for xml in worksheet_xml))
             for sheet_name in (
-                "Dashboard",
-                "Target",
-                "Dataset Summary",
-                "Proposed Creates",
-                "Proposed Updates",
-                "Field Differences",
-                "Unchanged",
-                "Ambiguous Matches",
-                "Blocked Records",
-                "Reference Resolution",
-                "Source Issues",
-                "Metadata Coverage",
+                "Review overview",
+                "Needs attention",
+                "Records to load",
+                "Changes to Odoo",
+                "Evidence",
             ):
                 self.assertIn(sheet_name, workbook_xml)
             workbook = load_workbook(workbook_path, data_only=False)
             self.assertEqual(
-                workbook["Field Differences"]["F3"].value,
-                "Existing Target",
+                workbook["Changes to Odoo"]["E3"].value,
+                "Value that will be loaded",
             )
             self.assertEqual(
-                workbook["Field Differences"]["G3"].value,
-                "Proposed Source",
+                workbook["Changes to Odoo"]["F3"].value,
+                "Current Odoo value",
             )
-            self.assertIsInstance(workbook["Dashboard"]["B5"].value, int)
-            self.assertEqual(workbook["Dashboard"]["A11"].value, "Start here")
+            self.assertIsInstance(workbook["Review overview"]["B5"].value, int)
+            self.assertEqual(
+                workbook["Review overview"]["A11"].value,
+                "How to use this workbook",
+            )
             self.assertTrue(
-                workbook["Dashboard"]["A1"].fill.fgColor.rgb.endswith("292C28")
+                workbook["Review overview"]["A1"].fill.fgColor.rgb.endswith("292C28")
+            )
+            records = workbook["Records to load"]
+            headers = [cell.value for cell in records[3]]
+            name_column = headers.index("Name") + 1
+            self.assertEqual(records.cell(4, name_column).value, "Prepared PARTNER-NEW")
+            self.assertEqual(records["A4"].value, "Ready")
+            attention_text = " ".join(
+                str(cell.value or "")
+                for row in workbook["Needs attention"].iter_rows(min_row=4)
+                for cell in row
+            )
+            self.assertIn("A related record cannot be found.", attention_text)
+            self.assertIn("REFERENCE_NOT_FOUND", attention_text)
+            self.assertFalse(
+                any(
+                    cell.data_type == "f"
+                    for sheet in workbook.worksheets
+                    for row in sheet.iter_rows()
+                    for cell in row
+                )
             )
             for sheet in workbook.worksheets[1:]:
                 self.assertEqual(len(sheet.tables), 0)
@@ -127,8 +145,79 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 output,
                 preview_directory=previews,
             )
-            self.assertTrue((previews / "dashboard.csv").is_file())
-            self.assertTrue((previews / "field-differences.csv").is_file())
+            self.assertTrue((previews / "review-overview.csv").is_file())
+            self.assertTrue((previews / "changes-to-odoo.csv").is_file())
+
+    def test_field_level_warning_is_not_repeated_as_a_record_defect(self) -> None:
+        warning = Issue(
+            code="TARGET_SELECTION_CHOICES_CHANGED",
+            message=(
+                "Current Odoo choices for product.template.tracking changed since mapping "
+                "(0 removed, 1 added)"
+            ),
+            severity=Severity.WARNING,
+            dataset="products",
+            field="tracking",
+        )
+        original = golden_result()
+        result = replace(
+            original,
+            decisions=tuple(
+                (
+                    replace(decision, issues=(*decision.issues, warning))
+                    if decision.dataset == "products"
+                    else decision
+                )
+                for decision in original.decisions
+            ),
+            issues=(*original.issues, warning),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            _manifest_path, workbook_path = write_preflight_outputs(
+                result,
+                Path(directory) / "report",
+                prepared_records=_prepared_records(result),
+            )
+
+            workbook = load_workbook(workbook_path, data_only=True)
+            attention = workbook["Needs attention"]
+            technical_codes = [
+                cell.value for cell in attention["J"] if cell.row >= 4
+            ]
+            self.assertEqual(
+                technical_codes.count("TARGET_SELECTION_CHOICES_CHANGED"),
+                1,
+            )
+            records = workbook["Records to load"]
+            product_create = next(
+                row
+                for row in records.iter_rows(min_row=4, values_only=True)
+                if row[4] == "P-CREATE"
+            )
+            self.assertEqual(product_create[0], "Ready")
+            self.assertEqual(product_create[-1], "Ready to create. No action needed.")
+            workbook.close()
+
+
+def _prepared_records(result):
+    return tuple(
+        PreparedRecord(
+            dataset=decision.dataset,
+            source_row=decision.source_row,
+            target_model="res.partner",
+            source_identity=decision.business_identity,
+            target_identity=decision.business_identity,
+            target_scope=decision.business_scope,
+            scalar_values={
+                "name": f"Prepared {decision.business_identity[0]}",
+                "email": "reviewer@example.invalid",
+            },
+            references={},
+            source_trace_id=decision.source_trace_id,
+            issues=(),
+        )
+        for decision in result.decisions
+    )
 
 
 if __name__ == "__main__":

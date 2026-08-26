@@ -114,14 +114,18 @@ row, business identity and scope, match count, classification, differences,
 and issues.
 
 Serialization recursively rejects numeric record IDs, credentials, and
-transport authorization. Workbooks are projections of the manifest and contain
-no independent classification logic.
+transport authorization. The manifest remains the decision source for every
+workbook status, issue, and count. A file-source workbook may add the exact
+prepared values from the frozen input bound to that manifest so the data
+manager can review what Impodo will load. It contains no independent
+classification logic and cannot change saved evidence.
 
 For Odoo-source projects, the portable manifest additionally excludes all
 baseline, proposed, and current business values. Those values and exact IDs are
 application-encrypted with project/run/capture binding. The persisted record
 snapshot is redacted, and current same-database pinned-update policy publishes
-no execution snapshot.
+no execution snapshot. The portable workbook also excludes those protected
+values.
 
 ## Integration boundary
 

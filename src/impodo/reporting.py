@@ -1,30 +1,45 @@
-"""Write portable Stage-H evidence and its Excel review projection.
+"""Write portable Stage-H evidence and its data-manager review workbook.
 
 ``models.PreflightResult`` is the canonical decision source.  The JSON
 manifest is written first and the workbook is then generated locally with the
 same controlled Python runtime that Impodo already uses for XLSX intake.  The
-workbook is a projection and never feeds conclusions back into the engine.
+workbook takes classifications and issues only from that manifest and never
+feeds conclusions back into the engine.
 
-The manifest contains business identities and portable differences only.
-Protected target snapshots—with environment-local numeric Odoo IDs—are stored
-separately by the browser ``PreflightRepository`` and never enter the workbook.
-The CLI writes no repository state and builds both files from the same result.
+The manifest contains business identities and portable differences only. For
+file sources, an exact frozen-input projection may add prepared values so the
+data manager can see what Impodo will load. Protected target snapshots—with
+environment-local numeric Odoo IDs—and all Odoo-source business values remain
+outside the portable workbook. The CLI writes no repository state and builds
+both files from the same result.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterable, Sequence
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from .models import PreflightResult, canonical_json_bytes
-
+from .domain.preflight.reports import (
+    ReviewWorkbookEvidence,
+    plain_readiness_guidance,
+)
+from .models import (
+    BusinessReference,
+    Classification,
+    LogicalReference,
+    PreflightResult,
+    PreparedRecord,
+    canonical_json_bytes,
+)
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 WORKBOOK_NAME = "impodo_preflight_report.xlsx"
@@ -46,6 +61,8 @@ _COLORS = {
     "warning_bg": "FFF5DF",
     "danger": "9F2F2F",
     "danger_bg": "FCE8E7",
+    "prepared": "2F628F",
+    "prepared_bg": "EAF2FB",
     "white": "FFFFFF",
 }
 _THIN_BORDER = Border(
@@ -55,6 +72,7 @@ _BODY_FONT = Font(color=_COLORS["charcoal"])
 _SURFACE_FILL = PatternFill("solid", fgColor=_COLORS["surface"])
 _PAPER_FILL = PatternFill("solid", fgColor=_COLORS["paper"])
 _EXCEL_MAX_ROW = 1_048_576
+_EXCEL_MAX_COLUMN = 16_384
 
 
 class ReportGenerationError(RuntimeError):
@@ -66,6 +84,7 @@ def write_preflight_outputs(
     output_directory: str | Path,
     *,
     preview_directory: str | Path | None = None,
+    prepared_records: Sequence[PreparedRecord] = (),
 ) -> tuple[Path, Path]:
     """Write the canonical manifest and its Excel review workbook.
 
@@ -87,6 +106,20 @@ def write_preflight_outputs(
         manifest_path,
         workbook_path,
         preview_directory=preview_directory,
+        review_evidence=(
+            ReviewWorkbookEvidence(
+                frozen_input_hash="",
+                records=tuple(prepared_records),
+                dataset_labels={
+                    item.dataset: item.dataset.replace("_", " ").title()
+                    for item in prepared_records
+                },
+                target_model_labels={},
+                target_field_labels={},
+            )
+            if prepared_records
+            else None
+        ),
     )
     return manifest_path, workbook_path
 
@@ -96,6 +129,7 @@ def write_review_workbook(
     workbook_path: str | Path,
     *,
     preview_directory: str | Path | None = None,
+    review_evidence: ReviewWorkbookEvidence | None = None,
 ) -> Path:
     """Build the Excel review projection from an existing manifest."""
 
@@ -108,6 +142,7 @@ def write_review_workbook(
         manifest,
         workbook,
         preview_directory=preview_directory,
+        review_evidence=review_evidence,
     )
     return workbook
 
@@ -117,6 +152,7 @@ def _build_workbook(
     workbook_path: Path,
     *,
     preview_directory: str | Path | None,
+    review_evidence: ReviewWorkbookEvidence | None,
 ) -> None:
     """Create the business-facing workbook with the bundled Python runtime."""
 
@@ -125,184 +161,139 @@ def _build_workbook(
     except (OSError, ValueError) as error:
         raise ReportGenerationError("The readiness manifest is invalid") from error
 
+    decisions = tuple(manifest.get("decisions", ()))
+    prepared_by_trace = _prepared_records_by_trace(
+        manifest,
+        decisions,
+        review_evidence,
+    )
+    attention_rows = _attention_rows(
+        manifest,
+        decisions,
+        prepared_by_trace,
+        review_evidence,
+    )
+
     workbook = Workbook()
-    dashboard = workbook.active
-    dashboard.title = "Dashboard"
+    overview = workbook.active
+    overview.title = "Review overview"
     sheets = {
         name: workbook.create_sheet(name)
         for name in (
-            "Target",
-            "Dataset Summary",
-            "Proposed Creates",
-            "Proposed Updates",
-            "Field Differences",
-            "Unchanged",
-            "Ambiguous Matches",
-            "Blocked Records",
-            "Reference Resolution",
-            "Source Issues",
-            "Metadata Coverage",
+            "Needs attention",
+            "Records to load",
+            "Changes to Odoo",
+            "Evidence",
         )
     }
 
-    decisions = tuple(manifest.get("decisions", ()))
-    dataset_names = tuple(dict.fromkeys(item.get("dataset", "") for item in decisions))
-    dataset_summary_rows = []
-    for dataset in dataset_names:
-        rows = tuple(item for item in decisions if item.get("dataset") == dataset)
-        dataset_summary_rows.append(
-            [
-                dataset,
-                len(rows),
-                _classification_count(rows, "CREATE"),
-                _classification_count(rows, "UPDATE"),
-                _classification_count(rows, "UNCHANGED"),
-                _classification_count(rows, "AMBIGUOUS"),
-                _classification_count(rows, "BLOCKED"),
-            ]
-        )
+    _write_review_overview(overview, manifest, attention_rows)
     _write_data_sheet(
-        sheets["Dataset Summary"],
-        ["Dataset", "Candidates", "CREATE", "UPDATE", "UNCHANGED", "AMBIGUOUS", "BLOCKED"],
-        dataset_summary_rows,
-        _COLORS["brand"],
-    )
-
-    decision_headers = [
-        "Dataset",
-        "Source Row",
-        "Business Identity",
-        "Business Scope",
-        "Target Matches",
-        "Issues",
-    ]
-    for sheet_name, classification, accent in (
-        ("Proposed Creates", "CREATE", _COLORS["ready"]),
-        ("Proposed Updates", "UPDATE", _COLORS["warning"]),
-        ("Unchanged", "UNCHANGED", _COLORS["gray"]),
-        ("Ambiguous Matches", "AMBIGUOUS", _COLORS["danger"]),
-        ("Blocked Records", "BLOCKED", _COLORS["danger"]),
-    ):
-        _write_data_sheet(
-            sheets[sheet_name],
-            decision_headers,
-            _decision_rows(decisions, classification),
-            accent,
-        )
-
-    difference_rows = [
+        sheets["Needs attention"],
         [
-            decision.get("dataset"),
-            decision.get("source_row"),
-            _json_cell(decision.get("business_identity", ())),
-            _json_cell(decision.get("business_scope", ())),
-            difference.get("field"),
-            difference.get("existing"),
-            difference.get("proposed"),
-            difference.get("comparison_rule"),
-            difference.get("material"),
-        ]
-        for decision in decisions
-        for difference in decision.get("differences", ())
-    ]
-    _write_data_sheet(
-        sheets["Field Differences"],
-        [
+            "Priority",
             "Dataset",
-            "Source Row",
-            "Business Identity",
-            "Business Scope",
+            "Record",
             "Field",
-            "Existing Target",
-            "Proposed Source",
-            "Comparison Rule",
-            "Material",
+            "What needs attention",
+            "Details",
+            "Next action",
+            "Source row",
+            "Affected records",
+            "Technical code",
         ],
-        difference_rows,
+        attention_rows
+        or [
+            [
+                "Ready",
+                "",
+                "",
+                "",
+                "No items require attention.",
+                "Every compared record has a safe outcome.",
+                "Review the prepared records before continuing to Load into Odoo.",
+                "",
+                0,
+                "",
+            ]
+        ],
         _COLORS["warning"],
     )
+    _style_status_cells(sheets["Needs attention"], 1)
 
-    reference_rows = [
-        [
-            item.get("dataset"),
-            item.get("field"),
-            item.get("reference"),
-            item.get("status"),
-            item.get("match_count"),
-            item.get("affected_count"),
-        ]
-        for item in manifest.get("reference_resolutions", ())
-    ]
-    _write_data_sheet(
-        sheets["Reference Resolution"],
-        ["Dataset", "Field", "Business Reference", "Status", "Matches", "Affected Rows"],
-        reference_rows,
-        _COLORS["brand"],
+    record_headers, record_rows = _record_sheet_rows(
+        manifest,
+        decisions,
+        prepared_by_trace,
+        review_evidence,
     )
-
-    issue_rows = [
-        [
-            item.get("severity"),
-            item.get("code"),
-            item.get("dataset"),
-            item.get("row"),
-            item.get("field"),
-            item.get("message"),
-            item.get("affected_count"),
-        ]
-        for item in manifest.get("source_issues", ())
-    ]
     _write_data_sheet(
-        sheets["Source Issues"],
-        ["Severity", "Code", "Dataset", "Source Row", "Field", "Message", "Affected Rows"],
-        issue_rows,
-        _COLORS["danger"],
+        sheets["Records to load"],
+        record_headers,
+        record_rows,
+        _COLORS["ready"],
     )
+    _style_status_cells(sheets["Records to load"], 1)
 
-    coverage_rows = [
-        [
-            item.get("dataset"),
-            item.get("model"),
-            item.get("status"),
-            item.get("requested_fields"),
-            item.get("available_fields"),
-        ]
-        for item in manifest.get("metadata_coverage", ())
-    ]
-    _write_data_sheet(
-        sheets["Metadata Coverage"],
-        ["Dataset", "Model", "Status", "Requested Fields", "Available Fields"],
-        coverage_rows,
-        _COLORS["brand"],
+    change_rows = _change_rows(
+        decisions,
+        prepared_by_trace,
+        review_evidence,
     )
-
-    target = manifest.get("target", {})
     _write_data_sheet(
-        sheets["Target"],
-        ["Attribute", "Value"],
+        sheets["Changes to Odoo"],
         [
-            ["Connection mode", target.get("connection_mode")],
-            ["Database", target.get("database")],
-            ["Odoo Version", target.get("odoo_version")],
-            ["Snapshot Timestamp", target.get("snapshot_timestamp")],
-            ["Profile ID", manifest.get("profile", {}).get("id")],
-            ["Semantic Hash", manifest.get("semantic_hash")],
-            ["Metadata Snapshot Hash", manifest.get("snapshot_hashes", {}).get("metadata")],
-            ["Record Snapshot Hash", manifest.get("snapshot_hashes", {}).get("records")],
-            ["Module Versions", target.get("module_versions")],
-            ["Source Hashes", manifest.get("source_hashes")],
+            "Status",
+            "Dataset",
+            "Record",
+            "Field",
+            "Value that will be loaded",
+            "Current Odoo value",
+            "Comparison rule",
+            "Source row",
         ],
+        change_rows
+        or [
+            [
+                "No change",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "No existing Odoo values will be changed by this review.",
+                "",
+            ]
+        ],
+        _COLORS["prepared"],
+    )
+    _style_status_cells(sheets["Changes to Odoo"], 1)
+    _style_value_columns(sheets["Changes to Odoo"], prepared_column=5, current_column=6)
+
+    evidence_rows = _evidence_rows(manifest, review_evidence)
+    _write_data_sheet(
+        sheets["Evidence"],
+        [
+            "Evidence",
+            "Dataset",
+            "Field or attribute",
+            "Status",
+            "Value",
+            "Affected records",
+            "Support details",
+        ],
+        evidence_rows,
         _COLORS["brand"],
     )
-
-    _write_dashboard(dashboard, manifest)
 
     temporary = workbook_path.with_name(f".{workbook_path.name}.partial")
     try:
         workbook.save(temporary)
         temporary.replace(workbook_path)
     except (OSError, ValueError) as error:
-        raise ReportGenerationError("Excel review workbook generation failed") from error
+        raise ReportGenerationError(
+            "Excel review workbook generation failed"
+        ) from error
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -310,32 +301,65 @@ def _build_workbook(
         _write_csv_previews(workbook, Path(preview_directory))
 
 
-def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
+def _write_review_overview(
+    sheet,
+    manifest: dict[str, Any],
+    attention_rows: Sequence[Sequence[Any]],
+) -> None:
     _title_band(
         sheet,
-        "Impodo migration review",
+        "Impodo load review",
         "Read-only comparison evidence - this workbook cannot write to Odoo",
         8,
     )
-    sheet.append([])
     decisions = tuple(manifest.get("decisions", ()))
-    rows = [
-        ["Classification", "Count"],
-        ["CREATE", _classification_count(decisions, "CREATE")],
-        ["UPDATE", _classification_count(decisions, "UPDATE")],
-        ["UNCHANGED", _classification_count(decisions, "UNCHANGED")],
-        ["AMBIGUOUS", _classification_count(decisions, "AMBIGUOUS")],
-        ["BLOCKED", _classification_count(decisions, "BLOCKED")],
+    counts = {
+        classification: _classification_count(decisions, classification)
+        for classification in (
+            "CREATE",
+            "UPDATE",
+            "UNCHANGED",
+            "AMBIGUOUS",
+            "BLOCKED",
+        )
+    }
+    warning_count = sum(row[0] == "Review recommended" for row in attention_rows)
+    if counts["BLOCKED"]:
+        review_status = "Cannot proceed"
+        next_action = (
+            "Return to Impodo and resolve every red item before checking again."
+        )
+    elif counts["AMBIGUOUS"]:
+        review_status = "Needs attention"
+        next_action = (
+            "Review the amber identity matches in Impodo before checking again."
+        )
+    elif warning_count:
+        review_status = "Review recommended"
+        next_action = (
+            "Review the amber item. Compare again if you change its field match."
+        )
+    else:
+        review_status = "Ready for review"
+        next_action = "Review the prepared records, then continue to Load into Odoo when approved."
+
+    summary_rows = [
+        ["Outcome", "Records"],
+        ["Will create", counts["CREATE"]],
+        ["Will update", counts["UPDATE"]],
+        ["No change", counts["UNCHANGED"]],
+        ["Needs attention", counts["AMBIGUOUS"]],
+        ["Cannot proceed", counts["BLOCKED"]],
     ]
-    for row_index, values in enumerate(rows, start=4):
+    for row_index, values in enumerate(summary_rows, start=4):
         for column_index, value in enumerate(values, start=1):
             sheet.cell(row=row_index, column=column_index, value=value)
     _style_header(sheet, 4, 1, 2, _COLORS["brand"])
     classification_styles = (
         (_COLORS["ready_bg"], _COLORS["ready_text"]),
-        (_COLORS["warning_bg"], _COLORS["warning"]),
+        (_COLORS["prepared_bg"], _COLORS["prepared"]),
         (_COLORS["soft"], _COLORS["charcoal"]),
-        (_COLORS["danger_bg"], _COLORS["danger"]),
+        (_COLORS["warning_bg"], _COLORS["warning"]),
         (_COLORS["danger_bg"], _COLORS["danger"]),
     )
     for row_index in range(5, 10):
@@ -349,19 +373,21 @@ def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
             )
         sheet.cell(row=row_index, column=2).number_format = "#,##0"
 
-    target = manifest.get("target", {})
-    assurance_rows = [
-        ["Run assurance", ""],
-        ["Connector capability", "Read only"],
-        ["Portable IDs", "Numeric Odoo IDs excluded"],
-        ["Profile", manifest.get("profile", {}).get("id")],
-        ["Target", f"{target.get('connection_mode', '')} / {target.get('database', '')}"],
-        ["Semantic hash", manifest.get("semantic_hash")],
+    target = dict(manifest.get("target", {}))
+    decision_rows = [
+        ["Review decision", ""],
+        ["Status", review_status],
+        ["Next action", next_action],
+        ["Target database", target.get("database")],
+        ["Odoo version", target.get("odoo_version")],
+        ["Checked against Odoo", target.get("snapshot_timestamp")],
     ]
-    for row_index, values in enumerate(assurance_rows, start=4):
+    for row_index, values in enumerate(decision_rows, start=4):
         sheet.cell(row=row_index, column=4, value=values[0])
         sheet.cell(row=row_index, column=5, value=_safe_cell(values[1]))
-        sheet.merge_cells(start_row=row_index, start_column=5, end_row=row_index, end_column=8)
+        sheet.merge_cells(
+            start_row=row_index, start_column=5, end_row=row_index, end_column=8
+        )
     _style_header(sheet, 4, 4, 8, _COLORS["charcoal_dark"])
     for row_index in range(5, 10):
         sheet.cell(row=row_index, column=4).fill = PatternFill(
@@ -372,14 +398,14 @@ def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
         )
 
     sheet.merge_cells("A11:H11")
-    sheet["A11"] = "Start here"
+    sheet["A11"] = "How to use this workbook"
     sheet["A11"].fill = PatternFill("solid", fgColor=_COLORS["brand"])
     sheet["A11"].font = Font(bold=True, color=_COLORS["white"])
     sheet["A11"].alignment = Alignment(vertical="center")
     sheet.merge_cells("A12:H12")
     sheet["A12"] = (
-        "Review Proposed Creates and Proposed Updates first. "
-        "Use Field Differences to inspect every changed value."
+        "Start with Needs attention. Then review Records to load and Changes "
+        "to Odoo. Correct data or rules in Impodo, not in this workbook."
     )
     sheet["A12"].fill = PatternFill("solid", fgColor=_COLORS["paper"])
     sheet["A12"].font = Font(color=_COLORS["charcoal"])
@@ -387,16 +413,23 @@ def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
     sheet.row_dimensions[11].height = 24
     sheet.row_dimensions[12].height = 34
 
-    chart = BarChart()
-    chart.title = "Preflight classifications"
-    chart.legend = None
-    chart.add_data(Reference(sheet, min_col=2, min_row=4, max_row=9), titles_from_data=True)
-    chart.set_categories(Reference(sheet, min_col=1, min_row=5, max_row=9))
-    chart.height = 8
-    chart.width = 16
-    chart.series[0].graphicalProperties.solidFill = _COLORS["brand"]
-    chart.series[0].graphicalProperties.line.solidFill = _COLORS["brand_dark"]
-    sheet.add_chart(chart, "A14")
+    legend = [
+        ("Ready", "The record has a safe comparison outcome.", "ready"),
+        ("Review recommended", "Review this item before approval.", "warning"),
+        ("Cannot proceed", "Resolve this item in Impodo.", "danger"),
+        ("Value to load", "This is the prepared value Impodo will use.", "prepared"),
+        ("No change", "The value already matches or will not be sent.", "neutral"),
+    ]
+    for row_index, (label, meaning, style) in enumerate(legend, start=14):
+        sheet.cell(row=row_index, column=1, value=label)
+        sheet.merge_cells(
+            start_row=row_index,
+            start_column=2,
+            end_row=row_index,
+            end_column=8,
+        )
+        sheet.cell(row=row_index, column=2, value=meaning)
+        _style_status_cell(sheet.cell(row=row_index, column=1), style)
     sheet.freeze_panes = "A3"
     for column in range(1, 9):
         sheet.column_dimensions[get_column_letter(column)].width = 18
@@ -405,9 +438,632 @@ def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
-    sheet.print_area = "A1:H29"
+    sheet.print_area = "A1:H18"
     sheet.sheet_view.showGridLines = False
     sheet.sheet_properties.tabColor = _COLORS["brand"]
+
+
+def _prepared_records_by_trace(
+    manifest: dict[str, Any],
+    decisions: Sequence[dict[str, Any]],
+    evidence: ReviewWorkbookEvidence | None,
+) -> dict[str, PreparedRecord]:
+    if evidence is None:
+        return {}
+    manifest_input_hash = dict(manifest.get("preflight_evidence", {})).get(
+        "frozen_input_hash"
+    )
+    if evidence.frozen_input_hash and manifest_input_hash != evidence.frozen_input_hash:
+        raise ReportGenerationError(
+            "Prepared review values do not match the readiness manifest"
+        )
+    records = {item.source_trace_id: item for item in evidence.records}
+    if len(records) != len(evidence.records) or "" in records:
+        raise ReportGenerationError("Prepared review rows have invalid trace evidence")
+    decision_ids = {str(item.get("source_trace_id", "")) for item in decisions}
+    if decision_ids != set(records):
+        raise ReportGenerationError(
+            "Prepared review rows do not match the readiness decisions"
+        )
+    for decision in decisions:
+        record = records[str(decision.get("source_trace_id", ""))]
+        if record.dataset != str(
+            decision.get("dataset", "")
+        ) or record.source_row != int(decision.get("source_row", 0)):
+            raise ReportGenerationError(
+                "Prepared review row lineage does not match the readiness decision"
+            )
+    return records
+
+
+def _attention_rows(
+    manifest: dict[str, Any],
+    decisions: Sequence[dict[str, Any]],
+    prepared_by_trace: dict[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    source_issues = tuple(manifest.get("source_issues", ()))
+    for issue in source_issues:
+        dataset = str(issue.get("dataset") or "")
+        source_row = issue.get("row")
+        decision = next(
+            (
+                item
+                for item in decisions
+                if item.get("dataset") == dataset
+                and item.get("source_row") == source_row
+            ),
+            None,
+        )
+        classification = (
+            _decision_classification(decision)
+            if decision is not None
+            else (
+                Classification.BLOCKED
+                if issue.get("severity") == "error"
+                else Classification.CREATE
+            )
+        )
+        reason, action = plain_readiness_guidance(
+            str(issue.get("code") or ""),
+            classification,
+        )
+        record = (
+            _display_value(decision.get("business_identity", ()))
+            if decision is not None
+            else "All relevant records"
+        )
+        rows.append(
+            [
+                (
+                    "Cannot proceed"
+                    if issue.get("severity") == "error"
+                    else "Review recommended"
+                ),
+                _dataset_label(dataset, evidence),
+                record,
+                _field_label(
+                    dataset,
+                    str(issue.get("field") or ""),
+                    prepared_by_trace,
+                    evidence,
+                ),
+                reason,
+                issue.get("message"),
+                action,
+                source_row,
+                issue.get("affected_count", 1),
+                issue.get("code"),
+            ]
+        )
+
+    def represented_by_source_issue(
+        issue: dict[str, Any],
+        decision: dict[str, Any],
+    ) -> bool:
+        return any(
+            item.get("code") == issue.get("code")
+            and (item.get("dataset") or decision.get("dataset"))
+            == decision.get("dataset")
+            and item.get("field") == issue.get("field")
+            and item.get("row") in (None, issue.get("row"), decision.get("source_row"))
+            for item in source_issues
+        )
+
+    for decision in decisions:
+        issues = tuple(decision.get("issues", ()))
+        added = False
+        for issue in issues:
+            if represented_by_source_issue(issue, decision):
+                continue
+            rows.append(
+                _decision_attention_row(
+                    decision,
+                    issue,
+                    prepared_by_trace,
+                    evidence,
+                )
+            )
+            added = True
+        if _decision_classification(decision) is Classification.AMBIGUOUS and not added:
+            rows.append(
+                _decision_attention_row(
+                    decision,
+                    {
+                        "code": "TARGET_IDENTITY_AMBIGUOUS",
+                        "message": "More than one Odoo record matches this business key.",
+                        "severity": "error",
+                        "field": "",
+                        "affected_count": 1,
+                    },
+                    prepared_by_trace,
+                    evidence,
+                )
+            )
+    priority = {"Cannot proceed": 0, "Needs attention": 1, "Review recommended": 2}
+    return sorted(
+        rows,
+        key=lambda item: (
+            priority.get(str(item[0]), 9),
+            str(item[1]),
+            int(item[7]) if isinstance(item[7], int) else 0,
+            str(item[9]),
+        ),
+    )
+
+
+def _decision_attention_row(
+    decision: dict[str, Any],
+    issue: dict[str, Any],
+    prepared_by_trace: dict[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> list[Any]:
+    classification = _decision_classification(decision)
+    reason, action = plain_readiness_guidance(
+        str(issue.get("code") or ""),
+        classification,
+    )
+    dataset = str(decision.get("dataset") or "")
+    return [
+        (
+            "Cannot proceed"
+            if classification is Classification.BLOCKED
+            or issue.get("severity") == "error"
+            else (
+                "Needs attention"
+                if classification is Classification.AMBIGUOUS
+                else "Review recommended"
+            )
+        ),
+        _dataset_label(dataset, evidence),
+        _display_value(decision.get("business_identity", ())),
+        _field_label(
+            dataset,
+            str(issue.get("field") or ""),
+            prepared_by_trace,
+            evidence,
+        ),
+        reason,
+        issue.get("message"),
+        action,
+        decision.get("source_row"),
+        issue.get("affected_count", 1),
+        issue.get("code"),
+    ]
+
+
+def _record_sheet_rows(
+    manifest: dict[str, Any],
+    decisions: Sequence[dict[str, Any]],
+    prepared_by_trace: dict[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> tuple[list[str], list[list[Any]]]:
+    value_columns = _record_value_columns(tuple(prepared_by_trace.values()), evidence)
+    global_issue_keys = {
+        (
+            str(item.get("code") or ""),
+            str(item.get("dataset") or ""),
+            str(item.get("field") or ""),
+        )
+        for item in manifest.get("source_issues", ())
+        if item.get("row") is None
+    }
+    headers = [
+        "Status",
+        "What will happen",
+        "Dataset",
+        "Record type",
+        "Business identity",
+        "Source row",
+        *(item[2] for item in value_columns),
+        "Why / next action",
+    ]
+    dataset_models = {
+        str(item.get("dataset") or ""): str(item.get("model") or "")
+        for item in manifest.get("metadata_coverage", ())
+    }
+    rows: list[list[Any]] = []
+    for decision in decisions:
+        trace_id = str(decision.get("source_trace_id") or "")
+        record = prepared_by_trace.get(trace_id)
+        target_model = (
+            record.target_model
+            if record is not None
+            else dataset_models.get(str(decision.get("dataset") or ""), "")
+        )
+        values = (
+            {**record.scalar_values, **record.references} if record is not None else {}
+        )
+        reason, action = _decision_guidance(
+            decision,
+            ignored_issue_keys=global_issue_keys,
+        )
+        rows.append(
+            [
+                _decision_status(
+                    decision,
+                    ignored_issue_keys=global_issue_keys,
+                ),
+                _classification_action(_decision_classification(decision)),
+                _dataset_label(str(decision.get("dataset") or ""), evidence),
+                _model_label(target_model, evidence),
+                _display_value(decision.get("business_identity", ())),
+                decision.get("source_row"),
+                *(
+                    _display_value(values.get(field)) if target_model == model else ""
+                    for model, field, _label in value_columns
+                ),
+                f"{reason} {action}",
+            ]
+        )
+    if not rows:
+        rows.append(
+            [
+                "Ready",
+                "Nothing to load",
+                "",
+                "",
+                "",
+                "",
+                *("" for _item in value_columns),
+                "No records were selected for this comparison.",
+            ]
+        )
+    return headers, rows
+
+
+def _record_value_columns(
+    records: Sequence[PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> tuple[tuple[str, str, str], ...]:
+    pairs = sorted(
+        {
+            (record.target_model, field)
+            for record in records
+            for field in (*record.scalar_values, *record.references)
+        }
+    )
+    base_labels = [
+        _target_field_label(model, field, evidence) for model, field in pairs
+    ]
+    duplicate_labels = {
+        label.casefold()
+        for label in base_labels
+        if sum(item.casefold() == label.casefold() for item in base_labels) > 1
+    }
+    columns = []
+    for (model, field), label in zip(pairs, base_labels, strict=True):
+        if label.casefold() in duplicate_labels:
+            label = f"{label} ({_model_label(model, evidence)})"
+        columns.append((model, field, label))
+    return tuple(columns)
+
+
+def _change_rows(
+    decisions: Sequence[dict[str, Any]],
+    prepared_by_trace: dict[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> list[list[Any]]:
+    rows = []
+    for decision in decisions:
+        record = prepared_by_trace.get(str(decision.get("source_trace_id") or ""))
+        target_model = record.target_model if record is not None else ""
+        for difference in decision.get("differences", ()):
+            rows.append(
+                [
+                    "Will update",
+                    _dataset_label(str(decision.get("dataset") or ""), evidence),
+                    _display_value(decision.get("business_identity", ())),
+                    _target_field_label(
+                        target_model,
+                        str(difference.get("field") or ""),
+                        evidence,
+                    ),
+                    _display_value(difference.get("proposed")),
+                    _display_value(difference.get("existing")),
+                    difference.get("comparison_rule"),
+                    decision.get("source_row"),
+                ]
+            )
+    return rows
+
+
+def _evidence_rows(
+    manifest: dict[str, Any],
+    evidence: ReviewWorkbookEvidence | None,
+) -> list[list[Any]]:
+    target = dict(manifest.get("target", {}))
+    rows = [
+        [
+            "Target",
+            "",
+            "Connection mode",
+            "Checked",
+            target.get("connection_mode"),
+            "",
+            "",
+        ],
+        ["Target", "", "Database", "Checked", target.get("database"), "", ""],
+        ["Target", "", "Odoo version", "Checked", target.get("odoo_version"), "", ""],
+        [
+            "Target",
+            "",
+            "Snapshot timestamp",
+            "Checked",
+            target.get("snapshot_timestamp"),
+            "",
+            "",
+        ],
+        [
+            "Run",
+            "",
+            "Profile",
+            "Recorded",
+            manifest.get("profile", {}).get("id"),
+            "",
+            "",
+        ],
+        ["Run", "", "Semantic hash", "Recorded", manifest.get("semantic_hash"), "", ""],
+        [
+            "Run",
+            "",
+            "Metadata snapshot hash",
+            "Recorded",
+            manifest.get("snapshot_hashes", {}).get("metadata"),
+            "",
+            "",
+        ],
+        [
+            "Run",
+            "",
+            "Record snapshot hash",
+            "Recorded",
+            manifest.get("snapshot_hashes", {}).get("records"),
+            "",
+            "",
+        ],
+        [
+            "Run",
+            "",
+            "Module versions",
+            "Recorded",
+            target.get("module_versions"),
+            "",
+            "",
+        ],
+        [
+            "Source",
+            "",
+            "Source hashes",
+            "Recorded",
+            manifest.get("source_hashes"),
+            "",
+            "",
+        ],
+    ]
+    if evidence is not None and evidence.frozen_input_hash:
+        rows.append(
+            [
+                "Prepared values",
+                "",
+                "Frozen input hash",
+                "Verified",
+                evidence.frozen_input_hash,
+                len(evidence.records),
+                "The values match the prepared input used for this comparison.",
+            ]
+        )
+    for item in manifest.get("reference_resolutions", ()):
+        rows.append(
+            [
+                "Relationship",
+                _dataset_label(str(item.get("dataset") or ""), evidence),
+                str(item.get("field") or "").replace("_", " ").title(),
+                str(item.get("status") or "").replace("_", " ").title(),
+                _display_value(item.get("reference")),
+                item.get("affected_count"),
+                f"{item.get('match_count', 0)} matching record(s)",
+            ]
+        )
+    for item in manifest.get("source_issues", ()):
+        rows.append(
+            [
+                "Source check",
+                _dataset_label(str(item.get("dataset") or ""), evidence),
+                str(item.get("field") or "").replace("_", " ").title(),
+                str(item.get("severity") or "").title(),
+                item.get("message"),
+                item.get("affected_count"),
+                item.get("code"),
+            ]
+        )
+    for item in manifest.get("metadata_coverage", ()):
+        rows.append(
+            [
+                "Odoo fields",
+                _dataset_label(str(item.get("dataset") or ""), evidence),
+                item.get("model"),
+                str(item.get("status") or "").title(),
+                f"{item.get('available_fields', 0)} of {item.get('requested_fields', 0)} fields available",
+                "",
+                "",
+            ]
+        )
+    return rows
+
+
+def _decision_classification(decision: dict[str, Any]) -> Classification:
+    try:
+        return Classification(str(decision.get("classification") or ""))
+    except ValueError as error:
+        raise ReportGenerationError("The readiness decision is invalid") from error
+
+
+def _decision_issue(
+    decision: dict[str, Any],
+    *,
+    ignored_issue_keys: set[tuple[str, str, str]] | None = None,
+) -> dict[str, Any] | None:
+    ignored = ignored_issue_keys or set()
+    issues = tuple(
+        item
+        for item in decision.get("issues", ())
+        if (
+            str(item.get("code") or ""),
+            str(item.get("dataset") or decision.get("dataset") or ""),
+            str(item.get("field") or ""),
+        )
+        not in ignored
+    )
+    return next(
+        (item for item in issues if item.get("severity") == "error"),
+        issues[0] if issues else None,
+    )
+
+
+def _decision_guidance(
+    decision: dict[str, Any],
+    *,
+    ignored_issue_keys: set[tuple[str, str, str]] | None = None,
+) -> tuple[str, str]:
+    classification = _decision_classification(decision)
+    issue = _decision_issue(decision, ignored_issue_keys=ignored_issue_keys)
+    code = str(issue.get("code") or "") if issue is not None else ""
+    if not code and classification is Classification.AMBIGUOUS:
+        code = "TARGET_IDENTITY_AMBIGUOUS"
+    return plain_readiness_guidance(code, classification)
+
+
+def _decision_status(
+    decision: dict[str, Any],
+    *,
+    ignored_issue_keys: set[tuple[str, str, str]] | None = None,
+) -> str:
+    classification = _decision_classification(decision)
+    issue = _decision_issue(decision, ignored_issue_keys=ignored_issue_keys)
+    if classification is Classification.BLOCKED or (
+        issue is not None and issue.get("severity") == "error"
+    ):
+        return "Cannot proceed"
+    if classification is Classification.AMBIGUOUS:
+        return "Needs attention"
+    if issue is not None and issue.get("severity") == "warning":
+        return "Review recommended"
+    return "Ready"
+
+
+def _classification_action(classification: Classification) -> str:
+    return {
+        Classification.CREATE: "Create record",
+        Classification.UPDATE: "Update record",
+        Classification.UNCHANGED: "No change",
+        Classification.AMBIGUOUS: "Held back",
+        Classification.BLOCKED: "Held back",
+    }[classification]
+
+
+def _dataset_label(dataset: str, evidence: ReviewWorkbookEvidence | None) -> str:
+    if evidence is not None and dataset in evidence.dataset_labels:
+        return evidence.dataset_labels[dataset]
+    return dataset.replace("_", " ").title()
+
+
+def _model_label(model: str, evidence: ReviewWorkbookEvidence | None) -> str:
+    if evidence is not None and model in evidence.target_model_labels:
+        return evidence.target_model_labels[model]
+    return model.replace(".", " ").replace("_", " ").title()
+
+
+def _target_field_label(
+    model: str,
+    field: str,
+    evidence: ReviewWorkbookEvidence | None,
+) -> str:
+    if evidence is not None and (model, field) in evidence.target_field_labels:
+        return evidence.target_field_labels[(model, field)]
+    return field.rsplit(":", 1)[-1].replace("_", " ").title()
+
+
+def _field_label(
+    dataset: str,
+    field: str,
+    prepared_by_trace: dict[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> str:
+    model = next(
+        (
+            item.target_model
+            for item in prepared_by_trace.values()
+            if item.dataset == dataset
+        ),
+        "",
+    )
+    return _target_field_label(model, field, evidence) if field else ""
+
+
+def _display_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, (BusinessReference, LogicalReference)):
+        return _display_value(value.key)
+    if isinstance(value, dict):
+        if value.get("type") in {"date", "datetime", "decimal"}:
+            return value.get("value", "")
+        if "key" in value:
+            return _display_value(value.get("key"))
+        return _json_cell(value)
+    if isinstance(value, set):
+        value = tuple(sorted(value, key=str))
+    if isinstance(value, (list, tuple)):
+        return " Â· ".join(str(_display_value(item)) for item in value)
+    return value
+
+
+def _style_status_cells(sheet, column: int) -> None:
+    for row_index in range(4, sheet.max_row + 1):
+        cell = sheet.cell(row=row_index, column=column)
+        status = str(cell.value or "").casefold()
+        if status in {"cannot proceed", "held back"}:
+            style = "danger"
+        elif status in {"needs attention", "review recommended"}:
+            style = "warning"
+        elif status in {"will update", "value to load"}:
+            style = "prepared"
+        elif status in {"ready", "will create"}:
+            style = "ready"
+        else:
+            style = "neutral"
+        _style_status_cell(cell, style)
+
+
+def _style_status_cell(cell, style: str) -> None:
+    colors = {
+        "ready": (_COLORS["ready_bg"], _COLORS["ready_text"]),
+        "warning": (_COLORS["warning_bg"], _COLORS["warning"]),
+        "danger": (_COLORS["danger_bg"], _COLORS["danger"]),
+        "prepared": (_COLORS["prepared_bg"], _COLORS["prepared"]),
+        "neutral": (_COLORS["soft"], _COLORS["charcoal"]),
+    }
+    fill, font = colors[style]
+    cell.fill = PatternFill("solid", fgColor=fill)
+    cell.font = Font(bold=True, color=font)
+
+
+def _style_value_columns(sheet, *, prepared_column: int, current_column: int) -> None:
+    for row_index in range(4, sheet.max_row + 1):
+        prepared = sheet.cell(row=row_index, column=prepared_column)
+        prepared.fill = PatternFill("solid", fgColor=_COLORS["prepared_bg"])
+        prepared.font = Font(color=_COLORS["prepared"])
+        current = sheet.cell(row=row_index, column=current_column)
+        current.fill = PatternFill("solid", fgColor=_COLORS["soft"])
+        current.font = Font(color=_COLORS["charcoal"])
 
 
 def _write_data_sheet(
@@ -419,6 +1075,11 @@ def _write_data_sheet(
     if len(rows) > _EXCEL_MAX_ROW - 3:
         raise ReportGenerationError(
             "Excel review workbook exceeds the supported rows on "
+            f"the {sheet.title} sheet"
+        )
+    if len(headers) > _EXCEL_MAX_COLUMN or any(len(row) > len(headers) for row in rows):
+        raise ReportGenerationError(
+            "Excel review workbook exceeds the supported columns on "
             f"the {sheet.title} sheet"
         )
     _title_band(
@@ -444,9 +1105,7 @@ def _write_data_sheet(
             cell.fill = _SURFACE_FILL if row_index % 2 == 0 else _PAPER_FILL
 
     if rows:
-        sheet.auto_filter.ref = (
-            f"A3:{get_column_letter(len(headers))}{len(rows) + 3}"
-        )
+        sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{len(rows) + 3}"
 
     for column_index, header in enumerate(headers, start=1):
         lengths = [len(header)]
@@ -485,7 +1144,9 @@ def _title_band(sheet, title: str, subtitle: str, columns: int) -> None:
     sheet.row_dimensions[2].height = 24
 
 
-def _style_header(sheet, row: int, start_column: int, end_column: int, color: str) -> None:
+def _style_header(
+    sheet, row: int, start_column: int, end_column: int, color: str
+) -> None:
     for column in range(start_column, end_column + 1):
         cell = sheet.cell(row=row, column=column)
         cell.fill = PatternFill("solid", fgColor=color)
@@ -515,8 +1176,7 @@ def _decision_rows(
             _json_cell(decision.get("business_scope", ())),
             decision.get("target_match_count"),
             "; ".join(
-                str(issue.get("code", ""))
-                for issue in decision.get("issues", ())
+                str(issue.get("code", "")) for issue in decision.get("issues", ())
             ),
         ]
         for decision in decisions

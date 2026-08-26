@@ -9,23 +9,25 @@ identities and source trace IDs, never environment-local numeric Odoo IDs.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields as dataclass_fields
-from datetime import datetime, timezone
 import json
-from typing import Mapping
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from dataclasses import fields as dataclass_fields
+from datetime import datetime, timezone
 
 from ...access import Actor
-from ..mapping.artifacts import MappingRevision
 from ...models import (
     Classification,
     Decision,
     PreflightResult,
+    PreparedRecord,
 )
-from ...workspace_state import WorkspaceState
-from ...quality import QualityRunSummary
 from ...normalization import NormalizationRunSummary
+from ...quality import QualityRunSummary
 from ...staging import StagingRunSummary
+from ...workspace_state import WorkspaceState
 from ..contracts import READINESS_CONTRACT_VERSION
+from ..mapping.artifacts import MappingRevision
 from ..staging.transformation_impact import _display_value
 
 
@@ -77,6 +79,23 @@ class ReadinessRowPage:
     matching_count: int
     page: int
     page_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewWorkbookEvidence:
+    """Exact prepared values and labels allowed in one review workbook.
+
+    The manifest remains the source for classifications and issues. This
+    evidence adds the file-source values that the data manager will review and
+    binds them to the same frozen input used for the Odoo comparison. Odoo-
+    source comparisons never create this portable value projection.
+    """
+
+    frozen_input_hash: str
+    records: tuple[PreparedRecord, ...]
+    dataset_labels: Mapping[str, str]
+    target_model_labels: Mapping[str, str]
+    target_field_labels: Mapping[tuple[str, str], str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,9 +261,7 @@ class ReadinessReport:
             },
             checked_at=datetime.fromisoformat(str(payload["checked_at"])),
             checked_by=str(payload["checked_by"]),
-            datasets=tuple(
-                ReadinessDataset(**item) for item in payload["datasets"]
-            ),
+            datasets=tuple(ReadinessDataset(**item) for item in payload["datasets"]),
             rows=tuple(ReadinessRow(**item) for item in payload["rows"]),
             contract_version=int(payload["contract_version"]),
         )
@@ -292,9 +309,7 @@ def _readiness_report(
                 str(item["model"]),
             )
     datasets = []
-    for dataset in dict.fromkeys(
-        [*dataset_labels, *(item.dataset for item in rows)]
-    ):
+    for dataset in dict.fromkeys([*dataset_labels, *(item.dataset for item in rows)]):
         dataset_rows = [item for item in rows if item.dataset == dataset]
         datasets.append(
             ReadinessDataset(
@@ -368,9 +383,7 @@ def _readiness_row(
         "needs_review"
         if decision.classification is Classification.AMBIGUOUS
         else (
-            "blocked"
-            if decision.classification is Classification.BLOCKED
-            else "ready"
+            "blocked" if decision.classification is Classification.BLOCKED else "ready"
         )
     )
     issue = next((item for item in decision.issues if item.blocking), None)
@@ -385,12 +398,12 @@ def _readiness_row(
             else ""
         )
     )
-    reason, action = _plain_guidance(code, decision.classification)
+    reason, action = plain_readiness_guidance(code, decision.classification)
     field = issue.field if issue is not None and issue.field else ""
     field = source_labels.get((decision.dataset, field), field)
-    identity = " · ".join(
-        _display_value(item) for item in decision.business_identity
-    ) or "—"
+    identity = (
+        " · ".join(_display_value(item) for item in decision.business_identity) or "—"
+    )
     return ReadinessRow(
         dataset=decision.dataset,
         dataset_label=labels.get(decision.dataset, decision.dataset),
@@ -407,10 +420,12 @@ def _readiness_row(
     )
 
 
-def _plain_guidance(
+def plain_readiness_guidance(
     code: str,
     classification: Classification,
 ) -> tuple[str, str]:
+    """Translate one stable issue code into a reason and an owning action."""
+
     guidance = {
         "SOURCE_FIELD_MISSING": (
             "A mapped source column is unavailable.",
@@ -492,6 +507,14 @@ def _plain_guidance(
             "This value cannot be compared safely.",
             "Review the mapped field type and comparison rule.",
         ),
+        "TARGET_SELECTION_CHOICES_CHANGED": (
+            "The available Odoo choices changed after mapping.",
+            "Review this field match in Impodo and compare again if it changes.",
+        ),
+        "TARGET_SELECTION_FIELD_DRIFT": (
+            "The Odoo field type changed after mapping.",
+            "Refresh the Odoo fields and review this field match.",
+        ),
     }
     if code in guidance:
         return guidance[code]
@@ -504,4 +527,3 @@ def _plain_guidance(
     if classification is Classification.AMBIGUOUS:
         return "More than one Odoo record matches.", "Review the matching records."
     return "This row cannot be processed safely.", "Review the row details."
-

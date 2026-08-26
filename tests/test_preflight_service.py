@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -37,13 +37,14 @@ from impodo.models import (
     FieldMetadata,
     ModelMetadata,
     PreflightResult,
+    PreparedRecord,
     TargetFingerprint,
     TargetRecord,
     canonical_json_text,
     target_identity_hash,
 )
-from impodo.workspace_state import OdooConnectionMode
 from impodo.workspace_errors import WorkspaceError
+from impodo.workspace_state import OdooConnectionMode, SourceMode
 
 
 class PreflightPublicationTests(unittest.TestCase):
@@ -135,9 +136,7 @@ class PreflightPublicationTests(unittest.TestCase):
         )
         service._load_frozen_input = MagicMock(
             return_value=SimpleNamespace(
-                plan=SimpleNamespace(
-                    semantic_hash="sha256:" + "8" * 64
-                ),
+                plan=SimpleNamespace(semantic_hash="sha256:" + "8" * 64),
                 prepared=SimpleNamespace(records=()),
                 revision=object(),
                 dataset_labels={},
@@ -225,6 +224,90 @@ class PreflightPublicationTests(unittest.TestCase):
             self.assertFalse(run_directory.exists())
 
 
+class ReviewWorkbookEvidenceTests(unittest.TestCase):
+    def _service(self, *, source_mode: SourceMode = SourceMode.FILE):
+        repositories = [MagicMock() for _ in range(7)]
+        repositories[4].get.return_value = SimpleNamespace(source_mode=source_mode)
+        service = PreflightService(
+            staging=repositories[0],
+            quality=repositories[1],
+            normalization=repositories[2],
+            mappings=repositories[3],
+            workspaces=repositories[4],
+            sources=repositories[5],
+            preflight=repositories[6],
+            artifacts=MagicMock(),
+            authorization=CapabilityAuthorizationPolicy(),
+        )
+        report = SimpleNamespace(
+            run_id=str(uuid4()),
+            frozen_input_hash="sha256:" + "a" * 64,
+        )
+        service.current_report = MagicMock(return_value=report)
+        return service, report
+
+    def test_file_source_returns_exact_prepared_values_and_business_labels(
+        self,
+    ) -> None:
+        service, report = self._service()
+        record = PreparedRecord(
+            dataset="contacts",
+            source_row=2,
+            target_model="res.partner",
+            source_identity=("CUS-001",),
+            target_identity=("CUS-001",),
+            target_scope=(),
+            scalar_values={"name": "Example contact"},
+            references={},
+            source_trace_id="sha256:" + "b" * 64,
+            issues=(),
+        )
+        schema = SimpleNamespace(
+            models=(
+                SimpleNamespace(
+                    name="res.partner",
+                    label="Contact",
+                    fields=(SimpleNamespace(name="name", label="Name"),),
+                ),
+            )
+        )
+        service._load_frozen_input = MagicMock(
+            return_value=SimpleNamespace(
+                content_hash=report.frozen_input_hash,
+                prepared=SimpleNamespace(records=(record,)),
+                dataset_labels={"contacts": "Contacts"},
+                captured_schema=schema,
+            )
+        )
+
+        evidence = service.review_workbook_evidence("workspace", report.run_id)
+
+        self.assertEqual(evidence.records, (record,))
+        self.assertEqual(evidence.target_model_labels, {"res.partner": "Contact"})
+        self.assertEqual(
+            evidence.target_field_labels,
+            {("res.partner", "name"): "Name"},
+        )
+
+    def test_odoo_source_keeps_business_values_out_of_portable_workbook(self) -> None:
+        service, report = self._service(source_mode=SourceMode.ODOO)
+        service._load_frozen_input = MagicMock()
+
+        evidence = service.review_workbook_evidence("workspace", report.run_id)
+
+        self.assertIsNone(evidence)
+        service._load_frozen_input.assert_not_called()
+
+    def test_changed_frozen_input_fails_closed(self) -> None:
+        service, report = self._service()
+        service._load_frozen_input = MagicMock(
+            return_value=SimpleNamespace(content_hash="sha256:" + "c" * 64)
+        )
+
+        with self.assertRaisesRegex(ReadinessError, "no longer match"):
+            service.review_workbook_evidence("workspace", report.run_id)
+
+
 class SnapshotProjectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fingerprint = TargetFingerprint(
@@ -234,9 +317,7 @@ class SnapshotProjectionTests(unittest.TestCase):
             odoo_version="19.0",
             snapshot_timestamp="2026-08-06T12:00:00Z",
         )
-        self.metadata_requests = (
-            MetadataRequest("res.partner", ("name", "ref")),
-        )
+        self.metadata_requests = (MetadataRequest("res.partner", ("name", "ref")),)
         self.record_requests = (
             RecordRequest(
                 "res.partner",
@@ -331,4 +412,3 @@ class SnapshotProjectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -542,11 +542,11 @@ not infer digits or rounding from Odoo field metadata.
   prevent source-controlled spreadsheet formula execution.
 - Date-like strings and dotted numeric-looking strings are also forced to text
   so business keys are not silently reformatted by Excel.
-- The workbook contains formulas only for governed Dashboard totals; the
-  workbook builder scans for common formula errors before export.
+- The workbook uses stored deterministic counts and contains no formulas.
 
-The JSON manifest is the decision source. The workbook is a review projection
-and must never be used as an independent classifier.
+The JSON manifest is the decision source. A file-source workbook can add the
+exact prepared values bound to that manifest, but it must never classify rows
+independently or feed edited cells back into Impodo.
 
 ## 10. Issue-code reference
 

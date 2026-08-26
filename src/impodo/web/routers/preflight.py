@@ -83,10 +83,7 @@ def _rebind_remote_read_access(context: WebContext, workspace_state, credential)
     if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
     schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
-    if (
-        schema is None
-        or credential.binding_hash == schema.read_credential_binding_hash
-    ):
+    if schema is None or credential.binding_hash == schema.read_credential_binding_hash:
         return None
     probe_models = tuple(sorted(model.name for model in schema.models))
     identity = context.read_identity_probe(
@@ -127,9 +124,10 @@ def _report_chunks(
 ) -> Iterator[bytes]:
     """Stream a protected report artifact without loading it all in memory."""
 
-    with context.artifacts.materialize_report(
-        workspace_id, run_id, filename
-    ) as path, path.open("rb") as report:
+    with (
+        context.artifacts.materialize_report(workspace_id, run_id, filename) as path,
+        path.open("rb") as report,
+    ):
         while chunk := report.read(64 * 1024):
             yield chunk
 
@@ -173,7 +171,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
             submitted_key = _text(form, "read_api_key")
             if submitted_key:
-                if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+                if (
+                    workspace_state.odoo_connection_mode
+                    is not OdooConnectionMode.REMOTE
+                ):
                     raise OdooReadWorkflowError(
                         OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
                         "A read-only API key can be entered here only for Remote Odoo.",
@@ -262,8 +263,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_id,
                 local_stack_error=(
-                    "Reconnect local Odoo for this session before comparing "
-                    "data."
+                    "Reconnect local Odoo for this session before comparing data."
                 ),
                 local_stack_support_error=str(error),
                 open_local_stack=True,
@@ -390,20 +390,34 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
 
         def write_package() -> None:
-            with (
-                bind_workspace_access_context(access_context),
-                context.artifacts.materialize_report(
-                    workspace_id, report.run_id, MANIFEST_NAME
-                ) as manifest_path,
-                context.artifacts.prepare_report(
-                    workspace_id, report.run_id, WORKBOOK_NAME
-                ) as workbook_path,
-            ):
-                write_review_workbook(manifest_path, workbook_path)
+            with bind_workspace_access_context(access_context):
+                review_evidence = context.preflight.review_workbook_evidence(
+                    workspace_id,
+                    report.run_id,
+                )
+                with (
+                    context.artifacts.materialize_report(
+                        workspace_id, report.run_id, MANIFEST_NAME
+                    ) as manifest_path,
+                    context.artifacts.prepare_report(
+                        workspace_id, report.run_id, WORKBOOK_NAME
+                    ) as workbook_path,
+                ):
+                    write_review_workbook(
+                        manifest_path,
+                        workbook_path,
+                        review_evidence=review_evidence,
+                    )
 
         try:
             await run_in_threadpool(write_package)
-        except (ArtifactStoreError, OSError, ReportGenerationError) as error:
+        except (
+            ArtifactStoreError,
+            OSError,
+            ReadinessError,
+            ReportGenerationError,
+            WorkspaceError,
+        ) as error:
             return _render_summary(
                 request,
                 context,
@@ -447,8 +461,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 WORKBOOK_NAME,
             ),
             media_type=(
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )

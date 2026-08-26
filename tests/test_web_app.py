@@ -5503,7 +5503,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             evidence.headers["content-type"],
         )
         with patch("impodo.web.routers.preflight.write_review_workbook") as builder:
-            builder.side_effect = lambda _manifest, workbook: Path(
+            builder.side_effect = lambda _manifest, workbook, **_options: Path(
                 workbook
             ).write_bytes(b"review package")
             packaged = self.client.post(
@@ -5511,6 +5511,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 data={"csrf_token": self.csrf},
                 headers=POST_HEADERS,
                 follow_redirects=False,
+            )
+            review_evidence = builder.call_args.kwargs["review_evidence"]
+            self.assertIsNotNone(review_evidence)
+            current_report = self.app.state.context.preflight.current_report(
+                workspace_id
+            )
+            self.assertEqual(
+                len(review_evidence.records),
+                current_report.total_count,
+            )
+            self.assertEqual(
+                review_evidence.frozen_input_hash,
+                current_report.frozen_input_hash,
             )
         self.assertEqual(packaged.status_code, 303)
         packaged_page = self.client.get(packaged.headers["location"])

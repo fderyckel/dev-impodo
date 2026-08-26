@@ -30,6 +30,18 @@ serves the manifest, workbook, and review package.
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
 
+When the operator creates the workbook for a file source,
+`PreflightService.review_workbook_evidence` reloads the exact current frozen
+input once and requires its hash to match the readiness report. The reporting
+writer joins those prepared records to manifest decisions through the source
+trace ID. The manifest remains authoritative for every classification and
+issue; prepared values add review context but cannot change a decision. The
+package path makes no Odoo call and performs no per-row repository lookup.
+
+For an Odoo source, `review_workbook_evidence` returns no portable value
+projection. The workbook continues to use the redacted manifest, while exact
+business values remain in the protected comparison artifact.
+
 `PreflightRequirementPlan` also retains each supporting read as a
 `ReferenceReadRequirement`. The requirement names the captured parent model
 and relationship field, related model, ordered key and scope, requested
@@ -67,6 +79,7 @@ mapping, preparation, transport, and storage failures never open that form.
 | Protected comparison contract | [`odoo_comparison.py`](../../../src/impodo/domain/odoo_comparison.py) |
 | Frozen input | [`frozen_input.py`](../../../src/impodo/domain/preflight/frozen_input.py) |
 | Review reports | [`reports.py`](../../../src/impodo/domain/preflight/reports.py) |
+| Workbook projection | [`reporting.py`](../../../src/impodo/reporting.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
 | Failure classification | [`odoo_read_failures.py`](../../../src/impodo/application/odoo_read_failures.py) |
 | Recovery presentation | [`comparison_recovery.py`](../../../src/impodo/web/presenters/comparison_recovery.py) |
@@ -78,8 +91,11 @@ mapping, preparation, transport, and storage failures never open that form.
 
 For file sources, the target snapshot is target-specific and may contain
 protected Odoo IDs. The portable report contains natural identities and the
-existing deterministic classifications. The execution snapshot binds only
-eligible writes to the exact reviewed evidence.
+existing deterministic classifications. The review workbook may also contain
+the exact prepared file-source values bound to the report's frozen input. It
+contains no numeric Odoo IDs and does not become an independent decision
+source. The execution snapshot binds only eligible writes to the exact
+reviewed evidence.
 
 For Odoo sources, the persisted target snapshot is redacted. Exact IDs and the
 baseline, proposed, and current values live only in the protected comparison
@@ -124,10 +140,16 @@ count.
 Target reads must use the narrow Odoo 19 read connector. No generic method call
 and no write method belongs in this stage.
 
+Workbook creation may load the complete eligible prepared set once because the
+XLSX output contains one review row per decision. Keep that load bounded to the
+exact current frozen run. Do not reopen repositories for individual workbook
+rows or contact Odoo while writing cells.
+
 ## Verification
 
 - [`tests/test_preflight_service.py`](../../../tests/test_preflight_service.py)
 - [`tests/test_preflight_scale.py`](../../../tests/test_preflight_scale.py)
+- [`tests/test_reporting_cli.py`](../../../tests/test_reporting_cli.py)
 - [`tests/test_engine.py`](../../../tests/test_engine.py)
 - [`tests/test_connectors.py`](../../../tests/test_connectors.py)
 - [`tests/test_odoo_comparison.py`](../../../tests/test_odoo_comparison.py)

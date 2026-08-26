@@ -26,8 +26,23 @@ Use a reachable Odoo 19 target with the approved read access.
 4. Inspect field-level differences and relationship resolutions.
 5. Resolve every ambiguous or blocked row upstream, then prepare and compare
    again.
-6. Download the workbook or technical evidence package when required for the
-   rehearsal record.
+6. Download the workbook when you need to review the proposed load in Excel or
+   keep a durable rehearsal record.
+
+The workbook opens with **Review overview**, which tells you what will happen,
+whether anything needs attention, and what you should do next. Use **Needs
+attention** before reviewing **Records to load**. For a file source, **Records
+to load** shows the prepared values that Impodo will use. **Changes to Odoo**
+shows the new value first and retains the current Odoo value as supporting
+evidence.
+
+The workbook uses status words as well as colours. A neutral blank is not a
+problem by itself; **Cannot proceed** identifies a record that Impodo will hold
+back. Correct source data or rules in Impodo, then prepare and compare again.
+Editing a workbook cell does not change the saved data or proposed load.
+
+When the source is Odoo, protected business values remain inside Impodo and do
+not enter the portable workbook.
 
 ![Current final comparison with saved rows and per-table Odoo outcomes in one data version.](../../images/user/16-final-comparison.png)
 

@@ -8,14 +8,14 @@ protected snapshots. It never reloads source files and exposes no Odoo write.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from dataclasses import replace
 from hashlib import sha256
-import json
-from typing import Callable
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import WorkspaceArtifactStore, ArtifactStoreError
+from ..artifacts import ArtifactStoreError, WorkspaceArtifactStore
 from ..connectors import (
     MetadataRequest,
     MetadataSnapshot,
@@ -32,6 +32,7 @@ from ..domain.execution_snapshot import (
     ExecutionSnapshot,
     build_execution_snapshot,
 )
+from ..domain.odoo_comparison import OdooComparisonArtifact
 from ..domain.preflight.frozen_input import (
     FrozenPreflightInput,
     build_frozen_preflight_input,
@@ -39,36 +40,35 @@ from ..domain.preflight.frozen_input import (
 from ..domain.preflight.reports import (
     ReadinessReport,
     ReadinessRowPage,
+    ReviewWorkbookEvidence,
     _readiness_report,
 )
-from ..domain.odoo_comparison import OdooComparisonArtifact
 from ..engine import PreflightEngine
 from ..models import canonical_json_bytes, target_identity_hash
 from ..planner import PreflightRequirementPlan, plan_preflight_requirements
-from ..workspace_state import SourceMode
 from ..staging import StagingRunSummary
 from ..workspace_errors import WorkspaceError
+from ..workspace_state import SourceMode
+from .odoo_comparison_service import (
+    ODOO_COMPARISON_ARTIFACT_NAME,
+    build_odoo_comparison_publication,
+)
+from .odoo_provenance_service import OdooProvenanceService
+from .odoo_read_failures import (
+    OdooReadFailureCode,
+    OdooReadWorkflowError,
+)
 from .readiness_ports import (
-    PreflightMappingRepository,
     PreflightEffectiveRepository,
+    PreflightMappingRepository,
     PreflightNormalizationRepository,
-    PreflightWorkspaceRepository,
     PreflightQualityRepository,
     PreflightRepository,
     PreflightSchemaRepository,
     PreflightSourceRepository,
     PreflightStagingRepository,
+    PreflightWorkspaceRepository,
 )
-from .odoo_comparison_service import (
-    ODOO_COMPARISON_ARTIFACT_NAME,
-    build_odoo_comparison_publication,
-)
-from .odoo_read_failures import (
-    OdooReadFailureCode,
-    OdooReadWorkflowError,
-)
-from .odoo_provenance_service import OdooProvenanceService
-
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 EXECUTION_SNAPSHOT_NAME = "impodo_execution_snapshot.json"
@@ -184,9 +184,52 @@ class PreflightService:
 
         return self.staging.get_current_staging_summary(workspace_id)
 
-    def current_execution_snapshot(
-        self, workspace_id: str
-    ) -> ExecutionSnapshot | None:
+    def review_workbook_evidence(
+        self,
+        workspace_id: str,
+        run_id: str,
+    ) -> ReviewWorkbookEvidence | None:
+        """Load exact file-source values for the current review workbook.
+
+        The method reuses the frozen-input verifier, so one bounded source-side
+        read loads the prepared rows and proves their mapping, quality, and
+        normalization bindings. It makes no Odoo call. Odoo-source values stay
+        inside their protected comparison artifact and are never returned for
+        a portable workbook.
+        """
+
+        report = self.current_report(workspace_id)
+        if report is None or report.run_id != run_id:
+            raise ReadinessError(
+                "The review workbook no longer matches the current comparison. "
+                "Compare with Odoo again."
+            )
+        workspace_state = self.workspaces.get(workspace_id)
+        if getattr(workspace_state, "source_mode", SourceMode.FILE) is SourceMode.ODOO:
+            return None
+        frozen = self._load_frozen_input(workspace_id)
+        if frozen.content_hash != report.frozen_input_hash:
+            raise ReadinessError(
+                "The prepared values no longer match the current comparison. "
+                "Compare with Odoo again."
+            )
+        models = frozen.captured_schema.models if frozen.captured_schema else ()
+        return ReviewWorkbookEvidence(
+            frozen_input_hash=frozen.content_hash,
+            records=tuple(frozen.prepared.records),
+            dataset_labels=dict(sorted(frozen.dataset_labels.items())),
+            target_model_labels={
+                model.name: model.label
+                for model in sorted(models, key=lambda item: item.name)
+            },
+            target_field_labels={
+                (model.name, field.name): field.label
+                for model in sorted(models, key=lambda item: item.name)
+                for field in sorted(model.fields, key=lambda item: item.name)
+            },
+        )
+
+    def current_execution_snapshot(self, workspace_id: str) -> ExecutionSnapshot | None:
         """Load the automatically generated snapshot for current evidence.
 
         The artifact is usable only while the current report still matches all
@@ -223,8 +266,7 @@ class PreflightService:
                 "comparison again."
             ) from error
         if not _snapshot_matches_report(snapshot, report) or not (
-            "sha256:" + sha256(manifest_content).hexdigest()
-            == report.manifest_hash
+            "sha256:" + sha256(manifest_content).hexdigest() == report.manifest_hash
             and manifest_evidence.get("execution_snapshot_hash")
             == snapshot.semantic_hash
         ):
@@ -375,9 +417,7 @@ class PreflightService:
             "frozen_input_hash": frozen_input_hash,
             "normalization_run_id": frozen.normalization.run_id,
             "normalization_content_hash": frozen.normalization.content_hash,
-            "normalization_lifecycle_version": (
-                frozen.normalization.lifecycle_version
-            ),
+            "normalization_lifecycle_version": (frozen.normalization.lifecycle_version),
             "eligible_dataset_hash": frozen.normalization.eligible_dataset_hash,
             "compiled_migration_plan_hash": frozen.plan.semantic_hash,
             "requirement_plan_hash": requirement_plan_hash,
@@ -520,7 +560,9 @@ class PreflightService:
                 "Protected Odoo comparison support is unavailable. Odoo was not contacted."
             )
         frozen = self._load_frozen_input(workspace_state.workspace_id)
-        selection = self.sources.get_mapping_source_selection(workspace_state.workspace_id)
+        selection = self.sources.get_mapping_source_selection(
+            workspace_state.workspace_id
+        )
         if selection is None:
             raise ReadinessError(
                 "Refresh the captured Odoo records before comparing. Odoo was not contacted."
@@ -564,7 +606,9 @@ class PreflightService:
         except Exception:
             for filename in (MANIFEST_NAME, ODOO_COMPARISON_ARTIFACT_NAME):
                 try:
-                    self.artifacts.delete_report(workspace_state.workspace_id, run_id, filename)
+                    self.artifacts.delete_report(
+                        workspace_state.workspace_id, run_id, filename
+                    )
                 except Exception:
                     pass
             raise
@@ -667,8 +711,7 @@ class PreflightService:
         if staging is None or quality is None or dry_run is None:
             raise OdooReadWorkflowError(
                 OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
-                "The approved prepared evidence is incomplete. "
-                "Odoo was not contacted.",
+                "The approved prepared evidence is incomplete. Odoo was not contacted.",
             )
         try:
             plan = compile_browser_mapping(
@@ -782,8 +825,7 @@ def _snapshot_matches_report(
         and snapshot.quality_run_id == report.quality_run_id
         and snapshot.quality_content_hash == report.quality_content_hash
         and snapshot.normalization_run_id == report.normalization_run_id
-        and snapshot.normalization_content_hash
-        == report.normalization_content_hash
+        and snapshot.normalization_content_hash == report.normalization_content_hash
         and snapshot.normalization_lifecycle_version
         == report.normalization_lifecycle_version
         and snapshot.eligible_dataset_hash == report.eligible_dataset_hash
@@ -795,8 +837,7 @@ def _snapshot_matches_report(
         and snapshot.target_database == report.target_database
         and snapshot.target_odoo_version == report.target_odoo_version
         and snapshot.target_snapshot_at == report.target_snapshot_at
-        and dict(snapshot.target_module_versions)
-        == dict(report.target_module_versions)
+        and dict(snapshot.target_module_versions) == dict(report.target_module_versions)
         and dict(snapshot.counts)
         == {
             "AMBIGUOUS": report.ambiguous_count,

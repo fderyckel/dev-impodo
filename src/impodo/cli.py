@@ -224,6 +224,7 @@ def _preflight_command(arguments: argparse.Namespace) -> int:
         result,
         arguments.output,
         preview_directory=arguments.preview_dir,
+        prepared_records=prepared.records,
     )
     counts = result.counts
     print(
