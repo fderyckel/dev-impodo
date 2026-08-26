@@ -143,12 +143,13 @@ from ..data_version_sources import (
     DataVersionSourcePackageService,
     WorkspaceSourceProjectionService,
 )
-from ..data_versions import DataVersionService
-from ..migration_projects import MigrationProjectService
-from ..migration_runs import MigrationRunService
+from ..application.data_version.service import DataVersionService
+from ..application.project.service import MigrationProjectService
+from ..application.run.service import MigrationRunService
 from ..migration_run_setup import MigrationRunTargetSetupService
-from ..migration_workspaces import MigrationWorkspaceService
-from ..recipes import RecipeError, RecipeService
+from ..application.workspace.service import MigrationWorkspaceService
+from ..domain.recipe.models import RecipeError
+from ..application.recipe.service import RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
 from ..migration_foundation import (
     MigrationIdentifierConfusionError,

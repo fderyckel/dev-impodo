@@ -15,7 +15,8 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from ..domain.serialization import canonical_json
-from ..recipes import RecipeIntegrityError, require_hash, require_uuid
+from ..domain.recipe.models import RecipeIntegrityError
+from ..migration_foundation import require_hash, require_uuid
 from ..secrets import SecretStore, SecretStoreError
 
 

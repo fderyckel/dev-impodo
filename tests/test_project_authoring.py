@@ -37,7 +37,8 @@ from impodo.application.recipe_publication_service import (
 )
 from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
 from impodo.data_version_sources import DataVersionSourcePackageService
-from impodo.data_versions import DataVersionService, DataVersionState
+from impodo.application.data_version.service import DataVersionService
+from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.serialization import content_hash
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.source_snapshot import (
@@ -46,9 +47,9 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotSchema,
 )
 from impodo.migration_foundation import MigrationOperationState, utc_now
-from impodo.migration_projects import MigrationProjectService
-from impodo.migration_runs import MigrationRunService
-from impodo.migration_workspaces import MigrationWorkspaceService
+from impodo.application.project.service import MigrationProjectService
+from impodo.application.run.service import MigrationRunService
+from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.inspection import inspect_source_file
 from impodo.workspace_state import WorkspaceStateService
 from impodo.secrets import MemorySecretStore

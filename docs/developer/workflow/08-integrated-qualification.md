@@ -117,7 +117,7 @@ repository query per source row, or repeat application reads inside row loops.
 
 | Role | Code |
 | --- | --- |
-| Domain contracts | [`migration_cutover.py`](../../../src/impodo/migration_cutover.py) |
+| Domain contracts | [`domain/cutover/models.py`](../../../src/impodo/domain/cutover/models.py) |
 | Qualification service and evidence reader | [`cutover_plan_service.py`](../../../src/impodo/application/cutover_plan_service.py) |
 | Registry and recovery | [`cutover_plan_repository.py`](../../../src/impodo/adapters/duckdb/cutover_plan_repository.py) |
 | Protected evidence | [`protected_project_evidence_store.py`](../../../src/impodo/adapters/protected_project_evidence_store.py) |

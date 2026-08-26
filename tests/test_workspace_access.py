@@ -28,15 +28,15 @@ from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
 from impodo.artifacts import LocalArtifactStore
-from impodo.data_versions import DataVersionService
+from impodo.application.data_version.service import DataVersionService
 from impodo.migration_foundation import (
     MigrationFoundationError,
     MigrationIdentifierConfusionError,
     MigrationNotFoundError,
 )
-from impodo.migration_projects import MigrationProjectService
-from impodo.migration_runs import MigrationRunService
-from impodo.migration_workspaces import MigrationWorkspaceService
+from impodo.application.project.service import MigrationProjectService
+from impodo.application.run.service import MigrationRunService
+from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.web.routers.preflight import _report_chunks
 from impodo.web.security import WorkspaceAccessMiddleware
 from impodo.workspace_access import (

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ..access import Actor, Capability
-from ..data_versions import DataVersionPurpose, DataVersionState
+from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.coverage import ReferenceBundle
 from ..migration_foundation import require_revision, require_uuid
 from ..migration_run_planning import RecipeDependency, RecipeRevisionSelection

@@ -37,7 +37,7 @@ from ..reference_keys import (
     authorize_governed_reference,
     captured_reference_field_contracts,
 )
-from ..recipes import (
+from ..domain.recipe.models import (
     RecipeConflictError,
     RecipeDraftIssue,
     RecipeDraftRecoveryStep,

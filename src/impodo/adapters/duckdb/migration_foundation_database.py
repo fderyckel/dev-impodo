@@ -10,13 +10,13 @@ from uuid import UUID
 
 import duckdb
 
-from ...data_versions import DataVersion
+from ...domain.data_version.models import DataVersion
 from ...migration_foundation import (
     MigrationFoundationError,
     MigrationNotFoundError,
     MigrationStorageCompatibilityError,
 )
-from ...migration_workspaces import MigrationWorkspace
+from ...domain.workspace.models import MigrationWorkspace
 from .schema.data_version_store import (
     ensure_data_version_store,
     initialize_data_version_store,

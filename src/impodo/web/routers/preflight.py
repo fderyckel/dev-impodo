@@ -31,7 +31,7 @@ from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
 from ...domain.errors import ReadinessError
 from ...migration_foundation import MigrationFoundationError
-from ...migration_runs import MigrationRunPurpose
+from ...domain.run.models import MigrationRunPurpose
 from ...reporting import (
     WORKBOOK_NAME,
     ReportGenerationError,

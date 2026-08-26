@@ -13,7 +13,7 @@ from impodo.access import LOCAL_ACTOR
 from impodo.application.cutover_plan_service import CutoverPlanService
 from impodo.domain.reconciliation import ReconciliationRunStatus
 from impodo.domain.serialization import content_hash
-from impodo.migration_cutover import (
+from impodo.domain.cutover.models import (
     ApplicationQualificationEvidence,
     CutoverQualificationState,
     QualifiedOutcomes,
@@ -351,4 +351,3 @@ class CutoverQualificationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

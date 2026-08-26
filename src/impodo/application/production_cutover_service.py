@@ -11,7 +11,7 @@ from ..data_version_sources import (
     SourcePackageOrigin,
     SourcePackageState,
 )
-from ..data_versions import DataVersionPurpose, DataVersionState
+from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.serialization import content_hash
 from ..migration_foundation import (
     MigrationConflictError,
@@ -29,7 +29,7 @@ from ..migration_production import (
     ProductionRunError,
     ProductionRunSetupBundle,
 )
-from ..migration_runs import MigrationRunPurpose
+from ..domain.run.models import MigrationRunPurpose
 from ..models import OdooReadIdentity, OdooWriteIdentity
 from ..odoo_scope import OdooApiScope, OdooModelScope
 from ..workspace_state import WorkspaceStateNotFoundError, SourceMode
@@ -620,4 +620,3 @@ class ProductionCutoverService:
     @staticmethod
     def _child_operation(operation_id: str, name: str) -> str:
         return str(uuid5(UUID(operation_id), name))
-

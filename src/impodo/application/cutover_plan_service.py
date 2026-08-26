@@ -7,12 +7,12 @@ import json
 from typing import Mapping, Protocol
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..data_versions import DataVersionPurpose, DataVersionState
+from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.execution import ExecutionRunStatus
 from ..domain.errors import ReadinessError
 from ..domain.reconciliation import ReconciliationRunStatus
 from ..domain.serialization import content_hash
-from ..migration_cutover import (
+from ..domain.cutover.models import (
     ApplicationQualificationEvidence,
     CutoverPlanQualification,
     CutoverPlanRevision,
@@ -30,7 +30,7 @@ from ..migration_foundation import (
     require_revision,
     require_uuid,
 )
-from ..migration_runs import MigrationRunPurpose
+from ..domain.run.models import MigrationRunPurpose
 from ..migration_run_planning import RunRecipeApplication
 
 

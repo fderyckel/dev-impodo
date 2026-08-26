@@ -77,11 +77,11 @@ from ..odoo_scope import OdooApiScope
 from ..workspace_state import WorkspaceState, WorkspaceStateService
 from ..workspace_access import WorkspaceAccessService
 from ..workspace_views import WorkspaceOwnerViewService
-from ..data_versions import DataVersionService
-from ..migration_projects import MigrationProjectService
-from ..migration_runs import MigrationRunService
-from ..migration_workspaces import MigrationWorkspaceService
-from ..recipes import RecipeService
+from ..application.data_version.service import DataVersionService
+from ..application.project.service import MigrationProjectService
+from ..application.run.service import MigrationRunService
+from ..application.workspace.service import MigrationWorkspaceService
+from ..application.recipe.service import RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
 from ..secrets import SecretStore
 from .remote_connection import RemoteConnectionStatusService

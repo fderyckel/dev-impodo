@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from .access import ActorIdentity
-from .data_versions import DataVersion
+from .domain.data_version.models import DataVersion
 from .domain.serialization import content_hash
 from .migration_foundation import (
     require_aware,
@@ -16,8 +16,8 @@ from .migration_foundation import (
     required_text,
 )
 from .migration_run_planning import RecipeDependency, RecipeRevisionSelection
-from .migration_runs import MigrationRun
-from .migration_workspaces import MigrationWorkspace
+from .domain.run.models import MigrationRun
+from .domain.workspace.models import MigrationWorkspace
 
 
 class TestRunSetupState(StrEnum):

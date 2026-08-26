@@ -21,9 +21,9 @@ from .migration_foundation import (
     require_uuid,
     required_text,
 )
-from .migration_runs import MigrationRun
-from .migration_workspaces import MigrationWorkspace
-from .data_versions import DataVersion
+from .domain.run.models import MigrationRun
+from .domain.workspace.models import MigrationWorkspace
+from .domain.data_version.models import DataVersion
 
 
 PRODUCTION_RUN_BINDING_CONTRACT_VERSION = 1

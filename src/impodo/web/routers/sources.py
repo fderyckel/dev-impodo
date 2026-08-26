@@ -40,7 +40,7 @@ from ...connectors import ConnectorError
 from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES
 from ...odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
-from ...data_versions import DataVersionState
+from ...domain.data_version.models import DataVersionState
 from ...inspection import SourceInspectionError, SourceInspectionOptions
 from ...migration_foundation import MigrationFoundationError
 from ...workspace_state import (

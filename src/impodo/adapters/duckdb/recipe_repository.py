@@ -21,7 +21,7 @@ from ...migration_foundation import (
     required_text,
     utc_now,
 )
-from ...recipes import (
+from ...domain.recipe.models import (
     Recipe,
     RecipeError,
     RecipeRevision,

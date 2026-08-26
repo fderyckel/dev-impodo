@@ -13,7 +13,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from ..domain.serialization import canonical_json
-from ..migration_cutover import MigrationCutoverError
+from ..domain.cutover.models import MigrationCutoverError
 from ..migration_foundation import require_hash, require_uuid
 from ..secrets import SecretStore, SecretStoreError
 

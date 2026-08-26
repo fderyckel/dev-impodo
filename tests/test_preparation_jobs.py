@@ -25,9 +25,9 @@ from impodo.application.preparation_job_service import _run_preparation_worker
 from impodo.application.preparation_service import PreparationService
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.data_versions import DataVersionPurpose
+from impodo.domain.data_version.models import DataVersionPurpose
 from impodo.migration_run_planning import RecipeApplicationStatus
-from impodo.migration_runs import MigrationRunPurpose
+from impodo.domain.run.models import MigrationRunPurpose
 from impodo.preparation_jobs import (
     PreparationJobStatus,
     PreparationPhase,

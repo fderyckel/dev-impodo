@@ -38,7 +38,7 @@ from impodo.adapters.duckdb.schema.migration_workspace_store import (
     EXPECTED_WORKSPACE_STORE_COLUMNS,
     MIGRATION_WORKSPACE_GENERATION,
 )
-from impodo.data_versions import DataVersionService
+from impodo.application.data_version.service import DataVersionService
 from impodo.development_reset import (
     execute_development_reset,
     plan_development_reset,
@@ -51,9 +51,9 @@ from impodo.migration_foundation import (
     MigrationOperationState,
     MigrationStorageCompatibilityError,
 )
-from impodo.migration_projects import MigrationProjectService
-from impodo.migration_runs import MigrationRunService
-from impodo.migration_workspaces import MigrationWorkspaceService
+from impodo.application.project.service import MigrationProjectService
+from impodo.application.run.service import MigrationRunService
+from impodo.application.workspace.service import MigrationWorkspaceService
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import UUID, uuid5
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..data_versions import DataVersionPurpose, DataVersionState
+from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.recipe_parameters import (
     EXPORT_AS_OF_PARAMETER_ID,
     RecipeParameterValueError,
@@ -28,7 +28,7 @@ from ..migration_foundation import (
     utc_now,
 )
 from ..migration_run_planning import RecipeDependency, RecipeRevisionSelection
-from ..migration_runs import MigrationRunPurpose
+from ..domain.run.models import MigrationRunPurpose
 from ..migration_test import (
     RecipeRunParameterValue,
     TestRunParameterValues,
@@ -39,7 +39,7 @@ from ..recipe_source_binding import (
     logical_dataset_storage_name,
     normalize_recipe_source_name,
 )
-from ..recipes import RecipeError
+from ..domain.recipe.models import RecipeError
 from .test_run_credential_workspace import TestRunCredentialWorkspaceUseCase
 from .test_run_setup_start import TestRunSetupStartUseCase
 

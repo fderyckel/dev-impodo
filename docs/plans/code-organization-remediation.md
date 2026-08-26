@@ -508,6 +508,25 @@ and restart-safety tests remain unchanged.
 
 ### Phase 3: Move capability packages
 
+Phase 3 is complete. The completed Project slice moves Project identity and
+governance state to `domain/project/models.py`, and moves Project commands and
+the consumer-owned persistence port to `application/project`. The completed
+Data version slice moves data-delivery identity and accepted-state rules to
+`domain/data_version/models.py`, and moves Data version commands and their port
+to `application/data_version`. The completed workspace slice moves isolated
+workspace identity, lifecycle, and setup state to `domain/workspace/models.py`,
+and moves workspace lifecycle commands and their port to
+`application/workspace`. The old flat module paths are deleted; composition,
+adapters, workflow references, and focused tests now import the owner-and-layer
+locations directly. The completed Recipe slice moves Recipe identity,
+immutable revisions, and publication diagnostics to `domain/recipe/models.py`,
+and moves Recipe reads and their port to `application/recipe`. The completed
+Run slice moves run identity and lifecycle state to `domain/run/models.py`,
+and moves run commands and their port to `application/run`. The completed
+Cutover slice moves immutable plans, qualification evidence, and selection
+contracts to `domain/cutover/models.py`; the existing focused Cutover
+application services remain at their current application paths.
+
 - Move one capability at a time with `git mv`.
 - Update all imports, code-map entries, workflow references, and focused tests
   in the same change.
@@ -517,8 +536,9 @@ and restart-safety tests remain unchanged.
 - Move mapping, preparation, and execution after the ownership roots provide
   stable destinations.
 
-**Exit condition:** The file path communicates both the layer and the owner,
-and the architecture test enforces the target dependency matrix.
+**Exit condition:** Met. Each moved root communicates its owner and layer, the
+old flat root paths are absent, and the architecture test enforces the target
+dependency matrix.
 
 ### Phase 4: Organize tests and browser assets
 

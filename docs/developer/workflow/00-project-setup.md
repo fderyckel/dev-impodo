@@ -24,10 +24,11 @@ development reset.
 
 ## Implementation flow
 
-`migration_projects.py` owns `/projects`, `/projects/new`, the Project
-overview, and optional Recipe publication. `workspace_setup.py` opens the
-contained authoring engine under `/workspaces/{workspace_id}` and directs file
-or Odoo-source setup to the existing bounded services.
+`web/routers/migration_projects.py` owns `/projects`, `/projects/new`, and the
+Project overview. `MigrationProjectService` owns Project commands, while
+`workspace_setup.py` opens the contained authoring engine under
+`/workspaces/{workspace_id}` and directs file or Odoo-source setup to the
+existing bounded services.
 
 `WorkspaceAccessService` provides the verified Project-owned lineage for one
 workspace through one registry read. `WorkspaceOwnerViewService` uses that
@@ -145,11 +146,11 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Workspace setup routes | [`workspace_setup.py`](../../../src/impodo/web/routers/workspace_setup.py) |
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
-| Clean roots | [`MigrationProjectService`](../../../src/impodo/migration_projects.py), [`DataVersionService`](../../../src/impodo/data_versions.py), [`MigrationRunService`](../../../src/impodo/migration_runs.py), [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) |
+| Clean roots | [`MigrationProjectService`](../../../src/impodo/application/project/service.py), [`DataVersionService`](../../../src/impodo/application/data_version/service.py), [`MigrationRunService`](../../../src/impodo/application/run/service.py), [`MigrationWorkspaceService`](../../../src/impodo/application/workspace/service.py) |
 | Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/workspace_access.py) and [`FoundationWorkspaceRecords.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/foundation_workspace_records.py) |
 | Forward-only storage upgrades | [`ensure_current_schema`](../../../src/impodo/adapters/duckdb/schema/forward_upgrades.py) |
 | Workspace authorization middleware | [`WorkspaceAccessMiddleware`](../../../src/impodo/web/security.py) |
-| Workspace setup root | [`MigrationWorkspaceService`](../../../src/impodo/migration_workspaces.py) and `MigrationWorkspaceService.complete_setup` |
+| Workspace setup root | [`MigrationWorkspaceService`](../../../src/impodo/application/workspace/service.py) and `MigrationWorkspaceService.complete_setup` |
 | Contained workbench | [`WorkspaceStateService`](../../../src/impodo/workspace_state.py) |
 | Canonical workspace page | [`WorkspaceOwnerViewService`](../../../src/impodo/workspace_views.py) |
 | Source ownership cutover | [`DataVersionOwnedSourceRepository`](../../../src/impodo/adapters/duckdb/data_version_source_repository.py), [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |

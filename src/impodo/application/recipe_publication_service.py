@@ -9,13 +9,13 @@ from uuid import uuid4
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..domain.serialization import content_hash
 from ..migration_foundation import FaultInjector, require_revision, require_uuid
-from ..recipes import (
+from ..domain.recipe.models import (
     Recipe,
     RecipeDraftIssue,
     RecipeError,
     RecipePublication,
-    RecipeRepository,
 )
+from .recipe.ports import RecipeRepository
 from .recipe_compilation_service import CompiledRecipeDefinition
 
 

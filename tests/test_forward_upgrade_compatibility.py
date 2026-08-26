@@ -47,8 +47,8 @@ from impodo.adapters.duckdb.schema.workspace_engine import (
     WORKSPACE_ENGINE_UPGRADES,
     WorkspaceEngineSchemaMixin,
 )
-from impodo.data_versions import DataVersion
-from impodo.migration_workspaces import MigrationWorkspace
+from impodo.domain.data_version.models import DataVersion
+from impodo.domain.workspace.models import MigrationWorkspace
 from impodo.workspace_state import WorkspaceStateCompatibilityError
 
 

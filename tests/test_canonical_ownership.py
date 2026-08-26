@@ -12,7 +12,7 @@ from uuid import uuid4
 import duckdb
 
 from impodo.migration_run_setup import OdooConnectionMode
-from impodo.migration_workspaces import MigrationWorkspaceSetupState
+from impodo.domain.workspace.models import MigrationWorkspaceSetupState
 from impodo.web.app import create_local_app
 from impodo.workspace_state import SourceMode, WorkspaceStatus
 

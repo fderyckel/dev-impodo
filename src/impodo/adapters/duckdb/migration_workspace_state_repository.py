@@ -16,7 +16,7 @@ from ...data_version_sources import (
 )
 from ...migration_foundation import MigrationConflictError, utc_now
 from ...migration_run_setup import MigrationRunTargetSetup
-from ...migration_workspaces import (
+from ...domain.workspace.models import (
     MigrationWorkspaceSetupState,
     MigrationWorkspaceState,
 )
@@ -395,4 +395,3 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             sha256=source_file.sha256.removeprefix("sha256:"),
             received_at=source_file.received_at,
         )
-

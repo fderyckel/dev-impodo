@@ -34,12 +34,16 @@ Run the inventory check from the repository root:
 .venv/bin/python -m unittest tests.test_architecture_inventory -v
 ```
 
-The reviewed snapshot contains 294 production modules and 1,783 runtime
+The reviewed snapshot contains 315 production modules and 1,824 runtime
 internal import edges. It records one type-only edge. Phase 1 removed the three
 application-to-adapter edges and the runtime cycle between
-`impodo.inspection` and `impodo.source_worker`. The Phase 2 work adds named
+`impodo.inspection` and `impodo.source_worker`. Phase 2 added named
 composition, registry-record, preparation-session, and focused-use-case
 collaborators without adding a forbidden layer dependency or runtime cycle.
+Phase 3 moves the Project, Data version, workspace, Recipe, and Run domain
+models, application services, and consumer-owned ports to owner-and-layer
+paths. It moves Cutover domain contracts to `domain/cutover/models.py` while
+the existing Cutover application services retain their focused names.
 
 When a remediation slice changes production modules or imports, inspect the
 JSON diff. Update the fixture only when the change is intended and the new

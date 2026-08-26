@@ -16,7 +16,7 @@ from impodo.adapters.duckdb.production_run_repository import (
 from impodo.application.production_cutover_service import (
     ProductionCutoverService,
 )
-from impodo.data_versions import DataVersionPurpose, DataVersionState
+from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
 from impodo.domain.serialization import content_hash
 from impodo.migration_production import (
     ProductionRunBindingState,
@@ -422,4 +422,3 @@ class ProductionRolloutTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

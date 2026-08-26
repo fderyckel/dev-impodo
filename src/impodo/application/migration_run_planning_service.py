@@ -14,12 +14,13 @@ from ..data_version_sources import (
     SourcePackageOrigin,
     WorkspaceSourceProjectionService,
 )
-from ..data_versions import DataVersionPurpose, DataVersionService, DataVersionState
+from ..domain.data_version.models import DataVersionPurpose, DataVersionState
+from .data_version.service import DataVersionService
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from ..domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from ..domain.serialization import content_hash
-from ..migration_cutover import (
+from ..domain.cutover.models import (
     PROJECT_SHARED_CONTROL_IDS,
     CutoverPlanRevision,
     CutoverWriteOwnership,
@@ -37,7 +38,7 @@ from ..migration_production import (
     ProductionRunError,
     activation_evidence_hash,
 )
-from ..migration_projects import MigrationProjectService
+from .project.service import MigrationProjectService
 from ..migration_run_planning import (
     IntegratedRunBundle,
     MigrationRunPlanIssue,
@@ -55,14 +56,16 @@ from ..migration_run_planning import (
     RunRecipeApplication,
     RunTargetBinding,
 )
-from ..migration_runs import MigrationRun, MigrationRunPurpose, MigrationRunState
+from ..domain.run.models import MigrationRun, MigrationRunPurpose, MigrationRunState
 from ..migration_test import TestRunSetupBinding, TestRunSetupState
-from ..migration_workspaces import (
+from ..domain.workspace.models import (
     MigrationWorkspace,
     MigrationWorkspaceState,
 )
+from .workspace.service import MigrationWorkspaceService
 from ..models import OdooWriteIdentity
-from ..recipes import Recipe, RecipeService
+from ..domain.recipe.models import Recipe
+from .recipe.service import RecipeService
 from ..workspace_contracts import OdooSchemaCatalog
 from ..workspace_state import (
     SourceMode,

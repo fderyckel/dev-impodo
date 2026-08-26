@@ -17,10 +17,10 @@ then follow the service to its exact repository.
 | Responsibility | Domain or application boundary | Persistence or browser boundary |
 | --- | --- | --- |
 | Explain data-manager concepts | immutable `ConceptHelp` presentation registry | authenticated read-only `/concepts` route and shared dialog macro |
-| List and read Projects | `migration_projects.py` | `MigrationFoundationRepository`, `/projects` |
-| Create a Project and first Authoring context | `MigrationProjectAuthoringService` | `migration_projects.py` router |
+| List and read Projects | `domain/project/models.py`, `application/project/service.py` | `MigrationFoundationRepository`, `/projects` |
+| Create a Project and first Authoring context | `MigrationProjectAuthoringService` | `web/routers/migration_projects.py` |
 | Own a complete source package | `DataVersion`, `DataVersionSourcePackage` | `data-version.duckdb` and `artifacts/dv/<data_version_id>` |
-| Coordinate one target use | `MigrationRun`, `MigrationRunTargetSetup` | registry run and target-setup projections |
+| Coordinate one target use | `domain/run/models.py`, `application/run/service.py`, `MigrationRunTargetSetup` | registry run and target-setup projections |
 | Isolate current working evidence | `MigrationWorkspace` plus current workspace services | `workspace.duckdb`, contained `workspace-engine.duckdb`, `artifacts/ws/<workspace_id>`, `/workspaces/{workspace_id}` |
 | Authorize a workspace against its Project | `WorkspaceAccessService`, `WorkspaceAuthorizationPolicy` | `WorkspaceAccessMiddleware`, immutable worker access context reused by progress routes |
 | Render canonical workspace owners | `WorkspaceOwnerViewService` | explicit Project, workspace, DataVersion, run, package, and target view |
@@ -30,7 +30,7 @@ then follow the service to its exact repository.
 | Plan an integrated Test run | `MigrationRunPlanningService` | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
 | Coordinate Review and load progress | `web/run_review.py` | bounded registry status plus latest preparation and load job snapshots |
-| Version and qualify an integrated plan | `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
+| Version and qualify an integrated plan | `domain/cutover/models.py`, `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
 | Run selected meaning with latest data | `ProductionCutoverService` | `ProductionRunRepository`, Production run routes, shared workspace engine |
 
 `web/app.py` composes these Project-first boundaries, including the current

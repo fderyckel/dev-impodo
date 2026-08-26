@@ -8,7 +8,7 @@ from uuid import uuid4
 from starlette.requests import Request
 
 from impodo.migration_foundation import MigrationIdentifierConfusionError
-from impodo.migration_runs import MigrationRunPurpose
+from impodo.domain.run.models import MigrationRunPurpose
 from impodo.web.workspace_journeys import (
     WorkspaceJourney,
     classify_workspace_journey,

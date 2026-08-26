@@ -9,7 +9,7 @@ from ...migration_foundation import (
     require_revision,
     require_uuid,
 )
-from ...migration_workspaces import MigrationWorkspace
+from ...domain.workspace.models import MigrationWorkspace
 from ...workspace_access import WorkspaceAccessContext
 
 

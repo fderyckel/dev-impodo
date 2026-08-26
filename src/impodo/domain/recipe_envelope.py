@@ -6,7 +6,7 @@ import json
 import re
 
 from ..models import assert_no_numeric_odoo_ids
-from ..recipes import RecipeIntegrityError
+from .recipe.models import RecipeIntegrityError
 from .serialization import content_hash
 
 

@@ -10,7 +10,7 @@ from ..data_version_sources import (
     SourcePackageOrigin,
     SourcePackageState,
 )
-from ..data_versions import DataVersionPurpose, DataVersionState
+from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.serialization import content_hash
 from ..migration_foundation import (
     MigrationFoundationError,

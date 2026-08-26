@@ -7,16 +7,16 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Mapping
 
-from .access import ActorIdentity
-from .domain.serialization import content_hash
-from .migration_foundation import (
+from ...access import ActorIdentity
+from ...domain.serialization import content_hash
+from ...migration_foundation import (
     require_aware,
     require_hash,
     require_revision,
     require_uuid,
     required_text,
 )
-from .migration_run_planning import RecipeDependency, RecipeRevisionSelection
+from ...migration_run_planning import RecipeDependency, RecipeRevisionSelection
 
 
 PROJECT_SHARED_CONTROL_IDS = (

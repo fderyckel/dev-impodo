@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...access import Actor
-from ...data_versions import DataVersion
+from ...domain.data_version.models import DataVersion
 from ...migration_foundation import (
     MigrationConflictError,
     require_revision,

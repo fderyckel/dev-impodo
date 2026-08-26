@@ -13,7 +13,7 @@ from ...migration_foundation import (
     require_revision,
     require_uuid,
 )
-from ...migration_projects import (
+from ...domain.project.models import (
     MigrationProject,
     MigrationProjectStatus,
     MigrationProjectSummary,

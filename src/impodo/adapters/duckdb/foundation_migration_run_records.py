@@ -12,7 +12,7 @@ from ...migration_foundation import (
     require_revision,
     require_uuid,
 )
-from ...migration_runs import MigrationRun
+from ...domain.run.models import MigrationRun
 from ...migration_run_setup import MigrationRunTargetSetup, OdooConnectionMode
 
 

@@ -19,13 +19,14 @@ from ..data_version_sources import (
     WorkspaceSourceProjectionService,
     source_column_contract_hash,
 )
-from ..data_versions import DataVersionService, DataVersionState
+from ..domain.data_version.models import DataVersionState
+from .data_version.service import DataVersionService
 from ..domain.odoo_provenance import OdooCaptureManifest
 from ..domain.source_binding import require_file_source
 from ..domain.source_snapshot import SourceSnapshot
 from ..inspection import SourceFileCatalog
 from ..migration_foundation import MigrationFoundationError
-from ..migration_workspaces import MigrationWorkspaceService
+from .workspace.service import MigrationWorkspaceService
 from ..workspace_state import WorkspaceStateService
 from ..workspace_contracts import SourceConfiguration, SourceSelection
 
@@ -353,4 +354,3 @@ class WorkspaceDataVersionSourceService:
     @staticmethod
     def _operation(selection_id: str, name: str) -> str:
         return str(uuid5(UUID(selection_id), name))
-

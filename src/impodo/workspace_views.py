@@ -6,15 +6,15 @@ from dataclasses import dataclass
 
 from .access import Actor, Capability
 from .data_version_sources import DataVersionSourcePackage
-from .data_versions import DataVersion
+from .domain.data_version.models import DataVersion
 from .migration_foundation import (
     MigrationFoundationError,
     MigrationIdentifierConfusionError,
 )
-from .migration_projects import MigrationProject
-from .migration_runs import MigrationRun
+from .domain.project.models import MigrationProject
+from .domain.run.models import MigrationRun
 from .migration_run_setup import MigrationRunTargetSetup
-from .migration_workspaces import MigrationWorkspace
+from .domain.workspace.models import MigrationWorkspace
 from .workspace_access import WorkspaceAccessService
 
 

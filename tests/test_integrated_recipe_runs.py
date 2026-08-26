@@ -79,11 +79,11 @@ from impodo.data_version_sources import (
     WorkspaceSourceProjectionService,
     source_column_contract_hash,
 )
-from impodo.data_versions import (
+from impodo.domain.data_version.models import (
     DataVersionPurpose,
-    DataVersionService,
     DataVersionState,
 )
+from impodo.application.data_version.service import DataVersionService
 from impodo.domain.coverage import (
     ReferenceBundle,
     ReferenceDataSet,
@@ -108,7 +108,7 @@ from impodo.migration_foundation import (
     MigrationOperationState,
     utc_now,
 )
-from impodo.migration_projects import MigrationProjectService
+from impodo.application.project.service import MigrationProjectService
 from impodo.migration_run_planning import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
@@ -118,13 +118,13 @@ from impodo.migration_run_planning import (
     RecipeDependency,
     ReferenceRequirement,
 )
-from impodo.migration_runs import (
+from impodo.domain.run.models import (
     MigrationRunPurpose,
-    MigrationRunService,
     MigrationRunState,
 )
+from impodo.application.run.service import MigrationRunService
 from impodo.migration_test import TestRunSetupState
-from impodo.migration_workspaces import MigrationWorkspaceService
+from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.preparation_jobs import PreparationJobStatus
 from impodo.models import (
     FieldMetadata,
@@ -133,7 +133,7 @@ from impodo.models import (
     TargetFingerprint,
     target_identity_hash,
 )
-from impodo.recipes import RecipeService
+from impodo.application.recipe.service import RecipeService
 from impodo.reference_keys import REFERENCE_POLICY_HASH
 from impodo.secrets import MemorySecretStore
 from impodo.web.app import create_local_app

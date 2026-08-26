@@ -25,7 +25,7 @@ from ...domain.schema.governance import (
 )
 from ...local_stack import LocalStackError
 from ...migration_foundation import MigrationFoundationError
-from ...recipes import RecipeError
+from ...domain.recipe.models import RecipeError
 from ...secrets import SecretStoreError
 from ...workspace_contracts import OdooSchemaCatalog, SchemaOrigin
 from ...workspace_errors import WorkspaceError

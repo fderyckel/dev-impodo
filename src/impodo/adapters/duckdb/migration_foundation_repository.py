@@ -20,7 +20,11 @@ from ...data_version_sources import (
     SourcePackageState,
     WorkspaceSourceProjection,
 )
-from ...data_versions import DataVersion, DataVersionPurpose, DataVersionState
+from ...domain.data_version.models import (
+    DataVersion,
+    DataVersionPurpose,
+    DataVersionState,
+)
 from ...domain.serialization import canonical_json
 from ...domain.source_binding import source_binding_from_dict
 from ...migration_foundation import (
@@ -37,18 +41,18 @@ from ...migration_foundation import (
     require_uuid,
     utc_now,
 )
-from ...migration_projects import (
+from ...domain.project.models import (
     MigrationDataClassification,
     MigrationProject,
     MigrationProjectStatus,
     MigrationProjectSummary,
 )
-from ...migration_runs import (
+from ...domain.run.models import (
     MigrationRun,
     MigrationRunPurpose,
     MigrationRunState,
 )
-from ...migration_workspaces import (
+from ...domain.workspace.models import (
     MigrationWorkspace,
     MigrationWorkspaceSetupState,
     MigrationWorkspaceState,

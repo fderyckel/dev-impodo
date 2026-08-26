@@ -24,8 +24,8 @@ from .migration_foundation import (
     require_uuid,
     required_text,
 )
-from .migration_runs import MigrationRun
-from .migration_workspaces import MigrationWorkspace
+from .domain.run.models import MigrationRun
+from .domain.workspace.models import MigrationWorkspace
 from .workspace_contracts import OdooSchemaCatalog, SchemaModel
 
 

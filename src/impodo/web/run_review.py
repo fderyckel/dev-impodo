@@ -14,7 +14,7 @@ from ..migration_run_planning import (
     RecipeApplicationStatus,
     RunRecipeApplication,
 )
-from ..migration_runs import MigrationRunPurpose
+from ..domain.run.models import MigrationRunPurpose
 from ..preparation_jobs import PreparationJob, PreparationJobStatus
 from ..workspace_errors import WorkspaceError
 

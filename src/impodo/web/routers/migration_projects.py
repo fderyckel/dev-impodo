@@ -7,9 +7,9 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ...data_versions import DataVersionPurpose
+from ...domain.data_version.models import DataVersionPurpose
 from ...migration_foundation import MigrationFoundationError
-from ...recipes import RecipeError
+from ...domain.recipe.models import RecipeError
 from ...workspace_state import SourceMode
 from ..context import WebContext
 from ..forms import _form_values, _secure_form, _text
@@ -219,4 +219,3 @@ def _render_project_overview(
         error=error,
         status_code=status_code,
     )
-

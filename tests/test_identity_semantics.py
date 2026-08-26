@@ -11,14 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 CANONICAL_IDENTITY_FIELDS = {
-    ("src/impodo/migration_projects.py", "MigrationProject"): {
+    ("src/impodo/domain/project/models.py", "MigrationProject"): {
         "project_id",
     },
-    ("src/impodo/data_versions.py", "DataVersion"): {
+    ("src/impodo/domain/data_version/models.py", "DataVersion"): {
         "project_id",
         "data_version_id",
     },
-    ("src/impodo/migration_runs.py", "MigrationRun"): {
+    ("src/impodo/domain/run/models.py", "MigrationRun"): {
         "project_id",
         "data_version_id",
         "migration_run_id",
@@ -27,7 +27,7 @@ CANONICAL_IDENTITY_FIELDS = {
         "project_id",
         "migration_run_id",
     },
-    ("src/impodo/migration_workspaces.py", "MigrationWorkspace"): {
+    ("src/impodo/domain/workspace/models.py", "MigrationWorkspace"): {
         "project_id",
         "data_version_id",
         "migration_run_id",
@@ -48,28 +48,28 @@ TRUE_PROJECT_ID_TYPES = frozenset(
     {
         "data_version_sources.py::DataVersionSourcePackage",
         "data_version_sources.py::WorkspaceSourceProjection",
-        "data_versions.py::DataVersion",
+        "domain/data_version/models.py::DataVersion",
         "incompatible_project_storage.py::UnavailableProjectSummary",
-        "migration_cutover.py::ApplicationQualificationEvidence",
-        "migration_cutover.py::CutoverPlan",
-        "migration_cutover.py::CutoverPlanQualification",
-        "migration_cutover.py::CutoverPlanRevision",
-        "migration_cutover.py::ProjectCutoverSelection",
-        "migration_cutover.py::RecipeApplicationQualification",
+        "domain/cutover/models.py::ApplicationQualificationEvidence",
+        "domain/cutover/models.py::CutoverPlan",
+        "domain/cutover/models.py::CutoverPlanQualification",
+        "domain/cutover/models.py::CutoverPlanRevision",
+        "domain/cutover/models.py::ProjectCutoverSelection",
+        "domain/cutover/models.py::RecipeApplicationQualification",
         "migration_foundation.py::MigrationOperationIntent",
         "migration_production.py::ProductionRunBinding",
-        "migration_projects.py::MigrationProject",
-        "migration_projects.py::MigrationProjectSummary",
+        "domain/project/models.py::MigrationProject",
+        "domain/project/models.py::MigrationProjectSummary",
         "migration_run_planning.py::MigrationRunRequirementPlan",
         "migration_run_planning.py::RunRecipeApplication",
         "migration_run_planning.py::RunTargetBinding",
-        "migration_runs.py::MigrationRun",
+        "domain/run/models.py::MigrationRun",
         "migration_run_setup.py::MigrationRunTargetSetup",
-        "migration_workspaces.py::MigrationWorkspace",
+        "domain/workspace/models.py::MigrationWorkspace",
         "migration_test.py::TestRunParameterValues",
         "migration_test.py::TestRunSetupBinding",
         "preparation_jobs.py::PreparationWorkspace",
-        "recipes.py::Recipe",
+        "domain/recipe/models.py::Recipe",
         "workspace_access.py::WorkspaceAccessContext",
         "application/cutover_plan_service.py::IntegratedQualificationReview",
         "application/migration_run_planning_service.py::IntegratedRunReview",
@@ -127,15 +127,15 @@ CURRENT_IDENTITY_SURFACES = {
             "class MigrationOperationIntent",
         ),
         (
-            "src/impodo/migration_workspaces.py",
+            "src/impodo/application/workspace/service.py",
             "expected_workspace_revision",
         ),
         (
-            "src/impodo/data_versions.py",
+            "src/impodo/application/data_version/service.py",
             "expected_workspace_revision",
         ),
         (
-            "src/impodo/migration_runs.py",
+            "src/impodo/application/run/service.py",
             "expected_workspace_revision",
         ),
     ),
@@ -176,7 +176,7 @@ class IdentitySemanticsTests(unittest.TestCase):
             )
 
         project_fields = _class_annotation_fields(
-            "src/impodo/migration_projects.py",
+            "src/impodo/domain/project/models.py",
             "MigrationProject",
         )
         self.assertNotIn("workspace_id", project_fields)

@@ -37,7 +37,7 @@ from ...migration_run_planning import (
     RunRecipeApplication,
     RunTargetBinding,
 )
-from ...migration_runs import MigrationRun
+from ...domain.run.models import MigrationRun
 from ...migration_test import TestRunSetupBinding
 from ...workspace_contracts import OdooSchemaCatalog
 from .migration_foundation_repository import MigrationFoundationRepository

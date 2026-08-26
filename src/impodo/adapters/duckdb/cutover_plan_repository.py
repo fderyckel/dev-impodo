@@ -9,7 +9,7 @@ from uuid import UUID, uuid5
 
 from ...access import Actor, ActorIdentity
 from ...domain.serialization import canonical_json, content_hash
-from ...migration_cutover import (
+from ...domain.cutover.models import (
     ApplicationQualificationEvidence,
     CutoverPlan,
     CutoverPlanQualification,

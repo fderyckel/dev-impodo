@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 from ....migration_foundation import MigrationStorageCompatibilityError
-from ....migration_workspaces import MigrationWorkspace
+from ....domain.workspace.models import MigrationWorkspace
 from ....workspace_access import WorkspaceAccessContext
 from .forward_upgrades import (
     SCHEMA_MIGRATION_COLUMNS,

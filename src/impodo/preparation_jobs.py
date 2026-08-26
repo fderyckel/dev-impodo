@@ -7,10 +7,14 @@ from datetime import datetime
 from enum import StrEnum
 
 from .build_contract import ApplicationBuildContract
-from .data_versions import DataVersion, DataVersionPurpose, DataVersionState
+from .domain.data_version.models import (
+    DataVersion,
+    DataVersionPurpose,
+    DataVersionState,
+)
 from .migration_foundation import MigrationFoundationError, require_uuid
-from .migration_runs import MigrationRun, MigrationRunPurpose
-from .migration_workspaces import MigrationWorkspace, MigrationWorkspaceState
+from .domain.run.models import MigrationRun, MigrationRunPurpose
+from .domain.workspace.models import MigrationWorkspace, MigrationWorkspaceState
 
 
 class PreparationJobStatus(StrEnum):

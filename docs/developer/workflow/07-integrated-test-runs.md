@@ -295,7 +295,7 @@ queries must not scale with Recipe count.
 | Test setup binding | [`migration_test.py`](../../../src/impodo/migration_test.py) |
 | Test setup coordinator | [`TestRunSetupService`](../../../src/impodo/application/test_run_setup_service.py) |
 | Stable logical source binding | [`recipe_source_binding.py`](../../../src/impodo/recipe_source_binding.py) |
-| Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/recipes.py) |
+| Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/application/recipe/service.py) |
 | Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/migration_run_planning_service.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |

@@ -14,7 +14,7 @@ from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
 from ..migration_foundation import MigrationIdentifierConfusionError
-from ..migration_runs import MigrationRunPurpose
+from ..domain.run.models import MigrationRunPurpose
 from ..workspace_access import WorkspaceAccessContext
 
 

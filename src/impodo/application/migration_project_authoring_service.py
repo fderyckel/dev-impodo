@@ -13,16 +13,20 @@ from ..data_version_sources import (
     SourcePackageOrigin,
     SourcePackageState,
 )
-from ..data_versions import DataVersion, DataVersionPurpose, DataVersionService
+from ..domain.data_version.models import DataVersion, DataVersionPurpose
+from .data_version.service import DataVersionService
 from ..migration_foundation import (
     MigrationFoundationError,
     MigrationNotFoundError,
     MigrationOperationState,
     require_uuid,
 )
-from ..migration_projects import MigrationProject, MigrationProjectService
-from ..migration_runs import MigrationRun, MigrationRunPurpose, MigrationRunService
-from ..migration_workspaces import MigrationWorkspace, MigrationWorkspaceService
+from ..domain.project.models import MigrationProject
+from .project.service import MigrationProjectService
+from .run.service import MigrationRunService
+from ..domain.run.models import MigrationRun, MigrationRunPurpose
+from ..domain.workspace.models import MigrationWorkspace
+from .workspace.service import MigrationWorkspaceService
 from ..workspace_state import (
     WorkspaceStateNotFoundError,
     WorkspaceStateService,
@@ -253,4 +257,3 @@ class MigrationProjectAuthoringService:
             operation_id,
             actor=actor,
         )
-

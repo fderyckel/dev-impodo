@@ -39,11 +39,11 @@ stages:
       - src/impodo/web/templates/workspace_target.html
     code_references:
       - src/impodo/application/migration_project_authoring_service.py::MigrationProjectAuthoringService
-      - src/impodo/migration_projects.py::MigrationProjectService
-      - src/impodo/data_versions.py::DataVersionService
-      - src/impodo/migration_runs.py::MigrationRunService
+      - src/impodo/application/project/service.py::MigrationProjectService
+      - src/impodo/application/data_version/service.py::DataVersionService
+      - src/impodo/application/run/service.py::MigrationRunService
       - src/impodo/migration_run_setup.py::MigrationRunTargetSetupService
-      - src/impodo/migration_workspaces.py::MigrationWorkspaceService
+      - src/impodo/application/workspace/service.py::MigrationWorkspaceService
       - src/impodo/workspace_access.py::WorkspaceAccessService
       - src/impodo/web/security.py::WorkspaceAccessMiddleware
       - src/impodo/adapters/duckdb/foundation_workspace_records.py::FoundationWorkspaceRecords.resolve_workspace_access_context
@@ -148,7 +148,7 @@ stages:
       - src/impodo/web/target_readers.py::_capture_recipe_supporting_values
       - src/impodo/web/run_review.py::build_integrated_run_review
       - src/impodo/web/run_review.py::start_next_preparation
-      - src/impodo/recipes.py::RecipeService.read_revisions
+      - src/impodo/application/recipe/service.py::RecipeService.read_revisions
       - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService
       - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService.confirm_application_odoo_defaults
       - src/impodo/application/migration_run_planning_service.py::MigrationRunPlanningService.recover_blocked_test_run_defaults
@@ -187,7 +187,7 @@ stages:
       - src/impodo/application/cutover_plan_service.py::WorkspaceIntegratedQualificationEvidenceReader
       - src/impodo/adapters/duckdb/cutover_plan_repository.py::CutoverPlanRepository
       - src/impodo/adapters/protected_project_evidence_store.py::ProtectedProjectEvidenceStore
-      - src/impodo/migration_cutover.py::CutoverPlanRevision
+      - src/impodo/domain/cutover/models.py::CutoverPlanRevision
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
       - tests/test_cutover_qualification.py

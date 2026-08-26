@@ -13,9 +13,9 @@ from starlette.concurrency import run_in_threadpool
 from ...inspection import SourceInspectionError
 from ...migration_foundation import MigrationFoundationError
 from ...migration_run_planning import MigrationRunPlanningError, RecipeDependency
-from ...migration_runs import MigrationRunPurpose
+from ...domain.run.models import MigrationRunPurpose
 from ...domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
-from ...recipes import RecipeError
+from ...domain.recipe.models import RecipeError
 from ...workspace_errors import WorkspaceError
 from ...workspace_state import (
     SourceMode,
