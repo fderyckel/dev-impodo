@@ -50,6 +50,9 @@ from impodo.application.migration_project_authoring_service import (
 from impodo.application.run.planning_service import (
     MigrationRunPlanningService,
 )
+from impodo.application.run.application_recovery import (
+    RunApplicationRecoveryUseCase,
+)
 from impodo.application.recipe_application_service import (
     RecipeApplicationAssessment,
     RecipeApplicationService,
@@ -59,11 +62,13 @@ from impodo.application.recipe_compilation_service import CompiledRecipeDefiniti
 from impodo.application.recipe_publication_service import (
     RecipePublicationService,
 )
-from impodo.application.run.test_setup_service import (
+from impodo.application.run.fresh_data_matching import (
     FreshDataInputRequirement,
     FreshDataMatchStatus,
     FreshDataParameterRequirement,
     FreshDataRecipeRequirement,
+)
+from impodo.application.run.test_setup_service import (
     TestRunSetupService,
 )
 from impodo.application.run.fresh_data_values import (
@@ -968,6 +973,16 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
                 ),
             ),
         )
+        service._application_recovery = RunApplicationRecoveryUseCase(
+            repository=service.repository,
+            authorization=service.authorization,
+            compiler=service.compiler,
+            source_packages=None,
+            data_versions=None,
+            test_run_values=None,
+            recipes=None,
+            package_selection=lambda package: package,
+        )
 
         result = service.confirm_application_odoo_defaults(
             application_id,
@@ -1051,6 +1066,16 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
                     get_mapping_submission=lambda current_id, version: submission,
                 )
             )
+        )
+        service._application_recovery = RunApplicationRecoveryUseCase(
+            repository=service.repository,
+            authorization=service.authorization,
+            compiler=service.compiler,
+            source_packages=None,
+            data_versions=None,
+            test_run_values=None,
+            recipes=None,
+            package_selection=lambda package: package,
         )
 
         result = service.confirm_application_mapping(
@@ -1210,6 +1235,16 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             }
         )
         service.compiler = compiler
+        service._application_recovery = RunApplicationRecoveryUseCase(
+            repository=service.repository,
+            authorization=service.authorization,
+            compiler=service.compiler,
+            source_packages=service.source_packages,
+            data_versions=service.data_versions,
+            test_run_values=service.test_run_values,
+            recipes=service.recipes,
+            package_selection=service._package_selection,
+        )
 
         result = service.recover_blocked_test_run_defaults(
             run_id,

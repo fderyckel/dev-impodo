@@ -75,11 +75,12 @@ source engine or change Authoring navigation.
 
 When the data manager saves the Test target, the target route reads the setup
 binding and preselects the union of models declared by the selected Recipe
-revisions. `odoo_check_requirements_for_workspace` bulk-reads the exact
-protected revisions once and combines their models, fields, Recipe names, and
-Recipe-owned Odoo relationship paths in memory. Portable reference tables
-remain separate Recipe dependencies. This projection performs no Odoo call
-per Recipe.
+revisions. `TestRunOdooRequirementsUseCase.for_workspace` authorizes the
+Project, bulk-reads the exact protected revisions once, and combines their
+models, fields, Recipe names, and Recipe-owned Odoo relationship paths in
+memory. Portable reference tables remain separate Recipe dependencies. This
+projection performs no Odoo call per Recipe. `TestRunSetupService` delegates
+its stable browser-facing query to this focused use case.
 
 `GET /projects/{project_id}/runs/{migration_run_id}/odoo` renders the shared
 setup evidence as the run-owned **Check Odoo** page. The page presents the
@@ -293,10 +294,16 @@ queries must not scale with Recipe count.
 | --- | --- |
 | Domain plan and application state | [`migration_run_planning.py`](../../../src/impodo/migration_run_planning.py) |
 | Test setup binding | [`migration_test.py`](../../../src/impodo/migration_test.py) |
-| Test setup coordinator | [`TestRunSetupService`](../../../src/impodo/application/run/test_setup_service.py) |
+| Stable Test setup facade | [`TestRunSetupService`](../../../src/impodo/application/run/test_setup_service.py) |
+| Restart-safe Test setup creation | [`TestRunSetupStartUseCase`](../../../src/impodo/application/run/test_setup_start.py) |
+| Fresh-data values and matching | [`TestRunFreshDataUseCase`](../../../src/impodo/application/run/fresh_data_setup.py) |
+| Run-owned Odoo requirement query | [`TestRunOdooRequirementsUseCase`](../../../src/impodo/application/run/odoo_requirements.py) |
 | Stable logical source binding | [`recipe_source_binding.py`](../../../src/impodo/recipe_source_binding.py) |
 | Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/application/recipe/service.py) |
-| Planner and provisioning coordinator | [`MigrationRunPlanningService`](../../../src/impodo/application/run/planning_service.py) |
+| Stable run-planning facade | [`MigrationRunPlanningService`](../../../src/impodo/application/run/planning_service.py) |
+| Test activation | [`TestRunActivationUseCase`](../../../src/impodo/application/run/test_activation.py) |
+| Production review and activation | [`ProductionRunReviewUseCase`](../../../src/impodo/application/run/production_review.py) and [`ProductionRunActivationUseCase`](../../../src/impodo/application/run/production_activation.py) |
+| Application materialization and recovery | [`RunApplicationMaterializer`](../../../src/impodo/application/run/application_materialization.py) and [`RunApplicationRecoveryUseCase`](../../../src/impodo/application/run/application_recovery.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |
 | Background preparation summary | [`PreparationJobManager`](../../../src/impodo/application/workspace/preparation/preparation_job_service.py) |
@@ -314,6 +321,7 @@ queries must not scale with Recipe count.
 
 ## Verification
 
+- [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
 - [`tests/test_integrated_recipe_runs.py`](../../../tests/test_integrated_recipe_runs.py)
 - [`tests/test_forward_upgrade_compatibility.py`](../../../tests/test_forward_upgrade_compatibility.py)
 - [`tests/test_workspace_journeys.py`](../../../tests/test_workspace_journeys.py)

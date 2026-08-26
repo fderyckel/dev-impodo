@@ -31,7 +31,7 @@ from impodo.web.target_readers import (
     _read_readiness_snapshots,
     _read_supporting_lookup_snapshots,
 )
-from impodo.application.run.test_setup_service import (
+from impodo.application.run.odoo_requirements import (
     OdooCheckRelationshipRequirement,
     OdooCheckSupportingRequirement,
 )

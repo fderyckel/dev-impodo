@@ -34,7 +34,7 @@ Run the inventory check from the repository root:
 .venv/bin/python -m unittest tests.test_architecture_inventory -v
 ```
 
-The reviewed snapshot contains 321 production modules and 1,838 runtime
+The reviewed snapshot contains 342 production modules and 1,965 runtime
 internal import edges. It records one type-only edge. Phase 1 removed the three
 application-to-adapter edges and the runtime cycle between
 `impodo.inspection` and `impodo.source_worker`. Phase 2 added named
@@ -47,9 +47,19 @@ the existing Cutover application services retain their focused names. The
 workspace-owned Mapping, Preparation, and Execution application slices now
 live below `application/workspace`. Run planning, review, target evidence,
 guided Test setup, fresh-data matching, and fresh-data value decisions now
-live below `application/run`; deterministic ordering and collision decisions
-live below `domain/run`. These moves preserve the zero-cycle and
-zero-forbidden-edge baseline.
+live below `application/run`. The run-owned Odoo requirement query also lives
+there and proves that selected Recipe revisions are read in one bulk operation.
+Deterministic ordering and collision decisions live below `domain/run`. These
+moves preserve the zero-cycle and zero-forbidden-edge baseline.
+
+Phase 2 also splits the two large DuckDB adapters without changing their
+public ports. The migration foundation facade assembles owner-specific record
+and command components behind one private registry transaction coordinator.
+The preparation-session facade assembles direct writing, quality indexing,
+normalization, stored-run reading, and cleanup components while preserving one
+publication transaction. Run planning and Test setup retain stable facades over
+focused use cases. Tests that patch adapter internals now patch the focused
+owner module rather than the facade module.
 
 When a remediation slice changes production modules or imports, inspect the
 JSON diff. Update the fixture only when the change is intended and the new

@@ -27,7 +27,7 @@ then follow the service to its exact repository.
 | Supply mapping source contracts | `WorkspaceMappingSourceProjection` | bounded workspace source projection |
 | Compile reusable meaning | `RecipeCompiler.compile_workspace` | reads current workspace evidence only |
 | Publish optional Recipes | `RecipePublicationService` | `RecipeRepository`, protected Recipe store |
-| Plan an integrated Test run | `MigrationRunPlanningService` | `MigrationRunPlanningRepository`, Project run routes |
+| Plan an integrated Test run | focused use cases under `application/run`; `MigrationRunPlanningService` is the stable facade | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
 | Coordinate Review and load progress | `web/run_review.py` | bounded registry status plus latest preparation and load job snapshots |
 | Version and qualify an integrated plan | `domain/cutover/models.py`, `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
@@ -37,6 +37,27 @@ then follow the service to its exact repository.
 Production coordinator. It does not compose the superseded Recipe-root list,
 creation, deletion, Test-application, Production-application, or qualification
 services.
+
+## Maintenance boundaries
+
+Use these paths when extending an existing capability. The facade modules keep
+established ports and composition stable; new decisions belong in the focused
+owner module.
+
+| Capability | Focused owner modules | Stable facade or transaction boundary |
+| --- | --- | --- |
+| Test setup | `application/run/test_setup_start.py`, `fresh_data_setup.py`, and `odoo_requirements.py` | `application/run/test_setup_service.py` |
+| Integrated run review and activation | `application/run/review.py`, `test_activation.py`, `production_review.py`, `production_activation.py`, `application_materialization.py`, and `application_recovery.py` | `application/run/planning_service.py` |
+| Shared registry | `foundation_project_records.py`, `foundation_data_version_records.py`, `foundation_data_version_commands.py`, `foundation_migration_run_records.py`, `foundation_migration_run_commands.py`, `foundation_workspace_records.py`, and `foundation_workspace_commands.py` | `migration_foundation_repository.py` assembles the adapter; `registry_transaction.py` alone owns the shared DuckDB commit or rollback boundary |
+| Registry operation and serialization support | `foundation_operation_intents.py`, `foundation_source_package_records.py`, `foundation_registry_support.py`, and `foundation_record_codecs.py` | private adapter support only; application services never receive a connection |
+| Preparation publication | `preparation_direct_writer.py`, `preparation_quality_index.py`, `preparation_normalization_records.py`, `preparation_stored_run_reader.py`, and `preparation_failure_cleanup.py` | `preparation_session_repository.py` keeps the public preparation port and connection policy |
+| Preparation bindings | `preparation_snapshot_bindings.py`, `preparation_derived_artifact_bindings.py`, `preparation_canonical_projection_bindings.py`, and `preparation_session_lifecycle.py` | each collaborator reuses the transaction opened for its one publication or lifecycle action |
+
+Do not add a DuckDB connection parameter to an application use case. Add a
+named atomic command to the consumer-owned port, implement it behind the
+adapter facade, and preserve its fault-replay and query-count test. When a
+preparation test must patch an implementation detail, patch the focused module
+that owns it, not `preparation_session_repository.py`.
 
 ## Creation trace
 
@@ -116,9 +137,11 @@ Project identity, workspace identity, run identity, or cutover authority.
 
 1. The Project route creates one Test setup over exact Recipe revisions and
    explicit dependencies, then accepts one fresh Test DataVersion.
-2. `TestRunSetupService.odoo_check_requirements_for_workspace` bulk-reads the
-   selected revisions and unions their Odoo models, fields, and Recipe-owned
-   relationship paths without contacting Odoo per Recipe.
+2. `TestRunOdooRequirementsUseCase.for_workspace` authorizes the run-owned
+   query, bulk-reads the selected revisions, and unions their Odoo models,
+   fields, and Recipe-owned relationship paths without contacting Odoo per
+   Recipe. `TestRunSetupService` retains the stable query used by browser
+   contexts and delegates the decision.
 3. The run-owned **Check Odoo** route presents that scope as read-only and
    delegates field capture to the existing shared schema service. A setup
    workspace schema URL redirects to the run; Authoring keeps the editable
@@ -220,6 +243,7 @@ separate from read capability.
 - `tests/test_forward_upgrade_compatibility.py`
 - `tests/test_data_version_source_packages.py`
 - `tests/test_project_authoring.py`
+- `tests/application/run/test_odoo_requirements.py`
 - `tests/test_integrated_recipe_runs.py`
 - `tests/test_cutover_qualification.py`
 - `tests/test_production_rollout.py`

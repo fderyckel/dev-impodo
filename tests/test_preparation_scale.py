@@ -2337,7 +2337,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
 
         from impodo.adapters.duckdb import (
-            preparation_session_repository,
+            preparation_direct_writer,
             quality_repository,
         )
 
@@ -2370,7 +2370,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             "impacts": [],
         }
         original_impact_batches = (
-            preparation_session_repository.iter_encoded_json_batches
+            preparation_direct_writer.iter_encoded_json_batches
         )
 
         def count_preparation_batches(*args, **kwargs):
@@ -2416,17 +2416,17 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 count_quality_batches,
             ),
             patch.object(
-                preparation_session_repository,
+                preparation_direct_writer,
                 "iter_encoded_json_batches",
                 count_preparation_batches,
             ),
             patch.object(
-                preparation_session_repository,
+                preparation_direct_writer,
                 "DUCKDB_JSON_BATCH_MAX_BYTES",
                 2_000,
             ),
             patch.object(
-                preparation_session_repository,
+                preparation_direct_writer,
                 "DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES",
                 10_000,
             ),
@@ -2695,7 +2695,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         with (
             patch(
-                "impodo.adapters.duckdb.preparation_session_repository."
+                "impodo.adapters.duckdb.preparation_direct_writer."
                 "append_clean_native_projection",
                 side_effect=RuntimeError("injected native projection failure"),
             ),
@@ -2735,9 +2735,12 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 dirty=True,
             )
         )
-        from impodo.adapters.duckdb import preparation_session_repository
+        from impodo.adapters.duckdb import (
+            preparation_direct_writer,
+            preparation_session_support,
+        )
 
-        original_batches = preparation_session_repository.iter_encoded_json_batches
+        original_batches = preparation_direct_writer.iter_encoded_json_batches
 
         def reject_canonical_json_batches(*args, **kwargs):
             for batch in original_batches(*args, **kwargs):
@@ -2749,17 +2752,17 @@ class BoundedPreparationParityTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.adapters.duckdb.preparation_session_repository."
+                "impodo.adapters.duckdb.preparation_direct_writer."
                 "supports_clean_native_projection",
                 return_value=False,
             ),
             patch.object(
-                preparation_session_repository,
+                preparation_session_support,
                 "_CANONICAL_ROW_SCALAR_FALLBACK_BYTES",
                 1,
             ),
             patch.object(
-                preparation_session_repository,
+                preparation_direct_writer,
                 "iter_encoded_json_batches",
                 reject_canonical_json_batches,
             ),
@@ -2790,7 +2793,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.adapters.duckdb.preparation_session_repository."
+                "impodo.adapters.duckdb.preparation_direct_writer."
                 "supports_clean_native_projection",
                 return_value=False,
             ),

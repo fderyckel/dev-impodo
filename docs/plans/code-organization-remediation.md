@@ -474,9 +474,8 @@ production module cycle.
 
 ### Phase 2: Decompose composition and change hubs
 
-
-Phase 2 is in progress. The completed slices give local browser composition two
-capability builders and sends the lifecycle and mapping-quality routes narrow
+Phase 2 is complete. The completed slices give local browser composition two
+capability builders and send the lifecycle and mapping-quality routes narrow
 contexts. `FoundationProjectRecords` now owns Project persistence, while
 `RegistryTransactionCoordinator` owns the shared registry commit or rollback
 boundary. `FoundationDataVersionRecords` now owns Data version numbering,
@@ -511,20 +510,52 @@ projection, shared run-value merging, automatic export-date normalization, and
 saved-value ownership checks. `TestRunSetupService` retains persistence and
 authorization coordination while calling those portable functions.
 
+`application/run/odoo_requirements.py` now owns the authorized read-only query
+that projects the exact selected Recipe revisions into one combined Odoo model,
+field, and supporting-relationship scope. It receives narrow selection and
+Recipe-revision readers, performs one bulk Recipe read, and never contacts
+Odoo. `TestRunSetupService` retains its browser-facing method and delegates the
+query. `tests/application/run/test_odoo_requirements.py` proves the bounded
+read and fail-closed semantic-hash behavior without building a browser app.
+
 `domain/run/planning.py` now owns deterministic dependency ordering, Odoo
 requirement unioning, reference-version and write-ownership collision checks,
 and the reusable requirement hash. `RunReviewUseCase` calls those domain
 functions directly instead of receiving seven callbacks from
 `MigrationRunPlanningService`.
 
-The remaining facades still coordinate several named responsibilities.
-`MigrationFoundationRepository`, `PreparationSessionRepository`,
-`MigrationRunPlanningService`, and `TestRunSetupService` therefore remain
-Phase 2 work even though their extracted collaborators have narrow ownership.
+`TestRunFreshDataUseCase` now owns the bounded Recipe read, fresh-data run-value
+plan and save, physical-table matching, and activation parameter reconstruction.
+`TestRunSetupStartUseCase` owns restart-safe setup creation, while
+`TestRunOdooRequirementsUseCase` owns the run-qualified Odoo requirement query.
+`TestRunSetupService` remains only as the stable setup capability facade and
+coordinates the final activation call.
 
-**Exit condition:** Not yet met. Each remaining facade must coordinate one
-cohesive operation family, while public ports, schemas, transaction boundaries,
-bounded-I/O behavior, and restart-safety tests remain unchanged.
+`MigrationRunPlanningService` is now a stable facade over `RunReviewUseCase`,
+`TestRunActivationUseCase`, `ProductionRunReviewUseCase`,
+`ProductionRunActivationUseCase`, `RunApplicationMaterializer`,
+`RunApplicationRecoveryUseCase`, and `RunTargetEvidenceUseCase`. Test and
+Production authority checks and restart paths no longer share one method body.
+The application layer still receives operation-oriented repositories and never
+receives a DuckDB connection.
+
+`MigrationFoundationRepository` now assembles owner-focused adapter components.
+Project, Data version, run, and workspace records and create commands are
+separate. Operation intents, source-package writes, registry identity support,
+and record codecs are also separate. They retain the single private
+`RegistryTransactionCoordinator`; the public repository port and exact
+operation identities are unchanged.
+
+`PreparationSessionRepository` now assembles separate direct/native writers,
+quality and relationship indexes, normalization records, stored-run readers,
+and failure cleanup. Snapshot, derived-artifact, canonical-projection, and
+lifecycle bindings remain focused collaborators. One publication transaction
+still protects each session, and the public preparation port is unchanged.
+
+**Exit condition:** Met. The four former change hubs are stable facades or one
+cohesive operation family. Public ports, schemas, transaction boundaries,
+bounded-I/O assertions, deterministic test orders, and restart-safety tests
+remain unchanged and green.
 
 ### Phase 3: Move capability packages
 

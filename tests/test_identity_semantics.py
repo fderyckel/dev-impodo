@@ -72,7 +72,7 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/recipe/models.py::Recipe",
         "workspace_access.py::WorkspaceAccessContext",
         "application/cutover_plan_service.py::IntegratedQualificationReview",
-        "application/run/planning_service.py::IntegratedRunReview",
+        "application/run/planning_models.py::IntegratedRunReview",
         "application/recipe_publication_service.py::RecipeDraft",
     }
 )
