@@ -38,7 +38,7 @@ class ImportEdge:
 
 
 def module_location(relative_path: Path) -> str:
-    """Classify the current mixed package shape without guessing capability."""
+    """Classify the current layer-first package without guessing capability."""
 
     parts = relative_path.with_suffix("").parts
     if parts[-1] == "__init__":

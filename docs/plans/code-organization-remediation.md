@@ -1,28 +1,33 @@
 ---
 audience: developer
 kind: plan
-status: active
+status: completed
 ---
 
-# Code organization remediation plan
+# Code organization remediation delivery record
 
 ## Purpose
 
-This plan reorganizes Impodo so that the filesystem, dependency graph, tests,
-and developer guidance reinforce the accepted Project, Data version,
-workspace, Recipe, and migration-run ownership model.
+This completed plan records how Impodo reorganized the filesystem, dependency
+graph, tests, and developer guidance around the accepted Project, Data version,
+workspace, Recipe, and migration run ownership model.
 
-The plan changes code organization. It does not change product behavior,
+The [current code-organization guide](../architecture/code-organization.md)
+supersedes the prescriptive sections below. This file preserves the execution
+contract, design rationale, phase outcomes, and verification evidence for the
+completed work.
+
+The delivery changed code organization. It did not change product behavior,
 domain ownership, browser decisions, persistence generations, hashes, or Odoo
 authority.
 
-The intended reader is a human maintainer or coding agent preparing a focused
-refactor or deciding where new code belongs.
+The intended reader is a human maintainer or coding agent reviewing why the
+reorganization was performed and which evidence qualified its delivery.
 
-## Desired result
+## Delivered result
 
-After this plan is complete, a maintainer should be able to answer these
-questions from a file path before opening the file:
+A maintainer can now answer these questions from a file path before opening the
+file:
 
 1. Which business capability owns the behavior?
 2. Is the file domain meaning, application coordination, an outbound adapter,
@@ -70,7 +75,7 @@ The detailed rules are:
 An adapter importing an application port is correct. An application service
 importing a concrete adapter is not.
 
-## Target package shape
+## Provisional target package shape
 
 Impodo should keep a layer-first structure because ADR-008 requires portable
 domain and application layers. Each layer should then group files by the
@@ -116,9 +121,10 @@ src/impodo/
     `-- shared/
 ```
 
-This is a destination, not a request for one large move. Current import paths
-should change in reviewed capability slices. The final structure must not keep
-old import modules as runtime aliases.
+This tree guided the reviewed capability slices. The implemented structure
+refined it by keeping adapters grouped by external technology and browser code
+grouped by delivery role. The current guide records that final structure. No
+old import module remains as a runtime alias.
 
 The `mapping`, `preparation`, and `execution` domain packages do not own a
 second lifecycle. They contain portable logic that can be applied to
@@ -630,7 +636,7 @@ split. Shared browser setup is non-discovered support, and
 using process-global or order-dependent state.
 
 The complete journey also exposed a real cross-process boundary defect: the
-Data-version projection canonicalized physical datasets by identity while the
+Data version projection canonicalized physical datasets by identity while the
 workspace-only preparation worker could derive generated datasets from the
 authored display order. `mapping_source_selection` now canonicalizes its
 portable input by dataset identity, and a focused regression proves that
@@ -674,15 +680,29 @@ gates passed.
 
 ### Phase 5: Promote the final organization to current architecture
 
-- Update the architecture overview and Python code map.
-- Add a current `docs/architecture/code-organization.md` based on the final,
-  implemented package tree.
-- Update this plan to completed or replace it with a dated delivery report.
+Phase 5 is complete. `docs/architecture/code-organization.md` now owns the
+implemented placement, ownership, dependency, transaction-port, browser-asset,
+test, and review rules. The architecture overview and Python code map link that
+guidance to the system model and exact navigation paths. The maintained
+regression baseline now points to current architecture instead of treating
+this plan as an active execution contract.
 
-**Exit condition:** Current documentation describes only the implemented
-structure, and this proposed plan is no longer needed as current guidance.
+This plan is marked completed and remains only as historical delivery evidence.
 
-## Change protocol for maintainers and agents
+**Exit condition:** Met. Current documentation describes the implemented
+structure, and this delivery record is no longer current guidance.
+
+Verified on 2026-08-27: documentation links, workflow ownership, code
+orientation, deterministic inventory, dependency direction, test organization,
+browser-asset ownership, and diff-hygiene gates passed. The architecture run
+executed 56 tests with one expected Windows-only skip. Vale was not
+installed, so its advisory prose review was not run.
+
+## Delivery protocol used by maintainers and agents
+
+The [current code-organization guide](../architecture/code-organization.md#placement-procedure)
+owns the maintained placement and review procedure. The following checklist is
+the protocol used during this delivery.
 
 Before changing code:
 
@@ -715,7 +735,7 @@ Before completing a change:
 6. State any broader suite, browser, performance, or Odoo verification that was
    not run.
 
-## Review triggers
+## Review triggers used during delivery
 
 These are review prompts, not automatic line-count failures:
 
@@ -767,6 +787,7 @@ decision point changes.
 
 ## Related evidence
 
+- [Current code organization](../architecture/code-organization.md)
 - [Code architecture maintainability audit](../reports/code-architecture-maintainability-audit-2026-08-26.md)
 - [Architecture overview](../architecture/overview.md)
 - [Python code map](../architecture/python-code-map.md)

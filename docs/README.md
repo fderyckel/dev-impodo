@@ -49,6 +49,9 @@ applies those rules when documentation is created or rewritten.
 - [Architecture overview](architecture/overview.md) — current system context,
   browser and preflight boundaries, component layers, evidence flow,
   performance invariants, and deployment seams.
+- [Code organization](architecture/code-organization.md) — current ownership,
+  package placement, dependency direction, transaction ports, browser assets,
+  test structure, and review rules for maintainers and coding agents.
 - [Python code map](architecture/python-code-map.md) — navigation from browser
   and CLI entry points through services, domain behavior, repositories, and
   migration evidence.
@@ -75,9 +78,6 @@ applies those rules when documentation is created or rewritten.
 
 - [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
   delivery roadmap.
-- [Code organization remediation](plans/code-organization-remediation.md) — a
-  layer-and-capability execution contract, dependency rules, placement guide,
-  and incremental refactor sequence that preserves current behavior.
 - [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
   the approved plan for applying an existing Recipe to fresh data and an Odoo
   target without repeating the six authoring stages.
@@ -86,10 +86,13 @@ applies those rules when documentation is created or rewritten.
 
 ## Historical implementation evidence
 
-These dated reports explain how the current architecture was reached. They are
-not current workflow authority; architecture, contracts, and paired workflow
-pages own current behavior.
+These reports and completed plans explain how the current architecture was
+reached. They are not current workflow authority; architecture, contracts, and
+paired workflow pages own current behavior.
 
+- [Completed code-organization remediation](plans/code-organization-remediation.md)
+  — the historical execution contract and verified delivery record for the
+  five-phase package, dependency, test, and browser-asset reorganization.
 - [M7.6 semantic authority and legacy removal](reports/m7-6-semantic-authority-and-legacy-removal-2026-08-24.md)
   — final authority synchronization, exact contract enforcement, legacy-path
   removal, durable test vocabulary, and repository-wide semantic closure.
@@ -154,9 +157,9 @@ setup, CLI, release, and acceptance procedures live under
   and connector cases.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
   slice, determinism checks, and acceptance traceability.
-- [Code organization Phase 0 baseline](testing/code-organization-phase0-baseline.md)
-  — reproducible import, fixed-order, atomic-operation, and bounded-I/O gates
-  for the package remediation.
+- [Code-organization regression baseline](testing/code-organization-phase0-baseline.md)
+  — reproducible import, fixed-order, atomic-operation, bounded-I/O, browser,
+  and test-organization gates for the implemented architecture.
 - [Design QA evidence](testing/design-qa.md) — point-in-time visual fidelity
   findings, completed checks, and blocked browser-verification evidence.
 - [Glossary](glossary.md) — canonical project terminology.

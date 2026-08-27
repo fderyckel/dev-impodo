@@ -4,16 +4,18 @@ kind: testing
 status: current
 ---
 
-# Code organization Phase 0 baseline
+# Code-organization regression baseline
 
-## Decision supported by this baseline
+## Responsibility
 
 This document gives a human maintainer or coding agent the reproducible checks
-that must remain green while Impodo reorganizes production packages and tests.
-It records current behavior. It does not make the current package shape the
-desired architecture.
+that protect Impodo's implemented production packages, tests, transaction
+ports, and bounded external access. The
+[code-organization guide](../architecture/code-organization.md) owns current
+placement and dependency rules. This page owns the exact regression commands
+and preservation limits.
 
-Phase 0 protects four kinds of evidence:
+The baseline protects four kinds of evidence:
 
 1. Accepted owners still keep their existing lifecycle behavior.
 2. Test outcomes do not depend on one accidental execution order.
@@ -21,8 +23,8 @@ Phase 0 protects four kinds of evidence:
 4. Repository decomposition does not introduce unbounded registry, workspace,
    or Odoo access.
 
-The corresponding execution contract is the
-[code organization remediation plan](../plans/code-organization-remediation.md).
+The [completed remediation record](../plans/code-organization-remediation.md)
+explains how these gates and the current structure were delivered.
 
 ## Architecture inventory
 
@@ -40,9 +42,9 @@ application-to-adapter edges and the former inspection-worker runtime cycle.
 Phase 2 added named
 composition, registry-record, preparation-session, and focused-use-case
 collaborators without adding a forbidden layer dependency or runtime cycle.
-Phase 3 moves the Project, Data version, workspace, Recipe, and Run domain
+Phase 3 moved the Project, Data version, workspace, Recipe, and Run domain
 models, application services, and consumer-owned ports to owner-and-layer
-paths. It moves Cutover domain contracts to `domain/cutover/models.py` while
+paths. It moved Cutover domain contracts to `domain/cutover/models.py` while
 the existing Cutover application services retain their focused names. The
 workspace-owned Mapping, Preparation, and Execution application slices now
 live below `application/workspace`. Run planning, review, target evidence,
@@ -50,12 +52,12 @@ guided Test setup, fresh-data matching, and fresh-data value decisions now
 live below `application/run`. The run-owned Odoo requirement query also lives
 there and proves that selected Recipe revisions are read in one bulk operation.
 Deterministic ordering and collision decisions live below `domain/run`. These
-moves preserve the zero-cycle and zero-forbidden-edge baseline. Phase 3 also
+moves preserved the zero-cycle and zero-forbidden-edge baseline. Phase 3 also
 split artifact, credential, Odoo transport, writer, read-back, and local job
 contracts from their concrete adapters. The package root now contains only
 `__init__.py` and the `python -m impodo` entry point.
 
-Phase 2 also splits the two large DuckDB adapters without changing their
+Phase 2 also split the two large DuckDB adapters without changing their
 public ports. The migration foundation facade assembles owner-specific record
 and command components behind one private registry transaction coordinator.
 The preparation-session facade assembles direct writing, quality indexing,
@@ -64,18 +66,17 @@ publication transaction. Run planning and Test setup retain stable facades over
 focused use cases. Tests that patch adapter internals now patch the focused
 owner module rather than the facade module.
 
-When a remediation slice changes production modules or imports, inspect the
-JSON diff. Update the fixture only when the change is intended and the new
-result is at least as close to the target dependency rule. The Phase 1
-dependency gate now requires zero application-to-adapter edges and zero
-runtime cycles.
+When a structural change modifies production modules or imports, inspect the
+JSON diff. Update the fixture only when the change is intended and the result
+still satisfies the current dependency rule. The dependency gate requires zero
+application-to-adapter edges and zero runtime cycles.
 
 The inventory resolves relative imports and imports beneath `TYPE_CHECKING`.
 It treats type-only edges as dependency-direction evidence while reporting
 runtime cycles separately. An unknown nested production package is
 unclassified and fails the baseline until a maintainer assigns it a layer.
 
-## Phase 1 dependency direction
+## Dependency direction
 
 Run the direction gate from the repository root:
 
@@ -83,7 +84,7 @@ Run the direction gate from the repository root:
 .venv/bin/python -m unittest tests.architecture.test_dependency_rules -v
 ```
 
-The test rejects every flat or otherwise unclassified production module,
+The test rejects every package-root or otherwise unclassified production module,
 domain imports of application, adapter, or web modules, application imports of
 adapter or web modules, runtime module cycles, and direct concrete-adapter
 construction outside a composition module or worker entry point. The Phase 1
@@ -254,11 +255,11 @@ complete Project setup journey. Repository-root discovery ran 890 tests with
 13 expected skips. The integrated-run module ran 26 tests in normal order and
 under each recorded isolated seed.
 
-## Completion rule
+## Preservation rule
 
-Phase 0 remains complete when the architecture inventory, normal integrated
-order, both fixed shuffled orders, focused owner groups, atomic-operation set,
-bounded I/O set, documentation checks, and `git diff --check` pass. Phase 4
-adds the focused browser and test-organization gates above. Record any optional
-remote Odoo verification that was not run; these organization phases do not
-require a live target because they do not change Odoo behavior.
+The organization baseline remains protected when the architecture inventory,
+normal integrated order, both fixed shuffled orders, focused owner groups,
+atomic-operation set, bounded-I/O set, browser and test-organization gates,
+documentation checks, and `git diff --check` pass. Record any optional remote
+Odoo verification that was not run. Organization-only changes do not require a
+live target because they do not change Odoo behavior.

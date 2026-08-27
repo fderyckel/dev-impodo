@@ -10,7 +10,9 @@ status: current
 
 Impodo separates the Project business root from the technical workspace and
 from optional reusable Recipes. Begin with the actor action you are tracing,
-then follow the service to its exact repository.
+then follow the service to its exact repository. Use the
+[code-organization guide](code-organization.md) when deciding where new code
+belongs or which dependencies it may introduce.
 
 ## Project-first composition
 
@@ -37,6 +39,23 @@ then follow the service to its exact repository.
 Production coordinator. It does not compose the superseded Recipe-root list,
 creation, deletion, Test-application, Production-application, or qualification
 services.
+
+## Layer and capability index
+
+| Code to find | Current path |
+| --- | --- |
+| Project, Data version, workspace, Recipe, run, and Cutover meaning | `domain/project`, `domain/data_version`, `domain/workspace`, `domain/recipe`, `domain/run`, and `domain/cutover` |
+| Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/preparation`, `domain/staging`, and `domain/execution` |
+| Owner-qualified commands, queries, and ports | `application/project`, `application/data_version`, `application/recipe`, `application/run`, and `application/workspace` |
+| Cross-owner workflow coordinators and stable facades | Named modules directly below `application`, including Project authoring, Recipe compilation and publication, source projection, preflight, Cutover, and Production coordination. |
+| Shared application ports | `application/shared` |
+| DuckDB stores and forward-only schema handling | `adapters/duckdb` and `adapters/duckdb/schema` |
+| Artifact, protected-evidence, job, Odoo, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, and `adapters/odoo`, plus named integration facades directly below `adapters` |
+| Request handling and view construction | `web/routers` and `web/presenters` |
+| Concrete runtime construction | `web/composition`, `web/app.py`, and `web/capability_builders.py` |
+| Server-rendered pages and page-owned browser behavior | `web/templates`, `web/templates/mapping`, and `web/static` |
+| Focused evidence | `tests/architecture`, `tests/domain`, `tests/application`, `tests/integration`, `tests/e2e`, and `tests/performance` |
+| Explicit non-discovered test builders and paths | `tests/support` |
 
 ## Maintenance boundaries
 
@@ -248,6 +267,10 @@ separate from read capability.
 
 ## Focused verification
 
+- `tests/architecture/test_inventory.py`
+- `tests/architecture/test_dependency_rules.py`
+- `tests/architecture/test_test_organization.py`
+- `tests/architecture/test_static_asset_ownership.py`
 - `tests/domain/project/test_contracts.py`
 - `tests/integration/duckdb/test_migration_foundation.py`
 - `tests/integration/duckdb/test_forward_upgrades.py`
@@ -259,3 +282,7 @@ separate from read capability.
 - `tests/application/run/test_production_rollout.py`
 - `tests/domain/recipe/test_representative_shapes.py`
 - `tests/application/workspace/preparation/test_jobs.py`
+
+The [code-organization regression
+baseline](../testing/code-organization-phase0-baseline.md) lists the exact
+fault-retry, bounded-I/O, fixed-seed, browser, and complete-discovery commands.

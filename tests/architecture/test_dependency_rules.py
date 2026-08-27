@@ -1,4 +1,4 @@
-"""Enforce Phase 1 production dependency direction while modules remain flat."""
+"""Enforce the current production dependency and construction boundaries."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def _adapter_construction_violations(
 
 class ArchitectureDependencyRuleTests(unittest.TestCase):
     def test_production_dependencies_point_inward(self) -> None:
-        """Keep Phase 1 direction, ownership, construction, and cycle rules true."""
+        """Keep direction, ownership, construction, and cycle rules true."""
 
         modules = discover_modules()
         self.assertEqual(

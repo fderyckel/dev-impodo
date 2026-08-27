@@ -61,10 +61,11 @@ routes, services, implementation status, performance risks, and focused tests.
 ## Cross-stage references
 
 - [Architecture overview](../architecture/overview.md)
+- [Code organization](../architecture/code-organization.md)
 - [Python code map](../architecture/python-code-map.md)
 - [Architecture decisions](../decisions/README.md)
 - [Acceptance and test strategy](../testing/acceptance.md)
-- [Code organization Phase 0 baseline](../testing/code-organization-phase0-baseline.md)
+- [Code-organization regression baseline](../testing/code-organization-phase0-baseline.md)
 - [Examples and edge cases](reference/examples-and-edge-cases.md)
 - [Documentation style guide](../style-guide.md)
 

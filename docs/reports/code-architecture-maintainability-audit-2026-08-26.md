@@ -1,18 +1,23 @@
 ---
 audience: developer
 kind: report
-status: current
+status: completed
 ---
 
 # Code architecture maintainability audit
 
+**Historical evidence:** This report records the repository before the
+five-phase remediation completed on 2026-08-27. The
+[code-organization guide](../architecture/code-organization.md) owns the
+implemented structure and current placement rules.
+
 ## Decision supported by this audit
 
-This audit helps maintainers decide whether Impodo's current code organization
-still protects the intended separation among a data project, Data versions,
-workspaces, Recipes, and migration runs. It also identifies the organizational
-changes that should happen before continued feature growth makes those
-boundaries harder to preserve.
+This audit helped maintainers decide whether Impodo's 2026-08-26 code
+organization protected the intended separation among a data project, Data
+versions, workspaces, Recipes, and migration runs. It identified the
+organizational changes that were required before continued feature growth made
+those boundaries harder to preserve.
 
 The intended reader is a human maintainer or coding agent who needs to decide
 where a change belongs, which boundaries it may cross, and which evidence must
@@ -43,8 +48,8 @@ adapters, contrary to the portable application-layer intent in ADR-008.
 
 The recommended response is an incremental code-organization refactor around
 the accepted model. Impodo should not redesign the domain or change the store
-layout as part of this work. The proposed target and sequencing are documented
-in the [code organization remediation plan](../plans/code-organization-remediation.md).
+layout as part of this work. The target and sequencing were documented in the
+[completed code-organization remediation record](../plans/code-organization-remediation.md).
 
 ## Assessment summary
 
@@ -383,9 +388,10 @@ not run.
 ## Related authority
 
 - [Architecture overview](../architecture/overview.md)
+- [Current code organization](../architecture/code-organization.md)
 - [Python code map](../architecture/python-code-map.md)
 - [Project and workspace lifecycle](../developer/contracts/project-lifecycle.md)
 - [Recipe lifecycle](../developer/contracts/recipe-lifecycle.md)
 - [Integrated Test run lifecycle](../developer/contracts/integrated-run-lifecycle.md)
 - [Evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
-- [Code organization remediation plan](../plans/code-organization-remediation.md)
+- [Completed code-organization remediation](../plans/code-organization-remediation.md)

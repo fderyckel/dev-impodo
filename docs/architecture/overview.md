@@ -232,6 +232,26 @@ Project-owned lineage row. A progress request for a verified preparation,
 Odoo-capture, or load job reuses its immutable lineage packet and performs no
 second registry read.
 
+## Code organization
+
+The production package is layer-first and capability-aware. Portable business
+meaning lives below `domain`; owner-qualified coordination and consumer-owned
+ports live below `application`; DuckDB, artifact, protected-evidence, job, and
+Odoo implementations live below `adapters`; and browser delivery plus concrete
+runtime construction lives below `web`.
+
+Project, Data version, workspace, Recipe, migration run, and Cutover state
+remain separate in both paths and public contracts. Mapping, Preparation, and
+Execution do not create extra owners: their pure decisions live in domain
+capability packages, while their state-changing use cases remain qualified by
+the workspace or run that owns the evidence.
+
+Adapters stay grouped by external technology, and browser modules stay grouped
+by delivery role. These are intentional parts of the implemented structure,
+not unfinished owner-package moves. The
+[code-organization guide](code-organization.md) defines the complete placement,
+dependency, transaction, browser-asset, test, and review rules.
+
 ## Main implementation boundaries
 
 | Responsibility | Current implementation |
@@ -253,5 +273,6 @@ second registry read.
 - [Project lifecycle contract](../developer/contracts/project-lifecycle.md)
 - [Recipe publication contract](../developer/contracts/recipe-lifecycle.md)
 - [Evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
+- [Code organization](code-organization.md)
 - [Python code map](python-code-map.md)
 - [Integrated run lifecycle](../developer/contracts/integrated-run-lifecycle.md)
