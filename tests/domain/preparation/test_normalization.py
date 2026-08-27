@@ -33,6 +33,10 @@ from impodo.domain.mapping.contracts import (
     ReferenceLookupMapping,
     ScalarFieldMapping,
     ScalarValueSource,
+    SelectionCondition,
+    SelectionConditionOperator,
+    SelectionRule,
+    SelectionRuleSet,
     ValueMapping,
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
@@ -43,6 +47,7 @@ from impodo.domain.preparation.normalization import (
     NormalizationPolicyAction,
     compile_normalization_review_policy,
     evaluate_normalization,
+    normalization_change_language,
     start_dry_run,
 )
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
@@ -392,6 +397,25 @@ class NormalizationEvaluationTests(unittest.TestCase):
                 literal_value="value",
             ),
             ScalarFieldMapping(
+                target_field="conditional",
+                value_source=ScalarValueSource.CONDITIONAL_RULES,
+                selection_rules=SelectionRuleSet(
+                    rules=(
+                        SelectionRule(
+                            rule_id=str(uuid4()),
+                            conditions=(
+                                SelectionCondition(
+                                    condition_id=str(uuid4()),
+                                    source_column_key="column:type",
+                                    operator=SelectionConditionOperator.IS_NOT_BLANK,
+                                ),
+                            ),
+                            target_value="consu",
+                        ),
+                    ),
+                ),
+            ),
+            ScalarFieldMapping(
                 target_field="matched",
                 value_mappings=(ValueMapping("A", "B"),),
             ),
@@ -450,6 +474,10 @@ class NormalizationEvaluationTests(unittest.TestCase):
                 NormalizationOutcome.DECISION_REQUIRED,
                 NormalizationPolicyAction.FALLBACK,
             ),
+            "conditional": (
+                NormalizationOutcome.DECISION_REQUIRED,
+                NormalizationPolicyAction.CONDITIONAL_CHOICE,
+            ),
             "matched": (
                 NormalizationOutcome.DECISION_REQUIRED,
                 NormalizationPolicyAction.VALUE_MATCH,
@@ -489,6 +517,13 @@ class NormalizationEvaluationTests(unittest.TestCase):
                 for target_field in expected
             },
             expected,
+        )
+        self.assertEqual(
+            normalization_change_language(policies[("contacts", "conditional")]),
+            (
+                "Use your confirmed choice rules",
+                "Impodo selected these Odoo values using the ordered conditions you confirmed.",
+            ),
         )
 
     def test_review_evidence_is_deterministic_and_masks_restricted_values(self) -> None:

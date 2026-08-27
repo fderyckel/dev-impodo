@@ -17,7 +17,7 @@
         <p>Impodo is working locally. You can leave this page and return without losing the job.</p>
       </div>
       <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif job.status.value == 'CANCELLED' %}review{% elif active %}review{% else %}ready{% endif %}" data-preparation-state>
-        {% if job.status.value == 'SUCCEEDED' %}Ready{% elif job.status.value == 'REVIEW_REQUIRED' %}Review needed{% elif job.status.value == 'FAILED' %}Could not finish{% elif job.status.value == 'CANCELLED' %}Stopped{% else %}In progress{% endif %}
+        {% if job.status.value == 'SUCCEEDED' %}Ready{% elif job.status.value == 'REVIEW_REQUIRED' %}Review needed{% elif job.status.value == 'FAILED' %}Needs attention{% elif job.status.value == 'CANCELLED' %}Stopped{% else %}In progress{% endif %}
       </span>
     </section>
 
@@ -44,8 +44,8 @@
     <section class="next-action-card blocked" data-preparation-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
       <div>
         <p class="eyebrow">Preparation stopped</p>
-        <h2 data-preparation-failure-title>{% if job.retry_allowed %}Review the message and try again{% else %}Restart Impodo before continuing{% endif %}</h2>
-        <p data-preparation-failure>{{ failure_message }}</p>
+        <h2 data-preparation-failure-title>{{ failure_message or "Preparation stopped before it could finish." }}</h2>
+        <p data-preparation-failure>{% if job.retry_allowed %}No source file or Odoo record was changed. Review the reason above, then return to the saved setup or try again.{% else %}Your saved evidence remains available. Restart Impodo before continuing.{% endif %}</p>
       </div>
       <div class="next-action-buttons">
         <form method="post" action="/workspaces/{{ job.workspace_id }}/preparation/{{ job.job_id }}/retry" data-preparation-retry {% if not job.retry_allowed %}hidden{% endif %}>

@@ -46,17 +46,20 @@ document.addEventListener("DOMContentLoaded", () => {
         state.textContent = active
           ? "In progress"
           : job.status === "FAILED"
-            ? "Could not finish"
+            ? "Needs attention"
             : "Stopped";
         state.classList.add(active ? "review" : "blocked");
       }
       if (job.status === "FAILED") {
         if (failed) failed.hidden = false;
-        if (failure) failure.textContent = job.failure_message;
+        if (failure) {
+          failure.textContent = job.retry_allowed
+            ? "No source file or Odoo record was changed. Review the reason above, then return to the saved setup or try again."
+            : "Your saved evidence remains available. Restart Impodo before continuing.";
+        }
         if (failureTitle) {
-          failureTitle.textContent = job.retry_allowed
-            ? "Review the message and try again"
-            : "Restart Impodo before continuing";
+          failureTitle.textContent =
+            job.failure_message || "Preparation stopped before it could finish.";
         }
         if (retryAction) retryAction.hidden = !job.retry_allowed;
         if (failureCode) {

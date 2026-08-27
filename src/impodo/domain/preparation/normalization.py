@@ -40,10 +40,9 @@ from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
 
-
 NORMALIZATION_CONTRACT_VERSION = 3
 NORMALIZATION_EVALUATOR_VERSION = 3
-NORMALIZATION_POLICY_VERSION = 2
+NORMALIZATION_POLICY_VERSION = 3
 NORMALIZATION_EXAMPLE_LIMIT = 5
 
 
@@ -88,6 +87,7 @@ class NormalizationPolicyAction(StrEnum):
     """Stable semantic action used for review copy and rule identity."""
 
     IDENTITY = "IDENTITY"
+    CONDITIONAL_CHOICE = "CONDITIONAL_CHOICE"
     VALUE_MATCH = "VALUE_MATCH"
     REFERENCE_LOOKUP = "REFERENCE_LOOKUP"
     FALLBACK = "FALLBACK"
@@ -166,6 +166,7 @@ class NormalizationCandidate:
 _DECISION_CHANGE_KINDS = frozenset(
     {
         "constant",
+        "conditional_choice",
         "fallback",
         "value_match",
         "reference_lookup",
@@ -297,7 +298,11 @@ def _scalar_normalization_field_policy(
         dataset=dataset,
         target_field=field.target_field,
         outcome=outcome,
-        action=_normalization_policy_action(change_kinds),
+        action=_normalization_policy_action(
+            change_kinds,
+            dataset=dataset,
+            target_field=field.target_field,
+        ),
         change_kinds=tuple(change_kinds),
         identity_impact=identity_impact,
     )
@@ -305,11 +310,15 @@ def _scalar_normalization_field_policy(
 
 def _normalization_policy_action(
     change_kinds: Iterable[str],
+    *,
+    dataset: str,
+    target_field: str,
 ) -> NormalizationPolicyAction:
     kinds = frozenset(change_kinds)
     for kind, action in (
         ("value_match", NormalizationPolicyAction.VALUE_MATCH),
         ("reference_lookup", NormalizationPolicyAction.REFERENCE_LOOKUP),
+        ("conditional_choice", NormalizationPolicyAction.CONDITIONAL_CHOICE),
         ("fallback", NormalizationPolicyAction.FALLBACK),
         ("constant", NormalizationPolicyAction.CONSTANT),
         ("formula", NormalizationPolicyAction.FORMULA),
@@ -326,7 +335,7 @@ def _normalization_policy_action(
     ):
         if kind in kinds:
             return action
-    raise NormalizationError("Prepared review policy has no supported action")
+    raise NormalizationPolicyError(dataset, target_field)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1107,6 +1116,10 @@ def normalization_change_language(
         NormalizationPolicyAction.IDENTITY: (
             "Review changes to record matching",
             "Impodo prepared a different value for a field used to match records.",
+        ),
+        NormalizationPolicyAction.CONDITIONAL_CHOICE: (
+            "Use your confirmed choice rules",
+            "Impodo selected these Odoo values using the ordered conditions you confirmed.",
         ),
         NormalizationPolicyAction.VALUE_MATCH: (
             "Use your reviewed value matches",
