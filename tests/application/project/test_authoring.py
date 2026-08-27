@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from dataclasses import replace
-from io import BytesIO
-from pathlib import Path
 import re
 import shutil
-from types import SimpleNamespace
 import unittest
+from dataclasses import replace
+from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from fastapi.testclient import TestClient
+
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
 )
@@ -30,39 +28,40 @@ from impodo.adapters.duckdb.migration_workspace_state_repository import (
 from impodo.adapters.duckdb.recipe_repository import (
     RecipeRepository,
 )
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
+from impodo.application.data_version.service import DataVersionService
+from impodo.application.data_version.source_packages import (
+    DataVersionSourcePackageService,
+)
 from impodo.application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
+from impodo.application.project.service import MigrationProjectService
+from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
 from impodo.application.recipe_publication_service import (
     RecipePublicationService,
 )
-from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
-from impodo.application.data_version.source_packages import DataVersionSourcePackageService
-from impodo.application.data_version.service import DataVersionService
-from impodo.domain.data_version.models import DataVersionState
+from impodo.application.run.service import MigrationRunService
+from impodo.application.workspace.service import MigrationWorkspaceService
+from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
+from impodo.domain.project.foundation import MigrationOperationState, utc_now
 from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from impodo.domain.project.foundation import MigrationOperationState, utc_now
-from impodo.application.project.service import MigrationProjectService
-from impodo.application.run.service import MigrationRunService
-from impodo.application.workspace.service import MigrationWorkspaceService
-from impodo.application.data_version.inspection import inspect_source_file
-from impodo.domain.workspace.workbench import WorkspaceStateService
-from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
-from impodo.web.app import create_local_app
 from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
 )
-from fastapi.testclient import TestClient
-
+from impodo.domain.workspace.workbench import WorkspaceStateService
+from impodo.web.app import create_local_app
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 
@@ -219,6 +218,57 @@ class ProjectAuthoringTests(unittest.TestCase):
                 creation_request_id=request_id,
             ).workspace.workspace_id,
             bundle.workspace.workspace_id,
+        )
+
+    def test_delete_removes_only_the_selected_project_and_owned_stores(self) -> None:
+        selected = self._bundle()
+        retained = self._bundle()
+        self._freeze_data_version(selected)
+        self.data_versions.create(
+            selected.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_workspace_revision=selected.project.optimistic_revision,
+            purpose=DataVersionPurpose.TEST,
+            label="Later Test delivery",
+            parent_data_version_id=selected.data_version.data_version_id,
+        )
+        published = self.publication.publish(
+            project_id=selected.project.project_id,
+            data_version_id=selected.data_version.data_version_id,
+            workspace_id=selected.workspace.workspace_id,
+            display_name="Customers",
+            business_purpose="Prepare customers and contacts",
+            operation_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
+        selected_project_dir = self.database.project_directory(
+            selected.project.project_id
+        )
+        protected_recipe_dir = (
+            self.root / ".recipes-protected" / published.recipe.recipe_id
+        )
+        self.assertTrue(selected_project_dir.is_dir())
+        self.assertTrue(protected_recipe_dir.is_dir())
+
+        deleted = self.projects.delete(
+            selected.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=self.projects.get(
+                selected.project.project_id,
+                actor=LOCAL_ACTOR,
+            ).optimistic_revision,
+        )
+
+        self.assertEqual(deleted.project_id, selected.project.project_id)
+        self.assertFalse(selected_project_dir.exists())
+        self.assertFalse(protected_recipe_dir.exists())
+        self.assertEqual(
+            tuple(item.project_id for item in self.projects.list(actor=LOCAL_ACTOR)),
+            (retained.project.project_id,),
+        )
+        self.assertEqual(
+            self.projects.get(retained.project.project_id, actor=LOCAL_ACTOR),
+            retained.project,
         )
 
     def test_first_publication_does_not_change_project_or_data_version_identity(self) -> None:
@@ -485,6 +535,45 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             ).project_id,
             created.project.project_id,
         )
+
+    def test_project_entry_shows_and_confirms_permanent_deletion(self) -> None:
+        context = self.app.state.context
+        created = context.project_authoring.create(
+            actor=context.actor,
+            display_name="Project to delete",
+            source_mode="FILE",
+            creation_request_id=str(uuid4()),
+        )
+        project_id = created.project.project_id
+        overview = self.client.get(f"/projects/{project_id}")
+
+        self.assertEqual(overview.status_code, 200)
+        self.assertIn("Delete this project", overview.text)
+        self.assertIn("data-project-delete-trigger", overview.text)
+        self.assertIn("data-project-delete-dialog", overview.text)
+        self.assertIn(
+            f'action="/projects/{project_id}/delete"',
+            overview.text,
+        )
+
+        deleted = self.client.post(
+            f"/projects/{project_id}/delete",
+            data={
+                "csrf_token": self._csrf(overview.text),
+                "revision": str(created.project.optimistic_revision),
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(deleted.status_code, 303)
+        self.assertEqual(deleted.headers["location"], "/projects")
+        listing = self.client.get("/projects")
+        self.assertIn(
+            "Deleted project &#34;Project to delete&#34;.",
+            listing.text,
+        )
+        self.assertNotIn("Project to delete", listing.text.split("Deleted project")[0])
 
     def test_project_list_scrolls_after_five_projects(self) -> None:
         context = self.app.state.context

@@ -32,11 +32,22 @@ classification, and publishes the report and execution snapshot atomically.
 
 When the operator creates the workbook for a file source,
 `PreflightService.review_workbook_evidence` reloads the exact current frozen
-input once and requires its hash to match the readiness report. The reporting
-writer joins those prepared records to manifest decisions through the source
-trace ID. The manifest remains authoritative for every classification and
-issue; prepared values add review context but cannot change a decision. The
-package path makes no Odoo call and performs no per-row repository lookup.
+input once and requires its hash to match the readiness report. It also loads
+the frozen normalization evaluation once and requires that evaluation's
+content hash to match the report. `ReviewWorkbookCellEffect` carries only an
+eligible row's source trace, field, protected before and after display values,
+and confirmed review-group explanation into the workbook adapter.
+
+The reporting writer joins prepared records, normalization effects, and
+manifest decisions through the source trace ID. The manifest remains
+authoritative for every warning or blocker. The pure
+`review_workbook_cell_feedback` function gives a manifest field issue
+precedence, then distinguishes an added value from a changed value by using
+the frozen normalization effect. A blank without a manifest issue is
+informational and never becomes a new blocker. The adapter keeps the final
+prepared value in the visible cell and places original-value and rule detail
+in an Excel note. The package path makes no Odoo call and performs no per-row
+or per-cell repository lookup.
 
 For an Odoo source, `review_workbook_evidence` returns no portable value
 projection. The workbook continues to use the redacted manifest, while exact
@@ -141,13 +152,16 @@ Target reads must use the narrow Odoo 19 read connector. No generic method call
 and no write method belongs in this stage.
 
 Workbook creation may load the complete eligible prepared set once because the
-XLSX output contains one review row per decision. Keep that load bounded to the
-exact current frozen run. Do not reopen repositories for individual workbook
-rows or contact Odoo while writing cells.
+XLSX output contains one review row per decision. It may also load the complete
+frozen normalization effect ledger once to explain those cells. Keep both
+loads bounded to the exact current run. Index source traces and field effects
+once in memory. Do not reopen repositories for individual workbook rows or
+cells, and do not contact Odoo while writing them.
 
 ## Verification
 
 - [`tests/application/workspace/review/test_preflight.py`](../../../tests/application/workspace/review/test_preflight.py)
+- [`tests/domain/preflight/test_review_workbook.py`](../../../tests/domain/preflight/test_review_workbook.py)
 - [`tests/performance/test_preflight_scale.py`](../../../tests/performance/test_preflight_scale.py)
 - [`tests/integration/artifacts/test_reporting_cli.py`](../../../tests/integration/artifacts/test_reporting_cli.py)
 - [`tests/integration/artifacts/test_preflight_outputs.py`](../../../tests/integration/artifacts/test_preflight_outputs.py)

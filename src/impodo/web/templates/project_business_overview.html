@@ -172,6 +172,42 @@
       </div>
     {% endif %}
   </section>
+
+  <section class="form-card project-delete-card" aria-labelledby="project-delete-heading">
+    <div>
+      <p class="eyebrow">Project ownership</p>
+      <h2 id="project-delete-heading">Delete this project</h2>
+      <p>Permanently delete this project and all of its saved data, Recipes, reports, and audit history.</p>
+    </div>
+    <button class="button danger" type="button" data-project-delete-trigger>Delete project</button>
+  </section>
+
+  <dialog
+    class="confirmation-dialog"
+    aria-labelledby="project-delete-dialog-title"
+    data-project-delete-dialog
+  >
+    <div class="dialog-heading">
+      <div>
+        <p class="eyebrow">Permanent deletion</p>
+        <h2 id="project-delete-dialog-title">Delete {{ project.display_name }}?</h2>
+      </div>
+      <form method="dialog">
+        <button class="dialog-close" type="submit" aria-label="Close dialog">&times;</button>
+      </form>
+    </div>
+    <p>This permanently deletes the project and all of its saved evidence. This cannot be undone.</p>
+    <div class="dialog-actions">
+      <form method="dialog">
+        <button class="button secondary" type="submit">Cancel</button>
+      </form>
+      <form method="post" action="/projects/{{ project.project_id }}/delete">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ project.optimistic_revision }}">
+        <button class="button danger" type="submit">Delete project</button>
+      </form>
+    </div>
+  </dialog>
   {{ concept_help_dialog("workspace") }}
   {{ concept_help_dialog("recipe") }}
 {% endblock %}

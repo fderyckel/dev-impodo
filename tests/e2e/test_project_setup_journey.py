@@ -1896,6 +1896,19 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
                 review_evidence.frozen_input_hash,
                 current_report.frozen_input_hash,
             )
+            self.assertEqual(
+                review_evidence.normalization_content_hash,
+                current_report.normalization_content_hash,
+            )
+            review_trace_ids = {
+                item.source_trace_id for item in review_evidence.records
+            }
+            self.assertTrue(
+                all(
+                    item.source_trace_id in review_trace_ids
+                    for item in review_evidence.cell_effects
+                )
+            )
         self.assertEqual(packaged.status_code, 303)
         packaged_page = self.client.get(packaged.headers["location"])
         self.assertIn("Download review workbook", packaged_page.text)

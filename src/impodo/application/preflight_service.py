@@ -14,8 +14,14 @@ from dataclasses import replace
 from hashlib import sha256
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.application.shared.artifacts import ArtifactStoreError, WorkspaceArtifactStore
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    WorkspaceArtifactStore,
+)
+from impodo.domain.execution.planner import (
+    PreflightRequirementPlan,
+    plan_preflight_requirements,
+)
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -23,6 +29,13 @@ from impodo.domain.odoo.contracts import (
     RecordSnapshot,
     bind_snapshot_hashes,
 )
+from impodo.domain.preparation.preflight import PreflightEngine
+from impodo.domain.preparation.staging import StagingRunSummary
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import SourceMode
+
 from ..domain.compiler.browser_mapping_compiler import (
     browser_mapping_labels,
     compile_browser_mapping,
@@ -40,15 +53,10 @@ from ..domain.preflight.frozen_input import (
 from ..domain.preflight.reports import (
     ReadinessReport,
     ReadinessRowPage,
+    ReviewWorkbookCellEffect,
     ReviewWorkbookEvidence,
     _readiness_report,
 )
-from impodo.domain.preparation.preflight import PreflightEngine
-from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
-from impodo.domain.execution.planner import PreflightRequirementPlan, plan_preflight_requirements
-from impodo.domain.preparation.staging import StagingRunSummary
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import SourceMode
 from .odoo_comparison_service import (
     ODOO_COMPARISON_ARTIFACT_NAME,
     build_odoo_comparison_publication,
@@ -213,6 +221,44 @@ class PreflightService:
                 "The prepared values no longer match the current comparison. "
                 "Compare with Odoo again."
             )
+        normalization = self.normalization.get_normalization_evaluation(
+            workspace_id,
+            frozen.normalization.run_id,
+        )
+        if (
+            normalization is None
+            or normalization.content_hash != frozen.normalization.content_hash
+        ):
+            raise ReadinessError(
+                "The prepared-value feedback no longer matches the current "
+                "comparison. Prepare the data and compare with Odoo again."
+            )
+        groups = {item.group_id: item for item in normalization.groups}
+        if len(groups) != len(normalization.groups):
+            raise ReadinessError(
+                "The prepared-value feedback is invalid. Prepare the data again."
+            )
+        cell_effects = []
+        for effect in normalization.effects:
+            if not effect.eligible:
+                continue
+            group = groups.get(effect.group_id)
+            if group is None:
+                raise ReadinessError(
+                    "The prepared-value feedback is incomplete. Prepare the data again."
+                )
+            cell_effects.append(
+                ReviewWorkbookCellEffect(
+                    source_trace_id=effect.row_id,
+                    dataset=effect.dataset,
+                    source_row=effect.source_row,
+                    target_field=effect.target_field,
+                    before=effect.before,
+                    after=effect.after,
+                    rule_name=group.name,
+                    explanation=group.explanation,
+                )
+            )
         models = frozen.captured_schema.models if frozen.captured_schema else ()
         return ReviewWorkbookEvidence(
             frozen_input_hash=frozen.content_hash,
@@ -224,6 +270,22 @@ class PreflightService:
             },
             target_field_labels={
                 (model.name, field.name): field.label
+                for model in sorted(models, key=lambda item: item.name)
+                for field in sorted(model.fields, key=lambda item: item.name)
+            },
+            normalization_content_hash=normalization.content_hash,
+            cell_effects=tuple(
+                sorted(
+                    cell_effects,
+                    key=lambda item: (
+                        item.source_trace_id,
+                        item.target_field,
+                        item.rule_name,
+                    ),
+                )
+            ),
+            target_field_required={
+                (model.name, field.name): bool(getattr(field, "required", False))
                 for model in sorted(models, key=lambda item: item.name)
                 for field in sorted(model.fields, key=lambda item: item.name)
             },

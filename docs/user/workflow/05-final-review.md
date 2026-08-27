@@ -41,6 +41,28 @@ problem by itself; **Cannot proceed** identifies a record that Impodo will hold
 back. Correct source data or rules in Impodo, then prepare and compare again.
 Editing a workbook cell does not change the saved data or proposed load.
 
+In **Records to load**, each prepared field keeps only the final value in the
+visible cell. The **Prepared value feedback** column identifies the affected
+field and uses these statuses:
+
+- **Changed by Impodo** means that a confirmed preparation rule transformed
+  the source value.
+- **Added by Impodo** means that a confirmed preparation rule supplied the
+  value.
+- **Review recommended** means that the field has a warning to review in
+  Impodo.
+- **Needs attention** means that the field has a problem which blocks safe
+  progress.
+- **Empty but allowed** means that the current comparison found no blocker for
+  the blank. Impodo does not treat every blank as an error.
+- **As provided** means that Impodo retained the prepared value without a
+  recorded change.
+
+A changed or added cell contains an Excel note with the original display value
+and the confirmed preparation rule. Open the note when you need supporting
+detail. Correct the source value or rule in Impodo and recreate the workbook;
+changing the visible cell or its note does not change the migration.
+
 When the source is Odoo, protected business values remain inside Impodo and do
 not enter the portable workbook.
 

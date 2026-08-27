@@ -117,8 +117,18 @@ Serialization recursively rejects numeric record IDs, credentials, and
 transport authorization. The manifest remains the decision source for every
 workbook status, issue, and count. A file-source workbook may add the exact
 prepared values from the frozen input bound to that manifest so the data
-manager can review what Impodo will load. It contains no independent
-classification logic and cannot change saved evidence.
+manager can review what Impodo will load. It may also add protected display
+values and rule explanations from the exact frozen normalization evaluation.
+The workbook binds both inputs by content hash and joins their rows through the
+source trace ID.
+
+The workbook may label a cell as changed or added only from those frozen
+normalization effects. A manifest field issue takes precedence. A blank with
+no manifest issue remains informational; the workbook cannot create a blocker
+by inspecting an empty cell. The final prepared value stays visible, while a
+changed or added value may keep its original display value and rule explanation
+inside an Excel note. This projection contains no independent classification
+logic and cannot change saved evidence.
 
 For Odoo-source projects, the portable manifest additionally excludes all
 baseline, proposed, and current business values. Those values and exact IDs are

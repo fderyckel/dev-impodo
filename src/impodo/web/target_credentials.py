@@ -9,18 +9,19 @@ probe remains a separate contract.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import StrEnum
 import hashlib
 import json
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import UUID, uuid4
 
+from impodo.application.shared.secrets import SecretStore, SecretStoreError
 from impodo.domain.shared.access import Actor
-from ..domain.serialization import content_hash
 from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateService
-from impodo.application.shared.secrets import SecretStore, SecretStoreError
+
+from ..domain.serialization import content_hash
 
 
 class TargetCredentialRole(StrEnum):
@@ -34,6 +35,7 @@ class TargetCredentialRemovalReason(StrEnum):
     """Governed reasons for removing role-qualified target credentials."""
 
     TARGET_CHANGED = "TARGET_CHANGED"
+    PROJECT_DELETED = "PROJECT_DELETED"
     RECIPE_DELETED = "RECIPE_DELETED"
     USER_REQUESTED = "USER_REQUESTED"
 
@@ -281,7 +283,7 @@ def delete_target_credentials(
 ) -> tuple[TargetCredentialRemovalReceipt, ...]:
     """Delete present role entries and return secret-independent receipts."""
 
-    removed_at = datetime.now(timezone.utc)
+    removed_at = datetime.now(UTC)
     receipts: list[TargetCredentialRemovalReceipt] = []
     for role in TargetCredentialRole:
         receipt = _delete_target_credential(
@@ -310,7 +312,7 @@ def delete_target_credential(
         workspace_state,
         role,
         reason=reason,
-        removed_at=datetime.now(timezone.utc),
+        removed_at=datetime.now(UTC),
     )
 
 

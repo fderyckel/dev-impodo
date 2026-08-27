@@ -8,24 +8,25 @@ The preflight-only ports at the end consume those frozen artifacts in Stage H.
 
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Protocol, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Protocol
 
-from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
-from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
-from impodo.domain.schema.governance import SchemaGovernance
-from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
-from impodo.domain.preflight.reports import ReadinessReport, ReadinessRow, ReadinessRowPage
-from impodo.domain.resolution import EffectiveDataset
-from impodo.domain.cutover.governance import DryRun
 from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.cutover.governance import DryRun
+from impodo.domain.derived_value_artifact import DerivedValueArtifact
+from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.preflight.reports import (
+    ReadinessReport,
+    ReadinessRow,
+    ReadinessRowPage,
+)
 from impodo.domain.preparation.normalization import (
     NormalizationEvaluation,
     NormalizationReviewGroup,
     NormalizationRunSummary,
     StoredNormalizationEvaluation,
 )
-from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.domain.preparation.quality import (
     QualityRuleSet,
     QualityRun,
@@ -38,26 +39,30 @@ from impodo.domain.preparation.staging_contracts import (
     CanonicalStagingRun,
     StagingDatasetRole,
 )
-from impodo.domain.workspace.contracts import (
-    MappingWorkingDraft,
-    OdooSchemaCatalog,
-    SourceSelection,
-)
+from impodo.domain.prepared_snapshot import PreparedSnapshot
+from impodo.domain.resolution import EffectiveDataset
+from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.shared.access import Actor
+from impodo.domain.shared.models import Issue
+from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
-    PreparedCanonicalProjection,
     PreparationSessionBindings,
     PreparationSessionSummary,
+    PreparedCanonicalProjection,
     StoredCanonicalStagingRun,
 )
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from impodo.domain.prepared_snapshot import PreparedSnapshot
-from impodo.domain.derived_value_artifact import DerivedValueArtifact
-from impodo.domain.source_snapshot import SourceSnapshot
-from impodo.domain.shared.models import Issue
+from impodo.domain.workspace.contracts import (
+    MappingWorkingDraft,
+    OdooSchemaCatalog,
+    SourceSelection,
+)
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.workbench import WorkspaceState
 
 
 class PreparationWorkspaceRepository(Protocol):
@@ -273,7 +278,9 @@ class QualityMappingRepository(Protocol):
         """Return the published mapping to which checks must be bound."""
         ...
 
-    def get_mapping_working_draft(self, workspace_id: str) -> MappingWorkingDraft | None:
+    def get_mapping_working_draft(
+        self, workspace_id: str
+    ) -> MappingWorkingDraft | None:
         """Return the draft used to detect unsaved semantic changes."""
         ...
 
@@ -315,7 +322,9 @@ class QualityRepository(Protocol):
         """Atomically persist a full overlay and advance the current pointer."""
         ...
 
-    def get_current_quality_summary(self, workspace_id: str) -> QualityRunSummary | None:
+    def get_current_quality_summary(
+        self, workspace_id: str
+    ) -> QualityRunSummary | None:
         """Return the current quality lifecycle/count projection."""
         ...
 
@@ -356,7 +365,9 @@ class NormalizationRepository(Protocol):
         """Reload immutable effects and groups for a review run."""
         ...
 
-    def get_normalization_dry_run(self, workspace_id: str, run_id: str) -> DryRun | None:
+    def get_normalization_dry_run(
+        self, workspace_id: str, run_id: str
+    ) -> DryRun | None:
         """Reload the mutable, versioned decision state for a review run."""
         ...
 
@@ -408,7 +419,9 @@ class NormalizationRepository(Protocol):
 class PreflightStagingRepository(Protocol):
     """Load the current Stage-E summary and its immutable canonical rows."""
 
-    def get_current_staging_summary(self, workspace_id: str) -> StagingRunSummary | None:
+    def get_current_staging_summary(
+        self, workspace_id: str
+    ) -> StagingRunSummary | None:
         """Return the staging run selected by the current pointer."""
         ...
 
@@ -426,7 +439,9 @@ class PreflightStagingRepository(Protocol):
 class PreflightQualityRepository(Protocol):
     """Load the current Stage-F eligibility summary and full overlay."""
 
-    def get_current_quality_summary(self, workspace_id: str) -> QualityRunSummary | None:
+    def get_current_quality_summary(
+        self, workspace_id: str
+    ) -> QualityRunSummary | None:
         """Return the quality run selected by the current pointer."""
         ...
 
@@ -455,7 +470,17 @@ class PreflightNormalizationRepository(Protocol):
         """Return the current review run and eligible-dataset hash."""
         ...
 
-    def get_normalization_dry_run(self, workspace_id: str, run_id: str) -> DryRun | None:
+    def get_normalization_evaluation(
+        self,
+        workspace_id: str,
+        run_id: str,
+    ) -> NormalizationEvaluation | None:
+        """Return exact frozen field effects for the selected review run."""
+        ...
+
+    def get_normalization_dry_run(
+        self, workspace_id: str, run_id: str
+    ) -> DryRun | None:
         """Return the approval state used to prove the run is frozen."""
         ...
 

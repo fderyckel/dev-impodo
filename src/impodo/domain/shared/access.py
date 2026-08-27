@@ -20,6 +20,7 @@ class Capability(StrEnum):
     """Fine-grained permissions used by application-service commands."""
 
     PROJECT_CREATE = "project.create"
+    PROJECT_DELETE = "project.delete"
     PROJECT_EDIT = "project.edit"
     PROJECT_REGISTER = "project.register"
     PROJECT_VIEW = "project.view"

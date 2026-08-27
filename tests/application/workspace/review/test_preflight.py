@@ -9,19 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from impodo.domain.shared.access import (
-    Actor,
-    ActorIdentity,
-    Capability,
-    CapabilityAuthorizationPolicy,
-)
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.application.preflight_service import (
     EXECUTION_SNAPSHOT_NAME,
     MANIFEST_NAME,
     PreflightService,
     _validate_snapshot_projection,
 )
-from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.domain.errors import ReadinessError
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -31,8 +26,13 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_json,
     record_snapshot_payload,
 )
-from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.reports import ReadinessReport
+from impodo.domain.shared.access import (
+    Actor,
+    ActorIdentity,
+    Capability,
+    CapabilityAuthorizationPolicy,
+)
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -267,8 +267,31 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
                 SimpleNamespace(
                     name="res.partner",
                     label="Contact",
-                    fields=(SimpleNamespace(name="name", label="Name"),),
+                    fields=(SimpleNamespace(name="name", label="Name", required=True),),
                 ),
+            )
+        )
+        normalization_hash = "sha256:" + "c" * 64
+        group = SimpleNamespace(
+            group_id="sha256:" + "d" * 64,
+            name="Trim surrounding spaces",
+            explanation="Impodo removed spaces around the contact name.",
+        )
+        effect = SimpleNamespace(
+            eligible=True,
+            group_id=group.group_id,
+            row_id=record.source_trace_id,
+            dataset=record.dataset,
+            source_row=record.source_row,
+            target_field="name",
+            before=" Example contact ",
+            after="Example contact",
+        )
+        service.normalization.get_normalization_evaluation.return_value = (
+            SimpleNamespace(
+                content_hash=normalization_hash,
+                groups=(group,),
+                effects=(effect,),
             )
         )
         service._load_frozen_input = MagicMock(
@@ -277,6 +300,10 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
                 prepared=SimpleNamespace(records=(record,)),
                 dataset_labels={"contacts": "Contacts"},
                 captured_schema=schema,
+                normalization=SimpleNamespace(
+                    run_id="normalization-run",
+                    content_hash=normalization_hash,
+                ),
             )
         )
 
@@ -288,6 +315,20 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
             evidence.target_field_labels,
             {("res.partner", "name"): "Name"},
         )
+        self.assertEqual(
+            evidence.target_field_required,
+            {("res.partner", "name"): True},
+        )
+        self.assertEqual(evidence.normalization_content_hash, normalization_hash)
+        self.assertEqual(len(evidence.cell_effects), 1)
+        self.assertEqual(
+            evidence.cell_effects[0].source_trace_id, record.source_trace_id
+        )
+        self.assertEqual(evidence.cell_effects[0].rule_name, group.name)
+        service.normalization.get_normalization_evaluation.assert_called_once_with(
+            "workspace",
+            "normalization-run",
+        )
 
     def test_odoo_source_keeps_business_values_out_of_portable_workbook(self) -> None:
         service, report = self._service(source_mode=SourceMode.ODOO)
@@ -297,6 +338,7 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
 
         self.assertIsNone(evidence)
         service._load_frozen_input.assert_not_called()
+        service.normalization.get_normalization_evaluation.assert_not_called()
 
     def test_changed_frozen_input_fails_closed(self) -> None:
         service, report = self._service()
@@ -305,6 +347,28 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ReadinessError, "no longer match"):
+            service.review_workbook_evidence("workspace", report.run_id)
+
+    def test_changed_normalization_feedback_fails_closed(self) -> None:
+        service, report = self._service()
+        service._load_frozen_input = MagicMock(
+            return_value=SimpleNamespace(
+                content_hash=report.frozen_input_hash,
+                normalization=SimpleNamespace(
+                    run_id="normalization-run",
+                    content_hash="sha256:" + "d" * 64,
+                ),
+            )
+        )
+        service.normalization.get_normalization_evaluation.return_value = (
+            SimpleNamespace(
+                content_hash="sha256:" + "e" * 64,
+                groups=(),
+                effects=(),
+            )
+        )
+
+        with self.assertRaisesRegex(ReadinessError, "feedback no longer matches"):
             service.review_workbook_evidence("workspace", report.run_id)
 
 

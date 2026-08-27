@@ -543,10 +543,15 @@ not infer digits or rounding from Odoo field metadata.
 - Date-like strings and dotted numeric-looking strings are also forced to text
   so business keys are not silently reformatted by Excel.
 - The workbook uses stored deterministic counts and contains no formulas.
+- Changed or added prepared cells may contain an inert Excel note with the
+  frozen original display value and confirmed preparation rule. The visible
+  cell still contains only the final prepared value.
 
 The JSON manifest is the decision source. A file-source workbook can add the
-exact prepared values bound to that manifest, but it must never classify rows
-independently or feed edited cells back into Impodo.
+exact prepared values and normalization effects bound to that manifest. A
+manifest issue takes precedence, and a blank alone cannot create a blocker.
+The workbook must never classify rows independently or feed edited cells back
+into Impodo.
 
 ## 10. Issue-code reference
 

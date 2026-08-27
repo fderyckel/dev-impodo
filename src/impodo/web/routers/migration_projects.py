@@ -6,15 +6,27 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
+
+from impodo.adapters.odoo.local_stack import LocalStackError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.project.foundation import (
+    MigrationConflictError,
+    MigrationFoundationError,
+)
+from impodo.domain.shared.access import AuthorizationError
+from impodo.domain.workspace.workbench import SourceMode
 
 from ...domain.data_version.models import DataVersionPurpose
-from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.recipe.models import RecipeError
-from impodo.domain.workspace.workbench import SourceMode
 from ..context import WebContext
-from ..forms import _form_values, _secure_form, _text
+from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..security import require_session
+from ..target_credentials import (
+    TargetCredentialRemovalReason,
+    delete_target_credentials,
+)
 
 
 def build_migration_projects_router(context: WebContext) -> APIRouter:
@@ -83,6 +95,121 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
     async def project_overview(request: Request, project_id: str):
         require_session(request)
         return _render_project_overview(request, context, project_id)
+
+    @router.post("/projects/{project_id}/delete")
+    async def delete_project(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "revision"})
+        expected_revision = _revision(form)
+        workspaces = context.migration_workspaces.list_for_project(
+            project_id,
+            actor=context.actor,
+        )
+        workspace_states = tuple(
+            context.queries.get(item.workspace_id) for item in workspaces
+        )
+        credential_owners = {
+            owner.workspace_id: owner
+            for owner in (
+                context.target_credential_workspace(
+                    item.workspace_id,
+                    workspace_state=item,
+                )
+                for item in workspace_states
+            )
+        }
+        recipes = context.recipes.list(project_id, actor=context.actor)
+        data_versions = context.data_versions.list(project_id, actor=context.actor)
+        try:
+            for item in workspaces:
+                workspace_id = item.workspace_id
+                if (
+                    context.preparation_jobs is not None
+                    and context.preparation_jobs.active(workspace_id) is not None
+                ):
+                    raise MigrationConflictError(
+                        "Preparation is still running. Wait for it to finish before "
+                        "deleting this project."
+                    )
+                if (
+                    context.odoo_capture_jobs is not None
+                    and context.odoo_capture_jobs.active(workspace_id) is not None
+                ):
+                    raise MigrationConflictError(
+                        "An Odoo capture is still running. Wait for it to finish "
+                        "before deleting this project."
+                    )
+                if (
+                    context.load_jobs is not None
+                    and context.load_jobs.active(workspace_id) is not None
+                ):
+                    raise MigrationConflictError(
+                        "An Odoo load is still running. Wait for it to finish before "
+                        "deleting this project."
+                    )
+                context.local_stack.forget_workspace(workspace_id)
+            deleted = await run_in_threadpool(
+                context.migration_projects.delete,
+                project_id,
+                actor=context.actor,
+                expected_revision=expected_revision,
+            )
+        except AuthorizationError:
+            return _render_project_overview(
+                request,
+                context,
+                project_id,
+                error="You are not authorized to delete this project.",
+                status_code=403,
+            )
+        except (LocalStackError, MigrationFoundationError) as error:
+            return _render_project_overview(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+
+        cleanup_error = None
+        try:
+            for owner in credential_owners.values():
+                delete_target_credentials(
+                    context.secret_store,
+                    owner,
+                    reason=TargetCredentialRemovalReason.PROJECT_DELETED,
+                )
+            for item in workspaces:
+                context.secret_store.delete(
+                    f"workspace:{item.workspace_id}:protected:comparison-v2"
+                )
+            for item in data_versions:
+                context.secret_store.delete(
+                    f"data-version:{item.data_version_id}:protected:origin-v2"
+                )
+            for item in recipes:
+                context.secret_store.delete(
+                    f"{item.recipe_id}:protected:recipe-v1"
+                )
+            context.secret_store.delete(
+                f"{project_id}:protected:project-evidence-v1"
+            )
+        except SecretStoreError as error:
+            cleanup_error = error
+
+        for item in workspaces:
+            context.remote_connections.clear(item.workspace_id)
+            if context.preparation_jobs is not None:
+                context.preparation_jobs.delete_workspace_history(item.workspace_id)
+        if cleanup_error is None:
+            _flash(request, f'Deleted project "{deleted.display_name}".')
+        else:
+            _flash(
+                request,
+                f'Deleted project "{deleted.display_name}", but Windows could not '
+                "remove every stored Odoo key. Review Windows Credential Manager.",
+            )
+        return RedirectResponse("/projects", status_code=303)
 
     @router.post("/projects/{project_id}/recipes")
     async def publish_recipe(request: Request, project_id: str):

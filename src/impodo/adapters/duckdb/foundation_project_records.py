@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 
-from impodo.domain.shared.access import Actor
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
@@ -13,6 +15,8 @@ from impodo.domain.project.foundation import (
     require_revision,
     require_uuid,
 )
+from impodo.domain.shared.access import Actor
+
 from ...domain.project.models import (
     MigrationProject,
     MigrationProjectStatus,
@@ -197,3 +201,237 @@ class FoundationProjectRecords:
                 occurred_at=project.updated_at,
             )
         return self.get_project(project.project_id)
+
+    def delete_project(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> MigrationProject:
+        """Delete one Project root after staging every contained local directory."""
+
+        project_id = require_uuid(project_id, "project_id")
+        expected_revision = require_revision(expected_revision)
+        with self.database.connect(self.registry_path) as connection:
+            project = self.get_project(project_id)
+            if project.optimistic_revision != expected_revision:
+                raise MigrationConflictError(
+                    "The project changed in another request; reload before deleting"
+                )
+            data_version_ids = self._project_owner_ids(
+                connection,
+                "data_version",
+                "data_version_id",
+                project_id,
+            )
+            workspace_ids = self._project_owner_ids(
+                connection,
+                "migration_workspace",
+                "workspace_id",
+                project_id,
+            )
+            recipe_ids = self._project_owner_ids(
+                connection,
+                "recipe",
+                "recipe_id",
+                project_id,
+            )
+
+        staged = self._stage_project_directories(
+            project_id,
+            data_version_ids=data_version_ids,
+            workspace_ids=workspace_ids,
+            recipe_ids=recipe_ids,
+        )
+        registry_deleted = False
+        try:
+            with self._registry_transactions.transaction() as connection:
+                current = connection.execute(
+                    """
+                    SELECT optimistic_revision
+                      FROM migration_project
+                     WHERE project_id = ?
+                    """,
+                    [project_id],
+                ).fetchone()
+                if current is None:
+                    raise MigrationConflictError("Project no longer exists")
+                if int(current[0]) != expected_revision:
+                    raise MigrationConflictError(
+                        "The project changed in another request; reload before deleting"
+                    )
+                self._delete_project_registry_rows(connection, project_id)
+            registry_deleted = True
+        except Exception:
+            self._restore_staged_directories(staged)
+            raise
+
+        if registry_deleted:
+            for _original, temporary in staged:
+                if temporary.is_dir():
+                    shutil.rmtree(temporary, ignore_errors=True)
+                elif temporary.exists():
+                    temporary.unlink()
+        return project
+
+    @staticmethod
+    def _project_owner_ids(
+        connection,
+        table: str,
+        id_column: str,
+        project_id: str,
+    ) -> tuple[str, ...]:
+        rows = connection.execute(
+            f"SELECT {id_column} FROM {table} WHERE project_id = ?",
+            [project_id],
+        ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def _stage_project_directories(
+        self,
+        project_id: str,
+        *,
+        data_version_ids: tuple[str, ...],
+        workspace_ids: tuple[str, ...],
+        recipe_ids: tuple[str, ...],
+    ) -> tuple[tuple[Path, Path], ...]:
+        root = self.database.root
+        candidates = [self.database.project_directory(project_id)]
+        candidates.extend(root / "artifacts" / "dv" / item for item in data_version_ids)
+        candidates.extend(root / "artifacts" / "ws" / item for item in workspace_ids)
+        candidates.extend(root / ".recipes-protected" / item for item in recipe_ids)
+        candidates.append(root / ".project-evidence-protected" / project_id)
+        staged: list[tuple[Path, Path]] = []
+        try:
+            for candidate in candidates:
+                original = candidate.resolve()
+                parent = candidate.parent.resolve()
+                if original.parent != parent:
+                    raise MigrationConflictError(
+                        "Project storage contains an unsafe deletion path"
+                    )
+                if candidate.is_symlink():
+                    raise MigrationConflictError(
+                        "Project storage contains an unsafe deletion path"
+                    )
+                if not candidate.exists():
+                    continue
+                if not candidate.is_dir():
+                    raise MigrationConflictError(
+                        "Project storage contains an unsafe deletion path"
+                    )
+                temporary = parent / f".{candidate.name}.deleting-{uuid4()}"
+                candidate.rename(temporary)
+                staged.append((candidate, temporary))
+        except Exception:
+            self._restore_staged_directories(tuple(staged))
+            raise
+        return tuple(staged)
+
+    @staticmethod
+    def _restore_staged_directories(
+        staged: tuple[tuple[Path, Path], ...],
+    ) -> None:
+        for original, temporary in reversed(staged):
+            if temporary.exists() and not original.exists():
+                temporary.rename(original)
+
+    @staticmethod
+    def _delete_project_registry_rows(connection, project_id: str) -> None:
+        """Delete registry dependants in foreign-key order."""
+
+        project_tables = (
+            "production_run_binding",
+            "test_run_parameter_values",
+            "test_run_setup_binding",
+            "project_cutover_selection",
+            "cutover_plan_qualification",
+            "recipe_qualification",
+        )
+        for table in project_tables:
+            connection.execute(
+                f"DELETE FROM {table} WHERE project_id = ?",
+                [project_id],
+            )
+
+        application_ids = (
+            "SELECT application_id FROM recipe_application WHERE project_id = ?"
+        )
+        for table in (
+            "recipe_application_reference_requirement",
+            "recipe_application_requirement",
+            "recipe_application_issue",
+        ):
+            connection.execute(
+                f"DELETE FROM {table} WHERE application_id IN ({application_ids})",
+                [project_id],
+            )
+        connection.execute(
+            "DELETE FROM recipe_application WHERE project_id = ?",
+            [project_id],
+        )
+
+        run_ids = "SELECT migration_run_id FROM migration_run WHERE project_id = ?"
+        for table in (
+            "migration_run_reference_bundle",
+            "migration_run_target_schema",
+            "migration_run_requirement_plan",
+            "migration_run_cutover_plan",
+            "migration_run_target_setup",
+        ):
+            connection.execute(
+                f"DELETE FROM {table} WHERE migration_run_id IN ({run_ids})",
+                [project_id],
+            )
+        connection.execute(
+            "DELETE FROM target_binding WHERE project_id = ?",
+            [project_id],
+        )
+
+        plan_ids = "SELECT cutover_plan_id FROM cutover_plan WHERE project_id = ?"
+        for table in (
+            "cutover_write_ownership",
+            "cutover_dependency",
+            "cutover_plan_recipe",
+            "cutover_plan_revision",
+        ):
+            connection.execute(
+                f"DELETE FROM {table} WHERE cutover_plan_id IN ({plan_ids})",
+                [project_id],
+            )
+        connection.execute(
+            "DELETE FROM cutover_plan WHERE project_id = ?",
+            [project_id],
+        )
+
+        recipe_ids = "SELECT recipe_id FROM recipe WHERE project_id = ?"
+        connection.execute(
+            f"DELETE FROM recipe_revision WHERE recipe_id IN ({recipe_ids})",
+            [project_id],
+        )
+        connection.execute("DELETE FROM recipe WHERE project_id = ?", [project_id])
+
+        connection.execute(
+            "DELETE FROM migration_workspace WHERE project_id = ?",
+            [project_id],
+        )
+        connection.execute("DELETE FROM migration_run WHERE project_id = ?", [project_id])
+        connection.execute(
+            """
+            UPDATE data_version
+               SET parent_data_version_id = NULL
+             WHERE project_id = ?
+            """,
+            [project_id],
+        )
+        connection.execute("DELETE FROM data_version WHERE project_id = ?", [project_id])
+        connection.execute("DELETE FROM migration_event WHERE project_id = ?", [project_id])
+        connection.execute(
+            "DELETE FROM project_operation_intent WHERE project_id = ?",
+            [project_id],
+        )
+        connection.execute("DELETE FROM migration_project WHERE project_id = ?", [project_id])
+        # Identity reservations remain as non-user-visible tombstones. DuckDB
+        # cannot delete a referenced parent key in the same transaction even
+        # after its child rows were deleted, and retaining the UUID prevents a
+        # deleted evidence identity from ever being reused.

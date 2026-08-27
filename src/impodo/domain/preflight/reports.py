@@ -14,7 +14,11 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import datetime, timezone
+from enum import StrEnum
 
+from impodo.domain.preparation.normalization import NormalizationRunSummary
+from impodo.domain.preparation.quality import QualityRunSummary
+from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
     Classification,
@@ -22,10 +26,8 @@ from impodo.domain.shared.models import (
     PreflightResult,
     PreparedRecord,
 )
-from impodo.domain.preparation.normalization import NormalizationRunSummary
-from impodo.domain.preparation.quality import QualityRunSummary
-from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.workspace.workbench import WorkspaceState
+
 from ..contracts import READINESS_CONTRACT_VERSION
 from ..mapping.artifacts import MappingRevision
 from ..staging.transformation_impact import _display_value
@@ -81,6 +83,50 @@ class ReadinessRowPage:
     page_count: int
 
 
+class ReviewWorkbookCellStatus(StrEnum):
+    """Business status for one final prepared workbook value."""
+
+    AS_PROVIDED = "As provided"
+    CHANGED = "Changed by Impodo"
+    ADDED = "Added by Impodo"
+    REVIEW_RECOMMENDED = "Review recommended"
+    NEEDS_ATTENTION = "Needs attention"
+    EMPTY_ALLOWED = "Empty but allowed"
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewWorkbookCellEffect:
+    """One frozen preparation effect that may explain a workbook cell."""
+
+    source_trace_id: str
+    dataset: str
+    source_row: int
+    target_field: str
+    before: str
+    after: str
+    rule_name: str
+    explanation: str
+
+    def __post_init__(self) -> None:
+        if (
+            not self.source_trace_id.startswith("sha256:")
+            or not self.dataset
+            or self.source_row < 1
+            or not self.target_field
+            or not self.rule_name
+        ):
+            raise ValueError("Review workbook cell effect is incomplete")
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewWorkbookCellFeedback:
+    """Status and hidden supporting note for one final prepared value."""
+
+    status: ReviewWorkbookCellStatus
+    note: str
+    original_value: str = ""
+
+
 @dataclass(frozen=True, slots=True)
 class ReviewWorkbookEvidence:
     """Exact prepared values and labels allowed in one review workbook.
@@ -96,6 +142,105 @@ class ReviewWorkbookEvidence:
     dataset_labels: Mapping[str, str]
     target_model_labels: Mapping[str, str]
     target_field_labels: Mapping[tuple[str, str], str]
+    normalization_content_hash: str
+    cell_effects: tuple[ReviewWorkbookCellEffect, ...]
+    target_field_required: Mapping[tuple[str, str], bool]
+
+
+def review_workbook_cell_feedback(
+    value: object,
+    effects: tuple[ReviewWorkbookCellEffect, ...] = (),
+    *,
+    issue_severity: str = "",
+    issue_message: str = "",
+    required: bool = False,
+) -> ReviewWorkbookCellFeedback:
+    """Classify one final value from governed comparison and preparation facts.
+
+    A manifest issue takes precedence over preparation history. Frozen
+    normalization effects then distinguish values added or changed by Impodo.
+    A blank without an issue is informational; the function never infers a
+    blocker from appearance alone.
+    """
+
+    severity = issue_severity.casefold()
+    if severity == "error":
+        return ReviewWorkbookCellFeedback(
+            status=ReviewWorkbookCellStatus.NEEDS_ATTENTION,
+            note=issue_message or "Impodo cannot safely prepare this value.",
+        )
+    if severity == "warning":
+        return ReviewWorkbookCellFeedback(
+            status=ReviewWorkbookCellStatus.REVIEW_RECOMMENDED,
+            note=issue_message or "Review this prepared value in Impodo.",
+        )
+
+    if effects:
+        ordered = tuple(
+            sorted(
+                effects,
+                key=lambda item: (
+                    item.rule_name.casefold(),
+                    item.explanation.casefold(),
+                    item.before,
+                    item.after,
+                ),
+            )
+        )
+        added = all(_normalization_display_is_empty(item.before) for item in ordered)
+        status = (
+            ReviewWorkbookCellStatus.ADDED
+            if added
+            else ReviewWorkbookCellStatus.CHANGED
+        )
+        rules = " · ".join(dict.fromkeys(item.rule_name for item in ordered))
+        explanations = " ".join(
+            dict.fromkeys(
+                item.explanation.strip() for item in ordered if item.explanation.strip()
+            )
+        )
+        note = f"{status.value}. Applied preparation: {rules}."
+        if explanations:
+            note = f"{note} {explanations}"
+        originals = " · ".join(
+            dict.fromkeys(item.before for item in ordered if item.before)
+        )
+        return ReviewWorkbookCellFeedback(
+            status=status,
+            note=note,
+            original_value=originals,
+        )
+
+    if _prepared_value_is_empty(value):
+        note = (
+            "No prepared value will be sent for this required Odoo field, and "
+            "the current comparison found no missing-value blocker."
+            if required
+            else "This optional value is blank and needs no action."
+        )
+        return ReviewWorkbookCellFeedback(
+            status=ReviewWorkbookCellStatus.EMPTY_ALLOWED,
+            note=note,
+        )
+
+    return ReviewWorkbookCellFeedback(
+        status=ReviewWorkbookCellStatus.AS_PROVIDED,
+        note="Impodo will use this prepared value without a recorded change.",
+    )
+
+
+def _normalization_display_is_empty(value: str) -> bool:
+    return not value.strip() or value.strip() == "—"
+
+
+def _prepared_value_is_empty(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, Mapping | tuple | list | set | frozenset):
+        return not value
+    return False
 
 
 @dataclass(frozen=True, slots=True)

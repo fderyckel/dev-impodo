@@ -18,19 +18,26 @@ from __future__ import annotations
 
 import csv
 import json
-from collections.abc import Iterable, Sequence
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from impodo.domain.preflight.reports import (
+    ReviewWorkbookCellEffect,
+    ReviewWorkbookCellFeedback,
+    ReviewWorkbookCellStatus,
     ReviewWorkbookEvidence,
     plain_readiness_guidance,
+    review_workbook_cell_feedback,
 )
 from impodo.domain.shared.models import (
     BusinessReference,
@@ -79,6 +86,25 @@ class ReportGenerationError(RuntimeError):
     """Raised when canonical report artifacts cannot be generated safely."""
 
 
+@dataclass(frozen=True, slots=True)
+class _RecordCellProjection:
+    """Workbook coordinate and portable feedback for one prepared value."""
+
+    row: int
+    column: int
+    feedback: ReviewWorkbookCellFeedback
+
+
+@dataclass(frozen=True, slots=True)
+class _RecordSheetProjection:
+    """Rows, feedback coordinates, and reconciled preparation counts."""
+
+    headers: tuple[str, ...]
+    rows: tuple[tuple[Any, ...], ...]
+    cells: tuple[_RecordCellProjection, ...]
+    feedback_counts: Mapping[str, int]
+
+
 def write_preflight_outputs(
     result: PreflightResult,
     output_directory: str | Path,
@@ -116,6 +142,9 @@ def write_preflight_outputs(
                 },
                 target_model_labels={},
                 target_field_labels={},
+                normalization_content_hash="",
+                cell_effects=(),
+                target_field_required={},
             )
             if prepared_records
             else None
@@ -167,6 +196,18 @@ def _build_workbook(
         decisions,
         review_evidence,
     )
+    cell_effects = _cell_effects_by_coordinate(
+        manifest,
+        prepared_by_trace,
+        review_evidence,
+    )
+    record_projection = _record_sheet_projection(
+        manifest,
+        decisions,
+        prepared_by_trace,
+        review_evidence,
+        cell_effects,
+    )
     attention_rows = _attention_rows(
         manifest,
         decisions,
@@ -187,7 +228,12 @@ def _build_workbook(
         )
     }
 
-    _write_review_overview(overview, manifest, attention_rows)
+    _write_review_overview(
+        overview,
+        manifest,
+        attention_rows,
+        record_projection.feedback_counts,
+    )
     _write_data_sheet(
         sheets["Needs attention"],
         [
@@ -221,19 +267,17 @@ def _build_workbook(
     )
     _style_status_cells(sheets["Needs attention"], 1)
 
-    record_headers, record_rows = _record_sheet_rows(
-        manifest,
-        decisions,
-        prepared_by_trace,
-        review_evidence,
-    )
     _write_data_sheet(
         sheets["Records to load"],
-        record_headers,
-        record_rows,
+        record_projection.headers,
+        record_projection.rows,
         _COLORS["ready"],
     )
     _style_status_cells(sheets["Records to load"], 1)
+    _style_record_value_cells(
+        sheets["Records to load"],
+        record_projection.cells,
+    )
 
     change_rows = _change_rows(
         decisions,
@@ -305,6 +349,7 @@ def _write_review_overview(
     sheet,
     manifest: dict[str, Any],
     attention_rows: Sequence[Sequence[Any]],
+    feedback_counts: Mapping[str, int],
 ) -> None:
     _title_band(
         sheet,
@@ -397,21 +442,82 @@ def _write_review_overview(
             bold=True, color=_COLORS["charcoal_dark"]
         )
 
-    sheet.merge_cells("A11:H11")
-    sheet["A11"] = "How to use this workbook"
-    sheet["A11"].fill = PatternFill("solid", fgColor=_COLORS["brand"])
-    sheet["A11"].font = Font(bold=True, color=_COLORS["white"])
-    sheet["A11"].alignment = Alignment(vertical="center")
-    sheet.merge_cells("A12:H12")
-    sheet["A12"] = (
-        "Start with Needs attention. Then review Records to load and Changes "
-        "to Odoo. Correct data or rules in Impodo, not in this workbook."
+    preparation_rows = [
+        ["Prepared value feedback", "Cells", "Meaning"],
+        [
+            ReviewWorkbookCellStatus.CHANGED.value,
+            feedback_counts.get(ReviewWorkbookCellStatus.CHANGED.value, 0),
+            "Impodo transformed the source value.",
+        ],
+        [
+            ReviewWorkbookCellStatus.ADDED.value,
+            feedback_counts.get(ReviewWorkbookCellStatus.ADDED.value, 0),
+            "Impodo supplied a value through a prepared rule.",
+        ],
+        [
+            ReviewWorkbookCellStatus.REVIEW_RECOMMENDED.value,
+            feedback_counts.get(
+                ReviewWorkbookCellStatus.REVIEW_RECOMMENDED.value,
+                0,
+            ),
+            "Review the field warning in Impodo.",
+        ],
+        [
+            ReviewWorkbookCellStatus.NEEDS_ATTENTION.value,
+            feedback_counts.get(ReviewWorkbookCellStatus.NEEDS_ATTENTION.value, 0),
+            "Resolve the field problem in Impodo.",
+        ],
+        [
+            ReviewWorkbookCellStatus.EMPTY_ALLOWED.value,
+            feedback_counts.get(ReviewWorkbookCellStatus.EMPTY_ALLOWED.value, 0),
+            "The blank has no current blocker.",
+        ],
+        [
+            ReviewWorkbookCellStatus.AS_PROVIDED.value,
+            feedback_counts.get(ReviewWorkbookCellStatus.AS_PROVIDED.value, 0),
+            "Impodo retained the prepared value.",
+        ],
+    ]
+    for row_index, values in enumerate(preparation_rows, start=11):
+        for column_index, value in enumerate(values, start=1):
+            sheet.cell(row=row_index, column=column_index, value=value)
+    _style_header(sheet, 11, 1, 3, _COLORS["prepared"])
+    preparation_styles = {
+        ReviewWorkbookCellStatus.CHANGED.value: "prepared",
+        ReviewWorkbookCellStatus.ADDED.value: "ready",
+        ReviewWorkbookCellStatus.REVIEW_RECOMMENDED.value: "warning",
+        ReviewWorkbookCellStatus.NEEDS_ATTENTION.value: "danger",
+        ReviewWorkbookCellStatus.EMPTY_ALLOWED.value: "neutral",
+        ReviewWorkbookCellStatus.AS_PROVIDED.value: "neutral",
+    }
+    for row_index in range(12, 18):
+        _style_status_cell(
+            sheet.cell(row=row_index, column=1),
+            preparation_styles[str(sheet.cell(row=row_index, column=1).value)],
+        )
+        sheet.cell(row=row_index, column=2).number_format = "#,##0"
+        sheet.cell(row=row_index, column=3).alignment = Alignment(wrap_text=True)
+
+    sheet.merge_cells("D11:H11")
+    sheet["D11"] = "How to use this workbook"
+    for column in range(4, 9):
+        sheet.cell(row=11, column=column).fill = PatternFill(
+            "solid", fgColor=_COLORS["brand"]
+        )
+        sheet.cell(row=11, column=column).font = Font(bold=True, color=_COLORS["white"])
+    sheet.merge_cells("D12:H17")
+    sheet["D12"] = (
+        "Start with Needs attention. In Records to load, coloured prepared "
+        "cells contain only the final values. Open a changed or added cell's "
+        "note for its original value and preparation rule. Correct data or "
+        "rules in Impodo, not in this workbook."
     )
-    sheet["A12"].fill = PatternFill("solid", fgColor=_COLORS["paper"])
-    sheet["A12"].font = Font(color=_COLORS["charcoal"])
-    sheet["A12"].alignment = Alignment(vertical="center", wrap_text=True)
-    sheet.row_dimensions[11].height = 24
-    sheet.row_dimensions[12].height = 34
+    sheet["D12"].fill = PatternFill("solid", fgColor=_COLORS["paper"])
+    sheet["D12"].font = Font(color=_COLORS["charcoal"])
+    sheet["D12"].alignment = Alignment(vertical="top", wrap_text=True)
+    sheet.row_dimensions[11].height = 28
+    for row_index in range(12, 18):
+        sheet.row_dimensions[row_index].height = 30
 
     legend = [
         ("Ready", "The record has a safe comparison outcome.", "ready"),
@@ -420,7 +526,11 @@ def _write_review_overview(
         ("Value to load", "This is the prepared value Impodo will use.", "prepared"),
         ("No change", "The value already matches or will not be sent.", "neutral"),
     ]
-    for row_index, (label, meaning, style) in enumerate(legend, start=14):
+    sheet.merge_cells("A19:H19")
+    sheet["A19"] = "Record and comparison status"
+    sheet["A19"].fill = PatternFill("solid", fgColor=_COLORS["charcoal_dark"])
+    sheet["A19"].font = Font(bold=True, color=_COLORS["white"])
+    for row_index, (label, meaning, style) in enumerate(legend, start=20):
         sheet.cell(row=row_index, column=1, value=label)
         sheet.merge_cells(
             start_row=row_index,
@@ -433,12 +543,13 @@ def _write_review_overview(
     sheet.freeze_panes = "A3"
     for column in range(1, 9):
         sheet.column_dimensions[get_column_letter(column)].width = 18
+    sheet.column_dimensions["C"].width = 34
     sheet.column_dimensions["D"].width = 24
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
-    sheet.print_area = "A1:H18"
+    sheet.print_area = "A1:H24"
     sheet.sheet_view.showGridLines = False
     sheet.sheet_properties.tabColor = _COLORS["brand"]
 
@@ -474,6 +585,57 @@ def _prepared_records_by_trace(
                 "Prepared review row lineage does not match the readiness decision"
             )
     return records
+
+
+def _cell_effects_by_coordinate(
+    manifest: dict[str, Any],
+    prepared_by_trace: Mapping[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> dict[tuple[str, str], tuple[ReviewWorkbookCellEffect, ...]]:
+    if evidence is None:
+        return {}
+    manifest_normalization_hash = dict(manifest.get("preflight_evidence", {})).get(
+        "normalization_content_hash"
+    )
+    if evidence.normalization_content_hash and (
+        manifest_normalization_hash != evidence.normalization_content_hash
+    ):
+        raise ReportGenerationError(
+            "Prepared-value feedback does not match the readiness manifest"
+        )
+    if evidence.cell_effects and not evidence.normalization_content_hash:
+        raise ReportGenerationError(
+            "Prepared-value feedback has no normalization evidence"
+        )
+    grouped: dict[tuple[str, str], list[ReviewWorkbookCellEffect]] = {}
+    for effect in evidence.cell_effects:
+        record = prepared_by_trace.get(effect.source_trace_id)
+        if (
+            record is None
+            or record.dataset != effect.dataset
+            or record.source_row != effect.source_row
+        ):
+            raise ReportGenerationError(
+                "Prepared-value feedback does not match its prepared row"
+            )
+        grouped.setdefault(
+            (effect.source_trace_id, effect.target_field),
+            [],
+        ).append(effect)
+    return {
+        key: tuple(
+            sorted(
+                items,
+                key=lambda item: (
+                    item.rule_name.casefold(),
+                    item.explanation.casefold(),
+                    item.before,
+                    item.after,
+                ),
+            )
+        )
+        for key, items in sorted(grouped.items())
+    }
 
 
 def _attention_rows(
@@ -633,13 +795,22 @@ def _decision_attention_row(
     ]
 
 
-def _record_sheet_rows(
+def _record_sheet_projection(
     manifest: dict[str, Any],
     decisions: Sequence[dict[str, Any]],
     prepared_by_trace: dict[str, PreparedRecord],
     evidence: ReviewWorkbookEvidence | None,
-) -> tuple[list[str], list[list[Any]]]:
-    value_columns = _record_value_columns(tuple(prepared_by_trace.values()), evidence)
+    cell_effects: Mapping[
+        tuple[str, str],
+        tuple[ReviewWorkbookCellEffect, ...],
+    ],
+) -> _RecordSheetProjection:
+    value_columns = _record_value_columns(
+        tuple(prepared_by_trace.values()),
+        decisions,
+        cell_effects,
+        evidence,
+    )
     global_issue_keys = {
         (
             str(item.get("code") or ""),
@@ -657,13 +828,16 @@ def _record_sheet_rows(
         "Business identity",
         "Source row",
         *(item[2] for item in value_columns),
+        "Prepared value feedback",
         "Why / next action",
     ]
     dataset_models = {
         str(item.get("dataset") or ""): str(item.get("model") or "")
         for item in manifest.get("metadata_coverage", ())
     }
-    rows: list[list[Any]] = []
+    rows: list[tuple[Any, ...]] = []
+    cells: list[_RecordCellProjection] = []
+    feedback_counts: Counter[str] = Counter()
     for decision in decisions:
         trace_id = str(decision.get("source_trace_id") or "")
         record = prepared_by_trace.get(trace_id)
@@ -679,8 +853,87 @@ def _record_sheet_rows(
             decision,
             ignored_issue_keys=global_issue_keys,
         )
+        displayed_values: list[Any] = []
+        row_feedback: list[tuple[str, ReviewWorkbookCellFeedback]] = []
+        workbook_row = len(rows) + 4
+        for value_index, (model, field, label) in enumerate(value_columns):
+            if target_model != model:
+                displayed_values.append("")
+                continue
+            value = values.get(field)
+            issue = _decision_field_issue(
+                decision,
+                field,
+                ignored_issue_keys=global_issue_keys,
+            )
+            feedback = review_workbook_cell_feedback(
+                value,
+                cell_effects.get((trace_id, field), ()),
+                issue_severity=(str(issue.get("severity") or "") if issue else ""),
+                issue_message=(str(issue.get("message") or "") if issue else ""),
+                required=(
+                    evidence is not None
+                    and evidence.target_field_required.get((model, field), False)
+                ),
+            )
+            displayed_values.append(_display_value(value))
+            row_feedback.append((label, feedback))
+            feedback_counts[feedback.status.value] += 1
+            cells.append(
+                _RecordCellProjection(
+                    row=workbook_row,
+                    column=7 + value_index,
+                    feedback=feedback,
+                )
+            )
+        represented_fields = {
+            field for model, field, _label in value_columns if target_model == model
+        }
+        identity_effects = tuple(
+            effect
+            for (effect_trace_id, field), effects in cell_effects.items()
+            if effect_trace_id == trace_id and field not in represented_fields
+            for effect in effects
+        )
+        if identity_effects:
+            identity_issue = next(
+                (
+                    issue
+                    for field in sorted(
+                        {item.target_field for item in identity_effects}
+                    )
+                    if (
+                        issue := _decision_field_issue(
+                            decision,
+                            field,
+                            ignored_issue_keys=global_issue_keys,
+                        )
+                    )
+                    is not None
+                ),
+                None,
+            )
+            identity_feedback = review_workbook_cell_feedback(
+                decision.get("business_identity", ()),
+                identity_effects,
+                issue_severity=(
+                    str(identity_issue.get("severity") or "") if identity_issue else ""
+                ),
+                issue_message=(
+                    str(identity_issue.get("message") or "") if identity_issue else ""
+                ),
+            )
+            row_feedback.append(("Business identity", identity_feedback))
+            feedback_counts[identity_feedback.status.value] += 1
+            cells.append(
+                _RecordCellProjection(
+                    row=workbook_row,
+                    column=5,
+                    feedback=identity_feedback,
+                )
+            )
         rows.append(
-            [
+            (
                 _decision_status(
                     decision,
                     ignored_issue_keys=global_issue_keys,
@@ -690,16 +943,14 @@ def _record_sheet_rows(
                 _model_label(target_model, evidence),
                 _display_value(decision.get("business_identity", ())),
                 decision.get("source_row"),
-                *(
-                    _display_value(values.get(field)) if target_model == model else ""
-                    for model, field, _label in value_columns
-                ),
+                *displayed_values,
+                _prepared_feedback_summary(row_feedback),
                 f"{reason} {action}",
-            ]
+            )
         )
     if not rows:
         rows.append(
-            [
+            (
                 "Ready",
                 "Nothing to load",
                 "",
@@ -707,23 +958,49 @@ def _record_sheet_rows(
                 "",
                 "",
                 *("" for _item in value_columns),
+                "No prepared values are shown.",
                 "No records were selected for this comparison.",
-            ]
+            )
         )
-    return headers, rows
+    return _RecordSheetProjection(
+        headers=tuple(headers),
+        rows=tuple(rows),
+        cells=tuple(cells),
+        feedback_counts=dict(sorted(feedback_counts.items())),
+    )
 
 
 def _record_value_columns(
     records: Sequence[PreparedRecord],
+    decisions: Sequence[dict[str, Any]],
+    cell_effects: Mapping[
+        tuple[str, str],
+        tuple[ReviewWorkbookCellEffect, ...],
+    ],
     evidence: ReviewWorkbookEvidence | None,
 ) -> tuple[tuple[str, str, str], ...]:
-    pairs = sorted(
-        {
-            (record.target_model, field)
-            for record in records
-            for field in (*record.scalar_values, *record.references)
-        }
-    )
+    records_by_trace = {item.source_trace_id: item for item in records}
+    pairs = {
+        (record.target_model, field)
+        for record in records
+        for field in (*record.scalar_values, *record.references)
+    }
+    for decision in decisions:
+        record = records_by_trace.get(str(decision.get("source_trace_id") or ""))
+        if record is None:
+            continue
+        values = {**record.scalar_values, **record.references}
+        trace_id = record.source_trace_id
+        pairs.update(
+            (record.target_model, str(issue.get("field") or ""))
+            for issue in decision.get("issues", ())
+            if issue.get("field")
+            and (
+                str(issue.get("field") or "") in values
+                or (trace_id, str(issue.get("field") or "")) not in cell_effects
+            )
+        )
+    pairs = sorted(pairs)
     base_labels = [
         _target_field_label(model, field, evidence) for model, field in pairs
     ]
@@ -738,6 +1015,49 @@ def _record_value_columns(
             label = f"{label} ({_model_label(model, evidence)})"
         columns.append((model, field, label))
     return tuple(columns)
+
+
+def _decision_field_issue(
+    decision: dict[str, Any],
+    field: str,
+    *,
+    ignored_issue_keys: set[tuple[str, str, str]],
+) -> dict[str, Any] | None:
+    issues = tuple(
+        item
+        for item in decision.get("issues", ())
+        if str(item.get("field") or "") == field
+        and (
+            str(item.get("code") or ""),
+            str(item.get("dataset") or decision.get("dataset") or ""),
+            field,
+        )
+        not in ignored_issue_keys
+    )
+    return next(
+        (item for item in issues if item.get("severity") == "error"),
+        issues[0] if issues else None,
+    )
+
+
+def _prepared_feedback_summary(
+    feedback: Sequence[tuple[str, ReviewWorkbookCellFeedback]],
+) -> str:
+    if not feedback:
+        return "No prepared values are shown."
+    notable = [
+        f"{label}: {item.status.value}"
+        for label, item in feedback
+        if item.status is not ReviewWorkbookCellStatus.AS_PROVIDED
+    ]
+    as_provided = sum(
+        item.status is ReviewWorkbookCellStatus.AS_PROVIDED for _label, item in feedback
+    )
+    if not notable:
+        return "All displayed values are as provided."
+    if as_provided:
+        notable.append(f"{as_provided} as provided")
+    return "; ".join(notable)
 
 
 def _change_rows(
@@ -1064,6 +1384,52 @@ def _style_value_columns(sheet, *, prepared_column: int, current_column: int) ->
         current = sheet.cell(row=row_index, column=current_column)
         current.fill = PatternFill("solid", fgColor=_COLORS["soft"])
         current.font = Font(color=_COLORS["charcoal"])
+
+
+def _style_record_value_cells(
+    sheet,
+    cells: Sequence[_RecordCellProjection],
+) -> None:
+    styles = {
+        ReviewWorkbookCellStatus.CHANGED: (
+            _COLORS["prepared_bg"],
+            _COLORS["prepared"],
+        ),
+        ReviewWorkbookCellStatus.ADDED: (
+            _COLORS["ready_bg"],
+            _COLORS["ready_text"],
+        ),
+        ReviewWorkbookCellStatus.REVIEW_RECOMMENDED: (
+            _COLORS["warning_bg"],
+            _COLORS["warning"],
+        ),
+        ReviewWorkbookCellStatus.NEEDS_ATTENTION: (
+            _COLORS["danger_bg"],
+            _COLORS["danger"],
+        ),
+        ReviewWorkbookCellStatus.EMPTY_ALLOWED: (
+            _COLORS["soft"],
+            _COLORS["gray"],
+        ),
+    }
+    comment_statuses = {
+        ReviewWorkbookCellStatus.CHANGED,
+        ReviewWorkbookCellStatus.ADDED,
+        ReviewWorkbookCellStatus.REVIEW_RECOMMENDED,
+        ReviewWorkbookCellStatus.NEEDS_ATTENTION,
+    }
+    for projection in cells:
+        feedback = projection.feedback
+        cell = sheet.cell(row=projection.row, column=projection.column)
+        if feedback.status in styles:
+            fill, font = styles[feedback.status]
+            cell.fill = PatternFill("solid", fgColor=fill)
+            cell.font = Font(color=font)
+        if feedback.status in comment_statuses:
+            comment = f"Status: {feedback.status.value}\n{feedback.note}"
+            if feedback.original_value:
+                comment = f"{comment}\nOriginal value: {feedback.original_value}"
+            cell.comment = Comment(comment, "Impodo")
 
 
 def _write_data_sheet(

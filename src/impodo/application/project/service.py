@@ -5,20 +5,21 @@ from __future__ import annotations
 from dataclasses import replace
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from ...domain.project.models import (
-    MigrationDataClassification,
-    MigrationProject,
-    MigrationProjectSummary,
-    MigrationProjectStatus,
-)
-from ...domain.serialization import content_hash
 from impodo.domain.project.foundation import (
     FaultInjector,
     require_revision,
     require_uuid,
     utc_now,
 )
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+
+from ...domain.project.models import (
+    MigrationDataClassification,
+    MigrationProject,
+    MigrationProjectStatus,
+    MigrationProjectSummary,
+)
+from ...domain.serialization import content_hash
 from .ports import MigrationProjectRepository
 
 
@@ -90,6 +91,26 @@ class MigrationProjectService:
     def list(self, *, actor: Actor) -> tuple[MigrationProjectSummary, ...]:
         self.authorization.require(actor, Capability.PROJECT_VIEW)
         return self.repository.list_project_summaries()
+
+    def delete(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> MigrationProject:
+        """Permanently delete one exact Project revision and its evidence."""
+
+        project_id = require_uuid(project_id, "project_id")
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_DELETE,
+            project_id=project_id,
+        )
+        return self.repository.delete_project(
+            project_id,
+            expected_revision=require_revision(expected_revision),
+        )
 
     def rename(
         self,

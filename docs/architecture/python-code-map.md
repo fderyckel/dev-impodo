@@ -73,6 +73,7 @@ owner module.
 | Preparation bindings | `preparation_snapshot_bindings.py`, `preparation_derived_artifact_bindings.py`, `preparation_canonical_projection_bindings.py`, and `preparation_session_lifecycle.py` | each collaborator reuses the transaction opened for its one publication or lifecycle action |
 | Mapping state and decisions | `domain/workspace/contracts.py`, `domain/mapping`, and `application/workspace/mapping` | a workspace owns mutable evidence; Recipe publication receives only portable rules |
 | Preparation state and decisions | `domain/preparation` and `application/workspace/preparation` | `web/composition/preparation_job_manager.py` and `preparation_worker.py` own the local process runtime |
+| Final review evidence | `domain/preflight` defines portable report and prepared-cell meaning; `application/preflight_service.py` binds current workspace evidence | `adapters/artifacts/reporting.py` renders the manifest-authoritative workbook; browser routes only request and serve the artifact |
 | Execution state and decisions | `domain/run`, `domain/execution`, `application/run`, and `application/workspace/execution` | `adapters/odoo` implements the target ports; `web/composition/target_readers.py` and `target_writers.py` select implementations |
 | Artifact and secret storage | `application/shared/artifacts.py` and `application/shared/secrets.py` | concrete filesystem and credential implementations live below `adapters/artifacts` and `adapters/protected_evidence` |
 

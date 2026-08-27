@@ -206,6 +206,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const projectDeleteDialog = document.querySelector(
+    "[data-project-delete-dialog]"
+  );
+  const projectDeleteTrigger = document.querySelector(
+    "[data-project-delete-trigger]"
+  );
+  projectDeleteTrigger?.addEventListener("click", () => {
+    if (typeof projectDeleteDialog?.showModal === "function") {
+      projectDeleteDialog.showModal();
+    }
+  });
+
   const sidebar = document.querySelector("#app-sidebar");
   const sidebarToggle = document.querySelector("[data-sidebar-toggle]");
   const sidebarToggleLabel = document.querySelector(

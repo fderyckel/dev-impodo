@@ -8,15 +8,20 @@ from dataclasses import replace
 from pathlib import Path
 
 from openpyxl import load_workbook
-from tests.integration.artifacts.test_preflight_outputs import ROOT, golden_result
 
-from impodo.web.composition.cli import build_parser, main
-from impodo.domain.shared.models import Issue, PreparedRecord, Severity
 from impodo.adapters.artifacts.reporting import (
     MANIFEST_NAME,
     WORKBOOK_NAME,
     write_preflight_outputs,
+    write_review_workbook,
 )
+from impodo.domain.preflight.reports import (
+    ReviewWorkbookCellEffect,
+    ReviewWorkbookEvidence,
+)
+from impodo.domain.shared.models import Issue, PreparedRecord, Severity
+from impodo.web.composition.cli import build_parser, main
+from tests.integration.artifacts.test_preflight_outputs import ROOT, golden_result
 
 
 class CliTests(unittest.TestCase):
@@ -96,6 +101,10 @@ class WorkbookIntegrationTests(unittest.TestCase):
             self.assertIsInstance(workbook["Review overview"]["B5"].value, int)
             self.assertEqual(
                 workbook["Review overview"]["A11"].value,
+                "Prepared value feedback",
+            )
+            self.assertEqual(
+                workbook["Review overview"]["D11"].value,
                 "How to use this workbook",
             )
             self.assertTrue(
@@ -134,6 +143,116 @@ class WorkbookIntegrationTests(unittest.TestCase):
                     )
                 else:
                     self.assertIsNone(sheet.auto_filter.ref)
+            workbook.close()
+
+    def test_prepared_cells_show_final_values_with_frozen_change_feedback(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "report"
+            result = golden_result()
+            prepared_records = _prepared_records(result)
+            manifest_path, workbook_path = write_preflight_outputs(result, output)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            frozen_input_hash = "sha256:" + "a" * 64
+            normalization_content_hash = "sha256:" + "b" * 64
+            manifest["preflight_evidence"] = {
+                "frozen_input_hash": frozen_input_hash,
+                "normalization_content_hash": normalization_content_hash,
+            }
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, sort_keys=True),
+                encoding="utf-8",
+            )
+            changed_record = prepared_records[0]
+            evidence = ReviewWorkbookEvidence(
+                frozen_input_hash=frozen_input_hash,
+                records=prepared_records,
+                dataset_labels={
+                    item.dataset: item.dataset.replace("_", " ").title()
+                    for item in prepared_records
+                },
+                target_model_labels={"res.partner": "Contact"},
+                target_field_labels={
+                    ("res.partner", "name"): "Name",
+                    ("res.partner", "email"): "Email",
+                },
+                normalization_content_hash=normalization_content_hash,
+                cell_effects=(
+                    ReviewWorkbookCellEffect(
+                        source_trace_id=changed_record.source_trace_id,
+                        dataset=changed_record.dataset,
+                        source_row=changed_record.source_row,
+                        target_field="name",
+                        before=" Raw contact name ",
+                        after=str(changed_record.scalar_values["name"]),
+                        rule_name="Trim surrounding spaces",
+                        explanation="Impodo removed surrounding spaces.",
+                    ),
+                    ReviewWorkbookCellEffect(
+                        source_trace_id=changed_record.source_trace_id,
+                        dataset=changed_record.dataset,
+                        source_row=changed_record.source_row,
+                        target_field="email",
+                        before="—",
+                        after=str(changed_record.scalar_values["email"]),
+                        rule_name="Supply fallback email",
+                        explanation="Impodo supplied the configured fallback.",
+                    ),
+                    ReviewWorkbookCellEffect(
+                        source_trace_id=changed_record.source_trace_id,
+                        dataset=changed_record.dataset,
+                        source_row=changed_record.source_row,
+                        target_field="ref",
+                        before=" partner-new ",
+                        after=str(changed_record.target_identity[0]),
+                        rule_name="Prepare the business key",
+                        explanation="Impodo normalized the contact key.",
+                    ),
+                ),
+                target_field_required={
+                    ("res.partner", "name"): True,
+                    ("res.partner", "email"): False,
+                },
+            )
+
+            write_review_workbook(
+                manifest_path,
+                workbook_path,
+                review_evidence=evidence,
+            )
+
+            workbook = load_workbook(workbook_path, data_only=False)
+            records = workbook["Records to load"]
+            headers = [cell.value for cell in records[3]]
+            name_column = headers.index("Name") + 1
+            email_column = headers.index("Email") + 1
+            feedback_column = headers.index("Prepared value feedback") + 1
+            name_cell = records.cell(4, name_column)
+            email_cell = records.cell(4, email_column)
+            identity_cell = records.cell(4, 5)
+            self.assertEqual(
+                name_cell.value,
+                changed_record.scalar_values["name"],
+            )
+            self.assertNotIn("Raw contact name", str(name_cell.value))
+            self.assertIn("Changed by Impodo", name_cell.comment.text)
+            self.assertIn("Original value:  Raw contact name ", name_cell.comment.text)
+            self.assertTrue(name_cell.fill.fgColor.rgb.endswith("EAF2FB"))
+            self.assertIn("Added by Impodo", email_cell.comment.text)
+            self.assertTrue(email_cell.fill.fgColor.rgb.endswith("EDF7EF"))
+            self.assertIn("Changed by Impodo", identity_cell.comment.text)
+            self.assertNotIn("Ref", headers)
+            self.assertIn(
+                "Name: Changed by Impodo",
+                str(records.cell(4, feedback_column).value),
+            )
+            self.assertIn(
+                "Business identity: Changed by Impodo",
+                str(records.cell(4, feedback_column).value),
+            )
+            self.assertEqual(workbook["Review overview"]["B12"].value, 2)
+            self.assertEqual(workbook["Review overview"]["B13"].value, 1)
             workbook.close()
 
     def test_workbook_csv_previews_need_no_external_runtime(self) -> None:
@@ -181,9 +300,7 @@ class WorkbookIntegrationTests(unittest.TestCase):
 
             workbook = load_workbook(workbook_path, data_only=True)
             attention = workbook["Needs attention"]
-            technical_codes = [
-                cell.value for cell in attention["J"] if cell.row >= 4
-            ]
+            technical_codes = [cell.value for cell in attention["J"] if cell.row >= 4]
             self.assertEqual(
                 technical_codes.count("TARGET_SELECTION_CHOICES_CHANGED"),
                 1,
