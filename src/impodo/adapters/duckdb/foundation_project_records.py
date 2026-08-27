@@ -334,8 +334,9 @@ class FoundationProjectRecords:
         *,
         expected_revision: int,
     ) -> None:
-        """Delete target dependants first without risking a partial Project."""
+        """Delete one Project in committed foreign-key layers with recovery."""
 
+        filters = cls._project_registry_delete_filters()
         connection.begin()
         try:
             cls._require_project_revision(
@@ -343,27 +344,45 @@ class FoundationProjectRecords:
                 project_id,
                 expected_revision=expected_revision,
             )
-            cls._backup_target_binding_dependants(connection, project_id)
-            cls._delete_target_binding_dependants(connection, project_id)
+            cls._validate_project_registry_delete_plan(connection, filters)
+            primary_keys = cls._project_registry_primary_keys(connection, filters)
+            layers = cls._project_registry_delete_layers(connection, filters)
+            cls._backup_project_registry_rows(connection, project_id, filters)
             connection.commit()
         except BaseException:
             connection.rollback()
             raise
 
+        completed_layers: list[tuple[str, ...]] = []
         try:
-            connection.begin()
-            cls._require_project_revision(
-                connection,
-                project_id,
-                expected_revision=expected_revision,
-            )
-            cls._delete_project_registry_rows(connection, project_id)
-            connection.commit()
+            for layer in layers:
+                connection.begin()
+                cls._require_project_revision(
+                    connection,
+                    project_id,
+                    expected_revision=expected_revision,
+                )
+                if layer == ("migration_project",):
+                    cls._delete_project_registry_rows(
+                        connection,
+                        primary_keys=primary_keys,
+                    )
+                else:
+                    cls._delete_project_registry_layer(
+                        connection,
+                        layer,
+                        primary_keys=primary_keys,
+                    )
+                connection.commit()
+                completed_layers.append(layer)
         except BaseException:
             connection.rollback()
             try:
                 connection.begin()
-                cls._restore_target_binding_dependants(connection)
+                cls._restore_project_registry_layers(
+                    connection,
+                    completed_layers,
+                )
                 connection.commit()
             except BaseException as restore_error:
                 connection.rollback()
@@ -395,43 +414,154 @@ class FoundationProjectRecords:
             )
 
     @staticmethod
-    def _backup_target_binding_dependants(connection, project_id: str) -> None:
-        """Keep transaction-local recovery copies for DuckDB's FK boundary."""
+    def _project_registry_delete_filters() -> dict[str, str]:
+        """Return the complete ownership plan for non-identity Project rows."""
 
         application_ids = (
             "SELECT application_id FROM recipe_application WHERE project_id = ?"
         )
         run_ids = "SELECT migration_run_id FROM migration_run WHERE project_id = ?"
-        filters = (
-            ("recipe_application", "project_id = ?"),
-            (
-                "recipe_application_reference_requirement",
-                f"application_id IN ({application_ids})",
+        recipe_ids = "SELECT recipe_id FROM recipe WHERE project_id = ?"
+        plan_ids = "SELECT cutover_plan_id FROM cutover_plan WHERE project_id = ?"
+        return {
+            "migration_project": "project_id = ?",
+            "data_version": "project_id = ?",
+            "migration_run": "project_id = ?",
+            "migration_run_target_setup": "project_id = ?",
+            "migration_workspace": "project_id = ?",
+            "target_binding": "project_id = ?",
+            "migration_run_requirement_plan": "project_id = ?",
+            "migration_run_target_schema": f"migration_run_id IN ({run_ids})",
+            "migration_run_reference_bundle": f"migration_run_id IN ({run_ids})",
+            "migration_run_cutover_plan": f"migration_run_id IN ({run_ids})",
+            "recipe": "project_id = ?",
+            "recipe_revision": f"recipe_id IN ({recipe_ids})",
+            "recipe_application": "project_id = ?",
+            "recipe_application_issue": (
+                f"application_id IN ({application_ids})"
             ),
-            (
-                "recipe_application_requirement",
-                f"application_id IN ({application_ids})",
+            "recipe_application_requirement": (
+                f"application_id IN ({application_ids})"
             ),
-            (
-                "recipe_application_issue",
-                f"application_id IN ({application_ids})",
+            "recipe_application_reference_requirement": (
+                f"application_id IN ({application_ids})"
             ),
-            (
-                "migration_run_reference_bundle",
-                f"migration_run_id IN ({run_ids})",
-            ),
-            (
-                "migration_run_target_schema",
-                f"migration_run_id IN ({run_ids})",
-            ),
-            (
-                "migration_run_requirement_plan",
-                f"migration_run_id IN ({run_ids})",
-            ),
-            ("test_run_setup_binding", "project_id = ?"),
-            ("production_run_binding", "project_id = ?"),
-        )
-        for table, predicate in filters:
+            "recipe_qualification": "project_id = ?",
+            "cutover_plan": "project_id = ?",
+            "cutover_plan_revision": f"cutover_plan_id IN ({plan_ids})",
+            "cutover_plan_recipe": f"cutover_plan_id IN ({plan_ids})",
+            "cutover_dependency": f"cutover_plan_id IN ({plan_ids})",
+            "cutover_write_ownership": f"cutover_plan_id IN ({plan_ids})",
+            "cutover_plan_qualification": "project_id = ?",
+            "project_cutover_selection": "project_id = ?",
+            "test_run_setup_binding": "project_id = ?",
+            "test_run_parameter_values": "project_id = ?",
+            "production_run_binding": "project_id = ?",
+            "project_operation_intent": "project_id = ?",
+            "migration_event": "project_id = ?",
+        }
+
+    @staticmethod
+    def _validate_project_registry_delete_plan(
+        connection,
+        filters: dict[str, str],
+    ) -> None:
+        """Refuse deletion if the registry gained an unowned table."""
+
+        retained = {
+            "schema_version",
+            "schema_migration",
+            "migration_project_identity",
+            "data_version_identity",
+            "migration_run_identity",
+            "migration_workspace_identity",
+            "recipe_identity",
+            "recipe_application_identity",
+            "cutover_plan_identity",
+        }
+        registry_tables = {
+            str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()
+        }
+        if registry_tables != set(filters) | retained:
+            raise MigrationConflictError(
+                "Project storage includes registry data without a deletion owner"
+            )
+
+    @staticmethod
+    def _project_registry_primary_keys(
+        connection,
+        filters: dict[str, str],
+    ) -> dict[str, tuple[str, ...]]:
+        rows = connection.execute(
+            """
+            SELECT table_name, constraint_column_names
+              FROM duckdb_constraints()
+             WHERE constraint_type = 'PRIMARY KEY'
+            """
+        ).fetchall()
+        primary_keys = {
+            str(table): tuple(str(column) for column in columns)
+            for table, columns in rows
+            if str(table) in filters
+        }
+        if set(primary_keys) != set(filters):
+            raise MigrationConflictError(
+                "Project storage includes registry data without a deletion identity"
+            )
+        return primary_keys
+
+    @staticmethod
+    def _project_registry_delete_layers(
+        connection,
+        filters: dict[str, str],
+    ) -> tuple[tuple[str, ...], ...]:
+        """Derive child-before-parent layers from the live foreign-key graph."""
+
+        root = "migration_project"
+        remaining = set(filters) - {root}
+        referencing_children: dict[str, set[str]] = {
+            table: set() for table in remaining
+        }
+        rows = connection.execute(
+            """
+            SELECT table_name, referenced_table
+              FROM duckdb_constraints()
+             WHERE constraint_type = 'FOREIGN KEY'
+            """
+        ).fetchall()
+        for child, parent in rows:
+            child_name = str(child)
+            parent_name = str(parent)
+            if child_name in remaining and parent_name in remaining:
+                referencing_children[parent_name].add(child_name)
+
+        layers: list[tuple[str, ...]] = []
+        while remaining:
+            layer = tuple(
+                sorted(
+                    table
+                    for table in remaining
+                    if not (referencing_children[table] & remaining)
+                )
+            )
+            if not layer:
+                raise MigrationConflictError(
+                    "Project registry contains a circular deletion dependency"
+                )
+            layers.append(layer)
+            remaining.difference_update(layer)
+        layers.append((root,))
+        return tuple(layers)
+
+    @staticmethod
+    def _backup_project_registry_rows(
+        connection,
+        project_id: str,
+        filters: dict[str, str],
+    ) -> None:
+        """Keep recovery copies before the first committed deletion layer."""
+
+        for table, predicate in sorted(filters.items()):
             connection.execute(
                 f"""
                 CREATE TEMP TABLE project_delete_backup_{table} AS
@@ -440,143 +570,70 @@ class FoundationProjectRecords:
                 [project_id],
             )
 
-    @staticmethod
-    def _restore_target_binding_dependants(connection) -> None:
-        """Restore the first deletion phase after a later registry failure."""
+    @classmethod
+    def _delete_project_registry_layer(
+        cls,
+        connection,
+        layer: tuple[str, ...],
+        *,
+        primary_keys: dict[str, tuple[str, ...]],
+    ) -> None:
+        for table in layer:
+            quoted_table = cls._registry_identifier(table)
+            columns = primary_keys[table]
+            quoted_columns = tuple(cls._registry_identifier(item) for item in columns)
+            if len(quoted_columns) == 1:
+                predicate = (
+                    f"{quoted_columns[0]} IN "
+                    f"(SELECT {quoted_columns[0]} FROM "
+                    f"project_delete_backup_{table})"
+                )
+            else:
+                column_list = ", ".join(quoted_columns)
+                predicate = (
+                    f"({column_list}) IN "
+                    f"(SELECT {column_list} FROM project_delete_backup_{table})"
+                )
+            connection.execute(f"DELETE FROM {quoted_table} WHERE {predicate}")
 
-        for table in (
-            "recipe_application",
-            "recipe_application_reference_requirement",
-            "recipe_application_requirement",
-            "recipe_application_issue",
-            "migration_run_reference_bundle",
-            "migration_run_target_schema",
-            "migration_run_requirement_plan",
-            "test_run_setup_binding",
-            "production_run_binding",
-        ):
-            connection.execute(
-                f"""
-                INSERT INTO {table}
-                SELECT * FROM project_delete_backup_{table}
-                """
-            )
+    @classmethod
+    def _restore_project_registry_layers(
+        cls,
+        connection,
+        completed_layers: list[tuple[str, ...]],
+    ) -> None:
+        """Restore committed layers in parent-before-child order."""
 
-    @staticmethod
-    def _delete_target_binding_dependants(connection, project_id: str) -> None:
-        """Delete rows that hold foreign keys to a Project target binding."""
-
-        application_ids = (
-            "SELECT application_id FROM recipe_application WHERE project_id = ?"
-        )
-        for table in (
-            "recipe_application_reference_requirement",
-            "recipe_application_requirement",
-            "recipe_application_issue",
-        ):
-            connection.execute(
-                f"DELETE FROM {table} WHERE application_id IN ({application_ids})",
-                [project_id],
-            )
-        connection.execute(
-            "DELETE FROM recipe_application WHERE project_id = ?",
-            [project_id],
-        )
-
-        run_ids = "SELECT migration_run_id FROM migration_run WHERE project_id = ?"
-        for table in (
-            "migration_run_reference_bundle",
-            "migration_run_target_schema",
-            "migration_run_requirement_plan",
-        ):
-            connection.execute(
-                f"DELETE FROM {table} WHERE migration_run_id IN ({run_ids})",
-                [project_id],
-            )
-        for table in ("test_run_setup_binding", "production_run_binding"):
-            connection.execute(
-                f"DELETE FROM {table} WHERE project_id = ?",
-                [project_id],
-            )
+        for layer in reversed(completed_layers):
+            for table in layer:
+                quoted_table = cls._registry_identifier(table)
+                connection.execute(
+                    f"""
+                    INSERT INTO {quoted_table}
+                    SELECT * FROM project_delete_backup_{table}
+                    """
+                )
 
     @staticmethod
-    def _delete_project_registry_rows(connection, project_id: str) -> None:
-        """Delete registry dependants in foreign-key order."""
+    def _registry_identifier(value: str) -> str:
+        if not value or not all(character.isalnum() or character == "_" for character in value):
+            raise MigrationConflictError("Project registry contains an unsafe identifier")
+        return f'"{value}"'
 
-        FoundationProjectRecords._delete_target_binding_dependants(
+    @classmethod
+    def _delete_project_registry_rows(
+        cls,
+        connection,
+        *,
+        primary_keys: dict[str, tuple[str, ...]],
+    ) -> None:
+        """Delete the Project root after every dependent layer committed."""
+
+        cls._delete_project_registry_layer(
             connection,
-            project_id,
+            ("migration_project",),
+            primary_keys=primary_keys,
         )
-
-        project_tables = (
-            "test_run_parameter_values",
-            "project_cutover_selection",
-            "cutover_plan_qualification",
-            "recipe_qualification",
-        )
-        for table in project_tables:
-            connection.execute(
-                f"DELETE FROM {table} WHERE project_id = ?",
-                [project_id],
-            )
-
-        run_ids = "SELECT migration_run_id FROM migration_run WHERE project_id = ?"
-        for table in (
-            "migration_run_cutover_plan",
-            "migration_run_target_setup",
-        ):
-            connection.execute(
-                f"DELETE FROM {table} WHERE migration_run_id IN ({run_ids})",
-                [project_id],
-            )
-        connection.execute(
-            "DELETE FROM target_binding WHERE project_id = ?",
-            [project_id],
-        )
-
-        plan_ids = "SELECT cutover_plan_id FROM cutover_plan WHERE project_id = ?"
-        for table in (
-            "cutover_write_ownership",
-            "cutover_dependency",
-            "cutover_plan_recipe",
-            "cutover_plan_revision",
-        ):
-            connection.execute(
-                f"DELETE FROM {table} WHERE cutover_plan_id IN ({plan_ids})",
-                [project_id],
-            )
-        connection.execute(
-            "DELETE FROM cutover_plan WHERE project_id = ?",
-            [project_id],
-        )
-
-        recipe_ids = "SELECT recipe_id FROM recipe WHERE project_id = ?"
-        connection.execute(
-            f"DELETE FROM recipe_revision WHERE recipe_id IN ({recipe_ids})",
-            [project_id],
-        )
-        connection.execute("DELETE FROM recipe WHERE project_id = ?", [project_id])
-
-        connection.execute(
-            "DELETE FROM migration_workspace WHERE project_id = ?",
-            [project_id],
-        )
-        connection.execute("DELETE FROM migration_run WHERE project_id = ?", [project_id])
-        connection.execute(
-            """
-            UPDATE data_version
-               SET parent_data_version_id = NULL
-             WHERE project_id = ?
-            """,
-            [project_id],
-        )
-        connection.execute("DELETE FROM data_version WHERE project_id = ?", [project_id])
-        connection.execute("DELETE FROM migration_event WHERE project_id = ?", [project_id])
-        connection.execute(
-            "DELETE FROM project_operation_intent WHERE project_id = ?",
-            [project_id],
-        )
-        connection.execute("DELETE FROM migration_project WHERE project_id = ?", [project_id])
         # Identity reservations remain as non-user-visible tombstones. DuckDB
         # cannot delete a referenced parent key in the same transaction even
         # after its child rows were deleted, and retaining the UUID prevents a

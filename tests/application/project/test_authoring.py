@@ -240,6 +240,72 @@ class ProjectAuthoringTests(unittest.TestCase):
             )
         return target_binding_id
 
+    def _add_cutover_plan_revision(self, bundle) -> str:
+        cutover_plan_id = str(uuid4())
+        timestamp = utc_now().isoformat()
+        with self.database.connect(self.database.registry_path) as connection:
+            connection.execute(
+                "INSERT INTO cutover_plan_identity VALUES (?)",
+                [cutover_plan_id],
+            )
+            connection.execute(
+                """
+                INSERT INTO cutover_plan (
+                    cutover_plan_id, project_id, display_name, current_revision,
+                    optimistic_revision, created_at, updated_at, archived_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    cutover_plan_id,
+                    bundle.project.project_id,
+                    "Test cutover plan",
+                    1,
+                    1,
+                    timestamp,
+                    timestamp,
+                    None,
+                ],
+            )
+            connection.execute(
+                """
+                INSERT INTO cutover_plan_revision (
+                    cutover_plan_id, version, parent_version,
+                    shared_controls_json, requirement_plan_hash, meaning_hash,
+                    content_hash, created_by_issuer, created_by_subject,
+                    created_by_display_name, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    cutover_plan_id,
+                    1,
+                    None,
+                    "[]",
+                    "requirement-plan-hash",
+                    "meaning-hash",
+                    "plan-content-hash",
+                    "local",
+                    "local-user",
+                    "Local user",
+                    timestamp,
+                ],
+            )
+            connection.execute(
+                """
+                INSERT INTO migration_run_cutover_plan (
+                    migration_run_id, cutover_plan_id, cutover_plan_revision,
+                    plan_content_hash, bound_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    bundle.run.migration_run_id,
+                    cutover_plan_id,
+                    1,
+                    "plan-content-hash",
+                    timestamp,
+                ],
+            )
+        return cutover_plan_id
+
     def test_new_project_has_four_distinct_roots_and_no_recipe(self) -> None:
         request_id = str(uuid4())
         bundle = self._bundle(request_id)
@@ -348,6 +414,34 @@ class ProjectAuthoringTests(unittest.TestCase):
                 ).fetchone(),
                 (0,),
             )
+
+    def test_delete_removes_cutover_revision_after_its_saved_references(self) -> None:
+        selected = self._bundle()
+        cutover_plan_id = self._add_cutover_plan_revision(selected)
+
+        self.projects.delete(
+            selected.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=selected.project.optimistic_revision,
+        )
+
+        with self.database.connect(self.database.registry_path) as connection:
+            for table in (
+                "migration_run_cutover_plan",
+                "cutover_plan_revision",
+                "cutover_plan",
+            ):
+                with self.subTest(table=table):
+                    self.assertEqual(
+                        connection.execute(
+                            f"""
+                            SELECT count(*) FROM {table}
+                            WHERE cutover_plan_id = ?
+                            """,
+                            [cutover_plan_id],
+                        ).fetchone(),
+                        (0,),
+                    )
 
     def test_delete_restores_target_dependants_when_final_cleanup_fails(self) -> None:
         selected = self._bundle()
