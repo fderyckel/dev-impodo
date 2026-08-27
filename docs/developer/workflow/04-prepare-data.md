@@ -51,7 +51,6 @@ the frozen source.
 | Preparation orchestration | [`PreparationService`](../../../src/impodo/application/workspace/preparation/preparation_service.py) |
 | Background jobs | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
 | Process build contract | [`ApplicationBuildContract`](../../../src/impodo/application/shared/build_contract.py) |
-| Running-build request guard | [`BuildConsistencyMiddleware`](../../../src/impodo/web/security.py) |
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/web/composition/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |

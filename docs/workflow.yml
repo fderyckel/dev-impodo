@@ -305,7 +305,6 @@ stages:
       - src/impodo/application/workspace/preparation/preparation_service.py::PreparationService
       - src/impodo/web/composition/preparation_job_manager.py::PreparationJobManager
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
-      - src/impodo/web/security.py::BuildConsistencyMiddleware
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
       - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService

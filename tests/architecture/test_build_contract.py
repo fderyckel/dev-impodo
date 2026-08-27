@@ -1,16 +1,13 @@
 from __future__ import annotations
 
+from inspect import getsource
 import unittest
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from impodo.application.shared.build_contract import (
-    ApplicationBuildContract,
     PROCESS_BUILD_CONTRACT,
     calculate_application_build_contract,
 )
-from impodo.web.security import BuildConsistencyMiddleware
+from impodo.web.app import create_local_app
 
 
 class ApplicationBuildContractTests(unittest.TestCase):
@@ -20,31 +17,11 @@ class ApplicationBuildContractTests(unittest.TestCase):
             calculate_application_build_contract(),
         )
 
-    def test_web_request_stops_when_the_running_build_changed(self) -> None:
-        app = FastAPI()
-        app.add_middleware(
-            BuildConsistencyMiddleware,
-            expected=ApplicationBuildContract(
-                application_build_id="sha256:" + "0" * 64,
-                workspace_schema_generation=(
-                    PROCESS_BUILD_CONTRACT.workspace_schema_generation
-                ),
-                workspace_schema_version=(
-                    PROCESS_BUILD_CONTRACT.workspace_schema_version
-                ),
-            ),
-            check_interval_seconds=0,
-        )
+    def test_web_app_has_no_request_time_build_hash_middleware(self) -> None:
+        composition = getsource(create_local_app)
 
-        @app.get("/")
-        async def index():
-            return {"status": "unsafe"}
-
-        response = TestClient(app).get("/")
-
-        self.assertEqual(response.status_code, 409)
-        self.assertIn("Restart Impodo", response.text)
-        self.assertIn("saved work is unchanged", response.text)
+        self.assertNotIn("BuildConsistencyMiddleware", composition)
+        self.assertNotIn("calculate_application_build_contract", composition)
 
 
 if __name__ == "__main__":

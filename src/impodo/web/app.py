@@ -220,7 +220,6 @@ from .routers.target import build_target_router
 from .remote_connection import RemoteConnectionStatusService
 from .run_review import publish_load_progress, publish_preparation_progress
 from .security import (
-    BuildConsistencyMiddleware,
     LoopbackSecurityMiddleware,
     WorkspaceAccessMiddleware,
 )
@@ -878,10 +877,6 @@ def create_local_app(
         max_age=30 * 60,
         same_site="strict",
         https_only=False,
-    )
-    app.add_middleware(
-        BuildConsistencyMiddleware,
-        expected=application_build_contract,
     )
     app.add_middleware(
         LoopbackSecurityMiddleware,
