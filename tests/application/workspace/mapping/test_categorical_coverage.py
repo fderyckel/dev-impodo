@@ -312,6 +312,53 @@ class CategoricalCoverageTests(unittest.TestCase):
         self.assertEqual(collected.evidence.source_snapshot_hashes, ())
         self.assertEqual(collected.evidence.field_results, ())
 
+    def test_target_first_relationship_uses_incoming_fallback_for_unmatched_choices(
+        self,
+    ) -> None:
+        relationship = self.definition.datasets[0].relationships[0]
+        target_first = replace(
+            self.definition,
+            datasets=(
+                replace(
+                    self.definition.datasets[0],
+                    fields=(),
+                    relationships=(
+                        replace(
+                            relationship,
+                            resolver=replace(
+                                relationship.resolver,
+                                origin=ResolverOrigin.TARGET_THEN_DATASET,
+                                dataset_id="dataset:countries",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        service = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame(
+                {
+                    "language": ["English", "German", "English"],
+                    "country": ["LUX", "DE", "PCE"],
+                }
+            ),
+        )
+
+        collected = service.collect(
+            self.workspace_id,
+            target_first,
+            self.selection,
+            self.schema,
+        )
+
+        self.assertEqual(service.scan_calls, [("dataset:customers", ("country",))])
+        self.assertEqual(collected.issues, ())
+        self.assertEqual(
+            collected.evidence.field_results[0].uncovered_values,
+            (),
+        )
+
     def test_exact_target_coverage_uses_runtime_transformation_semantics(self) -> None:
         partner_model = self.schema.models[0]
         language = partner_model.fields[0]

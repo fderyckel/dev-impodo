@@ -11,7 +11,7 @@
           </div>
           {% if validation_problem_count %}
             {% if validation.status.value == 'INVALID' %}
-              <p>Resolve every reason shown at the top of this page, then check the matches again.</p>
+              <p>Resolve every reason shown at the top of this page. Impodo rechecks Odoo-default decisions automatically; check matches after other changes.</p>
             {% elif visible_validation_issues %}
             <div class="table-scroll">
               <table class="data-table">

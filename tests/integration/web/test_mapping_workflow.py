@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     CategoricalCoveragePolicy,
     DatasetMapping,
     FieldMetadata,
@@ -15,7 +16,6 @@ from tests.support.browser_scenarios import (
     OdooReadCredentialMissingError,
     OdooReadFailureCode,
     OdooReadIdentity,
-    POST_HEADERS,
     ProjectSetupBrowserTestCase,
     RecordSnapshot,
     ReferenceKeyMapping,
@@ -327,7 +327,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     ["relation_source_0_0", source_value.stable_key],
                     ["relation_origin_0_0", "target_catalog"],
                     ["relation_key_0_0", business_key.key_id],
-                    ["relation_operation_0_0", "replace"],
+                    ["relation_operation_0_0", "add"],
                     ["relation_compare_0_0", "1"],
                     ["relation_missing_0_0", "error"],
                     ["relation_ambiguous_0_0", "error"],
@@ -353,6 +353,10 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(
             working.definition.datasets[0].relationships[0].categorical_policy,
             CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
+        )
+        self.assertEqual(
+            working.definition.datasets[0].relationships[0].operation,
+            "replace",
         )
 
     def test_matching_rule_without_description_uses_odoo_field_label(self) -> None:
@@ -758,6 +762,10 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         working = context.mapping_workspace.mappings.get_mapping_working_draft(
             workspace_id
         )
+        self.assertEqual(
+            working.definition.datasets[0].relationships[0].operation,
+            "replace",
+        )
         schema = context.queries.get_odoo_schema_catalog(workspace_id)
         governance = context.queries.get_schema_governance(workspace_id)
         selection = context.queries.get_mapping_source_selection(workspace_id)
@@ -991,7 +999,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         source_identity, _source_value = dataset.columns
         context = self.app.state.context
-        _revision, validation = context.mapping_workspace.check_definition(
+        revision, validation = context.mapping_workspace.check_definition(
             workspace_id,
             datasets=(
                 DatasetMapping(
@@ -1048,6 +1056,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             data={
                 "csrf_token": self.csrf,
                 "action": "confirm_defaults",
+                "expected_parent_version": str(revision.version),
                 "expected_working_draft_version": "1",
             },
             headers=POST_HEADERS,
@@ -1071,13 +1080,16 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn(
             'name="target_field_disposition_0"', decision_page.text
         )
-        self.assertIn("Saved changes have not been checked yet", decision_page.text)
-        self.assertIn("Keep working from the last check", decision_page.text)
-        self.assertIn(
-            "large_contacts: Field 0000 needs attention",
+        self.assertNotIn('id="next-step-blockers"', decision_page.text)
+        self.assertNotIn(
+            "Saved changes have not been checked yet",
             decision_page.text,
         )
-        self.assertIn("Confirmed 1 Odoo default.", decision_page.text)
+        self.assertNotIn("Keep working from the last check", decision_page.text)
+        self.assertIn(
+            "Confirmed 1 Odoo default. Matches checked and ready to confirm.",
+            decision_page.text,
+        )
 
         mapping_data = {
             "csrf_token": self.csrf,
@@ -1091,22 +1103,6 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "visible_scalar_target_0": "field_0000",
             "target_field_disposition_0": "field_0000:odoo_default",
         }
-        checked = self.client.post(
-            f"/workspaces/{workspace_id}/mapping/save",
-            data={
-                **mapping_data,
-                "action": "draft",
-                "expected_parent_version": "1",
-                "expected_working_draft_version": "2",
-            },
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-
-        self.assertEqual(checked.status_code, 303)
-        checked_page = self.client.get(checked.headers["location"])
-        self.assertNotIn('id="next-step-blockers"', checked_page.text)
-        self.assertIn("Confirm field matches", checked_page.text)
         current_revision = context.mapping_workspace.mappings.get_mapping_revision(
             workspace_id
         )
@@ -1147,6 +1143,79 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("Prepare all source rows", submitted_page.text)
 
+    def test_individual_let_odoo_choose_rechecks_matches(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=1,
+            required_scalar_indexes=(0,),
+            verified_default_scalar_indexes=(0,),
+        )
+        source_identity, _source_value = dataset.columns
+        context = self.app.state.context
+        revision, validation = context.mapping_workspace.check_definition(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+        mapping_script = self.client.get("/static/mapping-editor.js")
+        self.assertIn('action === "confirm_defaults"', mapping_script.text)
+        self.assertIn('action.endsWith(":odoo_default")', mapping_script.text)
+        self.assertIn(
+            "Saving the Odoo decision and checking matches...",
+            mapping_script.text,
+        )
+
+        decision = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json={
+                "entries": [
+                    ["csrf_token", self.csrf],
+                    [
+                        "action",
+                        "set_disposition:0:field_0000:odoo_default",
+                    ],
+                    ["expected_parent_version", str(revision.version)],
+                    ["expected_working_draft_version", "1"],
+                ]
+            },
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(decision.status_code, 200)
+        self.assertEqual(decision.json()["expected_working_draft_version"], 3)
+        self.assertEqual(
+            decision.json()["message"],
+            "Odoo will choose this value. Matches checked and ready to confirm.",
+        )
+        decision_page = self.client.get(decision.json()["redirect_url"])
+        self.assertNotIn('id="next-step-blockers"', decision_page.text)
+        current_revision = context.mapping_workspace.mappings.get_mapping_revision(
+            workspace_id
+        )
+        current_validation = (
+            context.mapping_workspace.mappings.get_mapping_validation(
+                workspace_id,
+                current_revision.version,
+            )
+        )
+        self.assertEqual(current_validation.status, MappingValidationStatus.VALID)
+        self.assertEqual(current_validation.issues, ())
+
     def test_verified_required_defaults_are_confirmed_in_one_action(
         self,
     ) -> None:
@@ -1157,7 +1226,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         source_identity, _source_value = dataset.columns
         context = self.app.state.context
-        _revision, validation = context.mapping_workspace.check_definition(
+        revision, validation = context.mapping_workspace.check_definition(
             workspace_id,
             datasets=(
                 DatasetMapping(
@@ -1190,6 +1259,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             data={
                 "csrf_token": self.csrf,
                 "action": "confirm_defaults",
+                "expected_parent_version": str(revision.version),
                 "expected_working_draft_version": "1",
             },
             headers=POST_HEADERS,
@@ -1209,6 +1279,19 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ],
             ["field_0000", "field_0001"],
         )
+        decision_page = self.client.get(decision.headers["location"])
+        self.assertNotIn('id="next-step-blockers"', decision_page.text)
+        current_revision = context.mapping_workspace.mappings.get_mapping_revision(
+            workspace_id
+        )
+        current_validation = (
+            context.mapping_workspace.mappings.get_mapping_validation(
+                workspace_id,
+                current_revision.version,
+            )
+        )
+        self.assertEqual(current_validation.status, MappingValidationStatus.VALID)
+        self.assertEqual(current_validation.issues, ())
 
     def test_missing_required_defaults_are_checked_and_confirmed_in_one_action(
         self,
@@ -1307,6 +1390,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             data={
                 "csrf_token": self.csrf,
                 "action": "refresh_defaults",
+                "expected_parent_version": str(revision.version),
                 "expected_working_draft_version": "1",
             },
             headers=POST_HEADERS,
@@ -1351,18 +1435,92 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         decision_page = self.client.get(decision.headers["location"])
         self.assertIn("Odoo will decide 2 required fields", decision_page.text)
         self.assertIn("Odoo will choose this value", decision_page.text)
-
-        _checked_revision, checked_validation = (
-            context.mapping_workspace.check_definition(
+        self.assertNotIn('id="next-step-blockers"', decision_page.text)
+        self.assertIn(
+            "Matches checked and ready to confirm.",
+            decision_page.text,
+        )
+        current_revision = context.mapping_workspace.mappings.get_mapping_revision(
+            workspace_id
+        )
+        checked_validation = (
+            context.mapping_workspace.mappings.get_mapping_validation(
                 workspace_id,
-                datasets=working.definition.datasets,
-                expected_parent_version=revision.version,
-                expected_working_draft_version=working.version,
-                actor=context.actor,
+                current_revision.version,
             )
         )
         self.assertEqual(checked_validation.status, MappingValidationStatus.VALID)
         self.assertEqual(checked_validation.issues, ())
+
+    def test_default_recheck_keeps_only_remaining_blockers_visible(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=2,
+            required_scalar_indexes=(0, 1),
+            verified_default_scalar_indexes=(0,),
+        )
+        source_identity, _source_value = dataset.columns
+        context = self.app.state.context
+        revision, validation = context.mapping_workspace.check_definition(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+
+        decision = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "confirm_defaults",
+                "expected_parent_version": str(revision.version),
+                "expected_working_draft_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(decision.status_code, 303)
+        self.assertTrue(
+            decision.headers["location"].endswith("#next-step-blockers")
+        )
+        decision_page = self.client.get(decision.headers["location"])
+        self.assertIn('id="next-step-blockers"', decision_page.text)
+        self.assertIn("You cannot continue yet", decision_page.text)
+        self.assertIn("1 reason", decision_page.text)
+        self.assertNotIn("Review 1 Odoo default", decision_page.text)
+        self.assertIn("Let Odoo decide for 1 required field", decision_page.text)
+        self.assertIn(
+            "Matches checked. Review the remaining items that need attention.",
+            decision_page.text,
+        )
+        current_revision = context.mapping_workspace.mappings.get_mapping_revision(
+            workspace_id
+        )
+        current_validation = (
+            context.mapping_workspace.mappings.get_mapping_validation(
+                workspace_id,
+                current_revision.version,
+            )
+        )
+        self.assertEqual(
+            [item.target_field for item in current_validation.issues],
+            ["field_0001"],
+        )
 
     def test_default_action_routes_changed_odoo_fields_to_review(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(

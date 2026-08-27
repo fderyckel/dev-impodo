@@ -35,6 +35,15 @@ providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
 
+The browser default-recovery actions save the reviewed `odoo_default`
+disposition before they validate the exact saved working draft. Individual,
+grouped, and freshly captured default decisions each trigger one complete
+mapping check. A valid result removes the resolved blocker. An invalid result
+replaces the reason panel with only the current remaining blockers. The route
+uses the submitted parent revision and the newly saved working-draft version as
+concurrency guards. A grouped action performs one validation pass after all
+decisions are saved; it does not validate once per field.
+
 For each conditional Selection rule, the impact snapshot records every
 evaluated row, every raw match before priority, every row selected by
 first-match priority, and every row where that rule matched alongside another

@@ -14,6 +14,7 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
     RelationshipMapping,
+    ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
 )
@@ -55,12 +56,15 @@ CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
 )
 CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
     {
-        "contract_version": 2,
+        "contract_version": 3,
         "explicit_match_choice": "str(raw).strip()",
         "exact_target_value": "evaluate_scalar_mapping_value",
         "relationship_choice": "str(raw).strip()",
         "blank_policy": "governed_separately",
         "target_reference_resolution": "deferred_to_preparation",
+        "target_then_dataset": (
+            "exact_or_reviewed_target_key_else_incoming_resolution"
+        ),
         "conditional_selection": "ordered_first_match_with_typed_inputs",
         "conditional_blank_domain": "included",
     }
@@ -515,6 +519,15 @@ def _uncovered_values(
     item: _CoverageField,
     raw_counts: Mapping[tuple[str, ...], int],
 ) -> tuple[tuple[str, ...], ...]:
+    if (
+        item.relationship is not None
+        and item.relationship.resolver.origin
+        is ResolverOrigin.TARGET_THEN_DATASET
+    ):
+        # Every populated key has a declared resolution path. Exact and
+        # reviewed aliases try Odoo first; all remaining keys go through the
+        # incoming dataset and are proven or blocked during row preparation.
+        return ()
     if item.policy in {
         CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
         CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
@@ -635,6 +648,16 @@ def _target_dependency_hash(fields: Sequence[_CoverageField]) -> str:
                 ),
                 "related_model": (
                     item.relationship.resolver.model
+                    if item.relationship is not None
+                    else None
+                ),
+                "resolver_origin": (
+                    item.relationship.resolver.origin.value
+                    if item.relationship is not None
+                    else None
+                ),
+                "resolver_dataset_id": (
+                    item.relationship.resolver.dataset_id
                     if item.relationship is not None
                     else None
                 ),

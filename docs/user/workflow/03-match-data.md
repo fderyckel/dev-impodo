@@ -27,7 +27,9 @@ record identity automatically.
 4. For each writable field, choose its source value, a fixed value, or an
    explicit Odoo decision. Use **Let Odoo choose** only when the target
    configuration supplies a default. Use **Odoo manages this field** only for
-   a field Odoo creates or maintains itself.
+   a field Odoo creates or maintains itself. When you select **Let Odoo
+   choose**, Impodo saves that decision and immediately checks the current
+   matches.
 5. Configure text, number, date, and selection-value preparation where needed.
 6. Resolve linked fields using a stable key in another project table or
    approved existing Odoo data.
@@ -41,9 +43,11 @@ record identity automatically.
 When installed Odoo applications add required fields, Impodo checks the
 current create defaults for all required writable scalar fields in one bounded
 read per record type. **Review Odoo defaults** shows the exact current values
-and confirms them together. Impodo does not infer a default from the first
-available choice. If Odoo returns no usable value, match the field or provide a
-fixed value instead.
+and confirms them together. Impodo then checks the complete current mapping
+once. A resolved blocker disappears from the reason panel. If another problem
+remains, the refreshed panel shows that problem as the next action. Impodo does
+not infer a default from the first available choice. If Odoo returns no usable
+value, match the field or provide a fixed value instead.
 
 New read-only fields need no input. If an Odoo change makes an existing write
 match read-only, Impodo keeps the saved match visible and offers one grouped
@@ -182,9 +186,11 @@ Stage 4 prepares every row for the required data review.
 When **Confirm field matches** is unavailable, the reason panel beside the
 bottom workflow actions lists every current blocker even if a field search or
 page filter hides the affected field. Follow **Match this field**, **Review
-Odoo defaults**, or the other recovery action shown there, then select **Check
-matches** again. **Let Odoo choose** appears only when the captured target
-provides a usable create default for that required field.
+Odoo defaults**, or the other recovery action shown there. **Let Odoo choose**
+and the grouped Odoo-default actions save the decision and check the mapping
+automatically. For ordinary field edits, select **Check matches** yourself.
+**Let Odoo choose** appears only when the captured target provides a usable
+create default for that required field.
 
 ## What makes this work stale
 

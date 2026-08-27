@@ -27,21 +27,29 @@ from fastapi.responses import (
 )
 from starlette.concurrency import run_in_threadpool
 
-from impodo.domain.shared.access import Capability
-from ...application.odoo_read_failures import classify_odoo_read_failure
 from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
-from ...domain.errors import ReadinessError
-from ...domain.mapping.contracts import TargetFieldHandling
-from ...domain.staging.transformation_impact import TransformationImpactFilter
+from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.run.contracts import (
     MigrationRunPlanningError,
     RecipeApplicationStatus,
 )
-from impodo.application.shared.secrets import SecretStoreError
-from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.shared.access import Capability
+from impodo.domain.workspace.contracts import MappingWorkingDraft
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
+from impodo.web.composition.target_readers import (
+    _refresh_mapping_odoo_defaults,
+    _relationship_value_choices,
+    _source_value_choices,
+)
+
+from ...application.odoo_read_failures import classify_odoo_read_failure
+from ...domain.errors import ReadinessError
+from ...domain.mapping.contracts import TargetFieldHandling
+from ...domain.mapping.validation.evidence import MappingValidationResult
+from ...domain.staging.transformation_impact import TransformationImpactFilter
 from ..constants import (
     TRANSFORMATION_IMPACT_OUTCOMES,
     TRANSFORMATION_IMPACT_PAGE_SIZE,
@@ -81,11 +89,6 @@ from ..presenters.mapping_view import (
     _safe_spreadsheet_text,
 )
 from ..security import require_csrf, require_session
-from impodo.web.composition.target_readers import (
-    _refresh_mapping_odoo_defaults,
-    _relationship_value_choices,
-    _source_value_choices,
-)
 
 
 def build_mapping_router(context: WebContext) -> APIRouter:
@@ -697,20 +700,43 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     expected_version=expected_working_version,
                     actor=context.actor,
                 )
-                message = (
-                    "Saved the Odoo-required field decision. "
-                    "Check matches again when ready."
-                    if handling is not None
-                    else "Cleared the Odoo-required field decision."
-                )
-                decision_return_url = (
+                decision_base_url = (
                     _mapping_return_url(
                         request,
                         workspace_id,
                         mapping_dataset=dataset_index,
                     )
-                    + "#next-step-blockers"
                 )
+                if handling is TargetFieldHandling.ODOO_DEFAULT:
+                    draft, validation = await _check_saved_default_decision(
+                        context,
+                        workspace_id,
+                        draft,
+                        expected_parent_version=expected_parent,
+                    )
+                    message = _checked_default_message(
+                        "Odoo will choose this value.",
+                        validation,
+                    )
+                    decision_return_url = _checked_mapping_return_url(
+                        request,
+                        workspace_id,
+                        validation,
+                        success_url=(
+                            f"{decision_base_url}"
+                            f"#mapping-dataset-{dataset_index}"
+                        ),
+                    )
+                else:
+                    message = (
+                        "Saved the Odoo-required field decision. "
+                        "Check matches again when ready."
+                        if handling is not None
+                        else "Cleared the Odoo-required field decision."
+                    )
+                    decision_return_url = (
+                        f"{decision_base_url}#next-step-blockers"
+                    )
                 if json_request:
                     return JSONResponse(
                         {
@@ -752,23 +778,35 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     expected_version=expected_working_version,
                     actor=context.actor,
                 )
-                message = (
+                working_draft, validation = await _check_saved_default_decision(
+                    context,
+                    workspace_id,
+                    working_draft,
+                    expected_parent_version=expected_parent,
+                )
+                message = _checked_default_message(
                     f"Confirmed {confirmed_count} Odoo default"
-                    f"{'s' if confirmed_count != 1 else ''}. "
-                    "Check matches again when ready."
+                    f"{'s' if confirmed_count != 1 else ''}.",
+                    validation,
+                )
+                decision_return_url = _checked_mapping_return_url(
+                    request,
+                    workspace_id,
+                    validation,
+                    success_url=mapping_return_url,
                 )
                 if json_request:
                     return JSONResponse(
                         {
                             "message": message,
-                            "redirect_url": mapping_return_url,
+                            "redirect_url": decision_return_url,
                             "expected_working_draft_version": (
                                 working_draft.version
                             ),
                         }
                     )
                 _flash(request, message)
-                return RedirectResponse(mapping_return_url, status_code=303)
+                return RedirectResponse(decision_return_url, status_code=303)
             if action == "refresh_defaults":
                 requested_fields = await run_in_threadpool(
                     context.mapping_workspace.default_recovery_fields,
@@ -813,14 +851,23 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     expected_version=expected_working_version,
                     actor=context.actor,
                 )
-                message = (
+                working_draft, validation = await _check_saved_default_decision(
+                    context,
+                    workspace_id,
+                    working_draft,
+                    expected_parent_version=expected_parent,
+                )
+                message = _checked_default_message(
                     f"Odoo will decide {confirmed_count} required field"
                     f"{'s' if confirmed_count != 1 else ''} using the defaults "
-                    "checked for this target. Check matches again when ready."
+                    "checked for this target.",
+                    validation,
                 )
-                decision_return_url = (
-                    f"{_mapping_return_url(request, workspace_id)}"
-                    "#next-step-blockers"
+                decision_return_url = _checked_mapping_return_url(
+                    request,
+                    workspace_id,
+                    validation,
+                    success_url=mapping_return_url,
                 )
                 if json_request:
                     return JSONResponse(
@@ -1052,3 +1099,56 @@ def _require_mapping_idle(context: WebContext, workspace_id: str) -> None:
                 "to finish before reviewing or changing field matches."
             ),
         )
+
+
+async def _check_saved_default_decision(
+    context: WebContext,
+    workspace_id: str,
+    working_draft: MappingWorkingDraft,
+    *,
+    expected_parent_version: int | None,
+) -> tuple[MappingWorkingDraft, MappingValidationResult]:
+    """Validate saved Odoo-default decisions before returning to the page."""
+
+    _revision, validation = await run_in_threadpool(
+        context.mapping_workspace.check_definition,
+        workspace_id,
+        datasets=working_draft.definition.datasets,
+        expected_parent_version=expected_parent_version,
+        expected_working_draft_version=working_draft.version,
+        actor=context.actor,
+    )
+    checked_draft = await run_in_threadpool(
+        context.mapping_workspace.mappings.get_mapping_working_draft,
+        workspace_id,
+    )
+    if checked_draft is None:
+        raise WorkspaceError("The checked matching draft is no longer available")
+    return checked_draft, validation
+
+
+def _checked_default_message(
+    action_message: str,
+    validation: MappingValidationResult,
+) -> str:
+    if validation.status.value == "INVALID":
+        return (
+            f"{action_message} Matches checked. "
+            "Review the remaining items that need attention."
+        )
+    return f"{action_message} Matches checked and ready to confirm."
+
+
+def _checked_mapping_return_url(
+    request: Request,
+    workspace_id: str,
+    validation: MappingValidationResult,
+    *,
+    success_url: str,
+) -> str:
+    if validation.status.value == "INVALID":
+        return (
+            f"{_mapping_return_url(request, workspace_id)}"
+            "#next-step-blockers"
+        )
+    return success_url

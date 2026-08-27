@@ -720,14 +720,18 @@ def _mapping_datasets_from_form(
                         or "error"
                     ),
                     operation=(
-                        _text(
-                            form,
-                            (
-                                f"relation_operation_{dataset_index}_"
-                                f"{relation_index}"
-                            ),
+                        "replace"
+                        if metadata.type == "many2one"
+                        else (
+                            _text(
+                                form,
+                                (
+                                    f"relation_operation_{dataset_index}_"
+                                    f"{relation_index}"
+                                ),
+                            )
+                            or "replace"
                         )
-                        or "replace"
                     ),
                     separator=(
                         _text(

@@ -106,19 +106,23 @@
                       </select>
                       {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
                     </label>
-                    <label>
-                      How should the list change?
-                      {% set selected_operation = mapping.operation if mapping else 'replace' %}
-                      <select name="relation_operation_{{ dataset_index }}_{{ relation_index }}">
-                        {% for operation in ('replace', 'add', 'remove') %}
-                          <option value="{{ operation }}" {% if selected_operation == operation %}selected{% endif %}>{% if operation == 'replace' %}Replace the current list{% elif operation == 'add' %}Add to the current list{% else %}Remove from the current list{% endif %}</option>
-                        {% endfor %}
-                      </select>
-                    </label>
-                    <label>
-                      Separator used in the source
-                      <input name="relation_separator_{{ dataset_index }}_{{ relation_index }}" maxlength="1" value="{{ mapping.separator if mapping else ';' }}">
-                    </label>
+                    {% if row.metadata.type != 'many2one' %}
+                      <label>
+                        How should the list change?
+                        {% set selected_operation = mapping.operation if mapping else 'replace' %}
+                        <select name="relation_operation_{{ dataset_index }}_{{ relation_index }}">
+                          {% for operation in ('replace', 'add', 'remove') %}
+                            <option value="{{ operation }}" {% if selected_operation == operation %}selected{% endif %}>{% if operation == 'replace' %}Replace the current list{% elif operation == 'add' %}Add to the current list{% else %}Remove from the current list{% endif %}</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                      <label>
+                        Separator used in the source
+                        <input name="relation_separator_{{ dataset_index }}_{{ relation_index }}" maxlength="1" value="{{ mapping.separator if mapping else ';' }}">
+                      </label>
+                    {% else %}
+                      <input type="hidden" name="relation_operation_{{ dataset_index }}_{{ relation_index }}" value="replace">
+                    {% endif %}
                   </div>
                   <div class="policy-row">
                     <label>
@@ -132,6 +136,9 @@
                         <option value="EXACT_BUSINESS_KEY" {% if relation_policy == 'EXACT_BUSINESS_KEY' %}selected{% endif %}>Every value is already an exact business key</option>
                         <option value="EXPLICIT_KEY_MATCH" {% if relation_policy == 'EXPLICIT_KEY_MATCH' %}selected{% endif %}>Every populated source choice must be explicitly matched</option>
                       </select>
+                      {% if selected_origin == 'target_then_dataset' %}
+                        <small>Only differently named Odoo records need an explicit value match. Other values may use an exact Odoo record or the selected incoming table.</small>
+                      {% endif %}
                     </label>
                     {% if row.metadata.type == 'many2one' %}
                       <input

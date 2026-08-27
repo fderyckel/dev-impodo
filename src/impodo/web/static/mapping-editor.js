@@ -464,8 +464,12 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const action = event.submitter?.value || "";
-      const changesFieldDisposition =
+      const choosesOdooDefault =
+        action === "confirm_defaults" ||
         action === "refresh_defaults" ||
+        action.endsWith(":odoo_default");
+      const changesFieldDisposition =
+        choosesOdooDefault ||
         action.startsWith("set_disposition:") ||
         action.startsWith("clear_disposition:");
       if (action === "submit" && dirty) {
@@ -503,8 +507,9 @@ document.addEventListener("DOMContentLoaded", () => {
           saveStatus.textContent = "Saving progress...";
         } else if (action === "remove_readonly") {
           saveStatus.textContent = "Removing Odoo-managed field matches...";
-        } else if (action === "refresh_defaults") {
-          saveStatus.textContent = "Checking the current Odoo defaults...";
+        } else if (choosesOdooDefault) {
+          saveStatus.textContent =
+            "Saving the Odoo decision and checking matches...";
         } else if (changesFieldDisposition) {
           saveStatus.textContent = "Saving the Odoo-field decision...";
         } else if (action === "submit") {
@@ -583,8 +588,9 @@ document.addEventListener("DOMContentLoaded", () => {
             ? error.message
             : "The matches could not be saved.";
         if (saveError) {
-          saveError.textContent =
-            action === "submit" ||
+          saveError.textContent = choosesOdooDefault
+            ? `${message} The Odoo decision may already be saved; reload this page to see its current checked state.`
+            : action === "submit" ||
               action === "remove_readonly" ||
               changesFieldDisposition
               ? `${message} Your checked matches are unchanged.`
@@ -592,7 +598,10 @@ document.addEventListener("DOMContentLoaded", () => {
           saveError.hidden = false;
         }
         if (saveStatus) {
-          if (action === "submit") {
+          if (choosesOdooDefault) {
+            saveStatus.textContent =
+              "The Odoo decision was not fully checked. Reload before trying again.";
+          } else if (action === "submit") {
             saveStatus.textContent =
               "Confirmation was not completed. Checked matches are unchanged.";
           } else if (action === "remove_readonly" || changesFieldDisposition) {
