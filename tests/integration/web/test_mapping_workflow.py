@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
+from openpyxl import load_workbook
+
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     CategoricalCoveragePolicy,
@@ -36,6 +40,73 @@ from tests.support.browser_scenarios import (
 
 
 class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_failed_check_can_create_and_download_matching_review_workbook(
+        self,
+    ) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=1,
+            required_scalar_indexes=(0,),
+            target_model="sale.order",
+        )
+        source_identity, _source_value = dataset.columns
+        context = self.app.state.context
+        _revision, validation = context.mapping_workspace.check_definition(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="sale.order",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Create matching review workbook", page.text)
+        self.assertIn("Includes items to fix", page.text)
+
+        created = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/review-workbook",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(created.status_code, 303, created.text)
+        created_page = self.client.get(created.headers["location"])
+        self.assertIn("Download matching review workbook", created_page.text)
+        self.assertIn("Recreate matching review workbook", created_page.text)
+
+        downloaded = self.client.get(
+            f"/workspaces/{workspace_id}/mapping/review-workbook"
+        )
+        self.assertEqual(downloaded.status_code, 200, downloaded.text)
+        self.assertEqual(
+            downloaded.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = load_workbook(BytesIO(downloaded.content), data_only=True)
+        self.assertEqual(
+            workbook["Matching overview"]["B4"].value,
+            "Cannot confirm matches",
+        )
+        self.assertEqual(
+            workbook["Needs attention"]["A4"].value,
+            "Must fix",
+        )
+        workbook.close()
+
     def test_active_table_fields_have_a_two_state_disclosure(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1

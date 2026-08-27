@@ -11,9 +11,11 @@ status: current
 Match data builds a portable mapping definition from frozen source datasets to
 the governed Odoo schema. It owns recoverable drafts, immutable revisions,
 semantic validation, exact submission, and an optional transformation-impact
-preview with optional review decisions.
+preview with optional review decisions. It also projects one checked revision
+and its validation result into a portable matching review workbook.
 
-It does not prepare all rows or write to Odoo.
+It does not prepare all rows, perform the final target comparison, or write to
+Odoo.
 
 ## Entry conditions
 
@@ -43,6 +45,30 @@ replaces the reason panel with only the current remaining blockers. The route
 uses the submitted parent revision and the newly saved working-draft version as
 concurrency guards. A grouped action performs one validation pass after all
 decisions are saved; it does not validate once per field.
+
+The `/mapping/review-workbook` routes create and download the workbook for the
+exact current checked revision. `write_mapping_review_workbook` consumes only
+the immutable revision, its bound validation result, the frozen source
+selection, and the captured Odoo schema. It makes no Odoo call and does not
+open a source or prepared-data artifact. An invalid validation result is a
+supported input because the workbook is intended to help the operator correct
+that result.
+
+The workbook keeps validation severity authoritative. An error produces red
+**Must fix** evidence, while a warning produces amber review evidence. A
+confirmed Odoo-default disposition remains amber because the operator chose to
+omit the value deliberately. A valid direct mapping is green, and a fixed or
+transformed value is blue. Each table receives a column-based field view so a
+required field remains visible even when it has no source provider. The
+workbook also contains a filterable issue queue, a row-based field inventory,
+bounded categorical coverage, and the validation contract's deferred checks.
+It always pairs colour with a status and next action.
+
+The stored filename binds the mapping revision version and content-hash prefix.
+A checked revision can therefore use only its own workbook. A current saved
+draft with different content blocks workbook creation and download until the
+operator selects **Check matches** again. Protected Odoo-source business values
+remain outside the portable value-coverage projection.
 
 For each conditional Selection rule, the impact snapshot records every
 evaluated row, every raw match before priority, every row selected by
@@ -181,6 +207,7 @@ claim those results.
 | Rule-impact facts and fingerprints | [`transformation_impact.py`](../../../src/impodo/domain/staging/transformation_impact.py) |
 | Native rule-impact summary | [`polars_transformation.py`](../../../src/impodo/adapters/polars_transformation.py) |
 | Rule-impact persistence and acknowledgements | [`TransformationImpactRepository`](../../../src/impodo/adapters/duckdb/transformation_impact_repository.py) |
+| Matching review workbook | [`mapping_review.py`](../../../src/impodo/adapters/artifacts/mapping_review.py) |
 | Optional Recipe compilation | [`RecipeCompiler`](../../../src/impodo/application/recipe_compilation_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
 | Browser-to-runtime mapping compiler | [`browser_mapping_compiler.py`](../../../src/impodo/domain/compiler/browser_mapping_compiler.py) |
@@ -195,6 +222,10 @@ stores immutable portable meaning. `MappingValidationResult` binds validation
 to the revision. `MappingSubmission` binds the current actor decision to the
 exact mapping content, source selection, schema, and semantic warning review.
 `TransformationImpactSnapshot` remains separate, optional, read-only evidence.
+The matching review workbook is also a projection rather than a new decision
+source. It cannot change the validation status, acknowledge a warning, confirm
+the mapping, or qualify prepared data. The Stage 5 workbook remains a separate
+artifact derived from prepared rows and fresh target-comparison evidence.
 
 ## Completion and navigation
 
@@ -216,6 +247,9 @@ Form parsers must reject unexpected fields and stale versions. Preserve the
 working draft when validation fails so the data manager can correct it.
 Whenever confirmation is unavailable, the page must show every current blocker
 outside paged or filtered field lists and link directly to a recovery action.
+The same checked blockers remain exportable through the matching review
+workbook. Saving any different working draft makes the prior download
+ineligible even when its workbook file still exists as historical evidence.
 
 ## Odoo 19 and performance
 
@@ -228,6 +262,13 @@ Transformation impact must remain bounded and hash-bound. Reusing an impact
 report after a mapping edit would be a correctness defect even if its counts
 look plausible.
 
+Workbook generation is bounded by the captured schema, validation issues,
+categorical coverage, and Excel's row and column limits. It must not scan source
+rows, reopen repositories for individual fields, or contact Odoo. Workbook
+cells must neutralize spreadsheet formulas in external text. Creation requires
+protected-evidence management authority, while download requires
+protected-evidence read authority.
+
 ## Verification
 
 - [`tests/integration/web/test_mapping_forms.py`](../../../tests/integration/web/test_mapping_forms.py)
@@ -235,6 +276,7 @@ look plausible.
 - [`tests/domain/mapping/test_selection_rules.py`](../../../tests/domain/mapping/test_selection_rules.py)
 - [`tests/integration/web/test_mapping_impact_presenter.py`](../../../tests/integration/web/test_mapping_impact_presenter.py)
 - [`tests/integration/web/test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py)
+- [`tests/integration/artifacts/test_mapping_review_workbook.py`](../../../tests/integration/artifacts/test_mapping_review_workbook.py)
 - [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
 - [`tests/domain/preparation/test_target_first_relationships.py`](../../../tests/domain/preparation/test_target_first_relationships.py)
 
@@ -242,6 +284,9 @@ Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,
 direct exact submission, target-first reuse without updates, case-sensitive
 relationship matching, incoming fallback, and required Stage 4 review.
+For the workbook, also verify invalid-check export, issue precedence, written
+status alongside colour, exact-revision download, Odoo-source value redaction,
+and separation from the Stage 5 workbook.
 
 Run the focused Mapping package with:
 

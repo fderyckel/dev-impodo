@@ -8,6 +8,12 @@ from time import perf_counter
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from impodo.adapters.artifacts.mapping_review import (
+    MappingReviewGenerationError,
+    mapping_review_workbook_name,
+)
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     derived_dataset_links,
@@ -233,6 +239,21 @@ def _render_mapping(
     validation_problem_count = len(visible_validation_issues) + (
         1 if readonly_field_recovery else 0
     )
+    mapping_review_workbook_ready = False
+    if revision is not None and validation is not None and not has_unvalidated_changes:
+        try:
+            access = context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.PROTECTED_EVIDENCE_READ,
+            )
+            mapping_review_workbook_ready = context.artifacts.report_exists(
+                workspace_id,
+                access.migration_run_id,
+                mapping_review_workbook_name(revision),
+            )
+        except (ArtifactStoreError, MappingReviewGenerationError):
+            mapping_review_workbook_ready = False
     next_step = _mapping_next_step(
         workspace_id=workspace_id,
         schema=schema,
@@ -284,6 +305,7 @@ def _render_mapping(
         readonly_field_recovery=readonly_field_recovery,
         visible_validation_issues=visible_validation_issues,
         validation_problem_count=validation_problem_count,
+        mapping_review_workbook_ready=mapping_review_workbook_ready,
         blocking_issue_views=blocking_issue_views,
         next_step=next_step,
         quality_view=quality_view,

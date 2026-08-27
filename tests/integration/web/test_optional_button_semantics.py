@@ -98,6 +98,27 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
                 label,
             )
 
+    def test_matching_review_workbook_actions_use_secondary_buttons(self) -> None:
+        template = (
+            ROOT
+            / "src"
+            / "impodo"
+            / "web"
+            / "templates"
+            / "mapping"
+            / "page.html"
+        ).read_text(encoding="utf-8")
+
+        for label in (
+            "Download matching review workbook",
+            "Recreate matching review workbook",
+            "Create matching review workbook",
+        ):
+            self.assertRegex(
+                template,
+                rf'class="button secondary"[^>]*>[^<]*{re.escape(label)}',
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

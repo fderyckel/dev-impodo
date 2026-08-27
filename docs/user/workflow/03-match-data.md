@@ -35,9 +35,13 @@ record identity automatically.
    approved existing Odoo data.
 7. Select **Save progress** before leaving the page.
 8. Select **Check matches**.
-9. Optionally select **Review rule effects** when you want to inspect changed
+9. Select **Create matching review workbook** when you want to review the
+   checked matches in Excel. You can create it when the check passes or when
+   it finds errors.
+10. Select **Download matching review workbook** after Impodo creates it.
+11. Optionally select **Review rule effects** when you want to inspect changed
    values before confirmation.
-10. Select **Confirm field matches** for the exact checked revision. You can
+12. Select **Confirm field matches** for the exact checked revision. You can
     continue without the optional rule-effects preview.
 
 When installed Odoo applications add required fields, Impodo checks the
@@ -52,6 +56,40 @@ value, match the field or provide a fixed value instead.
 New read-only fields need no input. If an Odoo change makes an existing write
 match read-only, Impodo keeps the saved match visible and offers one grouped
 removal action before you check the matches again.
+
+### Review checked matches in Excel
+
+The matching review workbook shows what the current Stage 3 check already
+knows. Start with **Needs attention**, which lists every blocking error and
+reviewable warning with the affected table, Odoo field, reason, and correction.
+**Field matches** gives one filterable row for every mapped, required, or
+checked Odoo field. Each source table also receives a column-based field sheet
+so that missing required fields remain visible even when no source column was
+selected.
+
+The workbook uses the same meanings as the final review workbook:
+
+- Red **Must fix** fields prevent you from confirming the matches. A required
+  Odoo field or required Many2one relationship with no value appears as a red
+  field column.
+- Amber fields require a deliberate review. For example, **Odoo will choose**
+  means that you selected a verified Odoo default instead of sending a value.
+- Green fields have a currently valid mapping.
+- Blue fields use a value that Impodo supplies or prepares through a fixed
+  value or transformation rule.
+- Grey fields need no current action.
+
+Every coloured field also contains a written status and next action. When a
+choice or business-key policy does not cover a source value, **Value coverage**
+shows the known gap. For an Odoo source, protected business values remain
+inside Impodo and do not enter this portable workbook.
+
+This workbook records the exact checked mapping. It does not contain prepared
+rows, resolved duplicates, final relationship results, or a fresh comparison
+with current Odoo records. **Checked later** names those remaining checks.
+Stage 4 still prepares every row, and the separate Stage 5 review workbook
+still documents the proposed load. After you change a field match, select
+**Check matches** and recreate the matching review workbook.
 
 For reviewed Odoo 19 references such as Country, Language, and Currency,
 Impodo checks the parent relationship and exact portable key through one
@@ -162,6 +200,8 @@ Confirming these choices still does not contact or change Odoo.
   rows matched, how many rows first-match priority selected, and how many rows
   also matched another rule.
 - No field is mapped merely because its name looks similar.
+- The matching review workbook has no unexplained red or amber field that you
+  intended to approve.
 
 ## What Complete means
 
@@ -173,7 +213,8 @@ data project overview and is not required for one-off work.
 
 Saving or confirming a mapping stores instructions and review evidence in the
 current data version. It does not edit accepted source data, save a Recipe by
-itself, authorize a load, or write to Odoo.
+itself, authorize a load, or write to Odoo. Creating or downloading the
+matching review workbook does not change the saved mapping or contact Odoo.
 
 ## Needs attention
 
@@ -206,5 +247,6 @@ Continue to [Prepare data](04-prepare-data.md).
 
 ## Related documentation
 
+- [Match data: questions and answers](../tutorials/match-data-questions-and-answers.md)
 - [End-to-end training tutorial](../tutorials/end-to-end-training.md)
 - [Developer implementation: Match data](../../developer/workflow/03-match-data.md)

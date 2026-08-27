@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impodo Match Data Tutorial"
+  short_description: "Create clear matching-rule Q&A tutorials"
+  default_prompt: "Use $impodo-match-data-tutorial to create or update a data-manager matching-rules Q&A tutorial."

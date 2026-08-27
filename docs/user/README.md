@@ -21,6 +21,8 @@ through the six Authoring stages.
 For a guided practice migration using fictional customers, products,
 categories, and bills of materials, use the
 [end-to-end training tutorial](tutorials/end-to-end-training.md).
+For a concise question-and-answer guide to every current Match data rule, use
+[Match data: questions and answers](tutorials/match-data-questions-and-answers.md).
 
 ## Installation and focused guides
 

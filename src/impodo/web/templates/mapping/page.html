@@ -55,6 +55,39 @@
       {% include "mapping/_next_step.html" %}
       {% include "mapping/_form_actions.html" %}
     </form>
+    {% if validation and revision and not has_unvalidated_changes %}
+      <section class="form-card" aria-labelledby="matching-review-workbook-title">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Excel matching review</p>
+            <h2 id="matching-review-workbook-title">Review the checked matches in Excel</h2>
+          </div>
+          <span class="status {% if validation.status.value == 'INVALID' %}needs_review{% else %}ready{% endif %}">
+            {% if validation.status.value == 'INVALID' %}Includes items to fix{% else %}Checked evidence{% endif %}
+          </span>
+        </div>
+        <p>
+          Create a colour-coded workbook from this exact check. Red fields must be
+          fixed, amber fields need review, green fields are mapped, and blue fields
+          use values that Impodo supplies or prepares.
+        </p>
+        <p class="muted">
+          This Stage 3 workbook does not contain prepared rows or the final Odoo
+          comparison. The separate Stage 5 review workbook remains unchanged.
+        </p>
+        <div class="actions">
+          {% if mapping_review_workbook_ready %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/review-workbook">Download matching review workbook</a>
+          {% endif %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/mapping/review-workbook">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary" type="submit">
+              {% if mapping_review_workbook_ready %}Recreate matching review workbook{% else %}Create matching review workbook{% endif %}
+            </button>
+          </form>
+        </div>
+      </section>
+    {% endif %}
     {% include "mapping/_quality.html" %}
     {% include "mapping/_value_match_dialog.html" %}
   {% else %}

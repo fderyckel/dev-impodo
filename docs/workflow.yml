@@ -8,6 +8,7 @@ shared:
   editing_workflow: docs/style-guide.md#documentation-editing-workflow
   skills:
     - .agents/skills/impodo-documentation/SKILL.md
+    - .agents/skills/impodo-match-data-tutorial/SKILL.md
   router_modules:
     - src/impodo/web/routers/lifecycle.py
     - src/impodo/web/routers/concepts.py
@@ -281,12 +282,14 @@ stages:
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
+      - src/impodo/adapters/artifacts/mapping_review.py::write_mapping_review_workbook
     tests:
       - tests/integration/web/test_mapping_forms.py
       - tests/domain/mapping/test_validation.py
       - tests/domain/mapping/test_selection_rules.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
+      - tests/integration/artifacts/test_mapping_review_workbook.py
       - tests/domain/preparation/test_target_first_relationships.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md

@@ -12,6 +12,7 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import csv
 import hashlib
 import json
@@ -27,6 +28,11 @@ from fastapi.responses import (
 )
 from starlette.concurrency import run_in_threadpool
 
+from impodo.adapters.artifacts.mapping_review import (
+    MappingReviewGenerationError,
+    mapping_review_workbook_name,
+    write_mapping_review_workbook,
+)
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
@@ -1068,6 +1074,112 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
+    @router.post("/workspaces/{workspace_id}/mapping/review-workbook")
+    async def create_mapping_review_workbook(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Create a workbook from the exact current Stage 3 check."""
+
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        _require_mapping_idle(context, workspace_id)
+        try:
+            revision, validation, selection, schema = (
+                _current_mapping_review_evidence(context, workspace_id)
+            )
+            access = context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+            )
+            filename = mapping_review_workbook_name(revision)
+
+            def write_workbook() -> None:
+                with context.artifacts.prepare_report(
+                    workspace_id,
+                    access.migration_run_id,
+                    filename,
+                ) as workbook_path:
+                    write_mapping_review_workbook(
+                        revision,
+                        validation,
+                        selection,
+                        schema,
+                        workbook_path,
+                    )
+
+            await run_in_threadpool(write_workbook)
+        except (
+            ArtifactStoreError,
+            MappingReviewGenerationError,
+            OSError,
+            WorkspaceError,
+        ) as error:
+            return _render_mapping(
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Matching review workbook created.")
+        return RedirectResponse(
+            f"/workspaces/{workspace_id}/mapping",
+            status_code=303,
+        )
+
+    @router.get("/workspaces/{workspace_id}/mapping/review-workbook")
+    async def download_mapping_review_workbook(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Download only the workbook for the exact current Stage 3 check."""
+
+        require_session(request)
+        revision, _validation, _selection, _schema = (
+            _current_mapping_review_evidence(context, workspace_id)
+        )
+        access = context.workspace_access.resolve(
+            workspace_id,
+            actor=context.actor,
+            capability=Capability.PROTECTED_EVIDENCE_READ,
+        )
+        filename = mapping_review_workbook_name(revision)
+        try:
+            exists = context.artifacts.report_exists(
+                workspace_id,
+                access.migration_run_id,
+                filename,
+            )
+        except ArtifactStoreError as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Matching review workbook not found",
+            ) from error
+        if not exists:
+            raise HTTPException(
+                status_code=404,
+                detail="Matching review workbook not found",
+            )
+        return StreamingResponse(
+            _mapping_review_chunks(
+                context,
+                workspace_id,
+                access.migration_run_id,
+                filename,
+            ),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="impodo-{workspace_id[:8]}-'
+                    'matching-review.xlsx"'
+                )
+            },
+        )
+
     return router
 
 
@@ -1152,3 +1264,62 @@ def _checked_mapping_return_url(
             "#next-step-blockers"
         )
     return success_url
+
+
+def _current_mapping_review_evidence(context: WebContext, workspace_id: str):
+    """Return one exact checked revision or reject stale Stage 3 evidence."""
+
+    selection = context.queries.get_mapping_source_selection(workspace_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    governance = context.queries.get_schema_governance(workspace_id)
+    revision = context.queries.get_mapping_revision(workspace_id)
+    if selection is None or schema is None or revision is None:
+        raise WorkspaceError("Check matches before creating the workbook")
+    validation = context.queries.get_mapping_validation(
+        workspace_id,
+        revision.version,
+    )
+    if validation is None:
+        raise WorkspaceError("Check matches before creating the workbook")
+    expected_schema_hash = (
+        governance.content_hash if governance is not None else schema.content_hash
+    )
+    if (
+        revision.definition.source_selection_hash != selection.content_hash
+        or revision.definition.schema_hash != expected_schema_hash
+        or validation.mapping_content_hash != revision.definition.content_hash
+        or validation.source_selection_hash != selection.content_hash
+        or validation.schema_hash != expected_schema_hash
+    ):
+        raise WorkspaceError(
+            "Source data or Odoo fields changed. Check matches again before "
+            "creating the workbook."
+        )
+    working = context.queries.get_mapping_working_draft(workspace_id)
+    if (
+        working is not None
+        and working.definition.source_selection_hash == selection.content_hash
+        and working.definition.schema_hash == expected_schema_hash
+        and working.content_hash != revision.definition.content_hash
+    ):
+        raise WorkspaceError(
+            "Saved field changes have not been checked. Check matches again "
+            "before creating the workbook."
+        )
+    return revision, validation, selection, schema
+
+
+def _mapping_review_chunks(
+    context: WebContext,
+    workspace_id: str,
+    run_id: str,
+    filename: str,
+) -> Iterator[bytes]:
+    """Stream one contained workbook without loading it completely in memory."""
+
+    with (
+        context.artifacts.materialize_report(workspace_id, run_id, filename) as path,
+        path.open("rb") as workbook,
+    ):
+        while chunk := workbook.read(64 * 1024):
+            yield chunk

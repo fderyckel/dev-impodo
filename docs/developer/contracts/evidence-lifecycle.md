@@ -139,6 +139,29 @@ preflight requirement-plan contract version 2, and Recipe target-contract
 version 2 bind that hash. Retired payload versions are rejected rather than
 loaded, upgraded, or silently reused.
 
+### Portable matching review
+
+Stage 3 may project an exact mapping revision and its bound validation result
+into a portable matching review workbook. The projection is available for
+`VALID`, `VALID_WITH_WARNINGS`, and `INVALID` results because it helps the data
+manager correct known mapping problems. The validation result remains
+authoritative: errors are **Must fix**, warnings require review, and workbook
+appearance cannot introduce or remove a validation finding.
+
+The workbook may add captured source-table, Odoo-model, and Odoo-field labels.
+It may also add the bounded categorical counts and uncovered values already
+contained in the exact validation evidence. Protected Odoo-source business
+values must remain inside Impodo. External workbook text must not become an
+executable spreadsheet formula.
+
+The workbook does not contain prepared rows, duplicate decisions, final
+relationship outcomes, fresh target records, create/update classifications, or
+field differences against Odoo. It lists deferred runtime checks rather than
+claiming their results. It cannot confirm a mapping, acknowledge a warning,
+qualify preparation, or authorize execution. A changed working draft, source
+selection, governed schema, or validation binding makes the prior workbook
+ineligible for current download.
+
 The transformation-impact snapshot records two hash-bound facts for each
 conditional Selection rule. The match fact counts rows that matched before
 priority and rows that the rule selected after first-match priority. The

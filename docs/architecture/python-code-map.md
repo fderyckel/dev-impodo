@@ -74,6 +74,7 @@ owner module.
 | Mapping state and decisions | `domain/workspace/contracts.py`, `domain/mapping`, and `application/workspace/mapping` | a workspace owns mutable evidence; Recipe publication receives only portable rules |
 | Preparation state and decisions | `domain/preparation` and `application/workspace/preparation` | `web/composition/preparation_job_manager.py` and `preparation_worker.py` own the local process runtime |
 | Final review evidence | `domain/preflight` defines portable report and prepared-cell meaning; `application/preflight_service.py` binds current workspace evidence | `adapters/artifacts/reporting.py` renders the manifest-authoritative workbook; browser routes only request and serve the artifact |
+| Matching review evidence | `domain/mapping` defines the checked revision, validation issues, coverage, and deferred checks | `adapters/artifacts/mapping_review.py` renders the Stage 3 workbook without preparing rows or contacting Odoo; `web/routers/mapping.py` creates and serves the exact-revision artifact |
 | Execution state and decisions | `domain/run`, `domain/execution`, `application/run`, and `application/workspace/execution` | `adapters/odoo` implements the target ports; `web/composition/target_readers.py` and `target_writers.py` select implementations |
 | Artifact and secret storage | `application/shared/artifacts.py` and `application/shared/secrets.py` | concrete filesystem and credential implementations live below `adapters/artifacts` and `adapters/protected_evidence` |
 
