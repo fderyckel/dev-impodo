@@ -736,14 +736,15 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             },
         )
         self.assertEqual(registered.status_code, 303)
-
-        inspected = self.client.post(
-            f"/workspaces/{workspace_id}/sources/inspect",
-            data={"csrf_token": self.csrf},
-            headers=POST_HEADERS,
-            follow_redirects=False,
+        self.assertEqual(
+            registered.headers["location"],
+            f"/workspaces/{workspace_id}/sources#source-files",
         )
-        self.assertEqual(inspected.status_code, 303)
+        inspection_page = self.client.get(registered.headers["location"])
+        self.assertIn("Checked 1 source file.", inspection_page.text)
+        self.assertIn("customers.csv", inspection_page.text)
+        self.assertIn("Check files again", inspection_page.text)
+        self.assertNotIn("Your files have not been checked yet", inspection_page.text)
         catalog = context.queries.get_source_catalogs(workspace_id)[0]
         confirmed = self.client.post(
             f"/workspaces/{workspace_id}/sources/{catalog.file_id}/configure",

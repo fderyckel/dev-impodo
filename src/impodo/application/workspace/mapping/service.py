@@ -998,7 +998,11 @@ class MappingWorkspaceService:
             )
         for resolver in resolvers:
             if (
-                resolver.origin is not ResolverOrigin.TARGET_CATALOG
+                resolver.origin
+                not in {
+                    ResolverOrigin.TARGET_CATALOG,
+                    ResolverOrigin.TARGET_THEN_DATASET,
+                }
                 or not resolver.model
                 or resolver.model in primary_models
             ):

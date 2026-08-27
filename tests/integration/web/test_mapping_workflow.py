@@ -635,6 +635,16 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         context.readiness_reader = readiness_reader
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertIn("Only existing Odoo records", page.text)
+        self.assertIn("Only another incoming table", page.text)
+        self.assertIn(
+            "Use Odoo first, otherwise use the incoming table",
+            page.text,
+        )
+        self.assertIn(
+            "never updates it merely because it won this match",
+            page.text,
+        )
         candidate = re.search(
             r'<option value="([^"]+)"[^>]*>\s*Odoo record name',
             page.text,

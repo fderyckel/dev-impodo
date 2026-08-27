@@ -56,6 +56,38 @@ the supporting record type to the migration scope. A changed relationship,
 key, or Odoo field contract blocks the check and returns ownership to this
 stage.
 
+### Choose where a linked value comes from
+
+When a linked field can refer to an existing Odoo record or a record from
+another incoming table, choose the source of that record deliberately:
+
+- **Only existing Odoo records** requires every populated value to resolve to
+  one current Odoo record. Impodo does not use the incoming related table as a
+  fallback.
+- **Only another incoming table** resolves every populated value through the
+  selected incoming table. That table's own mapping decides whether its rows
+  create or update records.
+- **Use Odoo first, otherwise use the incoming table** checks for one exact
+  Odoo record first. When it finds one, Impodo reuses that record and does not
+  update it merely because it won the relationship match. When it finds none,
+  Impodo resolves the value through the selected incoming table.
+
+For example, suppose a product file uses `PCE`, `UNI`, `kg`, and `m`, and an
+incoming `sales_uoms` table defines those four values. Odoo already contains
+`Unit`, `kg`, and `m`. Choose **Use Odoo first, otherwise use the incoming
+table**, select `sales_uoms`, and use **Match values** to confirm `UNI` to
+`Unit`. Impodo then reuses Odoo's `Unit`, `kg`, and `m` records. It creates
+`PCE` from `sales_uoms` because no exact Odoo record exists. The confirmed
+`UNI` to `Unit` match changes only the Odoo lookup key; it does not rename
+`UNI`, make `PCE` synonymous with `Unit`, or authorize an update to the Odoo
+record.
+
+Matching is case-sensitive. `KG` does not automatically match Odoo `kg`. When
+Impodo finds only a case-different Odoo candidate, it marks the value **Needs
+attention**. Use **Match values** to confirm that the two values identify the
+same Odoo record, or choose **Only another incoming table** when they must
+remain distinct records.
+
 ### Fill an Odoo choice field
 
 An Odoo choice field now shows **View available Odoo choices** even when the
@@ -114,6 +146,10 @@ Confirming these choices still does not contact or change Odoo.
 - File-source identity values remain stable across environments; captured
   Odoo records use protected target-bound identity instead.
 - Selection labels map to the current Odoo technical choices.
+- Each linked field uses the intended Odoo-only, incoming-only, or
+  Odoo-first matching rule.
+- Case-different linked values are explicitly matched or deliberately kept as
+  distinct incoming records.
 - Ordered choice rules use the intended source columns, and every row resolves
   to a current Odoo choice or is deliberately blocked for review.
 - Many2one, One2many, and Many2many relationships use portable keys.

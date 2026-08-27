@@ -123,6 +123,7 @@ class _RelationshipValuePlan:
     target_by_source: Mapping[str, str]
     source_label: str
     rules: str
+    apply_to_prepared: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -667,6 +668,10 @@ def _compile_dataset_evaluation_plan(
                 "Reviewed value match "
                 f"({len(relationship.resolver.value_mappings)} confirmed choice(s))"
             ),
+            apply_to_prepared=(
+                relationship.resolver.origin
+                is not ResolverOrigin.TARGET_THEN_DATASET
+            ),
         )
         for index, relationship in enumerate(mapping.relationships)
         if relationship.resolver.value_mappings
@@ -993,7 +998,8 @@ def _compile_derived_reference_plan(
             target_field=relationship.target_field,
         )
         for relationship_index, relationship in enumerate(mapping.relationships)
-        if relationship.resolver.origin is ResolverOrigin.DATASET
+        if relationship.resolver.origin
+        in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
         and relationship.resolver.dataset_id is not None
         for source_index, source_column_key in enumerate(
             relationship.source_column_keys
@@ -1341,7 +1347,12 @@ def _apply_relationship_value_mappings(
     source_row: int,
     impact_collector: _TransformationImpactCollector | None = None,
 ) -> None:
-    """Replace authored source choices with confirmed Odoo business keys."""
+    """Apply or retain exact reviewed Odoo lookup-key translations.
+
+    Incoming-only and target-only relationships keep the established prepared
+    value behavior. A target-first relationship records the reviewed match but
+    retains its incoming key so the fallback dataset remains addressable.
+    """
 
     for relationship in plan.relationship_values:
         raw_value = values.get(relationship.prepared_column_key)
@@ -1350,7 +1361,8 @@ def _apply_relationship_value_mappings(
         source_value = str(raw_value).strip()
         target_value = relationship.target_by_source.get(source_value)
         if target_value is not None:
-            values[relationship.prepared_column_key] = target_value
+            if relationship.apply_to_prepared:
+                values[relationship.prepared_column_key] = target_value
             if impact_collector is not None:
                 impact_collector.record(
                     dataset=plan.dataset_name,

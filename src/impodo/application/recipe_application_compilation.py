@@ -997,7 +997,14 @@ class RecipeApplicationCompiler:
 
     def _relationship(self, item, bindings):
         resolver_payload = {
-            "origin": item.get("target_dataset_id") and "dataset" or "target_catalog",
+            "origin": (
+                item.get("origin")
+                or (
+                    "dataset"
+                    if item.get("target_dataset_id")
+                    else "target_catalog"
+                )
+            ),
             "target_dataset_id": item.get("target_dataset_id"),
             "target_model": item.get("target_model"),
             "target_key_mappings": item.get("target_key_mappings", ()),

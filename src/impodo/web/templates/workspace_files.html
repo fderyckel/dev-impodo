@@ -48,12 +48,12 @@
       </div>
     </form>
     {% if workspace_state.source_files %}
-      <form method="post" action="/workspaces/{{ workspace_id }}/register">
+      <form method="post" action="/workspaces/{{ workspace_id }}/register" data-single-submit>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
         <div class="actions">
           <a class="button secondary" href="{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}{{ workspace_navigation.setup_href }}{% else %}{{ workspace_navigation.overview_href or '/projects/' ~ migration_context.project_id }}{% endif %}">Save and exit</a>
-          <button class="button primary" type="submit">Use these files and continue</button>
+          <button class="button primary" type="submit" data-submitting-label="Checking files...">Use these files and continue</button>
         </div>
       </form>
     {% endif %}

@@ -103,12 +103,35 @@ writable, non-computed, non-related, non-translated, and
 non-company-dependent. The mapping content hash binds the approvals. Numeric
 Odoo IDs never enter the portable mapping or canonical rows.
 
-Many2one and many2many relationships resolve through incoming datasets or
-existing-target business keys. A one2many relationship is represented through
-the child dataset's inverse many2one field; Impodo never writes it as an
-independently owned list. Dynamic value matching reads one frozen source column
-and fetches target choices in batches. It persists portable codes or business
-keys, never numeric Odoo IDs.
+Many2one and many2many relationships use one of three closed origins.
+`dataset` resolves through one incoming dataset, `target_catalog` resolves
+through existing-target business keys, and `target_then_dataset` checks the
+target before it falls back to the incoming dataset. A one2many relationship
+is represented through the child dataset's inverse many2one field; Impodo
+never writes it as an independently owned list. Dynamic value matching reads
+one frozen source column and fetches target choices in batches. It persists
+portable codes or business keys, never numeric Odoo IDs.
+
+The `target_then_dataset` resolver retains both the reviewed Odoo key and the
+original incoming key. Exact `ValueMapping` entries affect only the Odoo
+lookup key. The source preparation path does not rewrite the incoming key, so
+an unmatched value can still resolve to the intended incoming row. When the
+target lookup returns one exact record, preflight gives that Odoo identity
+precedence and classifies the corresponding incoming row as `UNCHANGED` with
+no field differences. This precedence is a reference decision, not authority
+to update the existing Odoo record.
+
+String identity remains case-sensitive. The bounded record plan also captures
+case-insensitive exact candidates with `=ilike`, but preflight uses those rows
+only to emit `REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED`. It never treats them as
+equal. `TargetCatalog` caches exact and case-folded field indexes, and the read
+planner batches distinct keys, so neither exact matching nor case review adds
+one Odoo query or one target scan per source row.
+
+Execution preserves the reviewed split. A `RESOLVED_TARGET` outcome becomes a
+portable `BusinessReference`. A `RESOLVED_INCOMING` outcome becomes an
+incoming `LogicalReference`, which keeps the dataset dependency needed to
+create and link the missing related record.
 
 The relationship validator and Recipe compiler share the reviewed Odoo 19
 standard-reference registry. A resolver that exactly uses a registered key may
@@ -151,6 +174,10 @@ claim those results.
 | Rule-impact persistence and acknowledgements | [`TransformationImpactRepository`](../../../src/impodo/adapters/duckdb/transformation_impact_repository.py) |
 | Optional Recipe compilation | [`RecipeCompiler`](../../../src/impodo/application/recipe_compilation_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
+| Browser-to-runtime mapping compiler | [`browser_mapping_compiler.py`](../../../src/impodo/domain/compiler/browser_mapping_compiler.py) |
+| Batched Odoo read planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
+| Target-first resolution and classification | [`preflight.py`](../../../src/impodo/domain/preparation/preflight.py) |
+| Reviewed execution hand-off | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 
 ## Evidence and state
 
@@ -200,10 +227,12 @@ look plausible.
 - [`tests/integration/web/test_mapping_impact_presenter.py`](../../../tests/integration/web/test_mapping_impact_presenter.py)
 - [`tests/integration/web/test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py)
 - [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
+- [`tests/domain/preparation/test_target_first_relationships.py`](../../../tests/domain/preparation/test_target_first_relationships.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,
-direct exact submission, and required Stage 4 review.
+direct exact submission, target-first reuse without updates, case-sensitive
+relationship matching, incoming fallback, and required Stage 4 review.
 
 Run the focused Mapping package with:
 

@@ -658,6 +658,18 @@ def plain_readiness_guidance(
             "A related parent row is blocked.",
             "Resolve the parent row first.",
         ),
+        "REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED": (
+            "An Odoo record differs only by letter case.",
+            "Explicitly reuse the Odoo record or keep a separate incoming record.",
+        ),
+        "REFERENCE_TARGET_PRECEDENCE_CONFLICT": (
+            "The incoming record has conflicting Odoo matches.",
+            "Choose one explicit Odoo match before continuing.",
+        ),
+        "REFERENCE_TARGET_PRECEDENCE_REUSE": (
+            "The existing Odoo record is reused.",
+            "No Odoo values will be changed by this incoming row.",
+        ),
         "TARGET_REFERENCE_UNRESOLVED": (
             "An Odoo relationship has no usable business key.",
             "Check the related Odoo record and its business key.",

@@ -211,6 +211,17 @@ def plan_preflight_requirements(
                 [(*reference.key, *reference.scope) for reference in references],
                 maximum_keys_per_request,
             )
+            reference_domains.extend(
+                _casefold_key_domain_chunks(
+                    (*resolve.target_fields, *resolve.target_scope_fields),
+                    (
+                        (*reference.key, *reference.scope)
+                        for reference in references
+                        if reference.origin == "target_then_incoming"
+                    ),
+                    maximum_keys_per_request,
+                )
+            )
             domain_chunks[resolve.target_model].extend(reference_domains)
             if references and not reference_domains:
                 raise ReadinessError(
@@ -227,17 +238,34 @@ def plan_preflight_requirements(
                 for reference in _references_for_field(
                     record.references.get(target_field)
                 )
-                if reference.origin == "target"
+                if reference.origin in {"target", "target_then_incoming"}
             ]
             if not references:
                 continue
             fields[resolve.target_model].update(resolve.target_fields)
             fields[resolve.target_model].update(resolve.target_scope_fields)
+            reference_fields = (
+                *resolve.target_fields,
+                *resolve.target_scope_fields,
+            )
+            reference_keys = [
+                (*reference.key, *reference.scope) for reference in references
+            ]
             reference_domains = _key_domain_chunks(
-                (*resolve.target_fields, *resolve.target_scope_fields),
-                [(*reference.key, *reference.scope) for reference in references],
+                reference_fields,
+                reference_keys,
                 maximum_keys_per_request,
             )
+            hybrid_domains = _casefold_key_domain_chunks(
+                reference_fields,
+                (
+                    (*reference.key, *reference.scope)
+                    for reference in references
+                    if reference.origin == "target_then_incoming"
+                ),
+                maximum_keys_per_request,
+            )
+            reference_domains.extend(hybrid_domains)
             if not reference_domains:
                 raise ReadinessError(
                     f"Odoo relationship reads for {dataset.name} cannot be narrowed safely"
@@ -529,6 +557,46 @@ def _key_domain_chunks(
         expressions = [
             _and_terms(
                 [[field, "=", value] for field, value in zip(fields, key, strict=True)]
+            )
+            for key in batch
+        ]
+        chunks.append(_or_expressions(expressions))
+    return chunks
+
+
+def _casefold_key_domain_chunks(
+    fields: tuple[str, ...],
+    keys: Iterable[tuple[Any, ...]],
+    chunk_size: int,
+) -> list[list[Any]]:
+    """Read exact case-insensitive candidates for explicit hybrid review.
+
+    These domains do not define equality. They only ensure that a case-only
+    Odoo candidate is present in the bounded snapshot so the engine can stop
+    instead of silently creating a near duplicate.
+    """
+
+    unique_keys = sorted(
+        {
+            tuple(key)
+            for key in keys
+            if len(key) == len(fields)
+            and all(value is not None for value in key)
+            and any(isinstance(value, str) for value in key)
+        },
+        key=lambda item: canonical_json_bytes(portable_value(item)),
+    )
+    if not fields or not unique_keys:
+        return []
+    chunks: list[list[Any]] = []
+    for start in range(0, len(unique_keys), chunk_size):
+        batch = unique_keys[start : start + chunk_size]
+        expressions = [
+            _and_terms(
+                [
+                    [field, "=ilike" if isinstance(value, str) else "=", value]
+                    for field, value in zip(fields, key, strict=True)
+                ]
             )
             for key in batch
         ]

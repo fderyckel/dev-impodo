@@ -113,11 +113,23 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             return _render_odoo_capture_selection(request, context, workspace_state)
+        pending_error = request.session.get("source_inspection_error")
+        inspection_error = None
+        if (
+            isinstance(pending_error, dict)
+            and pending_error.get("workspace_id") == workspace_id
+        ):
+            request.session.pop("source_inspection_error", None)
+            message = pending_error.get("message")
+            if message:
+                inspection_error = str(message)
         return _render_file_sources(
             request,
             context,
             workspace_id,
             workspace_state=workspace_state,
+            error=inspection_error,
+            status_code=422 if inspection_error else 200,
         )
 
     @router.post("/workspaces/{workspace_id}/files/{file_id}/remove")

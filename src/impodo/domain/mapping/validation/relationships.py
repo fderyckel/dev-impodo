@@ -263,7 +263,8 @@ def _validate_relationship(
         require_governed_key=True,
     )
     if (
-        relation.resolver.origin is ResolverOrigin.DATASET
+        relation.resolver.origin
+        in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
         and relation.resolver.dataset_id
         and (metadata.required or relation.required_on_create)
     ):
@@ -285,7 +286,11 @@ def _validate_resolver(
     *,
     require_governed_key: bool,
 ) -> None:
-    if resolver.origin is ResolverOrigin.DATASET:
+    uses_incoming = resolver.origin in {
+        ResolverOrigin.DATASET,
+        ResolverOrigin.TARGET_THEN_DATASET,
+    }
+    if uses_incoming:
         if not resolver.dataset_id:
             issues.append(
                 _issue(
@@ -318,7 +323,7 @@ def _validate_resolver(
                     dataset=dataset,
                 )
             )
-        if (
+        if resolver.origin is ResolverOrigin.DATASET and (
             resolver.model
             or resolver.key_mappings
             or resolver.scope_mappings
@@ -333,9 +338,13 @@ def _validate_resolver(
                     dataset=dataset,
                 )
             )
-        return
+        if resolver.origin is ResolverOrigin.DATASET:
+            return
 
-    if resolver.dataset_id is not None:
+    if (
+        resolver.origin is ResolverOrigin.TARGET_CATALOG
+        and resolver.dataset_id is not None
+    ):
         issues.append(
             _issue(
                 "MAPPING_REFERENCE_KEY_INVALID",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from impodo.application.data_version.inspection import SourceInspectionError
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ProjectSetupBrowserTestCase,
@@ -159,6 +160,64 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
             resumed.headers["location"],
             f"/workspaces/{workspace_id}/files",
         )
+
+    def test_automatic_source_check_failure_keeps_the_retry_path(self) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "display_name": "Source check recovery",
+                "source_mode": "FILE",
+            },
+        )
+        workspace_id = _created_workspace_id(self.app, created)
+        uploaded = self.client.post(
+            f"/workspaces/{workspace_id}/files",
+            data={"csrf_token": self.csrf, "revision": "1"},
+            files={
+                "source_file": (
+                    "customers.csv",
+                    b"code,name\nC001,Example\n",
+                    "text/csv",
+                )
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(uploaded.status_code, 303)
+
+        context = self.app.state.context
+        original_inspect_project = context.inspections.inspect_project
+
+        def fail_inspection(*_args, **_kwargs):
+            raise SourceInspectionError("Impodo could not read the source file.")
+
+        context.inspections.inspect_project = fail_inspection
+        try:
+            workspace_state = context.queries.get(workspace_id)
+            registered = self._post(
+                f"/workspaces/{workspace_id}/register",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(workspace_state.revision),
+                },
+            )
+        finally:
+            context.inspections.inspect_project = original_inspect_project
+
+        self.assertEqual(registered.status_code, 303)
+        self.assertEqual(
+            registered.headers["location"],
+            f"/workspaces/{workspace_id}/sources#source-files",
+        )
+        self.assertEqual(
+            context.queries.get(workspace_id).status,
+            WorkspaceStatus.REGISTERED,
+        )
+        recovery_page = self.client.get(registered.headers["location"])
+        self.assertEqual(recovery_page.status_code, 422)
+        self.assertIn("Impodo could not read the source file.", recovery_page.text)
+        self.assertIn("Check source files", recovery_page.text)
 
     def test_incompatible_project_explains_recovery(
         self,

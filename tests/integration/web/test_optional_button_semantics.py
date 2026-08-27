@@ -9,6 +9,25 @@ ROOT = REPOSITORY_ROOT
 
 
 class OptionalButtonSemanticsTests(unittest.TestCase):
+    def test_source_recheck_uses_a_secondary_button(self) -> None:
+        template = (
+            ROOT
+            / "src"
+            / "impodo"
+            / "web"
+            / "templates"
+            / "workspace_sources.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'class="button {% if catalogs %}secondary{% else %}primary{% endif %}"',
+            template,
+        )
+        self.assertIn(
+            "{% if catalogs %}Check files again{% else %}Check source files{% endif %}",
+            template,
+        )
+
     def test_combined_information_action_is_visible_and_secondary(self) -> None:
         template = (
             ROOT

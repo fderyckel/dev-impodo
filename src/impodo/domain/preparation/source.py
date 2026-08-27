@@ -28,6 +28,7 @@ from impodo.domain.recipe.profile import (
     IdentityComponent,
     NormalizationSpec,
     RelationSpec,
+    ResolveSpec,
 )
 
 
@@ -328,7 +329,7 @@ def _prepare_identity_component(
     """
 
     if component.resolve is not None:
-        key = _parse_reference_key(
+        incoming_key = _parse_reference_key(
             component.source_fields,
             row,
             dataset_name,
@@ -337,6 +338,7 @@ def _prepare_identity_component(
             issues,
             required=True,
         )
+        key, scope = _reference_parts(component.resolve, incoming_key)
         return (
             LogicalReference(
                 origin=component.resolve.origin,
@@ -344,6 +346,13 @@ def _prepare_identity_component(
                 dataset=component.resolve.dataset,
                 model=component.resolve.target_model,
                 target_fields=component.resolve.target_fields,
+                target_scope_fields=component.resolve.target_scope_fields,
+                scope=scope,
+                incoming_key=(
+                    incoming_key
+                    if component.resolve.origin == "target_then_incoming"
+                    else None
+                ),
             ),
         )
 
@@ -387,7 +396,7 @@ def _prepare_relation(
     """
 
     if relation.kind == "many2one":
-        key = _parse_reference_key(
+        incoming_key = _parse_reference_key(
             relation.source_fields,
             row,
             dataset_name,
@@ -396,14 +405,22 @@ def _prepare_relation(
             issues,
             required=relation.required,
         )
-        if not key or all(value is None for value in key):
+        if not incoming_key or all(value is None for value in incoming_key):
             return None
+        key, scope = _reference_parts(relation.resolve, incoming_key)
         return LogicalReference(
             origin=relation.resolve.origin,
             key=key,
             dataset=relation.resolve.dataset,
             model=relation.resolve.target_model,
             target_fields=relation.resolve.target_fields,
+            target_scope_fields=relation.resolve.target_scope_fields,
+            scope=scope,
+            incoming_key=(
+                incoming_key
+                if relation.resolve.origin == "target_then_incoming"
+                else None
+            ),
         )
 
     raw = row.get(relation.source_fields[0])
@@ -444,13 +461,50 @@ def _prepare_relation(
     return tuple(
         LogicalReference(
             origin=relation.resolve.origin,
-            key=(key,),
+            key=_target_reference_key(relation.resolve, (key,)),
             dataset=relation.resolve.dataset,
             model=relation.resolve.target_model,
             target_fields=relation.resolve.target_fields,
+            target_scope_fields=relation.resolve.target_scope_fields,
+            incoming_key=(
+                (key,)
+                if relation.resolve.origin == "target_then_incoming"
+                else None
+            ),
         )
         for key in dict.fromkeys(keys)
     )
+
+
+def _target_reference_key(
+    resolve: ResolveSpec,
+    incoming_key: tuple[ScalarValue, ...],
+) -> tuple[ScalarValue, ...]:
+    """Apply exact reviewed aliases only to the hybrid Odoo lookup key."""
+
+    if (
+        resolve.origin != "target_then_incoming"
+        or not resolve.target_value_mappings
+        or len(incoming_key) != 1
+        or incoming_key[0] is None
+    ):
+        return incoming_key
+    matches = dict(resolve.target_value_mappings)
+    return (matches.get(str(incoming_key[0]), incoming_key[0]),)
+
+
+def _reference_parts(
+    resolve: ResolveSpec,
+    incoming_key: tuple[ScalarValue, ...],
+) -> tuple[tuple[ScalarValue, ...], tuple[ScalarValue, ...]]:
+    """Separate target key/scope while retaining the whole incoming identity."""
+
+    if resolve.target_model is None:
+        return incoming_key, ()
+    key_width = len(resolve.target_fields)
+    target_key = incoming_key[:key_width]
+    scope = incoming_key[key_width:]
+    return _target_reference_key(resolve, target_key), scope
 
 
 def _parse_reference_key(

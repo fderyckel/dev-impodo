@@ -106,10 +106,10 @@ Select **New project** and enter:
 - Data project name: **Odoo 19 training migration**
 - Source: **Use files**
 
-Add all related files, then select **Use these files and continue**. Impodo does
-not ask for the Odoo destination yet; connect it when the workflow reaches
-**Odoo data**. The files are registered, but the individual tables are not yet
-frozen.
+Add all related files, then select **Use these files and continue**. Impodo
+checks the files and opens their source preview. It does not ask for the Odoo
+destination yet; connect it when the workflow reaches **Odoo data**. The files
+are registered, but the individual tables are not yet frozen.
 
 The six stages are the data manager's route when creating or changing rules in
 the Authoring workspace:
@@ -138,8 +138,7 @@ areas for preparation, comparison, confirmed loading, and verification.
 
 ## 2. Check and confirm the source files
 
-Open **Source data** and select **Check source files**. Impodo verifies the
-stored file hash before reading it and shows a bounded preview.
+Impodo verifies each stored file before reading it and shows a bounded preview.
 
 For every CSV, review:
 
@@ -212,14 +211,14 @@ Select **Save tables for this data version**. Impodo binds the selection to the
 confirmed source files.
 
 If the source owner sends a corrected export before table choices are saved,
-return to **Check source files**, add the corrected file, and remove the wrong
-one. Once table choices are saved, start a new project rather than editing a
-registered source file or the project database.
+return to **Source data**, add the corrected file, remove the wrong one, and
+select **Check files again**. Once table choices are saved, start a new project
+rather than editing a registered source file or the project database.
 
 ## 4. Create additional tables from source data
 
-Open **Prepare related datasets** from Source data. This optional step organizes
-denormalized files without changing the original files.
+Open **Separate combined information** from Source data. This optional step
+organizes denormalized files without changing the original files.
 
 ### 4.1 Create product_categories from one column
 

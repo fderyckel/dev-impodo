@@ -23,7 +23,8 @@ first complete the eligible-field capture described in
 
 ### File source
 
-1. Open **Source data** and select **Check source files**.
+1. Add all related CSV or XLSX files and select **Use these files and
+   continue**. Impodo checks the files and opens the source preview.
 2. Review the delimiter or worksheet, headings, bounded preview, counts, data
    types, blanks, repeated values, and warnings.
 3. Configure the intended tables for every file.

@@ -149,7 +149,8 @@ def _validate_identity_component(
         require_governed_key=True,
     )
     if (
-        component.resolver.origin is ResolverOrigin.DATASET
+        component.resolver.origin
+        in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
         and component.resolver.dataset_id
     ):
         required_on_create_dependencies.setdefault(

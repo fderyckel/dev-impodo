@@ -59,11 +59,11 @@
         <button class="button secondary" type="submit">Add file</button>
       </form>
     {% endif %}
-    <form method="post" action="/workspaces/{{ workspace_id }}/sources/inspect" data-source-review-form>
+    <form method="post" action="/workspaces/{{ workspace_id }}/sources/inspect" data-source-review-form data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
         <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to review</a>
-        <button class="button primary" type="submit">
+        <button class="button {% if catalogs %}secondary{% else %}primary{% endif %}" type="submit" data-submitting-label="Checking files...">
           {% if catalogs %}Check files again{% else %}Check source files{% endif %}
         </button>
       </div>

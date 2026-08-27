@@ -16,11 +16,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const label = toggle.querySelector("[data-table-fields-toggle-label]");
       const chevron = toggle.querySelector(".mapping-table-fields-chevron");
       const summary = dataset?.querySelector("[data-table-fields-summary]");
+      const expandedCopy = dataset?.querySelector("[data-table-fields-expanded-copy]");
 
       const setExpanded = (expanded) => {
         toggle.setAttribute("aria-expanded", String(expanded));
         panel.hidden = !expanded;
         summary?.toggleAttribute("hidden", expanded);
+        expandedCopy?.toggleAttribute("hidden", !expanded);
         chevron?.classList.toggle("collapsed", !expanded);
         if (label) {
           label.textContent = expanded
@@ -32,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
       toggle.addEventListener("click", () => {
         setExpanded(toggle.getAttribute("aria-expanded") !== "true");
       });
+      setExpanded(toggle.getAttribute("aria-expanded") === "true");
     }
   };
 

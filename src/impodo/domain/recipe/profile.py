@@ -148,8 +148,10 @@ class FieldSpec(StrictModel):
 class ResolveSpec(StrictModel):
     """Describe one symbolic relationship-resolution origin.
 
-    A relationship resolves either against another prepared dataset
-    (`dataset`) or against a captured Odoo model (`target_model`), never both.
+    A relationship may resolve against another prepared dataset, a captured
+    Odoo model, or use the target first with an incoming fallback. The hybrid
+    shape retains exact reviewed target-key translations without rewriting the
+    incoming source identity.
     """
 
     dataset: str | None = None
@@ -157,34 +159,52 @@ class ResolveSpec(StrictModel):
     target_model: str | None = None
     target_fields: tuple[str, ...] = ()
     target_scope_fields: tuple[str, ...] = ()
+    target_value_mappings: tuple[tuple[str, str], ...] | None = None
 
     @model_validator(mode="after")
     def validate_origin(self) -> "ResolveSpec":
-        """Require exactly one complete incoming or target resolution shape."""
+        """Require one complete incoming, target, or hybrid resolution shape."""
 
         incoming = self.dataset is not None
         target = self.target_model is not None
-        if incoming == target:
+        if not incoming and not target:
             raise ValueError(
-                "resolve must declare exactly one of dataset or target_model"
+                "resolve must declare dataset, target_model, or both"
             )
         if incoming:
             if not self.target_source_fields:
                 raise ValueError(
                     "dataset resolution requires target_source_fields"
                 )
-            if self.target_fields or self.target_scope_fields:
+            if not target and (self.target_fields or self.target_scope_fields):
                 raise ValueError(
-                    "target_fields/target_scope_fields are invalid for dataset resolution"
+                    "target fields are invalid for incoming-only resolution"
                 )
         if target and not self.target_fields:
             raise ValueError("target-only resolution requires target_fields")
+        if self.target_value_mappings is not None:
+            if not incoming or not target:
+                raise ValueError(
+                    "target value mappings require target-first incoming resolution"
+                )
+            if len(self.target_fields) != 1 or self.target_scope_fields:
+                raise ValueError(
+                    "target value mappings require one unscoped target key"
+                )
+            sources = tuple(item[0] for item in self.target_value_mappings)
+            if len(set(sources)) != len(sources) or any(
+                not source or not target_value
+                for source, target_value in self.target_value_mappings
+            ):
+                raise ValueError("target value mappings are invalid")
         return self
 
     @property
-    def origin(self) -> Literal["incoming", "target"]:
+    def origin(self) -> Literal["incoming", "target", "target_then_incoming"]:
         """Return the portable origin label stored on `LogicalReference`."""
 
+        if self.dataset is not None and self.target_model is not None:
+            return "target_then_incoming"
         return "incoming" if self.dataset is not None else "target"
 
 

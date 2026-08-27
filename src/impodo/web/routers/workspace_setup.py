@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
+from impodo.application.data_version.inspection import SourceInspectionError
 from impodo.domain.workspace.workbench import (
-    WorkspaceStateError,
-    WorkspaceRegistrationError,
-    WorkspaceStatus,
     SourceMode,
+    WorkspaceRegistrationError,
+    WorkspaceStateError,
+    WorkspaceStatus,
     workspace_registration_problems,
 )
+
 from ..context import WebContext
 from ..forms import _revision, _secure_form
-from ..presenters.common import _render, _workspace_error
+from ..presenters.common import _flash, _render, _workspace_error
 from ..presenters.mapping_forms import _draft_or_redirect
 from ..security import require_session
 from ..source_file_commands import accept_source_uploads
@@ -136,9 +139,27 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 error,
                 problems=workspace_registration_problems(workspace),
             )
-        destination = "sources" if workspace.source_mode is SourceMode.FILE else "schema"
+        if workspace.source_mode is SourceMode.FILE:
+            try:
+                catalogs = await run_in_threadpool(
+                    context.inspections.inspect_project,
+                    workspace.workspace_id,
+                    actor=context.actor,
+                )
+            except SourceInspectionError as error:
+                request.session["source_inspection_error"] = {
+                    "workspace_id": workspace.workspace_id,
+                    "message": str(error),
+                }
+            else:
+                file_label = "file" if len(catalogs) == 1 else "files"
+                _flash(request, f"Checked {len(catalogs)} source {file_label}.")
+            return RedirectResponse(
+                f"/workspaces/{workspace.workspace_id}/sources#source-files",
+                status_code=303,
+            )
         return RedirectResponse(
-            f"/workspaces/{workspace.workspace_id}/{destination}",
+            f"/workspaces/{workspace.workspace_id}/schema",
             status_code=303,
         )
 

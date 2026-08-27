@@ -28,7 +28,10 @@ development reset.
 Project overview. `MigrationProjectService` owns Project commands, while
 `workspace_setup.py` opens the contained authoring engine under
 `/workspaces/{workspace_id}` and directs file or Odoo-source setup to the
-existing bounded services.
+existing bounded services. For a file project, **Use these files and continue**
+registers the workspace, runs the bounded source inspection, and opens the
+source preview in one browser action. A failed inspection leaves the registered
+files available and presents the normal retry action.
 
 `WorkspaceAccessService` provides the verified Project-owned lineage for one
 workspace through one registry read. `WorkspaceOwnerViewService` uses that

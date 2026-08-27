@@ -45,6 +45,29 @@ def compile_browser_mapping(
                 dataset=target_dataset.name,
                 target_source_fields=target_mapping.source_identity_column_keys,
             )
+        if value.origin is ResolverOrigin.TARGET_THEN_DATASET:
+            target_mapping = mappings.get(str(value.dataset_id))
+            target_dataset = datasets.get(str(value.dataset_id))
+            if target_mapping is None or target_dataset is None:
+                raise ReadinessError("A mapped relationship dataset is missing")
+            return ResolveSpec(
+                dataset=target_dataset.name,
+                target_source_fields=target_mapping.source_identity_column_keys,
+                target_model=value.model,
+                target_fields=tuple(
+                    item.target_field for item in value.key_mappings
+                ),
+                target_scope_fields=tuple(
+                    item.target_field for item in value.scope_mappings
+                ),
+                target_value_mappings=(
+                    tuple(
+                        (item.source_value, item.target_value)
+                        for item in value.value_mappings
+                    )
+                    or None
+                ),
+            )
         return ResolveSpec(
             target_model=value.model,
             target_fields=tuple(item.target_field for item in value.key_mappings),

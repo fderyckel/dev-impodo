@@ -624,6 +624,32 @@ def _mapping_datasets_from_form(
                     )
                     or None,
                 )
+            elif origin is ResolverOrigin.TARGET_THEN_DATASET:
+                resolver = replace(
+                    _target_catalog_resolver(
+                        metadata.relation,
+                        keys.get(
+                            _text(
+                                form,
+                                f"relation_key_{dataset_index}_{relation_index}",
+                            )
+                        ),
+                        selected_sources,
+                    ),
+                    origin=origin,
+                    dataset_id=_text(
+                        form,
+                        f"relation_dataset_{dataset_index}_{relation_index}",
+                    )
+                    or None,
+                    value_mappings=_value_mappings_from_form(
+                        form,
+                        (
+                            f"relation_value_matches_{dataset_index}_"
+                            f"{relation_index}"
+                        ),
+                    ),
+                )
             else:
                 resolver = replace(
                     _target_catalog_resolver(
@@ -1198,7 +1224,10 @@ def _target_catalog_resolver(
 
 
 def _resolver_business_key(resolver, candidates):
-    if resolver is None or resolver.origin is not ResolverOrigin.TARGET_CATALOG:
+    if resolver is None or resolver.origin not in {
+        ResolverOrigin.TARGET_CATALOG,
+        ResolverOrigin.TARGET_THEN_DATASET,
+    }:
         return next(
             (
                 item

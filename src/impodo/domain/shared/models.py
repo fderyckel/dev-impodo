@@ -82,7 +82,9 @@ class LogicalReference:
     dataset: str | None = None
     model: str | None = None
     target_fields: tuple[str, ...] = ()
+    target_scope_fields: tuple[str, ...] = ()
     scope: tuple[ScalarValue, ...] = ()
+    incoming_key: tuple[ScalarValue, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,6 +510,10 @@ def portable_value(value: Any) -> Any:
             result["model"] = value.model
         if value.target_fields:
             result["target_fields"] = list(value.target_fields)
+        if value.target_scope_fields:
+            result["target_scope_fields"] = list(value.target_scope_fields)
+        if value.incoming_key is not None:
+            result["incoming_key"] = portable_value(value.incoming_key)
         return result
     if isinstance(value, tuple):
         return [portable_value(item) for item in value]
@@ -555,7 +561,14 @@ def restore_portable_value(value: Any) -> Any:
 
     logical_keys = {"origin", "key", "scope"}
     if logical_keys.issubset(keys) and keys.issubset(
-        logical_keys | {"dataset", "model", "target_fields"}
+        logical_keys
+        | {
+            "dataset",
+            "model",
+            "target_fields",
+            "target_scope_fields",
+            "incoming_key",
+        }
     ):
         restored_key = restore_portable_value(value["key"])
         restored_scope = restore_portable_value(value["scope"])
@@ -564,15 +577,27 @@ def restore_portable_value(value: Any) -> Any:
         ):
             raise ValueError("portable logical reference is invalid")
         target_fields = restore_portable_value(value.get("target_fields", ()))
-        if not isinstance(target_fields, tuple):
+        target_scope_fields = restore_portable_value(
+            value.get("target_scope_fields", ())
+        )
+        if not isinstance(target_fields, tuple) or not isinstance(
+            target_scope_fields, tuple
+        ):
             raise ValueError("portable logical reference fields are invalid")
+        incoming_key = restore_portable_value(value.get("incoming_key"))
+        if incoming_key is not None and not isinstance(incoming_key, tuple):
+            raise ValueError("portable incoming reference key is invalid")
         return LogicalReference(
             origin=str(value["origin"]),
             key=restored_key,
             dataset=(str(value["dataset"]) if value.get("dataset") else None),
             model=(str(value["model"]) if value.get("model") else None),
             target_fields=tuple(str(item) for item in target_fields),
+            target_scope_fields=tuple(
+                str(item) for item in target_scope_fields
+            ),
             scope=restored_scope,
+            incoming_key=incoming_key,
         )
 
     business_keys = {"model", "key", "scope"}

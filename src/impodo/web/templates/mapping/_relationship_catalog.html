@@ -74,11 +74,13 @@
                     </label>
                     <label>
                       Where should Impodo find the matching choice?
-                      {% set selected_origin = mapping.resolver.origin.value if mapping else ('dataset' if row.recommended_dataset_id else 'target_catalog') %}
+                      {% set selected_origin = mapping.resolver.origin.value if mapping else ('target_then_dataset' if row.recommended_dataset_id else 'target_catalog') %}
                       <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
-                        <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo choices</option>
-                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Another selected source table</option>
+                        <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Only existing Odoo records</option>
+                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Only another incoming table</option>
+                        <option value="target_then_dataset" {% if selected_origin == 'target_then_dataset' %}selected{% endif %}>Use Odoo first, otherwise use the incoming table</option>
                       </select>
+                      <small>The combined choice reuses one exact Odoo record and never updates it merely because it won this match.</small>
                     </label>
                     <label>
                       Which related source table?
@@ -151,7 +153,7 @@
                           data-target-label="{{ row.metadata.label }}"
                         >Match values</button>
                         <small data-value-match-summary>
-                          {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when source and Odoo choices differ{% endif %}
+                          {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when a source choice must explicitly reuse a differently named Odoo record{% endif %}
                         </small>
                         {% else %}
                           <small data-value-match-summary>Choose a matching rule before matching values.</small>

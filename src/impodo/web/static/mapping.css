@@ -5,12 +5,23 @@
   border-left: 0;
 }
 
-.mapping-dataset-actions {
+.mapping-table-fields-heading {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: .65rem;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2.25rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.4rem;
   flex-wrap: wrap;
+}
+
+.mapping-table-fields-heading h3 {
+  margin: 0;
+  color: var(--impodo-red-dark);
+  font-size: .8rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
 }
 
 .mapping-table-fields-toggle {
@@ -26,9 +37,7 @@
 }
 
 .mapping-table-fields-summary {
-  flex-basis: 100%;
-  margin: 0;
-  text-align: right;
+  margin: .65rem 0 0;
 }
 
 .identity-pair {
@@ -264,13 +273,14 @@
 }
 
 @media (max-width: 860px) {
-  .mapping-dataset-actions {
-    justify-content: flex-start;
+  .mapping-table-fields-heading {
+    align-items: stretch;
+    flex-direction: column;
     width: 100%;
   }
 
-  .mapping-table-fields-summary {
-    text-align: left;
+  .mapping-table-fields-toggle {
+    width: 100%;
   }
 
   .identity-pair {

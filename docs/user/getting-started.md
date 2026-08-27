@@ -26,7 +26,8 @@ name, and read-only API key.
 5. Select **Create project**.
 6. On the data project overview, select **Open workspace**.
 7. For files, add all related CSV or XLSX exports and select **Use these files
-   and continue**. For Odoo data, continue with the read-only source setup.
+   and continue**. Impodo checks the files and opens their source preview. For
+   Odoo data, continue with the read-only source setup.
 
 Impodo creates an Authoring data version and workspace for the data project. It
 does not create a Recipe, inspect Odoo, or write to Odoo during data project

@@ -614,6 +614,7 @@ class RecipeCompiler:
                         "on_ambiguous": relation.on_ambiguous,
                         "on_missing": relation.on_missing,
                         "operation": relation.operation,
+                        "origin": resolver.origin.value,
                         "null_policy": relation.null_policy,
                         "required": relation.required,
                         "required_on_create": relation.required_on_create,

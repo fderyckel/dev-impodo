@@ -167,6 +167,10 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn('aria-controls="mapping-table-fields-{{ dataset_index }}"', dataset_template)
         self.assertIn("data-table-fields-panel", dataset_template)
         self.assertIn("Close this table's fields", dataset_template)
+        self.assertLess(
+            dataset_template.index("data-table-fields-toggle"),
+            dataset_template.index("data-table-fields-panel"),
+        )
 
 
 if __name__ == "__main__":

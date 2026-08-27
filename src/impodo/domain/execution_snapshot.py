@@ -471,7 +471,7 @@ def _target_resolution_index(
     outcomes: dict[tuple[str, bytes], tuple[str, int]] = {}
     for evidence in result.reference_resolutions:
         reference = evidence.reference
-        if reference.origin != "target":
+        if reference.origin not in {"target", "target_then_incoming"}:
             continue
         key = (
             evidence.dataset,
@@ -499,7 +499,10 @@ def _resolved_create_record(
     def resolved_value(value: Any) -> Any:
         if isinstance(value, tuple):
             return tuple(resolved_value(item) for item in value)
-        if not isinstance(value, LogicalReference) or value.origin != "target":
+        if not isinstance(value, LogicalReference) or value.origin not in {
+            "target",
+            "target_then_incoming",
+        }:
             return value
         outcome = target_resolutions.get(
             (
@@ -510,7 +513,20 @@ def _resolved_create_record(
         if outcome is None:
             raise ValueError("Target relationship resolution evidence is incomplete")
         status, match_count = outcome
-        if status != "RESOLVED":
+        if value.origin == "target_then_incoming" and status == "RESOLVED_INCOMING":
+            if value.dataset is None or value.incoming_key is None:
+                raise ValueError("Resolved incoming fallback evidence is invalid")
+            return LogicalReference(
+                origin="incoming",
+                key=value.incoming_key,
+                dataset=value.dataset,
+            )
+        expected_status = (
+            "RESOLVED_TARGET"
+            if value.origin == "target_then_incoming"
+            else "RESOLVED"
+        )
+        if status != expected_status:
             return value
         if match_count != 1 or not value.model:
             raise ValueError("Resolved target relationship evidence is invalid")

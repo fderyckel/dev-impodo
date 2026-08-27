@@ -216,6 +216,12 @@ def _resolve_records(
     for record in original:
         by_dataset_identity[(record.dataset, record.source_identity)].append(record)
 
+    (
+        target_precedence,
+        case_conflicts,
+        precedence_conflicts,
+    ) = _hybrid_incoming_outcomes(original, catalog)
+
     cache: dict[tuple[str, int], PreparedRecord] = {}
     evidence: list[ReferenceResolution] = []
 
@@ -227,6 +233,79 @@ def _resolve_records(
             return cache[cache_key]
         dataset = plan.dataset(record.dataset)
         record_issues = list(record.issues)
+        incoming_identity = (record.dataset, record.source_identity)
+        if incoming_identity in precedence_conflicts:
+            record_issues.append(
+                Issue(
+                    code="REFERENCE_TARGET_PRECEDENCE_CONFLICT",
+                    message=(
+                        "different reviewed Odoo matches claim this incoming "
+                        "record; choose one explicit relationship match"
+                    ),
+                    severity=Severity.ERROR,
+                    dataset=record.dataset,
+                    row=record.source_row,
+                )
+            )
+        elif incoming_identity in case_conflicts:
+            record_issues.append(
+                Issue(
+                    code="REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED",
+                    message=(
+                        "an Odoo record differs from this incoming key only by "
+                        "letter case; explicitly reuse it or keep a separate record"
+                    ),
+                    severity=Severity.ERROR,
+                    dataset=record.dataset,
+                    row=record.source_row,
+                )
+            )
+        elif incoming_identity in target_precedence:
+            target = target_precedence[incoming_identity]
+            try:
+                target_identity = _target_identity(
+                    plan,
+                    dataset.target_identity.components,
+                    target,
+                    catalog,
+                )
+                target_scope = _target_identity(
+                    plan,
+                    dataset.target_identity.scope,
+                    target,
+                    catalog,
+                )
+            except (KeyError, ValueError, ValueParseError) as error:
+                record_issues.append(
+                    Issue(
+                        code="REFERENCE_TARGET_PRECEDENCE_CONFLICT",
+                        message=(
+                            "the winning Odoo record cannot be represented by "
+                            f"the incoming dataset identity: {error}"
+                        ),
+                        severity=Severity.ERROR,
+                        dataset=record.dataset,
+                        row=record.source_row,
+                    )
+                )
+            else:
+                record = replace(
+                    record,
+                    target_identity=target_identity,
+                    target_scope=target_scope,
+                )
+                record_issues.append(
+                    Issue(
+                        code="REFERENCE_TARGET_PRECEDENCE_REUSE",
+                        message=(
+                            "an exact or explicitly matched Odoo record wins; "
+                            "this incoming row is reused without updating Odoo"
+                        ),
+                        severity=Severity.WARNING,
+                        dataset=record.dataset,
+                        row=record.source_row,
+                    )
+                )
 
         identity = []
         for index, value in enumerate(record.target_identity):
@@ -333,6 +412,142 @@ def _resolve_records(
         if not isinstance(value, LogicalReference):
             return value
         matches: tuple[Any, ...]
+        if value.origin == "target_then_incoming":
+            target_matches = catalog.find_by_fields(
+                str(value.model),
+                (*value.target_fields, *value.target_scope_fields),
+                (*value.key, *value.scope),
+            )
+            if len(target_matches) == 1:
+                status = "RESOLVED_TARGET"
+                result = BusinessReference(
+                    model=str(value.model),
+                    key=value.key,
+                    scope=value.scope,
+                )
+                matches = target_matches
+            elif len(target_matches) > 1:
+                status = "AMBIGUOUS"
+                matches = target_matches
+                issues.append(
+                    Issue(
+                        code="REFERENCE_AMBIGUOUS",
+                        message=(
+                            f"{field_name} reference {value.key!r} matched "
+                            f"{len(matches)} Odoo records"
+                        ),
+                        severity=ambiguous_severity,
+                        dataset=owner.dataset,
+                        row=owner.source_row,
+                        field=field_name,
+                        affected_count=len(matches),
+                    )
+                )
+                result = value
+            else:
+                case_matches = catalog.find_casefold_by_fields(
+                    str(value.model),
+                    (*value.target_fields, *value.target_scope_fields),
+                    (*value.key, *value.scope),
+                )
+                if case_matches:
+                    status = "CASE_MISMATCH"
+                    matches = case_matches
+                    issues.append(
+                        Issue(
+                            code="REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED",
+                            message=(
+                                f"{field_name} reference {value.key!r} has an "
+                                "Odoo candidate that differs only by letter case"
+                            ),
+                            severity=Severity.ERROR,
+                            dataset=owner.dataset,
+                            row=owner.source_row,
+                            field=field_name,
+                            affected_count=len(matches),
+                        )
+                    )
+                    result = value
+                else:
+                    candidates = by_dataset_identity.get(
+                        (
+                            str(value.dataset),
+                            value.incoming_key or value.key,
+                        ),
+                        (),
+                    )
+                    matches = tuple(candidates)
+                    if len(matches) == 0:
+                        status = "NOT_FOUND"
+                        issues.append(
+                            Issue(
+                                code="REFERENCE_NOT_FOUND",
+                                message=(
+                                    f"{field_name} reference "
+                                    f"{value.incoming_key or value.key!r} was "
+                                    "not found in Odoo or the incoming table"
+                                ),
+                                severity=missing_severity,
+                                dataset=owner.dataset,
+                                row=owner.source_row,
+                                field=field_name,
+                            )
+                        )
+                        result = value
+                    elif len(matches) > 1:
+                        status = "AMBIGUOUS"
+                        issues.append(
+                            Issue(
+                                code="REFERENCE_AMBIGUOUS",
+                                message=(
+                                    f"{field_name} incoming reference "
+                                    f"{value.incoming_key or value.key!r} matched "
+                                    f"{len(matches)} records"
+                                ),
+                                severity=ambiguous_severity,
+                                dataset=owner.dataset,
+                                row=owner.source_row,
+                                field=field_name,
+                                affected_count=len(matches),
+                            )
+                        )
+                        result = value
+                    else:
+                        target_record = resolve_record(matches[0])
+                        if target_record.blocked:
+                            status = "BLOCKED_BY_DEPENDENCY"
+                            issues.append(
+                                Issue(
+                                    code="REFERENCE_BLOCKED_BY_DEPENDENCY",
+                                    message=(
+                                        f"{field_name} depends on blocked "
+                                        f"{target_record.dataset} "
+                                        f"{target_record.source_identity!r}"
+                                    ),
+                                    severity=Severity.ERROR,
+                                    dataset=owner.dataset,
+                                    row=owner.source_row,
+                                    field=field_name,
+                                )
+                            )
+                            result = value
+                        else:
+                            status = "RESOLVED_INCOMING"
+                            result = BusinessReference(
+                                model=target_record.target_model,
+                                key=tuple(target_record.target_identity),
+                                scope=tuple(target_record.target_scope),
+                            )
+            evidence.append(
+                ReferenceResolution(
+                    dataset=owner.dataset,
+                    field=field_name,
+                    reference=value,
+                    status=status,
+                    match_count=len(matches),
+                )
+            )
+            return result
         if value.origin == "incoming":
             candidates = by_dataset_identity.get(
                 (str(value.dataset), value.key), ()
@@ -340,7 +555,9 @@ def _resolve_records(
             matches = tuple(candidates)
         else:
             matches = catalog.find_by_fields(
-                str(value.model), value.target_fields, value.key
+                str(value.model),
+                (*value.target_fields, *value.target_scope_fields),
+                (*value.key, *value.scope),
             )
 
         if len(matches) == 0:
@@ -420,6 +637,62 @@ def _resolve_records(
 
     resolved_records = tuple(resolve_record(record) for record in original)
     return resolved_records, tuple(evidence)
+
+
+def _hybrid_incoming_outcomes(
+    records: Iterable[PreparedRecord],
+    catalog: TargetCatalog,
+) -> tuple[
+    dict[tuple[str, tuple[Any, ...]], TargetRecord],
+    set[tuple[str, tuple[Any, ...]]],
+    set[tuple[str, tuple[Any, ...]]],
+]:
+    """Index target winners and case-only conflicts once for incoming rows."""
+
+    winners: dict[tuple[str, tuple[Any, ...]], TargetRecord] = {}
+    case_conflicts: set[tuple[str, tuple[Any, ...]]] = set()
+    winner_conflicts: set[tuple[str, tuple[Any, ...]]] = set()
+    for record in records:
+        values: list[Any] = [
+            *record.target_identity,
+            *record.target_scope,
+            *record.references.values(),
+        ]
+        pending = list(values)
+        while pending:
+            value = pending.pop()
+            if isinstance(value, tuple):
+                pending.extend(value)
+                continue
+            if not isinstance(value, LogicalReference) or (
+                value.origin != "target_then_incoming"
+            ):
+                continue
+            if (
+                value.dataset is None
+                or value.model is None
+                or not value.target_fields
+                or value.incoming_key is None
+            ):
+                continue
+            incoming_identity = (value.dataset, value.incoming_key)
+            matches = catalog.find_by_fields(
+                value.model,
+                (*value.target_fields, *value.target_scope_fields),
+                (*value.key, *value.scope),
+            )
+            if len(matches) == 1:
+                previous = winners.setdefault(incoming_identity, matches[0])
+                if previous.odoo_id != matches[0].odoo_id:
+                    winner_conflicts.add(incoming_identity)
+                continue
+            if not matches and catalog.find_casefold_by_fields(
+                value.model,
+                (*value.target_fields, *value.target_scope_fields),
+                (*value.key, *value.scope),
+            ):
+                case_conflicts.add(incoming_identity)
+    return winners, case_conflicts, winner_conflicts
 
 
 def _expanded_component(
@@ -624,6 +897,21 @@ def _classify_record(
             business_scope=business_scope,
             classification=classification,
             target_match_count=0,
+            issues=tuple(record_issues),
+        )
+
+    if any(
+        issue.code == "REFERENCE_TARGET_PRECEDENCE_REUSE"
+        for issue in record_issues
+    ):
+        return Decision(
+            dataset=record.dataset,
+            source_row=record.source_row,
+            source_trace_id=record.source_trace_id,
+            business_identity=business_identity,
+            business_scope=business_scope,
+            classification=Classification.UNCHANGED,
+            target_match_count=1,
             issues=tuple(record_issues),
         )
 

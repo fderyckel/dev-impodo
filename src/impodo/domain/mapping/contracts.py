@@ -53,6 +53,7 @@ class ResolverOrigin(StrEnum):
 
     DATASET = "dataset"
     TARGET_CATALOG = "target_catalog"
+    TARGET_THEN_DATASET = "target_then_dataset"
 
 
 
@@ -213,7 +214,9 @@ class RelationshipResolver:
 
     Dataset resolvers name another prepared dataset. Target-catalog resolvers
     name an Odoo model that Stage H may read through governed key/scope fields.
-    Optional value mappings are exact reviewed translations.
+    Target-then-dataset resolvers retain both shapes: one exact Odoo match wins,
+    otherwise the same source key may resolve through the incoming dataset.
+    Optional value mappings are exact reviewed translations for the Odoo key.
     """
 
     origin: ResolverOrigin

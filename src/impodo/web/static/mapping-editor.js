@@ -955,9 +955,9 @@ document.addEventListener("DOMContentLoaded", () => {
         sourceColumnKey = selectedSources[0] || "";
         businessKeyId =
           row.querySelector('[name^="relation_key_"]')?.value || "";
-        if (origin !== "target_catalog") {
+        if (!["target_catalog", "target_then_dataset"].includes(origin)) {
           showValueMatchError(
-            "Choose Existing Odoo records before matching these choices."
+            "Choose an option that checks existing Odoo records before matching these choices."
           );
           return;
         }
@@ -1146,6 +1146,7 @@ document.addEventListener("DOMContentLoaded", () => {
         name.startsWith("scalar_value_source_") ||
         name.startsWith("relation_source_") ||
         name.startsWith("relation_origin_") ||
+        name.startsWith("relation_dataset_") ||
         name.startsWith("relation_key_");
       if (!changesValueIdentity || storage.value === "[]") {
         return;

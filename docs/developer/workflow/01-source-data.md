@@ -25,10 +25,13 @@ selection can be saved and frozen.
 
 ## Implementation flow
 
-For file mode, `sources.py` invokes source inspection and
-`SourceWorkspaceService` to save per-file configuration and freeze the selected
-tables. The frozen source snapshot is built from hash-checked CSV or XLSX
-content and materialized as tagged Parquet evidence.
+For file mode, `workspace_setup.py` registers the selected files and invokes
+the initial source inspection in the same **Use these files and continue**
+request. It then opens the source preview. `sources.py` retains the explicit
+recheck route and invokes `SourceWorkspaceService` to save per-file
+configuration and freeze the selected tables. The frozen source snapshot is
+built from hash-checked CSV or XLSX content and materialized as tagged Parquet
+evidence.
 
 `MigrationWorkspaceStateRepository` records each uploaded file in the draft
 DataVersion package immediately. `DataVersionOwnedSourceRepository` reads and

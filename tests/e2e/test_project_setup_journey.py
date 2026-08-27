@@ -88,7 +88,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertEqual(registered.status_code, 303)
         self.assertEqual(
             registered.headers["location"],
-            f"/workspaces/{workspace_id}/sources",
+            f"/workspaces/{workspace_id}/sources#source-files",
         )
         summary = self.client.get(f"/workspaces/{workspace_id}/overview")
         self.assertIn("Data version overview", summary.text)
@@ -138,23 +138,12 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Source data", source_discovery.text)
         self.assertIn('aria-current="step"', source_discovery.text)
         self.assertIn('aria-current="page"', source_discovery.text)
-        self.assertIn("Check source files", source_discovery.text)
-        self.assertIn("Your files have not been checked yet", source_discovery.text)
+        self.assertIn("Checked 2 source files.", source_discovery.text)
+        self.assertIn("Check files again", source_discovery.text)
+        self.assertNotIn("Your files have not been checked yet", source_discovery.text)
         self.assertIn("data-source-review-page", source_discovery.text)
         self.assertIn("data-source-review-form", source_discovery.text)
-        inspected = self.client.post(
-            f"/workspaces/{workspace_id}/sources/inspect",
-            data={"csrf_token": self.csrf},
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-        self.assertEqual(inspected.status_code, 303)
-        self.assertEqual(
-            inspected.headers["location"],
-            f"/workspaces/{workspace_id}/sources#source-files",
-        )
-        inspection_page = self.client.get(inspected.headers["location"])
-        self.assertIn("Checked 2 source file", inspection_page.text)
+        inspection_page = source_discovery
         self.assertIn("customers.csv", inspection_page.text)
         self.assertIn("C001", inspection_page.text)
         self.assertIn("products.xlsx", inspection_page.text)
