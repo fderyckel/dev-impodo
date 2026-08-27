@@ -25,6 +25,7 @@ categories, and bills of materials, use the
 ## Installation and focused guides
 
 - [Install Impodo on Windows](installation/windows.md)
+- [Install Impodo on macOS](installation/macos.md)
 - [Understand data projects, data versions, workspaces, and Recipes](concepts.md)
 - [Connect to Odoo on this computer](guides/local-odoo.md)
 - [Prepare related tables](guides/related-tables.md)

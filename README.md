@@ -180,23 +180,11 @@ PowerShell window.
 
 ### macOS
 
-From Terminal in a cloned Impodo checkout, create an isolated Python
-environment, install Impodo, and choose a local project-data directory:
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-mkdir -p "$HOME/Library/Application Support/Impodo/projects"
-export IMPODO_PROJECT_ROOT="$HOME/Library/Application Support/Impodo/projects"
-impodo
-```
-
-The `impodo` command opens the same local-only browser experience. Keep the
-Terminal window open while using Impodo; press `Ctrl+C` or select **Quit
-Impodo** in the browser when finished. To keep the chosen project-data
-location for future Terminal sessions, add the `export IMPODO_PROJECT_ROOT=...`
-line to your shell profile.
+For the complete GitHub-checkout installation, library verification, and
+launch instructions, see [Install Impodo on macOS](docs/user/installation/macos.md).
+Impodo requires Python 3.12 or newer. Keep the Terminal window open while
+using Impodo; press `Control+C` or select **Quit Impodo** in the browser when
+finished.
 
 Editable installation is the development lane. For use with approved internal
 data, promote and install a clean, evidence-producing bundle by following the

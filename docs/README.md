@@ -133,6 +133,8 @@ setup, CLI, release, and acceptance procedures live under
   — one complete fictional migration across the current browser workflow.
 - [Windows installation](user/installation/windows.md) — step-by-step GitHub
   evaluation and accepted internal release routes.
+- [macOS installation](user/installation/macos.md) — step-by-step GitHub
+  checkout, local project-data storage, dependency verification, and launch.
 - [Local Odoo guide](user/guides/local-odoo.md) — local target readiness,
   ownership-aware start and stop behavior, and troubleshooting.
 - [Local Odoo technical runbook](developer/runbooks/local-odoo.md) — process
