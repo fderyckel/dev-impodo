@@ -36,6 +36,20 @@ from tests.support.browser_scenarios import (
 
 
 class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_active_table_fields_have_a_two_state_disclosure(self) -> None:
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=1
+        )
+
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("data-table-fields-toggle", page.text)
+        self.assertIn('aria-expanded="true"', page.text)
+        self.assertIn('aria-controls="mapping-table-fields-0"', page.text)
+        self.assertIn("Close this table's fields", page.text)
+        self.assertIn('id="mapping-table-fields-0" data-table-fields-panel', page.text)
+
     def test_first_identity_mapping_save_persists_without_validation(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=30

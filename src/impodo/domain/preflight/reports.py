@@ -94,6 +94,13 @@ class ReviewWorkbookCellStatus(StrEnum):
     EMPTY_ALLOWED = "Empty but allowed"
 
 
+class ReviewWorkbookActionPriority(StrEnum):
+    """Business priority for one actionable workbook issue."""
+
+    MUST_FIX = "Must fix"
+    REVIEW = "Review"
+
+
 @dataclass(frozen=True, slots=True)
 class ReviewWorkbookCellEffect:
     """One frozen preparation effect that may explain a workbook cell."""
@@ -145,6 +152,25 @@ class ReviewWorkbookEvidence:
     normalization_content_hash: str
     cell_effects: tuple[ReviewWorkbookCellEffect, ...]
     target_field_required: Mapping[tuple[str, str], bool]
+
+
+def review_workbook_action_priority(
+    issue_severity: str,
+) -> ReviewWorkbookActionPriority:
+    """Convert one manifest issue severity into its operator priority.
+
+    Errors must be resolved before loading. Warnings require a deliberate
+    review but do not become blockers merely because they appear in the
+    workbook. The manifest supplies the severity; the workbook cannot infer a
+    priority from cell content or presentation.
+    """
+
+    severity = issue_severity.casefold()
+    if severity == "error":
+        return ReviewWorkbookActionPriority.MUST_FIX
+    if severity == "warning":
+        return ReviewWorkbookActionPriority.REVIEW
+    raise ValueError("Review workbook action severity must be error or warning")
 
 
 def review_workbook_cell_feedback(

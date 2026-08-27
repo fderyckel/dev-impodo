@@ -41,6 +41,19 @@ problem by itself; **Cannot proceed** identifies a record that Impodo will hold
 back. Correct source data or rules in Impodo, then prepare and compare again.
 Editing a workbook cell does not change the saved data or proposed load.
 
+**Needs attention** is the workbook's action queue. Impodo sorts red **Must
+fix** items before amber **Review** items. Each row identifies the source
+dataset, record, field, final prepared value, reason, recommended action, and
+source row. Use the header filters when you need to focus on one dataset,
+field, or priority. Fix every red item in Impodo before loading; review each
+amber item and decide whether its upstream field match or source data must
+change.
+
+The action queue does not list every safe transformation. **Changed by
+Impodo** and **Added by Impodo** remain informational unless the comparison
+also records a warning or blocker. This keeps the worklist focused on decisions
+that need a data manager.
+
 In **Records to load**, each prepared field keeps only the final value in the
 visible cell. The **Prepared value feedback** column identifies the affected
 field and uses these statuses:

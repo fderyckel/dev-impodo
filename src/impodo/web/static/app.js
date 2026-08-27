@@ -218,6 +218,46 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  const projectListDeleteDialog = document.querySelector(
+    "[data-project-list-delete-dialog]"
+  );
+  const projectListDeleteTitle = projectListDeleteDialog?.querySelector(
+    "[data-project-list-delete-title]"
+  );
+  const projectListDeleteConfirm = projectListDeleteDialog?.querySelector(
+    "[data-project-list-delete-confirm]"
+  );
+  let pendingProjectDeleteForm = null;
+  let pendingProjectDeleteTrigger = null;
+  for (const trigger of document.querySelectorAll(
+    "[data-project-list-delete-trigger]"
+  )) {
+    trigger.addEventListener("click", () => {
+      const form = trigger.closest("[data-project-list-delete-form]");
+      if (!form || typeof projectListDeleteDialog?.showModal !== "function") {
+        return;
+      }
+      pendingProjectDeleteForm = form;
+      pendingProjectDeleteTrigger = trigger;
+      if (projectListDeleteTitle) {
+        projectListDeleteTitle.textContent = `Delete ${form.dataset.projectName}?`;
+      }
+      projectListDeleteDialog.showModal();
+    });
+  }
+  projectListDeleteConfirm?.addEventListener("click", () => {
+    const form = pendingProjectDeleteForm;
+    projectListDeleteDialog?.close();
+    form?.requestSubmit();
+  });
+  projectListDeleteDialog?.addEventListener("close", () => {
+    if (pendingProjectDeleteTrigger?.isConnected) {
+      window.requestAnimationFrame(() => pendingProjectDeleteTrigger.focus());
+    }
+    pendingProjectDeleteForm = null;
+    pendingProjectDeleteTrigger = null;
+  });
+
   const sidebar = document.querySelector("#app-sidebar");
   const sidebarToggle = document.querySelector("[data-sidebar-toggle]");
   const sidebarToggleLabel = document.querySelector(

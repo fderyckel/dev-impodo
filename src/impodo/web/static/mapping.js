@@ -5,6 +5,36 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastRow = null;
   let lastControl = null;
 
+  const setupTableFieldsDisclosure = () => {
+    for (const toggle of document.querySelectorAll("[data-table-fields-toggle]")) {
+      const panelId = toggle.getAttribute("aria-controls");
+      const panel = panelId ? document.getElementById(panelId) : null;
+      if (!panel) {
+        continue;
+      }
+      const dataset = toggle.closest("[data-mapping-dataset]");
+      const label = toggle.querySelector("[data-table-fields-toggle-label]");
+      const chevron = toggle.querySelector(".mapping-table-fields-chevron");
+      const summary = dataset?.querySelector("[data-table-fields-summary]");
+
+      const setExpanded = (expanded) => {
+        toggle.setAttribute("aria-expanded", String(expanded));
+        panel.hidden = !expanded;
+        summary?.toggleAttribute("hidden", expanded);
+        chevron?.classList.toggle("collapsed", !expanded);
+        if (label) {
+          label.textContent = expanded
+            ? "Close this table's fields"
+            : "Open this table's fields";
+        }
+      };
+
+      toggle.addEventListener("click", () => {
+        setExpanded(toggle.getAttribute("aria-expanded") !== "true");
+      });
+    }
+  };
+
   const rememberInteraction = (target) => {
     const row = target?.closest?.("[data-target-field]");
     if (!row) {
@@ -127,5 +157,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   window.impodoMappingPosition = { rememberInteraction, remember };
+  setupTableFieldsDisclosure();
   restore();
 });

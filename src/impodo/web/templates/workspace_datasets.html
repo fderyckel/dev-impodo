@@ -63,11 +63,12 @@
       <div class="actions">
         <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
       </div>
-      <details class="technical-evidence optional-workflow">
-        <summary>Does one table combine different kinds of information?</summary>
+      <section class="optional-workflow" aria-labelledby="combined-information-title">
+        <p class="eyebrow">Optional</p>
+        <h3 id="combined-information-title">Does one table combine different kinds of information?</h3>
         <p>For example, an order table may contain both the order and its individual lines.</p>
         <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities">Separate combined information</a>
-      </details>
+      </section>
       <details class="technical-evidence">
         <summary>Support details</summary>
         <code>{{ selection.content_hash }}</code>

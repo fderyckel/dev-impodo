@@ -16,9 +16,19 @@
                 · {{ view.source.columns|length }} source columns
               </p>
             </div>
-            <div>
+            <div class="mapping-dataset-actions">
               {% if view.active %}
                 <span class="status registered">Editing this table</span>
+                <button
+                  class="button secondary mapping-table-fields-toggle"
+                  type="button"
+                  aria-expanded="true"
+                  aria-controls="mapping-table-fields-{{ dataset_index }}"
+                  data-table-fields-toggle
+                >
+                  <span data-table-fields-toggle-label>Close this table's fields</span>
+                  {{ app_icon("chevron-up", "mapping-table-fields-chevron") }}
+                </button>
               {% else %}
                 <a class="button secondary" href="{{ view.edit_url }}">Edit this table</a>
               {% endif %}
@@ -26,6 +36,12 @@
                 <summary>Support details</summary>
                 <code>{{ view.source.dataset_id }}</code>
               </details>
+              {% if view.active %}
+                <p class="muted mapping-table-fields-summary" data-table-fields-summary hidden>
+                  {{ view.scalar_mapped_total }} Odoo field{{ "s" if view.scalar_mapped_total != 1 else "" }} and
+                  {{ view.relation_mapped_total }} linked list{{ "s" if view.relation_mapped_total != 1 else "" }} matched.
+                </p>
+              {% endif %}
             </div>
           </div>
 
@@ -163,9 +179,11 @@
           {% endif %}
 
           {% if view.active %}
-          {% include "mapping/_scalar_fields.html" %}
-          {% include "mapping/_relationship_fields.html" %}
-          {% include "mapping/_control_totals.html" %}
+            <div id="mapping-table-fields-{{ dataset_index }}" data-table-fields-panel>
+              {% include "mapping/_scalar_fields.html" %}
+              {% include "mapping/_relationship_fields.html" %}
+              {% include "mapping/_control_totals.html" %}
+            </div>
           {% else %}
             <div class="empty-state compact">
               <p>

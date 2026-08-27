@@ -130,6 +130,14 @@ changed or added value may keep its original display value and rule explanation
 inside an Excel note. This projection contains no independent classification
 logic and cannot change saved evidence.
 
+The workbook action queue contains manifest issues only. An error produces a
+**Must fix** action, while a warning produces a **Review** action. The queue
+sorts every required fix before review-only items and may show the exact final
+prepared value only when the bound file-source evidence contains that field.
+Safe transformations, neutral blanks, and workbook appearance cannot create an
+action item. Traceability uses the accepted logical dataset and source row;
+synthetic compiled source paths must not be described as original upload names.
+
 For Odoo-source projects, the portable manifest additionally excludes all
 baseline, proposed, and current business values. Those values and exact IDs are
 application-encrypted with project/run/capture binding. The persisted record

@@ -545,6 +545,17 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             creation_request_id=str(uuid4()),
         )
         project_id = created.project.project_id
+        listing = self.client.get("/projects")
+        self.assertIn("data-project-list-delete-trigger", listing.text)
+        self.assertIn(
+            'aria-label="Delete project Project to delete"',
+            listing.text,
+        )
+        self.assertIn("#trash3", listing.text)
+        self.assertIn(
+            f'action="/projects/{project_id}/delete"',
+            listing.text,
+        )
         overview = self.client.get(f"/projects/{project_id}")
 
         self.assertEqual(overview.status_code, 200)

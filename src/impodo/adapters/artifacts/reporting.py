@@ -32,11 +32,13 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from impodo.domain.preflight.reports import (
+    ReviewWorkbookActionPriority,
     ReviewWorkbookCellEffect,
     ReviewWorkbookCellFeedback,
     ReviewWorkbookCellStatus,
     ReviewWorkbookEvidence,
     plain_readiness_guidance,
+    review_workbook_action_priority,
     review_workbook_cell_feedback,
 )
 from impodo.domain.shared.models import (
@@ -103,6 +105,40 @@ class _RecordSheetProjection:
     rows: tuple[tuple[Any, ...], ...]
     cells: tuple[_RecordCellProjection, ...]
     feedback_counts: Mapping[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class _ReviewActionProjection:
+    """One manifest-authoritative action shown in the workbook worklist."""
+
+    priority: ReviewWorkbookActionPriority
+    dataset: str
+    record: Any
+    field: str
+    prepared_value: Any
+    reason: str
+    details: str
+    recommended_action: str
+    source_row: int | None
+    affected_records: int
+    technical_code: str
+
+    def workbook_row(self) -> tuple[Any, ...]:
+        """Return the stable business-first column projection."""
+
+        return (
+            self.priority.value,
+            self.dataset,
+            self.record,
+            self.field,
+            self.prepared_value,
+            self.reason,
+            self.details,
+            self.recommended_action,
+            self.source_row,
+            self.affected_records,
+            self.technical_code,
+        )
 
 
 def write_preflight_outputs(
@@ -208,7 +244,7 @@ def _build_workbook(
         review_evidence,
         cell_effects,
     )
-    attention_rows = _attention_rows(
+    attention_items = _attention_items(
         manifest,
         decisions,
         prepared_by_trace,
@@ -231,19 +267,21 @@ def _build_workbook(
     _write_review_overview(
         overview,
         manifest,
-        attention_rows,
+        attention_items,
         record_projection.feedback_counts,
     )
+    attention_rows = [item.workbook_row() for item in attention_items]
     _write_data_sheet(
         sheets["Needs attention"],
         [
-            "Priority",
-            "Dataset",
+            "Action priority",
+            "Source dataset",
             "Record",
             "Field",
-            "What needs attention",
+            "Final prepared value",
+            "Why this is listed",
             "Details",
-            "Next action",
+            "Recommended action",
             "Source row",
             "Affected records",
             "Technical code",
@@ -252,6 +290,7 @@ def _build_workbook(
         or [
             [
                 "Ready",
+                "",
                 "",
                 "",
                 "",
@@ -264,6 +303,13 @@ def _build_workbook(
             ]
         ],
         _COLORS["warning"],
+    )
+    sheets["Needs attention"]["A2"] = (
+        f"{len(attention_items):,} action item"
+        f"{'s' if len(attention_items) != 1 else ''} - "
+        "fix red items before loading and review amber items"
+        if attention_items
+        else "No action items - review the prepared records before loading"
     )
     _style_status_cells(sheets["Needs attention"], 1)
 
@@ -348,7 +394,7 @@ def _build_workbook(
 def _write_review_overview(
     sheet,
     manifest: dict[str, Any],
-    attention_rows: Sequence[Sequence[Any]],
+    attention_items: Sequence[_ReviewActionProjection],
     feedback_counts: Mapping[str, int],
 ) -> None:
     _title_band(
@@ -368,25 +414,38 @@ def _write_review_overview(
             "BLOCKED",
         )
     }
-    warning_count = sum(row[0] == "Review recommended" for row in attention_rows)
-    if counts["BLOCKED"]:
+    must_fix_count = sum(
+        item.priority is ReviewWorkbookActionPriority.MUST_FIX
+        for item in attention_items
+    )
+    review_count = sum(
+        item.priority is ReviewWorkbookActionPriority.REVIEW for item in attention_items
+    )
+    first_action = attention_items[0] if attention_items else None
+    if must_fix_count or counts["BLOCKED"] or counts["AMBIGUOUS"]:
         review_status = "Cannot proceed"
         next_action = (
-            "Return to Impodo and resolve every red item before checking again."
+            (
+                f"Open Needs attention and fix {must_fix_count:,} red "
+                f"item{'s' if must_fix_count != 1 else ''} in Impodo."
+            )
+            if must_fix_count
+            else "Return to Impodo and resolve every held-back record."
         )
-    elif counts["AMBIGUOUS"]:
-        review_status = "Needs attention"
-        next_action = (
-            "Review the amber identity matches in Impodo before checking again."
-        )
-    elif warning_count:
+    elif review_count:
         review_status = "Review recommended"
         next_action = (
-            "Review the amber item. Compare again if you change its field match."
+            f"Open Needs attention and review {review_count:,} amber "
+            f"item{'s' if review_count != 1 else ''} in Impodo."
         )
     else:
         review_status = "Ready for review"
         next_action = "Review the prepared records, then continue to Load into Odoo when approved."
+    if first_action is not None:
+        next_action = (
+            f"{next_action} Start with: {first_action.reason} "
+            f"{first_action.recommended_action}"
+        )
 
     summary_rows = [
         ["Outcome", "Records"],
@@ -419,12 +478,25 @@ def _write_review_overview(
         sheet.cell(row=row_index, column=2).number_format = "#,##0"
 
     target = dict(manifest.get("target", {}))
+    target_label = " - ".join(
+        item
+        for item in (
+            str(target.get("database") or ""),
+            (
+                f"Odoo {target.get('odoo_version')}"
+                if target.get("odoo_version")
+                else ""
+            ),
+        )
+        if item
+    )
     decision_rows = [
         ["Review decision", ""],
         ["Status", review_status],
+        ["Must fix items", must_fix_count],
+        ["Review items", review_count],
         ["Next action", next_action],
-        ["Target database", target.get("database")],
-        ["Odoo version", target.get("odoo_version")],
+        ["Target", target_label],
         ["Checked against Odoo", target.get("snapshot_timestamp")],
     ]
     for row_index, values in enumerate(decision_rows, start=4):
@@ -434,13 +506,19 @@ def _write_review_overview(
             start_row=row_index, start_column=5, end_row=row_index, end_column=8
         )
     _style_header(sheet, 4, 4, 8, _COLORS["charcoal_dark"])
-    for row_index in range(5, 10):
+    for row_index in range(5, 11):
         sheet.cell(row=row_index, column=4).fill = PatternFill(
             "solid", fgColor=_COLORS["soft"]
         )
         sheet.cell(row=row_index, column=4).font = Font(
             bold=True, color=_COLORS["charcoal_dark"]
         )
+    for row_index in (6, 7):
+        sheet.cell(row=row_index, column=5).number_format = "#,##0"
+    _style_status_cell(sheet["E6"], "danger")
+    _style_status_cell(sheet["E7"], "warning")
+    sheet["E8"].alignment = Alignment(vertical="top", wrap_text=True)
+    sheet.row_dimensions[8].height = 44
 
     preparation_rows = [
         ["Prepared value feedback", "Cells", "Meaning"],
@@ -638,26 +716,23 @@ def _cell_effects_by_coordinate(
     }
 
 
-def _attention_rows(
+def _attention_items(
     manifest: dict[str, Any],
     decisions: Sequence[dict[str, Any]],
     prepared_by_trace: dict[str, PreparedRecord],
     evidence: ReviewWorkbookEvidence | None,
-) -> list[list[Any]]:
-    rows: list[list[Any]] = []
+) -> list[_ReviewActionProjection]:
+    items: list[_ReviewActionProjection] = []
     source_issues = tuple(manifest.get("source_issues", ()))
+    dataset_models = _dataset_models(prepared_by_trace.values())
+    decisions_by_source = {
+        (str(item.get("dataset") or ""), item.get("source_row")): item
+        for item in decisions
+    }
     for issue in source_issues:
         dataset = str(issue.get("dataset") or "")
         source_row = issue.get("row")
-        decision = next(
-            (
-                item
-                for item in decisions
-                if item.get("dataset") == dataset
-                and item.get("source_row") == source_row
-            ),
-            None,
-        )
+        decision = decisions_by_source.get((dataset, source_row))
         classification = (
             _decision_classification(decision)
             if decision is not None
@@ -676,41 +751,48 @@ def _attention_rows(
             if decision is not None
             else "All relevant records"
         )
-        rows.append(
-            [
-                (
-                    "Cannot proceed"
-                    if issue.get("severity") == "error"
-                    else "Review recommended"
-                ),
-                _dataset_label(dataset, evidence),
-                record,
-                _field_label(
-                    dataset,
-                    str(issue.get("field") or ""),
+        field = str(issue.get("field") or "")
+        items.append(
+            _ReviewActionProjection(
+                priority=_review_action_priority(issue),
+                dataset=_dataset_label(dataset, evidence),
+                record=record,
+                field=_field_label(dataset, field, dataset_models, evidence),
+                prepared_value=_prepared_issue_value(
+                    decision,
+                    field,
                     prepared_by_trace,
-                    evidence,
                 ),
-                reason,
-                issue.get("message"),
-                action,
-                source_row,
-                issue.get("affected_count", 1),
-                issue.get("code"),
-            ]
+                reason=reason,
+                details=str(issue.get("message") or ""),
+                recommended_action=action,
+                source_row=source_row if isinstance(source_row, int) else None,
+                affected_records=int(issue.get("affected_count") or 1),
+                technical_code=str(issue.get("code") or ""),
+            )
         )
+
+    source_issue_keys = {
+        (
+            str(item.get("code") or ""),
+            str(item.get("dataset") or ""),
+            str(item.get("field") or ""),
+            item.get("row"),
+        )
+        for item in source_issues
+    }
 
     def represented_by_source_issue(
         issue: dict[str, Any],
         decision: dict[str, Any],
     ) -> bool:
+        code = str(issue.get("code") or "")
+        dataset = str(decision.get("dataset") or "")
+        field = str(issue.get("field") or "")
         return any(
-            item.get("code") == issue.get("code")
-            and (item.get("dataset") or decision.get("dataset"))
-            == decision.get("dataset")
-            and item.get("field") == issue.get("field")
-            and item.get("row") in (None, issue.get("row"), decision.get("source_row"))
-            for item in source_issues
+            (code, source_dataset, field, row) in source_issue_keys
+            for source_dataset in ("", dataset)
+            for row in (None, issue.get("row"), decision.get("source_row"))
         )
 
     for decision in decisions:
@@ -719,18 +801,19 @@ def _attention_rows(
         for issue in issues:
             if represented_by_source_issue(issue, decision):
                 continue
-            rows.append(
-                _decision_attention_row(
+            items.append(
+                _decision_attention_item(
                     decision,
                     issue,
                     prepared_by_trace,
+                    dataset_models,
                     evidence,
                 )
             )
             added = True
         if _decision_classification(decision) is Classification.AMBIGUOUS and not added:
-            rows.append(
-                _decision_attention_row(
+            items.append(
+                _decision_attention_item(
                     decision,
                     {
                         "code": "TARGET_IDENTITY_AMBIGUOUS",
@@ -740,59 +823,69 @@ def _attention_rows(
                         "affected_count": 1,
                     },
                     prepared_by_trace,
+                    dataset_models,
                     evidence,
                 )
             )
-    priority = {"Cannot proceed": 0, "Needs attention": 1, "Review recommended": 2}
+    priority = {
+        ReviewWorkbookActionPriority.MUST_FIX: 0,
+        ReviewWorkbookActionPriority.REVIEW: 1,
+    }
     return sorted(
-        rows,
+        items,
         key=lambda item: (
-            priority.get(str(item[0]), 9),
-            str(item[1]),
-            int(item[7]) if isinstance(item[7], int) else 0,
-            str(item[9]),
+            priority[item.priority],
+            item.dataset.casefold(),
+            item.source_row or 0,
+            item.technical_code,
+            item.field.casefold(),
         ),
     )
 
 
-def _decision_attention_row(
+def _decision_attention_item(
     decision: dict[str, Any],
     issue: dict[str, Any],
     prepared_by_trace: dict[str, PreparedRecord],
+    dataset_models: Mapping[str, str],
     evidence: ReviewWorkbookEvidence | None,
-) -> list[Any]:
+) -> _ReviewActionProjection:
     classification = _decision_classification(decision)
     reason, action = plain_readiness_guidance(
         str(issue.get("code") or ""),
         classification,
     )
     dataset = str(decision.get("dataset") or "")
-    return [
-        (
-            "Cannot proceed"
-            if classification is Classification.BLOCKED
-            or issue.get("severity") == "error"
-            else (
-                "Needs attention"
-                if classification is Classification.AMBIGUOUS
-                else "Review recommended"
-            )
-        ),
-        _dataset_label(dataset, evidence),
-        _display_value(decision.get("business_identity", ())),
-        _field_label(
-            dataset,
-            str(issue.get("field") or ""),
+    field = str(issue.get("field") or "")
+    source_row = decision.get("source_row")
+    return _ReviewActionProjection(
+        priority=_review_action_priority(issue),
+        dataset=_dataset_label(dataset, evidence),
+        record=_display_value(decision.get("business_identity", ())),
+        field=_field_label(dataset, field, dataset_models, evidence),
+        prepared_value=_prepared_issue_value(
+            decision,
+            field,
             prepared_by_trace,
-            evidence,
         ),
-        reason,
-        issue.get("message"),
-        action,
-        decision.get("source_row"),
-        issue.get("affected_count", 1),
-        issue.get("code"),
-    ]
+        reason=reason,
+        details=str(issue.get("message") or ""),
+        recommended_action=action,
+        source_row=source_row if isinstance(source_row, int) else None,
+        affected_records=int(issue.get("affected_count") or 1),
+        technical_code=str(issue.get("code") or ""),
+    )
+
+
+def _review_action_priority(
+    issue: Mapping[str, Any],
+) -> ReviewWorkbookActionPriority:
+    try:
+        return review_workbook_action_priority(str(issue.get("severity") or ""))
+    except ValueError as error:
+        raise ReportGenerationError(
+            "The readiness issue severity is invalid"
+        ) from error
 
 
 def _record_sheet_projection(
@@ -1305,21 +1398,49 @@ def _target_field_label(
     return field.rsplit(":", 1)[-1].replace("_", " ").title()
 
 
+def _dataset_models(records: Iterable[PreparedRecord]) -> dict[str, str]:
+    """Index each prepared dataset once for bounded worklist rendering."""
+
+    models: dict[str, str] = {}
+    for record in records:
+        existing = models.setdefault(record.dataset, record.target_model)
+        if existing != record.target_model:
+            raise ReportGenerationError(
+                "Prepared rows for one dataset use different target models"
+            )
+    return models
+
+
 def _field_label(
     dataset: str,
     field: str,
-    prepared_by_trace: dict[str, PreparedRecord],
+    dataset_models: Mapping[str, str],
     evidence: ReviewWorkbookEvidence | None,
 ) -> str:
-    model = next(
-        (
-            item.target_model
-            for item in prepared_by_trace.values()
-            if item.dataset == dataset
-        ),
-        "",
-    )
+    model = dataset_models.get(dataset, "")
     return _target_field_label(model, field, evidence) if field else ""
+
+
+def _prepared_issue_value(
+    decision: dict[str, Any] | None,
+    field: str,
+    prepared_by_trace: Mapping[str, PreparedRecord],
+) -> Any:
+    """Return the exact final prepared value when portable evidence permits it."""
+
+    if decision is None or not field:
+        return ""
+    record = prepared_by_trace.get(str(decision.get("source_trace_id") or ""))
+    if record is None:
+        return ""
+    target_field = field.rsplit(":", 1)[-1]
+    if target_field in record.scalar_values:
+        return _display_value(record.scalar_values[target_field])
+    if target_field in record.references:
+        return _display_value(record.references[target_field])
+    if field.startswith("target_identity:"):
+        return _display_value(record.target_identity)
+    return ""
 
 
 def _display_value(value: Any) -> Any:
@@ -1350,9 +1471,9 @@ def _style_status_cells(sheet, column: int) -> None:
     for row_index in range(4, sheet.max_row + 1):
         cell = sheet.cell(row=row_index, column=column)
         status = str(cell.value or "").casefold()
-        if status in {"cannot proceed", "held back"}:
+        if status in {"cannot proceed", "held back", "must fix"}:
             style = "danger"
-        elif status in {"needs attention", "review recommended"}:
+        elif status in {"needs attention", "review recommended", "review"}:
             style = "warning"
         elif status in {"will update", "value to load"}:
             style = "prepared"

@@ -19,22 +19,46 @@
     {% set project_count = projects|length + unavailable_projects|length %}
     <section class="project-list" aria-label="Data projects">
       <div class="project-list-heading" aria-hidden="true">
-        <span>Data project</span><span>Status</span><span>Last updated</span><span>Recipes</span>
+        <span>Data project</span><span>Status</span><span>Last updated</span><span>Recipes</span><span></span>
       </div>
       <div
         class="project-list-scroll{% if project_count > 5 %} is-scrollable{% endif %}"
         {% if project_count > 5 %}role="region" aria-label="Project rows. Scroll to see more projects." tabindex="0"{% endif %}
       >
         {% for project in projects %}
-          <a class="project-row" href="/projects/{{ project.project_id }}">
-            <div class="project-identity">
-              <strong>{{ project.display_name }}</strong>
-              <span>{{ project.data_version_count }} data version{% if project.data_version_count != 1 %}s{% endif %} · {{ project.workspace_count }} workspace{% if project.workspace_count != 1 %}s{% endif %}</span>
-            </div>
-            <span class="status {% if project.status.value == 'DRAFT' %}draft{% else %}registered{% endif %}">{% if project.status.value == 'DRAFT' %}Setup{% else %}Ready{% endif %}</span>
-            <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
-            <span>{{ project.recipe_count }}</span>
-          </a>
+          <div class="project-row-shell">
+            <a class="project-row" href="/projects/{{ project.project_id }}">
+              <div class="project-identity">
+                <strong>{{ project.display_name }}</strong>
+                <span>{{ project.data_version_count }} data version{% if project.data_version_count != 1 %}s{% endif %} · {{ project.workspace_count }} workspace{% if project.workspace_count != 1 %}s{% endif %}</span>
+              </div>
+              <span class="status {% if project.status.value == 'DRAFT' %}draft{% else %}registered{% endif %}">{% if project.status.value == 'DRAFT' %}Setup{% else %}Ready{% endif %}</span>
+              <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
+              <span>{{ project.recipe_count }}</span>
+              <span class="project-action-spacer" aria-hidden="true"></span>
+            </a>
+            <form
+              class="project-delete-form"
+              method="post"
+              action="/projects/{{ project.project_id }}/delete"
+              data-project-list-delete-form
+              data-project-name="{{ project.display_name }}"
+            >
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="revision" value="{{ project.optimistic_revision }}">
+              <button
+                class="project-delete-button"
+                type="button"
+                aria-label="Delete project {{ project.display_name }}"
+                title="Delete project"
+                data-project-list-delete-trigger
+              >
+                <svg class="ui-icon" aria-hidden="true" focusable="false">
+                  <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#trash3"></use>
+                </svg>
+              </button>
+            </form>
+          </div>
         {% endfor %}
         {% for project in unavailable_projects %}
           <div
@@ -50,10 +74,35 @@
             <span class="status review">Unavailable</span>
             <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
             <span aria-label="Not available">&mdash;</span>
+            <span class="project-action-spacer" aria-hidden="true"></span>
           </div>
         {% endfor %}
       </div>
     </section>
+    {% if projects %}
+      <dialog
+        class="confirmation-dialog"
+        aria-labelledby="project-list-delete-title"
+        data-project-list-delete-dialog
+      >
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Permanent deletion</p>
+            <h2 id="project-list-delete-title" data-project-list-delete-title>Delete project?</h2>
+          </div>
+          <form method="dialog">
+            <button class="dialog-close" type="submit" aria-label="Close dialog">&times;</button>
+          </form>
+        </div>
+        <p>This permanently deletes the project and all of its saved evidence. This cannot be undone.</p>
+        <div class="dialog-actions">
+          <form method="dialog">
+            <button class="button secondary" type="submit">Cancel</button>
+          </form>
+          <button class="button danger" type="button" data-project-list-delete-confirm>Delete project</button>
+        </div>
+      </dialog>
+    {% endif %}
   {% else %}
     <section class="empty-state">
       <h2>No data projects yet</h2>

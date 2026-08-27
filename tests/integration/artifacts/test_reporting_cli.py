@@ -59,10 +59,26 @@ class WorkbookIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "report"
             result = golden_result()
+            blocked_trace = next(
+                decision.source_trace_id
+                for decision in result.decisions
+                if decision.business_identity == ("P-BLOCK",)
+            )
+            prepared_records = tuple(
+                (
+                    replace(
+                        record,
+                        scalar_values={**record.scalar_values, "uom_id": "MISSING"},
+                    )
+                    if record.source_trace_id == blocked_trace
+                    else record
+                )
+                for record in _prepared_records(result)
+            )
             manifest_path, workbook_path = write_preflight_outputs(
                 result,
                 output,
-                prepared_records=_prepared_records(result),
+                prepared_records=prepared_records,
             )
             self.assertEqual(manifest_path.name, MANIFEST_NAME)
             self.assertEqual(workbook_path.name, WORKBOOK_NAME)
@@ -115,9 +131,30 @@ class WorkbookIntegrationTests(unittest.TestCase):
             name_column = headers.index("Name") + 1
             self.assertEqual(records.cell(4, name_column).value, "Prepared PARTNER-NEW")
             self.assertEqual(records["A4"].value, "Ready")
+            attention = workbook["Needs attention"]
+            attention_headers = [cell.value for cell in attention[3]]
+            self.assertEqual(attention_headers[0], "Action priority")
+            self.assertIn("Final prepared value", attention_headers)
+            self.assertEqual(
+                workbook["Review overview"]["E6"].value,
+                sum(
+                    row[0] == "Must fix"
+                    for row in attention.iter_rows(min_row=4, values_only=True)
+                ),
+            )
+            technical_code_column = attention_headers.index("Technical code")
+            prepared_value_column = attention_headers.index("Final prepared value")
+            reference_row = next(
+                row
+                for row in attention.iter_rows(min_row=4, values_only=True)
+                if row[technical_code_column] == "REFERENCE_NOT_FOUND"
+                and row[2] == "P-BLOCK"
+            )
+            self.assertEqual(reference_row[0], "Must fix")
+            self.assertEqual(reference_row[prepared_value_column], "MISSING")
             attention_text = " ".join(
                 str(cell.value or "")
-                for row in workbook["Needs attention"].iter_rows(min_row=4)
+                for row in attention.iter_rows(min_row=4)
                 for cell in row
             )
             self.assertIn("A related record cannot be found.", attention_text)
@@ -300,11 +337,22 @@ class WorkbookIntegrationTests(unittest.TestCase):
 
             workbook = load_workbook(workbook_path, data_only=True)
             attention = workbook["Needs attention"]
-            technical_codes = [cell.value for cell in attention["J"] if cell.row >= 4]
+            headers = [cell.value for cell in attention[3]]
+            technical_code_column = headers.index("Technical code")
+            priorities = [
+                row[0] for row in attention.iter_rows(min_row=4, values_only=True)
+            ]
+            technical_codes = [
+                row[technical_code_column]
+                for row in attention.iter_rows(min_row=4, values_only=True)
+            ]
             self.assertEqual(
                 technical_codes.count("TARGET_SELECTION_CHOICES_CHANGED"),
                 1,
             )
+            self.assertEqual(priorities[-1], "Review")
+            self.assertNotIn("Review", priorities[:-1])
+            self.assertEqual(workbook["Review overview"]["E7"].value, 1)
             records = workbook["Records to load"]
             product_create = next(
                 row

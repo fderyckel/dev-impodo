@@ -338,6 +338,7 @@ stages:
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
       - src/impodo/domain/preflight/reports.py::review_workbook_cell_feedback
+      - src/impodo/domain/preflight/reports.py::review_workbook_action_priority
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
       - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
     tests:

@@ -3,8 +3,10 @@ from __future__ import annotations
 import unittest
 
 from impodo.domain.preflight.reports import (
+    ReviewWorkbookActionPriority,
     ReviewWorkbookCellEffect,
     ReviewWorkbookCellStatus,
+    review_workbook_action_priority,
     review_workbook_cell_feedback,
 )
 
@@ -58,6 +60,22 @@ class ReviewWorkbookCellFeedbackTests(unittest.TestCase):
         feedback = review_workbook_cell_feedback("Example contact")
 
         self.assertEqual(feedback.status, ReviewWorkbookCellStatus.AS_PROVIDED)
+
+
+class ReviewWorkbookActionPriorityTests(unittest.TestCase):
+    def test_errors_must_be_fixed_and_warnings_require_review(self) -> None:
+        self.assertEqual(
+            review_workbook_action_priority("error"),
+            ReviewWorkbookActionPriority.MUST_FIX,
+        )
+        self.assertEqual(
+            review_workbook_action_priority("WARNING"),
+            ReviewWorkbookActionPriority.REVIEW,
+        )
+
+    def test_unknown_manifest_severity_fails_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be error or warning"):
+            review_workbook_action_priority("informational")
 
 
 if __name__ == "__main__":

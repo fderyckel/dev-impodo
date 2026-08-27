@@ -122,7 +122,7 @@
 .project-list-heading,
 .project-row {
   display: grid;
-  grid-template-columns: minmax(18rem, 2fr) minmax(10rem, .85fr) minmax(12rem, 1fr) minmax(2.75rem, .2fr);
+  grid-template-columns: minmax(18rem, 2fr) minmax(10rem, .85fr) minmax(12rem, 1fr) minmax(2.75rem, .2fr) 44px;
   align-items: center;
   gap: 1.25rem;
 }
@@ -176,7 +176,7 @@
   background: #fdf8f7;
 }
 
-.recipe-delete-form {
+.project-delete-form {
   position: absolute;
   top: 50%;
   right: 1.5rem;
@@ -184,7 +184,7 @@
   transform: translateY(-50%);
 }
 
-.recipe-delete-button {
+.project-delete-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -197,8 +197,8 @@
   cursor: pointer;
 }
 
-.recipe-delete-button:hover,
-.recipe-delete-button:focus-visible {
+.project-delete-button:hover,
+.project-delete-button:focus-visible {
   border-color: var(--danger);
   background: var(--danger-bg);
   color: var(--danger);

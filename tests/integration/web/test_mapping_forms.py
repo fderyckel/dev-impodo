@@ -137,6 +137,15 @@ class OrderedTextStepFormTests(unittest.TestCase):
         template = (
             root / "src" / "impodo" / "web" / "templates" / "mapping" / "page.html"
         ).read_text(encoding="utf-8")
+        dataset_template = (
+            root
+            / "src"
+            / "impodo"
+            / "web"
+            / "templates"
+            / "mapping"
+            / "_dataset.html"
+        ).read_text(encoding="utf-8")
         styles = (root / "src" / "impodo" / "web" / "static" / "mapping.css").read_text(
             encoding="utf-8"
         )
@@ -151,8 +160,13 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("/mapping.js", template)
         self.assertIn(".scalar-table-scroll-top", styles)
         self.assertIn(".mapping-save-state.unsaved", styles)
+        self.assertIn(".mapping-table-fields-toggle", styles)
         self.assertIn("window.impodoMappingPosition", script)
         self.assertIn("[data-mapping-form]", script)
+        self.assertIn("[data-table-fields-toggle]", script)
+        self.assertIn('aria-controls="mapping-table-fields-{{ dataset_index }}"', dataset_template)
+        self.assertIn("data-table-fields-panel", dataset_template)
+        self.assertIn("Close this table's fields", dataset_template)
 
 
 if __name__ == "__main__":

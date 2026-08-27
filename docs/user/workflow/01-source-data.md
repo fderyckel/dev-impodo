@@ -30,8 +30,8 @@ first complete the eligible-field capture described in
 4. Add a corrected file and remove the wrong file if necessary.
 5. After every file is confirmed, give each table a **Name shown in Impodo**
    and select **Save tables for this data version**.
-6. Optionally open **Prepare related datasets** when combined information must
-   become separate related tables.
+6. Optionally open **Separate combined information** when combined information
+   must become separate related tables.
 
 Once table choices are frozen, the file list cannot be changed in that data
 version.

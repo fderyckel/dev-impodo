@@ -1390,11 +1390,21 @@ label.model-choice input {
 
 .optional-workflow {
   margin-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  padding: 1.25rem 0 .85rem;
+}
+
+.optional-workflow .eyebrow {
+  margin-bottom: .45rem;
+}
+
+.optional-workflow h3 {
+  margin-bottom: .5rem;
 }
 
 .optional-workflow p {
   max-width: 680px;
-  margin: .75rem 0;
+  margin: 0 0 1rem;
 }
 
 .advanced-matching-options label {
@@ -2060,7 +2070,7 @@ a.impact-card:focus-visible,
     display: none;
   }
 
-  .recipe-delete-form {
+  .project-delete-form {
     top: 1.1rem;
     right: 1.1rem;
     transform: none;

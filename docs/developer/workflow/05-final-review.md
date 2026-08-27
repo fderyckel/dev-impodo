@@ -49,6 +49,21 @@ prepared value in the visible cell and places original-value and rule detail
 in an Excel note. The package path makes no Odoo call and performs no per-row
 or per-cell repository lookup.
 
+The **Needs attention** projection is a manifest-authoritative action queue.
+The pure `review_workbook_action_priority` function maps errors to **Must fix**
+and warnings to **Review**; the workbook does not promote safe transformations
+or blank cells into action items. The adapter shows the exact final prepared
+field or relationship value when the frozen file-source evidence contains it,
+then sorts all blockers before warnings. It indexes decisions by source
+coordinate, prepared records by trace, source-issue keys, and target models
+once before projecting rows. Workbook size therefore does not introduce a
+repository, Odoo, or repeated full-collection lookup for each action item.
+
+Traceability uses the accepted logical dataset and source row. The current
+browser-compiled plan uses a synthetic contained source filename, so the
+workbook does not present that value as the operator's original uploaded file
+name.
+
 For an Odoo source, `review_workbook_evidence` returns no portable value
 projection. The workbook continues to use the redacted manifest, while exact
 business values remain in the protected comparison artifact.
@@ -155,8 +170,10 @@ Workbook creation may load the complete eligible prepared set once because the
 XLSX output contains one review row per decision. It may also load the complete
 frozen normalization effect ledger once to explain those cells. Keep both
 loads bounded to the exact current run. Index source traces and field effects
-once in memory. Do not reopen repositories for individual workbook rows or
-cells, and do not contact Odoo while writing them.
+once in memory. The action queue must also index decisions, source issues, and
+dataset target models once rather than repeatedly scanning those collections.
+Do not reopen repositories for individual workbook rows or cells, and do not
+contact Odoo while writing them.
 
 ## Verification
 
