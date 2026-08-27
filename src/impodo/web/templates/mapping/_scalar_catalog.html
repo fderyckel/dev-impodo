@@ -325,6 +325,7 @@
                         or transform.decimal_places is not none
                         or validation_rule.configured
                       ) %}
+                      <details class="value-rule-builder" {% if value_rules_configured %}open{% endif %} data-value-rule-builder>
                         <summary>
                           <span>Prepare and check values</span>
                           <small>{{ "Configured" if value_rules_configured else "Optional" }}</small>

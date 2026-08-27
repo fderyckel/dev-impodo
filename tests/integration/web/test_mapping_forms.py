@@ -132,6 +132,26 @@ class OrderedTextStepFormTests(unittest.TestCase):
         )
         self.assertEqual(script.count("notifyTextStepsChanged(builder);"), 3)
 
+    def test_value_rule_controls_are_wrapped_by_the_javascript_builder(self) -> None:
+        template = (
+            REPOSITORY_ROOT
+            / "src"
+            / "impodo"
+            / "web"
+            / "templates"
+            / "mapping"
+            / "_scalar_catalog.html"
+        ).read_text(encoding="utf-8")
+
+        builder = template.index("data-value-rule-builder")
+        summary = template.index("<summary>", builder)
+        phone_cleanup = template.index("data-use-phone-cleanup", summary)
+        closing_details = template.index("</details>", phone_cleanup)
+
+        self.assertLess(builder, summary)
+        self.assertLess(summary, phone_cleanup)
+        self.assertLess(phone_cleanup, closing_details)
+
     def test_mapping_page_owns_its_page_assets(self) -> None:
         root = REPOSITORY_ROOT
         template = (
