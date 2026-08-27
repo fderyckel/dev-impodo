@@ -10,7 +10,7 @@ Values exposed to the browser are deliberately sampled and truncated, while
 statistics are accumulated in one streaming pass.
 
 See ``docs/architecture/python-code-map.md`` and
-``tests/test_inspection.py``.
+``tests/application/data_version/test_inspection.py``.
 """
 
 from __future__ import annotations

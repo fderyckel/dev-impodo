@@ -185,7 +185,7 @@ Run:
 python scripts/documentation_quality.py --check --report
 python scripts/code_documentation_inventory.py --check
 python scripts/code_documentation_inventory.py --missing
-python -m unittest tests.test_documentation_quality tests.test_code_documentation
+python -m unittest tests.architecture.test_documentation_quality tests.architecture.test_code_documentation
 ```
 
 The workflow and module checks are blocking. The public-symbol list and Vale

@@ -23,7 +23,7 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[1]
 RESULT_PREFIX = "IMPODO_PREPARATION_WORKER_BENCHMARK_JSON="
 TEST_NAME = (
-    "tests.test_preparation_scale.PreparationWorkflowScaleTests."
+    "tests.performance.test_preparation_scale.PreparationWorkflowScaleTests."
     "test_background_worker_releases_its_working_memory"
 )
 

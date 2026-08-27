@@ -108,14 +108,14 @@ lineage parity before being called an optimization.
 
 ## Verification
 
-- [`tests/test_preparation_jobs.py`](../../../tests/test_preparation_jobs.py)
-- [`tests/test_build_contract.py`](../../../tests/test_build_contract.py)
-- [`tests/test_workspace_schema_contract.py`](../../../tests/test_workspace_schema_contract.py)
-- [`tests/test_preparation_session.py`](../../../tests/test_preparation_session.py)
-- [`tests/test_quality.py`](../../../tests/test_quality.py)
-- [`tests/test_normalization.py`](../../../tests/test_normalization.py)
-- [`tests/test_preparation_scale.py`](../../../tests/test_preparation_scale.py)
-- [`tests/test_web_app.py`](../../../tests/test_web_app.py)
+- [`tests/application/workspace/preparation/test_jobs.py`](../../../tests/application/workspace/preparation/test_jobs.py)
+- [`tests/architecture/test_build_contract.py`](../../../tests/architecture/test_build_contract.py)
+- [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)
+- [`tests/integration/duckdb/test_preparation_session.py`](../../../tests/integration/duckdb/test_preparation_session.py)
+- [`tests/domain/preparation/test_quality.py`](../../../tests/domain/preparation/test_quality.py)
+- [`tests/domain/preparation/test_normalization.py`](../../../tests/domain/preparation/test_normalization.py)
+- [`tests/performance/test_preparation_scale.py`](../../../tests/performance/test_preparation_scale.py)
+- [`tests/integration/web/test_preparation_workflow.py`](../../../tests/integration/web/test_preparation_workflow.py)
 
 Verify atomic rollback, cancellation, retry, bounded memory, complete
 accounting, deterministic hashes, lineage, progress rendering under real

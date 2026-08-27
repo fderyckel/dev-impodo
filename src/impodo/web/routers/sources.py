@@ -23,7 +23,8 @@ read bounded workspace-level projections, but must not add an Odoo call or a
 repository query per source row, field, or captured record.
 
 See ``docs/developer/workflow/01-source-data.md``,
-``docs/developer/contracts/evidence-lifecycle.md``, and ``tests/test_web_app.py``.
+``docs/developer/contracts/evidence-lifecycle.md``, and
+``tests/integration/web/test_source_workflow.py``.
 """
 
 from __future__ import annotations

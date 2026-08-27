@@ -6,7 +6,8 @@ Recapture and regovernance atomically invalidate downstream mapping and
 staging pointers. A separately verified access rebind updates only credential
 provenance when the semantic schema and read identity remain unchanged.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
+See ``docs/architecture/python-code-map.md`` and
+``tests/integration/duckdb/test_workspace.py``.
 """
 
 from __future__ import annotations

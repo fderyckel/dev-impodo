@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ bundle.run.label }} · Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/job-polling.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   <div
     class="integrated-run-review"

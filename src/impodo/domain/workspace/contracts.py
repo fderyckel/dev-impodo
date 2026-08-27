@@ -8,7 +8,8 @@ are immutable, JSON-serializable, and contain no source rows, credentials, or
 numeric Odoo IDs.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/developer/contracts/evidence-lifecycle.md``, and ``tests/test_workspace.py``.
+``docs/developer/contracts/evidence-lifecycle.md``, and
+``tests/integration/duckdb/test_workspace.py``.
 """
 
 from __future__ import annotations

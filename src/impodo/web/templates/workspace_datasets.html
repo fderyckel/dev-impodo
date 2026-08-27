@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{% if selection %}Saved source tables{% else %}Choose tables{% endif %} · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/source-workflow.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>

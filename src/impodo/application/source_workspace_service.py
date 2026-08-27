@@ -9,7 +9,8 @@ schema, derived-entity, mapping, staging, and preflight workflows. It reads no
 source bytes and performs no Odoo access.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/developer/contracts/evidence-lifecycle.md``, and ``tests/test_workspace.py``.
+``docs/developer/contracts/evidence-lifecycle.md``, and
+``tests/integration/duckdb/test_workspace.py``.
 """
 
 from __future__ import annotations

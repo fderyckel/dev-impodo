@@ -11,7 +11,8 @@ local deployment choices only.
 The Stage-J writer and Stage-K read-back reader remain separate from the
 preflight connectors and are bound to the exact reviewed local-load preview.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+See ``docs/architecture/python-code-map.md`` and
+``tests/integration/web/test_project_setup.py``.
 """
 
 from __future__ import annotations

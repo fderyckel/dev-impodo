@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Review prepared data - {{ migration_project.display_name }} - Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/normalization.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/review.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   <div class="page-heading" data-normalization-review data-normalization-position-key="{{ workspace_id }}">
     <div>

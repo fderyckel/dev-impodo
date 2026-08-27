@@ -1,0 +1,209 @@
+          <div
+            data-relation-field-catalog
+            data-relation-search-url="/workspaces/{{ workspace_id }}/mapping/field-catalog"
+            data-relation-catalog-total="{{ view.relation_catalog_total }}"
+            data-relation-matching-total="{{ view.relation_matching_total }}"
+            data-relation-mapped-total="{{ view.relation_mapped_total }}"
+            data-relation-page-size="{{ view.relation_page_size }}"
+          >
+          <div class="field-catalog-tools relation-catalog-tools">
+            <label>
+              Find an Odoo list or linked field
+              <input type="search" value="{{ view.relation_query }}" data-relation-field-search placeholder="For example: Category or Company" autocomplete="off">
+            </label>
+            <button class="button secondary" type="button" data-relation-search-submit>Search</button>
+            <p class="muted" data-relation-field-count role="status" aria-live="polite">
+              Showing {{ view.relation_rows|length }} of {{ view.relation_matching_total }} linked fields · {{ view.relation_mapped_total }} connected
+            </p>
+          </div>
+          <div data-relation-field-results>
+          {% if view.relation_rows %}
+            {% for row in view.relation_rows %}
+              {% set relation_index = row.index %}
+              {% set mapping = row.mapping %}
+              {% set disposition = row.disposition %}
+              <details class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}" {% if mapping or disposition or row.recommended_dataset_id %}open{% endif %}>
+                <summary>
+                  <span><strong>{{ row.metadata.label }}</strong></span>
+                  <span class="relationship-card-state">
+                    {% if disposition and disposition.handling.value == 'odoo_managed' %}Managed by Odoo{% elif disposition %}Chosen by Odoo{% elif mapping %}Connected{% else %}Not connected{% endif %}
+                  </span>
+                </summary>
+                <input type="hidden" name="visible_relation_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
+                <details class="technical-details">
+                  <summary>Support details</summary>
+                  <p><code>{{ row.metadata.name }}</code> · {{ row.metadata.type }} → {{ row.metadata.relation or "unknown record type" }}{% if row.metadata.relation_field %} · inverse {{ row.metadata.relation_field }}{% endif %}</p>
+                </details>
+                {% if disposition %}
+                  <div class="notice success">
+                    <strong>
+                      {% if disposition.handling.value == 'odoo_managed' %}Odoo manages this field{% else %}Odoo will choose this value{% endif %}
+                    </strong>
+                    <p>Impodo will leave this linked field out when it prepares records.</p>
+                    <button
+                      class="button secondary compact"
+                      type="submit"
+                      name="action"
+                      value="clear_disposition:{{ dataset_index }}:{{ row.metadata.name }}"
+                    >Change this decision</button>
+                  </div>
+                {% elif row.metadata.type == 'one2many' %}
+                  <div class="notice warning">
+                    This list is filled from its line items. Match the line-item table's main-record field instead.
+                  </div>
+                {% else %}
+                  {% if row.recommended_dataset_id and not mapping %}
+                    <div class="notice success">
+                      {% if row.recommendation_kind == 'extracted_lookup' %}
+                        Suggested from the separate list created from this source field. Review the choices below; Impodo will match each value against that related source table.
+                      {% else %}
+                        Suggested from the combined-information step. Review the choices below; Impodo will stop if a main record is missing or unclear.
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                  <div class="form-grid">
+                    <label>
+                      Use value(s) from
+                      <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}" data-lazy-source-column>
+                        {% set selected_relation_sources = mapping.source_column_keys if mapping else (row.recommended_source_columns or ()) %}
+                        {% for selected_source in selected_relation_sources %}
+                          {% set column = view.source_by_key.get(selected_source) %}
+                          {% if column %}<option value="{{ column.stable_key }}" selected>{{ column.source_name }}</option>{% endif %}
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <label>
+                      Where should Impodo find the matching choice?
+                      {% set selected_origin = mapping.resolver.origin.value if mapping else ('dataset' if row.recommended_dataset_id else 'target_catalog') %}
+                      <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
+                        <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo choices</option>
+                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Another selected source table</option>
+                      </select>
+                    </label>
+                    <label>
+                      Which related source table?
+                      <select name="relation_dataset_{{ dataset_index }}_{{ relation_index }}">
+                        <option value="">Not from another table</option>
+                        {% for candidate in view.other_datasets %}
+                          {% set selected_dataset_id = mapping.resolver.dataset_id if mapping else row.recommended_dataset_id %}
+                          <option value="{{ candidate.dataset_id }}" {% if selected_dataset_id == candidate.dataset_id %}selected{% endif %}>
+                            {{ candidate.name }}
+                          </option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <label>
+                      How is the matching choice identified?
+                      <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" {% if not row.related_keys %}disabled{% endif %}>
+                        <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
+                        {% for key in row.related_keys %}
+                          <option value="{{ key.key_id }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
+                            {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_key_id %} — recommended{% elif key.status.value == 'CANDIDATE' %} — confirm{% endif %}
+                          </option>
+                        {% endfor %}
+                      </select>
+                      {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
+                    </label>
+                    <label>
+                      How should the list change?
+                      {% set selected_operation = mapping.operation if mapping else 'replace' %}
+                      <select name="relation_operation_{{ dataset_index }}_{{ relation_index }}">
+                        {% for operation in ('replace', 'add', 'remove') %}
+                          <option value="{{ operation }}" {% if selected_operation == operation %}selected{% endif %}>{% if operation == 'replace' %}Replace the current list{% elif operation == 'add' %}Add to the current list{% else %}Remove from the current list{% endif %}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <label>
+                      Separator used in the source
+                      <input name="relation_separator_{{ dataset_index }}_{{ relation_index }}" maxlength="1" value="{{ mapping.separator if mapping else ';' }}">
+                    </label>
+                  </div>
+                  <div class="policy-row">
+                    <label>
+                      How must source choices identify linked records?
+                      {% set relation_policy = mapping.categorical_policy.value if mapping and mapping.categorical_policy else ('' if mapping else 'EXACT_BUSINESS_KEY') %}
+                      <select
+                        name="relation_categorical_policy_{{ dataset_index }}_{{ relation_index }}"
+                        data-categorical-policy
+                      >
+                        {% if not relation_policy %}<option value="" selected>Choose how source values are handled</option>{% endif %}
+                        <option value="EXACT_BUSINESS_KEY" {% if relation_policy == 'EXACT_BUSINESS_KEY' %}selected{% endif %}>Every value is already an exact business key</option>
+                        <option value="EXPLICIT_KEY_MATCH" {% if relation_policy == 'EXPLICIT_KEY_MATCH' %}selected{% endif %}>Every populated source choice must be explicitly matched</option>
+                      </select>
+                    </label>
+                    {% if row.metadata.type == 'many2one' %}
+                      <input
+                        type="hidden"
+                        name="relation_value_matches_{{ dataset_index }}_{{ relation_index }}"
+                        value="{{ row.value_mappings_json }}"
+                        data-value-match-storage
+                      >
+                      <div class="value-match-entry relationship-value-match-entry">
+                        {% if row.related_keys %}
+                        <button
+                          class="button secondary compact"
+                          type="button"
+                          data-open-value-match
+                          data-value-match-kind="relationship"
+                          data-dataset-id="{{ view.source.dataset_id }}"
+                          data-target-model="{{ view.selected_model }}"
+                          data-target-field="{{ row.metadata.name }}"
+                          data-target-label="{{ row.metadata.label }}"
+                        >Match values</button>
+                        <small data-value-match-summary>
+                          {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when source and Odoo choices differ{% endif %}
+                        </small>
+                        {% else %}
+                          <small data-value-match-summary>Choose a matching rule before matching values.</small>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                    <details class="technical-details">
+                    <summary>Support options</summary>
+                    <label><input type="checkbox" name="relation_compare_{{ dataset_index }}_{{ relation_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare with Odoo</label>
+                    <label><input type="checkbox" name="relation_validate_only_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Check only; do not prepare</label>
+                    <label><input type="checkbox" name="relation_required_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Must have a value</label>
+                    <label><input type="checkbox" name="relation_required_create_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>
+                    <select name="relation_missing_{{ dataset_index }}_{{ relation_index }}">
+                      {% set selected_missing = mapping.on_missing if mapping else 'error' %}
+                      <option value="error" {% if selected_missing == 'error' %}selected{% endif %}>If missing: stop and ask</option>
+                      <option value="warning" {% if selected_missing == 'warning' %}selected{% endif %}>If missing: ask me to review</option>
+                    </select>
+                    <select name="relation_ambiguous_{{ dataset_index }}_{{ relation_index }}">
+                      {% set selected_ambiguous = mapping.on_ambiguous if mapping else 'error' %}
+                      <option value="error" {% if selected_ambiguous == 'error' %}selected{% endif %}>If several match: stop and ask</option>
+                      <option value="warning" {% if selected_ambiguous == 'warning' %}selected{% endif %}>If several match: ask me to review</option>
+                    </select>
+                    <select name="relation_null_{{ dataset_index }}_{{ relation_index }}">
+                      {% set selected_relation_null = mapping.null_policy if mapping else 'distinct' %}
+                      {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
+                        <option value="{{ policy }}" {% if selected_relation_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
+                      {% endfor %}
+                    </select>
+                    </details>
+                  </div>
+                {% endif %}
+              </details>
+            {% endfor %}
+          {% else %}
+            <p class="empty-state compact">No linked Odoo field matches your search.</p>
+          {% endif %}
+          </div>
+          <nav class="field-catalog-navigation" aria-label="Linked Odoo field display options" data-relation-pagination>
+            <div class="field-page-size" aria-label="Number of linked fields shown per page">
+              <span>Show fields:</span>
+              {% for option in view.relation_page_size_options %}
+                <a
+                  class="field-count-button{% if option.size == view.relation_page_size %} active{% endif %}"
+                  href="{{ option.url }}"
+                  {% if option.size == view.relation_page_size %}aria-current="page"{% endif %}
+                >{{ option.size }}</a>
+              {% endfor %}
+            </div>
+            <div class="field-pagination">
+              {% if view.relation_previous_url %}<a class="button secondary" href="{{ view.relation_previous_url }}">Previous</a>{% endif %}
+              <span class="muted">Page {{ view.relation_page }} of {{ view.relation_page_count }}</span>
+              {% if view.relation_next_url %}<a class="button secondary" href="{{ view.relation_next_url }}">Show more fields</a>{% endif %}
+            </div>
+          </nav>
+          </div>

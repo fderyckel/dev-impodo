@@ -1,0 +1,13 @@
+          {% if not view.odoo_pinned %}
+          <details class="related-records" {% if view.relation_mapped_total %}open{% endif %}>
+          <summary id="relationships-{{ dataset_index }}">
+            <span class="related-records-heading">Connect values to existing Odoo lists</span>
+            <span class="related-records-help">Use this when a field points to another record, such as a product category, unit of measure, company, or parent.</span>
+            <span class="related-records-count">{{ view.relation_mapped_total }} connected</span>
+          </summary>
+          <p class="related-records-example">
+            Example: connect the <strong>Category</strong> value in a products file to the matching category in Odoo or in another incoming dataset.
+          </p>
+          {% include "mapping/_relationship_catalog.html" %}
+          </details>
+          {% endif %}

@@ -96,8 +96,8 @@ the original source unavailable.
 | Area | Current test modules |
 | --- | --- |
 | Recipe contracts, authoring, persistence, protected storage, and recovery | `test_recipe_phase_r0_contract`, `test_recipe_authoring`, `test_recipe_persistence` |
-| Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_source_snapshot`, `test_source_snapshot_io`, `test_web_app` |
-| Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
+| Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_source_snapshot`, `test_source_snapshot_io`, `test_project_setup`, `test_source_workflow`, `test_target_workflow`, `test_project_setup_journey` |
+| Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_mapping_workflow`, `test_preparation_workflow`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
 | Profile-driven preflight and practical execution | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_execution_snapshot`, `test_execution_service`, `test_execution_repository`, `test_preflight_scale`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
@@ -503,7 +503,7 @@ Command:
 $env:IMPODO_RUN_QUALITY_SCALE = '1'
 $env:IMPODO_QUALITY_SCALE_ROWS = '100000'
 .\.venv\Scripts\python.exe -m unittest `
-  tests.test_quality.QualityRelationshipScaleTests.test_deep_dependency_chain_is_linear
+  tests.domain.preparation.test_quality.QualityRelationshipScaleTests.test_deep_dependency_chain_is_linear
 ```
 
 Results on the Lenovo Windows reference machine on 2026-08-05:
@@ -537,7 +537,7 @@ still required.
 
 ### Complete wide preparation diagnostic
 
-The opt-in `tests.test_preparation_scale` fixture runs the actual local
+The opt-in `tests.performance.test_preparation_scale` fixture runs the actual local
 preparation application service and DuckDB repositories. It loads a
 deterministic CSV with 30 columns, applies 20 mapped scalar fields, validates a
 business control total, produces one visible normalization effect per row, and
@@ -551,7 +551,7 @@ $env:IMPODO_RUN_PREPARATION_SCALE = '1'
 $env:IMPODO_PREPARATION_SCALE_ROWS = '100000'
 $env:IMPODO_PREPARATION_SCALE_WORKLOAD = 'products' # or 'bom'
 .\.venv\Scripts\python.exe -m unittest `
-  tests.test_preparation_scale.PreparationWorkflowScaleTests.test_complete_preparation_workflow -v
+  tests.performance.test_preparation_scale.PreparationWorkflowScaleTests.test_complete_preparation_workflow -v
 ```
 
 Results on 2026-08-05:
@@ -579,7 +579,7 @@ temporary-file size remain observations rather than optimization gates.
 
 ### Complete durable preflight diagnostic
 
-The opt-in `tests.test_preflight_scale` fixture prepares and freezes a real
+The opt-in `tests.performance.test_preflight_scale` fixture prepares and freezes a real
 project, removes its source artifact, and launches a fresh comparison process.
 The measured interval starts with durable frozen-evidence retrieval and ends
 after the manifest, decision rows, protected target snapshots, and current
@@ -593,7 +593,7 @@ Command:
 IMPODO_RUN_PREFLIGHT_SCALE=1 \
 IMPODO_PREFLIGHT_SCALE_ROWS=25000 \
 .venv/bin/python -m unittest \
-  tests.test_preflight_scale.DurablePreflightScaleTests.test_durable_preflight_workflow -v
+  tests.performance.test_preflight_scale.DurablePreflightScaleTests.test_durable_preflight_workflow -v
 ```
 
 Result on the MacBook Air M5 on 2026-08-06:

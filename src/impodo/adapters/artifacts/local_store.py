@@ -7,7 +7,7 @@ replacement. Callers never receive a generic path write capability outside one
 validated DataVersion, workspace, or run boundary.
 
 See ``docs/architecture/security-and-infrastructure.md`` and
-``tests/test_artifacts.py``.
+``tests/integration/artifacts/test_stores.py``.
 """
 
 from __future__ import annotations

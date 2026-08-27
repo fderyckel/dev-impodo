@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Odoo data · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/schema.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   {% set local_mode = workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == 'LOCAL' %}
   {% set is_recipe_run_setup = odoo_check_plan is not none %}

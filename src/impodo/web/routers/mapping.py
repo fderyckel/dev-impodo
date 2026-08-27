@@ -6,7 +6,8 @@ optionally asks ``MappingWorkspaceService`` to validate an immutable revision
 or submit it. Preview and transformation-impact routes are projections and do
 not authorize later migration stages.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+See ``docs/architecture/python-code-map.md`` and
+``tests/integration/web/test_mapping_workflow.py``.
 """
 
 from __future__ import annotations
@@ -1051,4 +1052,3 @@ def _require_mapping_idle(context: WebContext, workspace_id: str) -> None:
                 "to finish before reviewing or changing field matches."
             ),
         )
-

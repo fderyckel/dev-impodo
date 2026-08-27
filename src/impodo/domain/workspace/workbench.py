@@ -10,8 +10,9 @@ owners and keeps only current workspace-engine evidence and derived caches.
 
 This module has no web-framework or database dependency. See
 ``docs/architecture/python-code-map.md``,
-``docs/developer/contracts/project-lifecycle.md``, ``tests/test_workspace.py``,
-and ``tests/test_canonical_ownership.py``.
+``docs/developer/contracts/project-lifecycle.md``,
+``tests/integration/duckdb/test_workspace.py``, and
+``tests/architecture/test_canonical_ownership.py``.
 """
 
 from __future__ import annotations

@@ -62,16 +62,16 @@ stages:
       - src/impodo/web/presenters/navigation.py::build_workspace_navigation
       - src/impodo/web/presenters/concepts.py::ConceptHelp
     tests:
-      - tests/test_concept_help.py
-      - tests/test_project_authoring.py
-      - tests/test_identity_semantics.py
-      - tests/test_workspace_access.py
-      - tests/test_canonical_ownership.py
-      - tests/test_forward_upgrade_compatibility.py
-      - tests/test_workspace_evidence_storage.py
-      - tests/test_project_security.py
-      - tests/test_recipe_representative_shapes.py
-      - tests/test_odoo_connection_service.py
+      - tests/integration/web/test_concept_help.py
+      - tests/application/project/test_authoring.py
+      - tests/architecture/test_identity_semantics.py
+      - tests/application/workspace/test_access.py
+      - tests/architecture/test_canonical_ownership.py
+      - tests/integration/duckdb/test_forward_upgrades.py
+      - tests/integration/duckdb/test_workspace_evidence.py
+      - tests/integration/protected_evidence/test_project_security.py
+      - tests/domain/recipe/test_representative_shapes.py
+      - tests/application/workspace/test_odoo_connection.py
     contracts:
       - docs/developer/contracts/recipe-lifecycle.md
       - docs/developer/contracts/project-lifecycle.md
@@ -108,13 +108,13 @@ stages:
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/web/source_file_commands.py::remove_source_file
     tests:
-      - tests/test_workspace.py
-      - tests/test_source_worker_build_contract.py
-      - tests/test_source_snapshot.py
-      - tests/test_odoo_source_capture.py
-      - tests/test_odoo_capture_jobs.py
-      - tests/test_derived_entities.py
-      - tests/test_web_app.py
+      - tests/integration/duckdb/test_workspace.py
+      - tests/application/data_version/test_source_worker.py
+      - tests/domain/data_version/test_source_snapshot.py
+      - tests/integration/odoo/test_source_capture.py
+      - tests/application/data_version/test_odoo_capture_jobs.py
+      - tests/application/workspace/test_derived_entities.py
+      - tests/integration/web/test_source_workflow.py
     contracts:
       - docs/developer/contracts/project-lifecycle.md
       - docs/developer/contracts/evidence-lifecycle.md
@@ -167,9 +167,9 @@ stages:
       - src/impodo/web/workspace_journeys.py::enforce_workspace_journey
     tests:
       - tests/application/run/test_odoo_requirements.py
-      - tests/test_integrated_recipe_runs.py
-      - tests/test_forward_upgrade_compatibility.py
-      - tests/test_workspace_journeys.py
+      - tests/application/run/test_integrated_recipe_runs.py
+      - tests/integration/duckdb/test_forward_upgrades.py
+      - tests/application/workspace/test_journeys.py
     contracts:
       - docs/developer/contracts/integrated-run-lifecycle.md
       - docs/developer/contracts/project-lifecycle.md
@@ -193,7 +193,7 @@ stages:
       - src/impodo/domain/cutover/models.py::CutoverPlanRevision
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
-      - tests/test_cutover_qualification.py
+      - tests/application/cutover/test_qualification.py
     contracts:
       - docs/developer/contracts/cutover-plan-lifecycle.md
       - docs/developer/contracts/integrated-run-lifecycle.md
@@ -218,7 +218,7 @@ stages:
       - src/impodo/domain/run/production.py::ProductionRunBinding
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
-      - tests/test_production_rollout.py
+      - tests/application/run/test_production_rollout.py
     contracts:
       - docs/developer/contracts/production-run-lifecycle.md
       - docs/developer/contracts/cutover-plan-lifecycle.md
@@ -248,9 +248,9 @@ stages:
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.confirm_refresh
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern
     tests:
-      - tests/test_workspace.py
-      - tests/test_local_odoo_reader.py
-      - tests/test_web_app.py
+      - tests/integration/duckdb/test_workspace.py
+      - tests/integration/odoo/test_local_reader.py
+      - tests/integration/web/test_target_workflow.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
 
@@ -278,11 +278,11 @@ stages:
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
     tests:
-      - tests/mapping/test_forms.py
-      - tests/mapping/test_validation.py
-      - tests/mapping/test_selection_rules.py
-      - tests/mapping/test_impact_presenter.py
-      - tests/test_web_app.py
+      - tests/integration/web/test_mapping_forms.py
+      - tests/domain/mapping/test_validation.py
+      - tests/domain/mapping/test_selection_rules.py
+      - tests/integration/web/test_mapping_impact_presenter.py
+      - tests/integration/web/test_mapping_workflow.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
 
@@ -310,13 +310,13 @@ stages:
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
       - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService
     tests:
-      - tests/test_preparation_jobs.py
-      - tests/test_build_contract.py
-      - tests/test_workspace_schema_contract.py
-      - tests/test_preparation_session.py
-      - tests/test_quality.py
-      - tests/test_normalization.py
-      - tests/test_web_app.py
+      - tests/application/workspace/preparation/test_jobs.py
+      - tests/architecture/test_build_contract.py
+      - tests/architecture/test_workspace_schema_contract.py
+      - tests/integration/duckdb/test_preparation_session.py
+      - tests/domain/preparation/test_quality.py
+      - tests/domain/preparation/test_normalization.py
+      - tests/integration/web/test_preparation_workflow.py
     contracts:
       - docs/developer/contracts/canonical-staging.md
       - docs/developer/contracts/normalization.md
@@ -341,13 +341,13 @@ stages:
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
       - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
     tests:
-      - tests/test_preflight_service.py
-      - tests/test_preflight_scale.py
-      - tests/test_reporting_cli.py
-      - tests/test_engine.py
-      - tests/test_connectors.py
-      - tests/test_odoo_comparison.py
-      - tests/test_web_app.py
+      - tests/application/workspace/review/test_preflight.py
+      - tests/performance/test_preflight_scale.py
+      - tests/integration/artifacts/test_reporting_cli.py
+      - tests/integration/artifacts/test_preflight_outputs.py
+      - tests/integration/odoo/test_connectors.py
+      - tests/application/workspace/review/test_odoo_comparison.py
+      - tests/integration/web/test_review_workflow.py
     contracts:
       - docs/developer/contracts/preflight.md
       - docs/developer/contracts/quality-and-quarantine.md
@@ -370,11 +370,12 @@ stages:
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.reconcile
     tests:
-      - tests/test_execution_service.py
-      - tests/test_execution_web.py
-      - tests/test_execution_repository.py
-      - tests/test_load_jobs.py
-      - tests/test_reconciliation_service.py
+      - tests/application/workspace/execution/test_service.py
+      - tests/integration/web/test_execution.py
+      - tests/integration/duckdb/test_execution_repository.py
+      - tests/application/workspace/execution/test_load_jobs.py
+      - tests/application/workspace/execution/test_reconciliation.py
+      - tests/integration/web/test_load_workflow.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md
     references:

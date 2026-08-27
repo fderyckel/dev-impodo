@@ -84,9 +84,9 @@ shell.
 
 ## Verification
 
-- `tests/test_project_authoring.py`
-- `tests/test_integrated_recipe_runs.py`
-- `tests/test_recipe_representative_shapes.py`
+- `tests/application/project/test_authoring.py`
+- `tests/application/run/test_integrated_recipe_runs.py`
+- `tests/domain/recipe/test_representative_shapes.py`
 
 ## Related documentation
 

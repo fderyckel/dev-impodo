@@ -6,7 +6,7 @@ then delegates preview and optimistic plan revisions to
 visible to mapping but never edits frozen source bytes.
 
 See ``docs/user/guides/related-tables.md`` and
-``tests/test_web_app.py``.
+``tests/integration/web/test_source_workflow.py``.
 """
 
 from __future__ import annotations
@@ -341,4 +341,3 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         )
 
     return router
-

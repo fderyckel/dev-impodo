@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODULES = ("tests.test_integrated_recipe_runs",)
+DEFAULT_MODULES = ("tests.application.run.test_integrated_recipe_runs",)
 DEFAULT_SEEDS = (1729, 20260826)
 
 if str(ROOT) not in sys.path:

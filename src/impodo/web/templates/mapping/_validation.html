@@ -1,0 +1,67 @@
+      {% if validation %}
+        <section class="form-card" id="semantic-validation">
+          <div class="page-heading compact">
+            <div>
+              <p class="eyebrow">Match check</p>
+              <h2>{% if validation.status.value == 'INVALID' %}Needs attention{% else %}Ready to confirm{% endif %}</h2>
+            </div>
+            <span class="status {% if validation_problem_count %}needs_review{% else %}ready{% endif %}">
+              {% if validation_problem_count %}{{ validation_problem_count }} decision{{ "s" if validation_problem_count != 1 else "" }}{% else %}No issues{% endif %}
+            </span>
+          </div>
+          {% if validation_problem_count %}
+            {% if validation.status.value == 'INVALID' %}
+              <p>Resolve every reason shown at the top of this page, then check the matches again.</p>
+            {% elif visible_validation_issues %}
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Problem</th><th>Where</th><th>How to fix it</th></tr></thead>
+                <tbody>
+                  {% for issue in visible_validation_issues %}
+                    <tr>
+                      <th>
+                        {{ issue.message }}
+                        <details class="technical-details">
+                          <summary>Support details</summary>
+                          <code>{{ issue.code }}</code> · {{ issue.severity }}
+                        </details>
+                      </th>
+                      <td>
+                        Matching choices
+                        <details class="technical-details">
+                          <summary>Support details</summary>
+                          <code>{{ issue.path }}</code>
+                        </details>
+                      </td>
+                      <td>{{ issue.remediation }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% endif %}
+          {% else %}
+            <p>Your field matches are consistent. The next step prepares every source row for review.</p>
+          {% endif %}
+          {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
+            <div class="actions">
+              <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Review rule effects (optional)</a>
+            </div>
+            <p class="muted">Use this read-only preview when you want to inspect rule effects now. You can also confirm the checked matches and review every prepared row in Stage 4.</p>
+          {% endif %}
+          {% for item in warning_issues %}
+            <label class="acknowledgement">
+              <input type="checkbox" name="warning_acknowledgement" value="{{ item.fingerprint }}">
+              I reviewed this warning: {{ item.issue.message }}
+            </label>
+          {% endfor %}
+          <details>
+            <summary>Checks Impodo will run on your data next</summary>
+            <ul>
+              {% for check in validation.deferred_runtime_checks %}
+                <li>{{ check.message }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+        </section>
+      {% endif %}

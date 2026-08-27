@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Review rule effects &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/transformation-impact.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>

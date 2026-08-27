@@ -9,7 +9,7 @@ published technical manifest or build/download its human review workbook
 projection. No route exposes an Odoo write operation.
 
 See ``docs/architecture/python-code-map.md`` and
-``tests/test_preflight_service.py``.
+``tests/application/workspace/review/test_preflight.py``.
 """
 
 from __future__ import annotations

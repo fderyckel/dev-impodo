@@ -248,14 +248,14 @@ separate from read capability.
 
 ## Focused verification
 
-- `tests/test_migration_project_contracts.py`
-- `tests/test_migration_foundation.py`
-- `tests/test_forward_upgrade_compatibility.py`
-- `tests/test_data_version_source_packages.py`
-- `tests/test_project_authoring.py`
+- `tests/domain/project/test_contracts.py`
+- `tests/integration/duckdb/test_migration_foundation.py`
+- `tests/integration/duckdb/test_forward_upgrades.py`
+- `tests/application/data_version/test_source_packages.py`
+- `tests/application/project/test_authoring.py`
 - `tests/application/run/test_odoo_requirements.py`
-- `tests/test_integrated_recipe_runs.py`
-- `tests/test_cutover_qualification.py`
-- `tests/test_production_rollout.py`
-- `tests/test_recipe_representative_shapes.py`
-- `tests/test_preparation_jobs.py`
+- `tests/application/run/test_integrated_recipe_runs.py`
+- `tests/application/cutover/test_qualification.py`
+- `tests/application/run/test_production_rollout.py`
+- `tests/domain/recipe/test_representative_shapes.py`
+- `tests/application/workspace/preparation/test_jobs.py`

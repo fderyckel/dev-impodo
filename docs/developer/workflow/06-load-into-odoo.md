@@ -102,11 +102,12 @@ authorization.
 
 ## Verification
 
-- [`tests/test_execution_service.py`](../../../tests/test_execution_service.py)
-- [`tests/test_execution_web.py`](../../../tests/test_execution_web.py)
-- [`tests/test_execution_repository.py`](../../../tests/test_execution_repository.py)
-- [`tests/test_load_jobs.py`](../../../tests/test_load_jobs.py)
-- [`tests/test_reconciliation_service.py`](../../../tests/test_reconciliation_service.py)
+- [`tests/application/workspace/execution/test_service.py`](../../../tests/application/workspace/execution/test_service.py)
+- [`tests/integration/web/test_execution.py`](../../../tests/integration/web/test_execution.py)
+- [`tests/integration/duckdb/test_execution_repository.py`](../../../tests/integration/duckdb/test_execution_repository.py)
+- [`tests/application/workspace/execution/test_load_jobs.py`](../../../tests/application/workspace/execution/test_load_jobs.py)
+- [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
+- [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)
 
 Verify scope enforcement, dependency order, create batching, update behavior,
 journal-before-transport, unknown outcomes, deferred relationships,

@@ -125,9 +125,9 @@ repository query per source row, or repeat application reads inside row loops.
 
 ## Verification
 
-- [`tests/test_cutover_qualification.py`](../../../tests/test_cutover_qualification.py)
-- [`tests/test_integrated_recipe_runs.py`](../../../tests/test_integrated_recipe_runs.py)
-- [`tests/test_execution_web.py`](../../../tests/test_execution_web.py)
+- [`tests/application/cutover/test_qualification.py`](../../../tests/application/cutover/test_qualification.py)
+- [`tests/application/run/test_integrated_recipe_runs.py`](../../../tests/application/run/test_integrated_recipe_runs.py)
+- [`tests/integration/web/test_execution.py`](../../../tests/integration/web/test_execution.py)
 
 ## Related documentation
 

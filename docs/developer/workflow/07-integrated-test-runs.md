@@ -322,11 +322,11 @@ queries must not scale with Recipe count.
 ## Verification
 
 - [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
-- [`tests/test_integrated_recipe_runs.py`](../../../tests/test_integrated_recipe_runs.py)
-- [`tests/test_forward_upgrade_compatibility.py`](../../../tests/test_forward_upgrade_compatibility.py)
-- [`tests/test_workspace_journeys.py`](../../../tests/test_workspace_journeys.py)
-- [`tests/test_project_authoring.py`](../../../tests/test_project_authoring.py)
-- [`tests/test_data_version_source_packages.py`](../../../tests/test_data_version_source_packages.py)
+- [`tests/application/run/test_integrated_recipe_runs.py`](../../../tests/application/run/test_integrated_recipe_runs.py)
+- [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
+- [`tests/application/workspace/test_journeys.py`](../../../tests/application/workspace/test_journeys.py)
+- [`tests/application/project/test_authoring.py`](../../../tests/application/project/test_authoring.py)
+- [`tests/application/data_version/test_source_packages.py`](../../../tests/application/data_version/test_source_packages.py)
 
 ## Related documentation
 

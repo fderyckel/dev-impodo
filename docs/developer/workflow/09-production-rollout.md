@@ -132,7 +132,7 @@ call per source row, or N+1 workspace open for Project status.
 
 ## Verification
 
-- [`tests/test_production_rollout.py`](../../../tests/test_production_rollout.py)
+- [`tests/application/run/test_production_rollout.py`](../../../tests/application/run/test_production_rollout.py)
 
 The focused gate proves fresh setup identity, exact plan pins, a different
 Production target, separate credential generations, isolated application

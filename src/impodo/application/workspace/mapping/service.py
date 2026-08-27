@@ -10,7 +10,8 @@ Working drafts are recoverable but unchecked; revisions and submissions are
 immutable evidence.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/developer/contracts/evidence-lifecycle.md``, and ``tests/test_workspace.py``.
+``docs/developer/contracts/evidence-lifecycle.md``, and
+``tests/integration/duckdb/test_workspace.py``.
 """
 
 from __future__ import annotations

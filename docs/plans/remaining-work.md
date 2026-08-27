@@ -382,12 +382,13 @@ The first disposable-target exit gate requires all of the following evidence:
   acceptance documentation are updated together only as each behavior becomes
   current. Planned behavior must not appear in current user instructions.
 
-Focused verification must cover `tests/test_odoo_provenance.py`,
-`tests/test_odoo_comparison.py`, the new pinned execution and reconciliation
-contract tests, `tests/test_execution_service.py`,
-`tests/test_reconciliation_service.py`, `tests/test_execution_web.py`,
-`tests/test_canonical_ownership.py`, `tests/test_project_security.py`, and the
-relevant browser tests in `tests/test_web_app.py`. The normal documentation
+Focused verification must cover `tests/integration/odoo/test_provenance.py`,
+`tests/application/workspace/review/test_odoo_comparison.py`, the new pinned execution and reconciliation
+contract tests, `tests/application/workspace/execution/test_service.py`,
+`tests/application/workspace/execution/test_reconciliation.py`, `tests/integration/web/test_execution.py`,
+`tests/architecture/test_canonical_ownership.py`, `tests/integration/protected_evidence/test_project_security.py`, and the
+focused browser tests in `tests/integration/web/test_review_workflow.py` and
+`tests/integration/web/test_load_workflow.py`. The normal documentation
 quality and repository gates remain required.
 
 Production remains a later architecture decision. It requires strong

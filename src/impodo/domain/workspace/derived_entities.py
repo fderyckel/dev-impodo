@@ -7,7 +7,7 @@ over every source row by readiness staging without changing the frozen source.
 
 See ``docs/architecture/python-code-map.md``,
 ``docs/user/guides/related-tables.md``, and
-``tests/test_derived_entities.py``.
+``tests/application/workspace/test_derived_entities.py``.
 """
 
 from __future__ import annotations
@@ -571,7 +571,14 @@ def mapping_source_selection(
 
     catalog_set = tuple(catalogs)
     effective: list[SourceDataset] = []
-    for dataset in prepared_selection.datasets:
+    # WorkspaceSourceProjection canonicalizes Data-version datasets by identity.
+    # The workspace-only preparation worker must derive the same effective
+    # selection from its local frozen copy, regardless of the authored display
+    # order preserved in that copy.
+    for dataset in sorted(
+        prepared_selection.datasets,
+        key=lambda item: item.dataset_id,
+    ):
         for lookup_rule in sorted(
             lookup_rules.get(dataset.dataset_id, ()),
             key=lambda item: item.output_dataset_name,

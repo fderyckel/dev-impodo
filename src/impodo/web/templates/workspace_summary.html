@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/review.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   {% set is_recipe_application = workspace_navigation.journey == 'RECIPE_APPLICATION' %}
   {% set run_odoo_url = '/projects/' ~ migration_context.project_id ~ '/runs/' ~ migration_context.migration_run_id ~ '/odoo' %}

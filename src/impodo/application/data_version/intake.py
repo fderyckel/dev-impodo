@@ -9,8 +9,8 @@ display name is never used as the storage key. Early-stage removal first retires
 the governed database reference and then deletes its opaque stored bytes.
 
 See ``docs/architecture/python-code-map.md``,
-``tests/test_data_version_source_packages.py``, and
-``tests/test_project_authoring.py``.
+``tests/application/data_version/test_source_packages.py``, and
+``tests/application/project/test_authoring.py``.
 """
 
 from __future__ import annotations

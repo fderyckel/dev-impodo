@@ -10,7 +10,7 @@ and exposes no Odoo write command. Future Stage-I–K work must not extend the
 existing snapshot connector into a generic executor.
 
 See ``docs/developer/cli/preflight.md``, ``docs/developer/contracts/preflight.md``, and
-``tests/test_reporting_cli.py``.
+``tests/integration/artifacts/test_reporting_cli.py``.
 """
 
 from __future__ import annotations

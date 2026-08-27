@@ -130,15 +130,15 @@ gives a Recipe ownership of a DataVersion.
 
 ## Verification
 
-- `tests/test_migration_foundation.py`
-- `tests/test_forward_upgrade_compatibility.py`
-- `tests/test_data_version_source_packages.py`
-- `tests/test_project_authoring.py`
-- `tests/test_integrated_recipe_runs.py`
-- `tests/test_identity_semantics.py`
-- `tests/test_workspace_access.py`
-- `tests/test_canonical_ownership.py`
-- `tests/test_preparation_jobs.py`
+- `tests/integration/duckdb/test_migration_foundation.py`
+- `tests/integration/duckdb/test_forward_upgrades.py`
+- `tests/application/data_version/test_source_packages.py`
+- `tests/application/project/test_authoring.py`
+- `tests/application/run/test_integrated_recipe_runs.py`
+- `tests/architecture/test_identity_semantics.py`
+- `tests/application/workspace/test_access.py`
+- `tests/architecture/test_canonical_ownership.py`
+- `tests/application/workspace/preparation/test_jobs.py`
 
 ## Related documentation
 

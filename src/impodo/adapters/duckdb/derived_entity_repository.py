@@ -6,7 +6,7 @@ the active mapping and canonical staging because the effective mapping dataset
 shape has changed.
 
 See ``docs/user/guides/related-tables.md`` and
-``tests/test_derived_entities.py``.
+``tests/application/workspace/test_derived_entities.py``.
 """
 
 from __future__ import annotations
@@ -135,4 +135,3 @@ class DerivedEntityRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-

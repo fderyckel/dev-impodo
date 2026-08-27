@@ -401,22 +401,20 @@ def _render_mapping_field_catalog(
     projection_ms = (perf_counter() - started) * 1000
     view_build_ms = max(0.0, projection_ms - workspace_read_ms)
     render_started = perf_counter()
+    catalog_template = (
+        "_relationship_catalog.html"
+        if catalog_kind == "relation"
+        else "_scalar_catalog.html"
+    )
     template = request.app.state.templates.env.get_template(
-        "mapping/page.html"
+        f"mapping/{catalog_template}"
     )
-    block_name = f"{catalog_kind}_field_catalog"
-    block = template.blocks.get(block_name)
-    if block is None:
-        raise RuntimeError(f"Mapping {catalog_kind}-field template block is missing")
-    template_context = template.new_context(
-        {
-            "request": request,
-            "workspace_id": workspace_id,
-            "dataset_index": active_view["index"],
-            "view": active_view,
-        }
+    html = template.render(
+        request=request,
+        workspace_id=workspace_id,
+        dataset_index=active_view["index"],
+        view=active_view,
     )
-    html = "".join(block(template_context))
     render_ms = (perf_counter() - render_started) * 1000
     response = HTMLResponse(html)
     response.headers["Cache-Control"] = "no-store"

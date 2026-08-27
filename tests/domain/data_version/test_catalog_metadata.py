@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+from tests.support.paths import REPOSITORY_ROOT
+
+from dataclasses import replace
+from pathlib import Path
+import unittest
+
+from impodo.domain.data_version.catalog import TargetCatalog
+from impodo.adapters.odoo.connectors import SnapshotConnector
+from impodo.domain.compiler import compile_profile_document
+from impodo.domain.data_version.metadata import validate_plan_metadata
+from impodo.domain.shared.models import TargetRecord
+from impodo.domain.execution.planner import plan_metadata_requests
+from impodo.adapters.artifacts.profile_loader import load_profile
+
+
+ROOT = REPOSITORY_ROOT
+
+
+class CatalogTests(unittest.TestCase):
+    def test_duplicate_business_keys_are_preserved(self) -> None:
+        catalog = TargetCatalog(
+            {
+                "x.model": (
+                    TargetRecord("x.model", 1, {"code": "DUP"}),
+                    TargetRecord("x.model", 2, {"code": "DUP"}),
+                )
+            }
+        )
+        self.assertEqual(
+            len(catalog.find_by_fields("x.model", ("code",), ("DUP",))),
+            2,
+        )
+
+    def test_relation_id_becomes_business_reference(self) -> None:
+        catalog = TargetCatalog(
+            {"uom.uom": (TargetRecord("uom.uom", 10, {"code": "KG"}),)}
+        )
+        reference = catalog.reference_from_id(
+            "uom.uom", [10, "Kilogram"], ("code",)
+        )
+        self.assertEqual(reference.key, ("KG",))
+
+
+class MetadataValidationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        )
+        connector = SnapshotConnector(
+            combined_path=ROOT / "fixtures/golden/target_snapshot.json"
+        )
+        self.snapshot = connector.get_model_metadata(
+            plan_metadata_requests(self.profile)
+        )
+
+    def test_golden_metadata_is_complete(self) -> None:
+        issues, coverage = validate_plan_metadata(self.profile, self.snapshot)
+        self.assertEqual(issues, ())
+        self.assertTrue(all(item["status"] == "COMPLETE" for item in coverage))
+
+    def test_readonly_proposed_field_is_rejected(self) -> None:
+        product = self.snapshot.models["product.template"]
+        fields = dict(product.fields)
+        fields["name"] = replace(fields["name"], readonly=True)
+        models = dict(self.snapshot.models)
+        models["product.template"] = replace(product, fields=fields)
+        issues, _ = validate_plan_metadata(
+            self.profile, replace(self.snapshot, models=models)
+        )
+        self.assertIn("TARGET_FIELD_READONLY", {issue.code for issue in issues})
+
+    def test_incorrect_relation_metadata_is_rejected(self) -> None:
+        product = self.snapshot.models["product.template"]
+        fields = dict(product.fields)
+        fields["uom_id"] = replace(
+            fields["uom_id"], type="many2many", relation="wrong.model"
+        )
+        models = dict(self.snapshot.models)
+        models["product.template"] = replace(product, fields=fields)
+        issues, _ = validate_plan_metadata(
+            self.profile, replace(self.snapshot, models=models)
+        )
+        codes = {issue.code for issue in issues}
+        self.assertIn("TARGET_RELATION_KIND_INCORRECT", codes)
+        self.assertIn("TARGET_RELATED_MODEL_INCORRECT", codes)
+
+    def test_missing_target_only_reference_model_is_rejected(self) -> None:
+        models = dict(self.snapshot.models)
+        models.pop("uom.uom")
+        issues, _ = validate_plan_metadata(
+            self.profile, replace(self.snapshot, models=models)
+        )
+        self.assertTrue(
+            any(
+                issue.code == "TARGET_MODEL_UNKNOWN"
+                and "uom.uom" in issue.message
+                for issue in issues
+            )
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -5,7 +5,8 @@ reader, obtains target-bound snapshots, and delegates their validation to
 ``SchemaWorkspaceService``. It also routes the exact permitted-model scope
 through ``WorkspaceStateService``. No generic Odoo method or write is exposed.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+See ``docs/architecture/python-code-map.md`` and
+``tests/integration/web/test_target_workflow.py``.
 """
 
 from __future__ import annotations

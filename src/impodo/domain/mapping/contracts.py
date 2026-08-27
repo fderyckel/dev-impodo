@@ -8,7 +8,7 @@ Odoo IDs.
 
 See ``docs/architecture/python-code-map.md``,
 ``docs/developer/contracts/evidence-lifecycle.md``, and
-``tests/mapping/test_validation.py``.
+``tests/domain/mapping/test_validation.py``.
 """
 
 from __future__ import annotations

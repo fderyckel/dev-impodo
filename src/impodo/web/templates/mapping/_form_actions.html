@@ -1,0 +1,31 @@
+      <div class="actions mapping-actions">
+        <p
+          class="mapping-save-state"
+          data-mapping-save-status
+          data-saved-at="{{ working_draft.updated_at.isoformat() if has_unvalidated_changes else '' }}"
+          role="status"
+          aria-live="polite"
+        >
+          {% if has_unvalidated_changes %}
+            Progress is saved. Check matches when ready.
+          {% elif submission %}
+            Field matches are confirmed.
+          {% elif validation and validation.status.value == 'INVALID' %}
+            Checked matches need attention.
+          {% elif revision %}
+            Checked matches are ready to confirm.
+          {% else %}
+            Changes are not saved yet.
+          {% endif %}
+        </p>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/{{ 'sources' if odoo_pinned else 'schema' }}">Back to Odoo data</a>
+        <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
+        <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
+        {% if next_step.available and next_step.kind == 'link' %}
+          <a class="button {{ next_step.button_style }}" href="{{ next_step.href }}">{{ next_step.label }}</a>
+        {% elif next_step.available %}
+          <button class="button {{ next_step.button_style }}" name="action" value="{{ next_step.action }}" type="submit" data-confirm-mapping>{{ next_step.label }}</button>
+        {% else %}
+          <button class="button primary" type="button" aria-describedby="next-step-blockers" disabled>{{ next_step.label }}</button>
+        {% endif %}
+      </div>

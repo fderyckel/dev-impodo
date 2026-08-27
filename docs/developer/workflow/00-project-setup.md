@@ -165,19 +165,19 @@ therefore use one reviewed registry without adding a database or N+1 path.
 
 ## Verification
 
-- [`tests/test_project_authoring.py`](../../../tests/test_project_authoring.py)
-- [`tests/test_identity_semantics.py`](../../../tests/test_identity_semantics.py)
-- [`tests/test_workspace_access.py`](../../../tests/test_workspace_access.py)
-- [`tests/test_canonical_ownership.py`](../../../tests/test_canonical_ownership.py)
-- [`tests/test_workspace_evidence_storage.py`](../../../tests/test_workspace_evidence_storage.py)
-- [`tests/test_forward_upgrade_compatibility.py`](../../../tests/test_forward_upgrade_compatibility.py)
-- [`tests/test_concept_help.py`](../../../tests/test_concept_help.py)
-- [`tests/test_project_security.py`](../../../tests/test_project_security.py)
-- [`tests/test_odoo_connection_service.py`](../../../tests/test_odoo_connection_service.py)
-- [`tests/test_odoo_capture_jobs.py`](../../../tests/test_odoo_capture_jobs.py)
-- [`tests/test_odoo_capture_publication.py`](../../../tests/test_odoo_capture_publication.py)
-- [`tests/test_preparation_jobs.py`](../../../tests/test_preparation_jobs.py)
-- [`tests/test_recipe_representative_shapes.py`](../../../tests/test_recipe_representative_shapes.py)
+- [`tests/application/project/test_authoring.py`](../../../tests/application/project/test_authoring.py)
+- [`tests/architecture/test_identity_semantics.py`](../../../tests/architecture/test_identity_semantics.py)
+- [`tests/application/workspace/test_access.py`](../../../tests/application/workspace/test_access.py)
+- [`tests/architecture/test_canonical_ownership.py`](../../../tests/architecture/test_canonical_ownership.py)
+- [`tests/integration/duckdb/test_workspace_evidence.py`](../../../tests/integration/duckdb/test_workspace_evidence.py)
+- [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
+- [`tests/integration/web/test_concept_help.py`](../../../tests/integration/web/test_concept_help.py)
+- [`tests/integration/protected_evidence/test_project_security.py`](../../../tests/integration/protected_evidence/test_project_security.py)
+- [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
+- [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
+- [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)
+- [`tests/application/workspace/preparation/test_jobs.py`](../../../tests/application/workspace/preparation/test_jobs.py)
+- [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
 
 ## Related documentation
 

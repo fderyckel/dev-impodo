@@ -241,11 +241,11 @@ operation. Neither Test qualification nor selection is Production authority.
 
 ## Verification
 
-- `tests/test_integrated_recipe_runs.py`
-- `tests/test_workspace_journeys.py`
-- `tests/test_cutover_qualification.py`
-- `tests/test_project_authoring.py`
-- `tests/test_data_version_source_packages.py`
+- `tests/application/run/test_integrated_recipe_runs.py`
+- `tests/application/workspace/test_journeys.py`
+- `tests/application/cutover/test_qualification.py`
+- `tests/application/project/test_authoring.py`
+- `tests/application/data_version/test_source_packages.py`
 
 ## Related documentation
 

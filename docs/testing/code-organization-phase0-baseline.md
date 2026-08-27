@@ -30,8 +30,8 @@ Run the inventory check from the repository root:
 
 ```bash
 .venv/bin/python scripts/architecture_inventory.py \
-  --check tests/architecture_phase0_baseline.json
-.venv/bin/python -m unittest tests.test_architecture_inventory -v
+  --check tests/architecture/phase0_baseline.json
+.venv/bin/python -m unittest tests.architecture.test_inventory -v
 ```
 
 The reviewed snapshot contains 363 production modules and 1,996 runtime
@@ -80,7 +80,7 @@ unclassified and fails the baseline until a maintainer assigns it a layer.
 Run the direction gate from the repository root:
 
 ```bash
-.venv/bin/python -m unittest tests.test_architecture_dependency_rules -v
+.venv/bin/python -m unittest tests.architecture.test_dependency_rules -v
 ```
 
 The test rejects every flat or otherwise unclassified production module,
@@ -95,14 +95,14 @@ prints the exact offending module, import path, or construction site.
 First run the integrated module in its normal order:
 
 ```bash
-.venv/bin/python -m unittest tests.test_integrated_recipe_runs -v
+.venv/bin/python -m unittest tests.application.run.test_integrated_recipe_runs -v
 ```
 
 Then run both recorded shuffled orders:
 
 ```bash
 .venv/bin/python scripts/run_seeded_unittest.py \
-  --module tests.test_integrated_recipe_runs \
+  --module tests.application.run.test_integrated_recipe_runs \
   --seed 1729 \
   --seed 20260826
 ```
@@ -125,49 +125,49 @@ changed. Run all groups for a cross-owner repository or composition change.
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.test_migration_foundation \
-  tests.test_project_authoring \
-  tests.test_identity_semantics \
-  tests.test_workspace_access \
-  tests.test_canonical_ownership -v
+  tests.integration.duckdb.test_migration_foundation \
+  tests.application.project.test_authoring \
+  tests.architecture.test_identity_semantics \
+  tests.application.workspace.test_access \
+  tests.architecture.test_canonical_ownership -v
 ```
 
 ### Data version and source evidence
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.test_data_version_source_packages \
-  tests.test_source_snapshot \
-  tests.test_source_snapshot_io \
-  tests.test_workspace_evidence_storage -v
+  tests.application.data_version.test_source_packages \
+  tests.domain.data_version.test_source_snapshot \
+  tests.integration.artifacts.test_source_snapshot_io \
+  tests.integration.duckdb.test_workspace_evidence -v
 ```
 
 ### Workspace, mapping, and preparation
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.test_workspace \
-  tests.test_recipe_representative_shapes \
-  tests.test_preparation_jobs \
-  tests.test_staging_store \
-  tests.test_quality -v
+  tests.integration.duckdb.test_workspace \
+  tests.domain.recipe.test_representative_shapes \
+  tests.application.workspace.preparation.test_jobs \
+  tests.integration.duckdb.test_staging_store \
+  tests.domain.preparation.test_quality -v
 ```
 
 ### Recipe application and integrated Test run
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.test_integrated_recipe_runs \
-  tests.test_workspace_journeys -v
+  tests.application.run.test_integrated_recipe_runs \
+  tests.application.workspace.test_journeys -v
 ```
 
 ### Cutover and Production
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.test_cutover_qualification \
-  tests.test_production_rollout \
-  tests.test_forward_upgrade_compatibility -v
+  tests.application.cutover.test_qualification \
+  tests.application.run.test_production_rollout \
+  tests.integration.duckdb.test_forward_upgrades -v
 ```
 
 ## Atomic-operation gates
@@ -179,13 +179,13 @@ repository decomposition:
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.test_migration_foundation.MigrationFoundationTests.test_fault_injection_replays_each_root_without_duplicates \
-  tests.test_project_authoring.ProjectAuthoringTests.test_publication_recovers_after_artifact_store_fault_and_adds_one_recipe \
-  tests.test_data_version_source_packages.DataVersionSourcePackageTests.test_freeze_and_projection_recover_after_cross_store_faults \
-  tests.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_same_operation_recovers_after_registry_fault_without_duplicates \
-  tests.test_cutover_qualification.CutoverQualificationTests.test_qualification_recovers_after_protected_evidence_fault \
-  tests.test_production_rollout.ProductionRolloutTests.test_activation_recovers_after_registry_commit_before_workspace_stores \
-  tests.test_production_rollout.ProductionRolloutTests.test_activation_retry_reuses_reserved_meaning_before_registry_commit -v
+  tests.integration.duckdb.test_migration_foundation.MigrationFoundationTests.test_fault_injection_replays_each_root_without_duplicates \
+  tests.application.project.test_authoring.ProjectAuthoringTests.test_publication_recovers_after_artifact_store_fault_and_adds_one_recipe \
+  tests.application.data_version.test_source_packages.DataVersionSourcePackageTests.test_freeze_and_projection_recover_after_cross_store_faults \
+  tests.application.run.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_same_operation_recovers_after_registry_fault_without_duplicates \
+  tests.application.cutover.test_qualification.CutoverQualificationTests.test_qualification_recovers_after_protected_evidence_fault \
+  tests.application.run.test_production_rollout.ProductionRolloutTests.test_activation_recovers_after_registry_commit_before_workspace_stores \
+  tests.application.run.test_production_rollout.ProductionRolloutTests.test_activation_retry_reuses_reserved_meaning_before_registry_commit -v
 ```
 
 ## Bounded-I/O gates
@@ -209,42 +209,56 @@ Run the compact preservation set with:
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.test_migration_foundation.MigrationFoundationTests.test_project_list_is_registry_only_for_one_hundred_projects \
-  tests.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_selected_recipe_revisions_use_one_registry_connection \
-  tests.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_integrated_progress_reads_registry_without_workspace_open \
-  tests.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_review_projection_orders_recipes_without_workspace_open \
-  tests.test_workspace_access.WorkspaceAccessTests.test_registry_resolver_is_one_read_and_opens_no_workspace_store \
-  tests.test_local_odoo_reader.LocalOdooMetadataReaderTests.test_preflight_capture_batches_models_in_one_rolled_back_shell \
-  tests.test_connectors.Json2ConnectorTests.test_schema_constraint_evidence_is_batched_for_all_models \
-  tests.test_source_and_planner.PlannerTests.test_record_requests_are_batched_by_model \
-  tests.test_execution_service.ExecutionServiceTests.test_configured_create_batch_size_reuses_existing_relation_lookup \
-  tests.test_reconciliation_service.Json2ReadbackReaderTests.test_batches_exact_business_keys_in_one_request -v
+  tests.integration.duckdb.test_migration_foundation.MigrationFoundationTests.test_project_list_is_registry_only_for_one_hundred_projects \
+  tests.application.run.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_selected_recipe_revisions_use_one_registry_connection \
+  tests.application.run.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_integrated_progress_reads_registry_without_workspace_open \
+  tests.application.run.test_integrated_recipe_runs.IntegratedRecipeRunTests.test_review_projection_orders_recipes_without_workspace_open \
+  tests.application.workspace.test_access.WorkspaceAccessTests.test_registry_resolver_is_one_read_and_opens_no_workspace_store \
+  tests.integration.odoo.test_local_reader.LocalOdooMetadataReaderTests.test_preflight_capture_batches_models_in_one_rolled_back_shell \
+  tests.integration.odoo.test_connectors.Json2ConnectorTests.test_schema_constraint_evidence_is_batched_for_all_models \
+  tests.domain.execution.test_planner.PlannerTests.test_record_requests_are_batched_by_model \
+  tests.application.workspace.execution.test_service.ExecutionServiceTests.test_configured_create_batch_size_reuses_existing_relation_lookup \
+  tests.application.workspace.execution.test_reconciliation.Json2ReadbackReaderTests.test_batches_exact_business_keys_in_one_request -v
 ```
 
 If a deliberate design change increases one bound, update the implementation,
 the exact assertion, this table, and the remediation review together. A file
 move or repository split alone is not a reason to increase a bound.
 
+## Focused browser and test-organization gates
+
+Phase 4 replaced the former browser monolith with capability suites. Run the
+focused browser and static-ownership gates with:
+
+```bash
+.venv/bin/python -m unittest \
+  tests.architecture.test_test_organization \
+  tests.architecture.test_static_asset_ownership -v
+.venv/bin/python -m unittest discover \
+  -s tests/integration/web -t . -v
+.venv/bin/python -m unittest \
+  tests.e2e.test_project_setup_journey -v
+```
+
+The integration modules own Project setup, security, local-stack, source,
+target, Mapping, Preparation, review, and load browser contracts. The e2e
+module protects the complete setup journey. Test support is not discovered and
+uses explicit builders plus `tests.support.paths.REPOSITORY_ROOT`, so moves do
+not depend on package depth or test order.
+
+All static JavaScript remains framework-free. Run `node --check` for every
+file below `src/impodo/web/static` when a browser module changes.
+
+The Phase 4 verification on 2026-08-27 ran 92 focused web tests and the
+complete Project setup journey. Repository-root discovery ran 890 tests with
+13 expected skips. The integrated-run module ran 26 tests in normal order and
+under each recorded isolated seed.
+
 ## Completion rule
 
-Phase 0 is complete when the architecture inventory, normal integrated order,
-both fixed shuffled orders, focused owner groups, atomic-operation set, bounded
-I/O set, documentation checks, and `git diff --check` pass. Record any optional
-remote Odoo or browser verification that was not run; Phase 0 does not require
-a live target because it changes no browser or Odoo behavior.
-
-## Broader web-suite debt
-
-The complete `tests.test_web_app` module is not a Phase 0 gate and is not green
-at the reviewed `HEAD`. A clean exported checkout reproduces five assertion
-failures and one error across
-`test_remote_compare_recovery_matches_the_classified_failure`,
-`test_remote_reference_failure_returns_to_matching_without_key_form`, and
-`test_transformation_impact_uses_server_filters_and_100_row_pages`. The first
-two contracts predate the global read-credential dialog; the third fixture
-predates the required source-snapshot `physical_selection_hash`.
-
-Do not attribute those outcomes to a package-only remediation without a clean
-baseline comparison. Keep running focused browser contracts for moved assets,
-and repair these three contracts before adopting the complete web module as a
-required architecture gate.
+Phase 0 remains complete when the architecture inventory, normal integrated
+order, both fixed shuffled orders, focused owner groups, atomic-operation set,
+bounded I/O set, documentation checks, and `git diff --check` pass. Phase 4
+adds the focused browser and test-organization gates above. Record any optional
+remote Odoo verification that was not run; these organization phases do not
+require a live target because they do not change Odoo behavior.

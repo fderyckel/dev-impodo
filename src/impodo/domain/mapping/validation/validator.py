@@ -6,7 +6,7 @@ relationships, dependencies, and control totals to focused validators. It
 performs no persistence, source-file read, or Odoo call.
 
 See ``docs/architecture/python-code-map.md`` and
-``tests/mapping/test_validation.py``.
+``tests/domain/mapping/test_validation.py``.
 """
 
 from __future__ import annotations

@@ -162,10 +162,10 @@ scope.
 
 ## Verification
 
-- [`tests/test_workspace.py`](../../../tests/test_workspace.py)
-- [`tests/test_local_odoo_reader.py`](../../../tests/test_local_odoo_reader.py)
-- [`tests/test_odoo_connection_service.py`](../../../tests/test_odoo_connection_service.py)
-- [`tests/test_web_app.py`](../../../tests/test_web_app.py)
+- [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
+- [`tests/integration/odoo/test_local_reader.py`](../../../tests/integration/odoo/test_local_reader.py)
+- [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
+- [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 
 Verify inherited fields, selection normalization, business-key revisioning,
 read-only capability, batched requests, invalidation, and both source modes.

@@ -1,0 +1,553 @@
+          <div
+            data-scalar-field-catalog
+            data-scalar-search-url="/workspaces/{{ workspace_id }}/mapping/field-catalog"
+            data-scalar-catalog-total="{{ view.scalar_catalog_total }}"
+            data-scalar-matching-total="{{ view.scalar_matching_total }}"
+            data-scalar-mapped-total="{{ view.scalar_mapped_total }}"
+            data-scalar-page-size="{{ view.scalar_page_size }}"
+          >
+            <div class="field-catalog-tools">
+              <label>
+                Find a field
+                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="For example: Sales Price or Barcode" autocomplete="off">
+              </label>
+              <button class="button secondary" type="button" data-field-search-submit>Search</button>
+              <label class="checkbox">
+                <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
+                Show only matched fields
+              </label>
+              <p class="muted" data-scalar-field-count>
+                Showing {{ view.scalar_rows|length }} of {{ view.scalar_matching_total }} fields · {{ view.scalar_mapped_total }} matched
+              </p>
+            </div>
+            <div
+              class="scalar-table-scroll-top"
+              data-scalar-table-scroll-top
+              role="region"
+              tabindex="0"
+              aria-label="Scroll scalar target fields horizontally"
+              aria-controls="scalar-table-scroll-{{ dataset_index }}"
+              hidden
+            >
+              <div class="scalar-table-scroll-spacer" data-scalar-table-scroll-spacer aria-hidden="true"></div>
+            </div>
+            <div class="table-scroll" id="scalar-table-scroll-{{ dataset_index }}" data-scalar-table-scroll>
+              <table class="data-table mapping-table">
+              <thead><tr><th>Use value from</th><th>Clean up (optional)</th><th>Odoo field</th><th>Support details</th><th>Preview</th><th>Check values (optional)</th></tr></thead>
+              <tbody>
+                {% for row in view.scalar_rows %}
+                  {% set field_index = row.index %}
+                  {% set mapping = row.mapping %}
+                  {% set disposition = row.disposition %}
+                  {% set recommended_source = row.recommended_source_column if not disposition else none %}
+                  {% set value_source = mapping.value_source.value if mapping else ('source' if recommended_source else '') %}
+                  <tr
+                    data-scalar-mapping-row
+                    data-scalar-field-row
+                    data-target-field="{{ row.metadata.name }}"
+                    data-field-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }}"
+                    data-mapped="{{ 'true' if mapping or disposition else 'false' }}"
+                  >
+                    <td class="value-provider-cell">
+                      <input type="hidden" name="visible_scalar_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
+                      {% if disposition %}
+                        <div class="notice success compact">
+                          <strong>
+                            {% if disposition.handling.value == 'odoo_managed' %}
+                              Odoo manages this field
+                            {% else %}
+                              Odoo will choose this value
+                            {% endif %}
+                          </strong>
+                          <p>
+                            Impodo will leave this field out when it prepares records.
+                            {% if disposition.handling.value == 'odoo_default' and row.metadata.create_default_present %}
+                              Current Odoo value: <strong>{{ row.metadata.create_default_value }}</strong>.
+                            {% endif %}
+                          </p>
+                          <button
+                            class="button secondary compact"
+                            type="submit"
+                            name="action"
+                            value="clear_disposition:{{ dataset_index }}:{{ row.metadata.name }}"
+                          >Change this decision</button>
+                        </div>
+                      {% endif %}
+                      <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source {% if disposition %}disabled{% endif %}>
+                        <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>Do not fill this field</option>
+                        <option value="source" {% if value_source == 'source' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}Use or match one source column{% else %}Source value{% endif %}</option>
+                        <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}One choice for every row{% else %}Same value for every row{% endif %}</option>
+                        {% if row.metadata.type != 'selection' or value_source == 'source_with_fallback' %}<option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>{% endif %}
+                        {% if row.metadata.type == 'selection' %}<option value="conditional_rules" {% if value_source == 'conditional_rules' %}selected{% endif %}>Decide using rules</option>{% endif %}
+                        {% if not view.odoo_pinned and (row.metadata.create_default_present or value_source == 'odoo_default') %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
+                      </select>
+                      <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
+                        <label>Use value from
+                          <select name="scalar_source_{{ dataset_index }}_{{ field_index }}" data-source-column data-lazy-source-column>
+                            <option value="">Choose source column</option>
+                            {% set selected_source_column = mapping.source_column_key if mapping and mapping.source_column_key else recommended_source %}
+                            {% if selected_source_column %}
+                              {% set selected_column = view.source_by_key.get(selected_source_column) %}
+                              {% set sample_values = row.source_samples.get(selected_source_column, ()) %}
+                              {% if selected_column %}
+                                <option value="{{ selected_column.stable_key }}" data-sample="{{ sample_values[0] if sample_values else '' }}" data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}" selected>
+                                  {{ selected_column.source_name }}
+                                </option>
+                              {% endif %}
+                            {% endif %}
+                          </select>
+                        </label>
+                      </div>
+                      <div class="provider-control" data-provider-literal {% if value_source not in ('constant', 'source_with_fallback') %}hidden{% endif %}>
+                        {% set literal_value = mapping.literal_value if mapping and mapping.literal_value is not none else '' %}
+                        <label><span data-literal-label>{% if value_source == 'source_with_fallback' %}Backup value{% else %}Value for every row{% endif %}</span>
+                          {% if row.metadata.type == 'selection' %}
+                            <select
+                              name="scalar_literal_{{ dataset_index }}_{{ field_index }}"
+                              data-literal-value
+                            >
+                              <option value="" {% if not literal_value %}selected{% endif %}>Choose an Odoo choice</option>
+                              {% if literal_value and not row.literal_selection_available %}
+                                <option value="{{ literal_value }}" selected>Unavailable in captured Odoo choices — {{ literal_value }}</option>
+                              {% endif %}
+                              {% for selection_key, selection_label in row.metadata.selection %}
+                                <option value="{{ selection_key }}" {% if literal_value == selection_key|string %}selected{% endif %}>{{ selection_label }} — {{ selection_key }}</option>
+                              {% endfor %}
+                            </select>
+                          {% else %}
+                            <input
+                              name="scalar_literal_{{ dataset_index }}_{{ field_index }}"
+                              value="{{ literal_value }}"
+                              data-literal-value
+                            >
+                          {% endif %}
+                        </label>
+                      </div>
+                      {% if row.metadata.type == 'selection' %}
+                        <div class="provider-control" data-provider-selection-rules {% if value_source != 'conditional_rules' %}hidden{% endif %}>
+                          <input
+                            type="hidden"
+                            name="scalar_selection_rules_{{ dataset_index }}_{{ field_index }}"
+                            value="{{ row.selection_rules_json }}"
+                            data-selection-rule-storage
+                          >
+                          <p><strong>Choose the Odoo value from source data</strong></p>
+                          <small>Rules run from top to bottom. The first matching rule wins.</small>
+                          <div data-selection-rule-list></div>
+                          <button class="button secondary compact" type="button" data-add-selection-rule {% if not row.selection_choice_count %}disabled{% endif %}>Add rule</button>
+                          <label>When no rule matches
+                            <select data-selection-rule-otherwise>
+                              <option value="">Block the row for review</option>
+                              {% for selection_key, selection_label in row.metadata.selection %}
+                                <option value="{{ selection_key }}">Use {{ selection_label }} — {{ selection_key }}</option>
+                              {% endfor %}
+                            </select>
+                          </label>
+                          <template data-selection-rule-template>
+                            <section class="mapping-rule-card" data-selection-rule>
+                              <div class="mapping-rule-heading">
+                                <strong data-selection-rule-number>Rule</strong>
+                                <span>
+                                  <button class="button secondary compact" type="button" data-move-selection-rule="up" aria-label="Move rule up">↑</button>
+                                  <button class="button secondary compact" type="button" data-move-selection-rule="down" aria-label="Move rule down">↓</button>
+                                  <button class="button secondary compact" type="button" data-remove-selection-rule>Remove</button>
+                                </span>
+                              </div>
+                              <label>Conditions must
+                                <select data-selection-rule-join>
+                                  <option value="all">all match</option>
+                                  <option value="any">at least one match</option>
+                                </select>
+                              </label>
+                              <div data-selection-condition-list></div>
+                              <button class="button secondary compact" type="button" data-add-selection-condition>Add condition</button>
+                              <label>Then use
+                                <select data-selection-rule-target>
+                                  {% for selection_key, selection_label in row.metadata.selection %}
+                                    <option value="{{ selection_key }}">{{ selection_label }} — {{ selection_key }}</option>
+                                  {% endfor %}
+                                </select>
+                              </label>
+                            </section>
+                          </template>
+                          <template data-selection-condition-template>
+                            <div class="mapping-condition-row" data-selection-condition>
+                              <label>Source column
+                                <select data-selection-condition-source data-lazy-source-column>
+                                  <option value="">Choose source column</option>
+                                </select>
+                              </label>
+                              <label>Read as
+                                <select data-selection-condition-type>
+                                  <option value="string">Text</option>
+                                  <option value="integer">Whole number</option>
+                                  <option value="decimal">Decimal number</option>
+                                  <option value="boolean">Yes or no</option>
+                                  <option value="date">Date</option>
+                                  <option value="datetime">Date and time</option>
+                                </select>
+                              </label>
+                              <label>Comparison
+                                <select data-selection-condition-operator></select>
+                              </label>
+                              <label data-selection-condition-value-control>Value
+                                <input data-selection-condition-value>
+                              </label>
+                              <button class="button secondary compact" type="button" data-remove-selection-condition>Remove condition</button>
+                            </div>
+                          </template>
+                        </div>
+                        <input
+                          type="hidden"
+                          name="scalar_value_matches_{{ dataset_index }}_{{ field_index }}"
+                          value="{{ row.value_mappings_json }}"
+                          data-value-match-storage
+                        >
+                        <div class="value-match-entry">
+                          <small>Choice field · {{ row.selection_choice_count }} choice(s) captured from Odoo.</small>
+                          <details class="compact-disclosure">
+                            <summary>View available Odoo choices</summary>
+                            <ul>
+                              {% for selection_key, selection_label in row.metadata.selection %}
+                                <li>{{ selection_label }} — <code>{{ selection_key }}</code></li>
+                              {% endfor %}
+                            </ul>
+                          </details>
+                          <button
+                            class="button secondary compact"
+                            type="button"
+                            data-open-value-match
+                            data-value-match-kind="scalar"
+                            data-dataset-id="{{ view.source.dataset_id }}"
+                            data-target-model="{{ view.selected_model }}"
+                            data-target-field="{{ row.metadata.name }}"
+                            data-target-label="{{ row.metadata.label }}"
+                            {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}
+                            {% if not row.selection_choice_count %}disabled{% endif %}
+                          >Match source values</button>
+                          <small data-value-match-summary>
+                            {% if not row.selection_choice_count %}Refresh the Odoo fields to load the available choices{% elif row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Exact Odoo codes pass; match every other populated source choice{% endif %}
+                          </small>
+                        </div>
+                        <label>
+                          How must source choices be covered?
+                          {% set scalar_policy = mapping.categorical_policy.value if mapping and mapping.categorical_policy else ('' if mapping else 'EXACT_TARGET_VALUE') %}
+                          <select
+                            name="scalar_categorical_policy_{{ dataset_index }}_{{ field_index }}"
+                            data-categorical-policy
+                          >
+                            {% if not scalar_policy %}<option value="" selected>Choose how source values are handled</option>{% endif %}
+                            <option value="EXACT_TARGET_VALUE" {% if scalar_policy == 'EXACT_TARGET_VALUE' %}selected{% endif %}>Every final value is already an exact Odoo code</option>
+                            <option value="EXPLICIT_VALUE_MATCH" {% if scalar_policy == 'EXPLICIT_VALUE_MATCH' %}selected{% endif %}>Every populated source choice must be explicitly matched</option>
+                          </select>
+                        </label>
+                      {% endif %}
+                    </td>
+                    <td class="transform-cell">
+                      {% set transform = mapping.transform if mapping else none %}
+                      {% set validation_rule = mapping.validation if mapping else none %}
+                      <div class="notice compact" data-selection-rules-transform-note hidden>
+                        Choice rules return an exact Odoo value. No additional value change is needed.
+                      </div>
+                      <label class="compact-control">Value type
+                      <select name="scalar_type_{{ dataset_index }}_{{ field_index }}" data-canonical-type>
+                        {% set selected_type = mapping.value_type if mapping else row.canonical_type %}
+                        {% for value_type, value_label in (('string', 'Text'), ('integer', 'Whole number'), ('decimal', 'Decimal number'), ('boolean', 'Yes or no'), ('date', 'Date'), ('datetime', 'Date and time')) %}
+                          <option value="{{ value_type }}" {% if selected_type == value_type %}selected{% endif %}>{{ value_label }}</option>
+                        {% endfor %}
+                      </select>
+                      </label>
+                      <div class="transform-options">
+                        <label><input type="checkbox" name="scalar_trim_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-trim {% if mapping and mapping.transform.trim %}checked{% endif %}> Remove outer spaces</label>
+                        <label><input type="checkbox" name="scalar_collapse_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-collapse {% if mapping and mapping.transform.collapse_whitespace %}checked{% endif %}> Replace repeated spaces with one</label>
+                        <label><input type="checkbox" name="scalar_empty_null_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-empty-null {% if mapping and mapping.transform.empty_as_null %}checked{% endif %}> Treat blank values as empty</label>
+                      </div>
+                      <label class="compact-control" data-decimal-policy>
+                        Number format
+                        <select name="scalar_decimal_locale_{{ dataset_index }}_{{ field_index }}">
+                          {% set decimal_locale = mapping.transform.decimal_locale if mapping else 'invariant' %}
+                          {% for locale in ('invariant', 'en_US', 'de_DE', 'fr_FR') %}
+                            <option value="{{ locale }}" {% if decimal_locale == locale %}selected{% endif %}>{% if locale == 'invariant' %}Automatic{% elif locale == 'en_US' %}1,234.56{% else %}1.234,56{% endif %}</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                      <label class="compact-control" data-date-policy>
+                        Input format
+                        <select name="scalar_date_format_{{ dataset_index }}_{{ field_index }}">
+                          {% set date_format = mapping.transform.date_format if mapping else 'iso' %}
+                          <option value="iso" {% if date_format == 'iso' %}selected{% endif %}>YYYY-MM-DD / ISO</option>
+                          <option value="dmy_slash" {% if date_format == 'dmy_slash' %}selected{% endif %}>DD/MM/YYYY</option>
+                          <option value="mdy_slash" {% if date_format == 'mdy_slash' %}selected{% endif %}>MM/DD/YYYY</option>
+                          <option value="dmy_dot" {% if date_format == 'dmy_dot' %}selected{% endif %}>DD.MM.YYYY</option>
+                        </select>
+                      </label>
+                      <label class="compact-control" data-timezone-policy>
+                        Timezone
+                        <select name="scalar_timezone_{{ dataset_index }}_{{ field_index }}">
+                          <option value="UTC" selected>UTC</option>
+                        </select>
+                      </label>
+                      <div class="compact-control" data-rounding-policy>
+                        <span>Decimal rounding</span>
+                        <div class="rule-inline-fields">
+                          <label>
+                            Places
+                            <input
+                              type="number"
+                              name="scalar_round_places_{{ dataset_index }}_{{ field_index }}"
+                              min="0"
+                              max="18"
+                              value="{{ transform.decimal_places if transform and transform.decimal_places is not none else '' }}"
+                              placeholder="No rounding"
+                              data-round-places
+                            >
+                          </label>
+                          <label>
+                            Method
+                            {% set rounding_mode = transform.rounding_mode if transform else 'half_up' %}
+                            <select name="scalar_round_mode_{{ dataset_index }}_{{ field_index }}" data-round-mode>
+                              <option value="half_up" {% if rounding_mode == 'half_up' %}selected{% endif %}>Nearest; 5 rounds up</option>
+                              <option value="half_even" {% if rounding_mode == 'half_even' %}selected{% endif %}>Nearest even</option>
+                              <option value="up" {% if rounding_mode == 'up' %}selected{% endif %}>Away from zero</option>
+                              <option value="down" {% if rounding_mode == 'down' %}selected{% endif %}>Toward zero</option>
+                              <option value="ceiling" {% if rounding_mode == 'ceiling' %}selected{% endif %}>Toward positive</option>
+                              <option value="floor" {% if rounding_mode == 'floor' %}selected{% endif %}>Toward negative</option>
+                            </select>
+                          </label>
+                        </div>
+                        <small>For money, confirm the currency precision before rounding.</small>
+                      </div>
+
+                      {% set value_rules_configured = mapping and (
+                        transform.text_steps
+                        or transform.case_mode != 'preserve'
+                        or transform.formula
+                        or transform.decimal_places is not none
+                        or validation_rule.configured
+                      ) %}
+                        <summary>
+                          <span>Prepare and check values</span>
+                          <small>{{ "Configured" if value_rules_configured else "Optional" }}</small>
+                        </summary>
+                        <div class="value-rule-content">
+                          <p class="muted rule-type-warning" data-text-rule-type-warning hidden>
+                            Text changes and checks require the Text value type. Clear them here or change the value type back to Text.
+                          </p>
+                          <div data-text-rules>
+                            <h4>Make the text consistent</h4>
+                            <p class="muted">After the spacing options above, Impodo applies these steps from top to bottom. Your registered source stays unchanged.</p>
+                            <input
+                              type="hidden"
+                              name="scalar_text_steps_{{ dataset_index }}_{{ field_index }}"
+                              value="{{ row.text_steps_json }}"
+                              data-text-step-storage
+                            >
+                            {% if row.show_phone_cleanup_quick_start %}
+                              <div
+                                class="text-step-quick-start"
+                                data-phone-cleanup-quick-start
+                                {% if transform and transform.text_steps %}hidden{% endif %}
+                              >
+                                <div class="text-step-quick-start-copy">
+                                  <strong>Suggested start for this phone field</strong>
+                                  <span>Change <code>00</code> at the beginning to <code>+</code>, then remove spaces, dots, hyphens and slashes only when they are between digits.</span>
+                                  <small>Example: <code>00352-621.23.45</code> becomes <code>+3526212345</code>. You can change every step before saving.</small>
+                                </div>
+                                <button class="button secondary compact" type="button" data-use-phone-cleanup>Use phone cleanup</button>
+                              </div>
+                            {% endif %}
+                            <div class="text-step-list" data-text-step-list></div>
+                            <p class="muted" data-text-step-empty {% if transform and transform.text_steps %}hidden{% endif %}>No cleanup steps added.</p>
+                            <div class="text-step-add">
+                              <label>
+                                Add cleanup
+                                <select data-new-text-step-kind>
+                                  <option value="literal">Replace text</option>
+                                  <option value="starts_with">Replace text at the beginning</option>
+                                  <option value="ends_with">Replace text at the end</option>
+                                  <option value="remove_separators_between_digits">Remove separators between numbers</option>
+                                  <option value="pattern">Advanced pattern</option>
+                                </select>
+                              </label>
+                              <button class="button secondary compact" type="button" data-add-text-step>Add cleanup step</button>
+                            </div>
+                            <p class="muted" data-text-step-limit role="status" aria-live="polite" hidden>You have reached the maximum of 20 cleanup steps for this field.</p>
+
+                            <label class="compact-control">Capitalisation after cleanup
+                              <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
+                                {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
+                                <option value="preserve" {% if case_mode == 'preserve' %}selected{% endif %}>Keep as-is</option>
+                                <option value="uppercase" {% if case_mode == 'uppercase' %}selected{% endif %}>ALL CAPITALS</option>
+                                <option value="lowercase" {% if case_mode == 'lowercase' %}selected{% endif %}>all lowercase</option>
+                                <option value="sentence" {% if case_mode == 'sentence' %}selected{% endif %}>Sentence case</option>
+                                <option value="title" {% if case_mode == 'title' %}selected{% endif %}>Title Case</option>
+                              </select>
+                            </label>
+
+                            <h4>Check the final text</h4>
+                            <div class="rule-inline-fields">
+                              <label>
+                                Must be exactly
+                                <span class="input-with-suffix">
+                                  <input
+                                    type="number"
+                                    name="scalar_exact_length_{{ dataset_index }}_{{ field_index }}"
+                                    min="1"
+                                    max="10000"
+                                    value="{{ validation_rule.exact_length if validation_rule and validation_rule.exact_length is not none else '' }}"
+                                    placeholder="Any"
+                                    data-rule-exact-length
+                                  >
+                                  <span>characters</span>
+                                </span>
+                              </label>
+                              <label>
+                                Characters to check
+                                {% set segment_location = validation_rule.segment_location if validation_rule else 'none' %}
+                                <select name="scalar_segment_location_{{ dataset_index }}_{{ field_index }}" data-rule-segment-location>
+                                  <option value="none" {% if segment_location == 'none' %}selected{% endif %}>No character check</option>
+                                  <option value="entire" {% if segment_location == 'entire' %}selected{% endif %}>The whole value</option>
+                                  <option value="first" {% if segment_location == 'first' %}selected{% endif %}>The first characters</option>
+                                  <option value="last" {% if segment_location == 'last' %}selected{% endif %}>The last characters</option>
+                                </select>
+                              </label>
+                            </div>
+                            <div class="rule-inline-fields" data-segment-options>
+                              <label data-segment-length-control>
+                                How many characters?
+                                <input
+                                  type="number"
+                                  name="scalar_segment_length_{{ dataset_index }}_{{ field_index }}"
+                                  min="1"
+                                  max="10000"
+                                  value="{{ validation_rule.segment_length if validation_rule and validation_rule.segment_length is not none else '' }}"
+                                  placeholder="For first or last"
+                                  data-rule-segment-length
+                                >
+                              </label>
+                              <label>
+                                They must be
+                                {% set character_class = validation_rule.character_class if validation_rule else 'none' %}
+                                <select name="scalar_character_class_{{ dataset_index }}_{{ field_index }}" data-rule-character-class>
+                                  <option value="none" {% if character_class == 'none' %}selected{% endif %}>Choose a character type</option>
+                                  <option value="digits" {% if character_class == 'digits' %}selected{% endif %}>Digits 0–9</option>
+                                  <option value="uppercase" {% if character_class == 'uppercase' %}selected{% endif %}>Capital letters A–Z</option>
+                                  <option value="lowercase" {% if character_class == 'lowercase' %}selected{% endif %}>Lowercase letters a–z</option>
+                                </select>
+                              </label>
+                            </div>
+
+                            <details class="advanced-rule">
+                              <summary>Advanced: custom pattern</summary>
+                              <label>
+                                The whole value must match
+                                <input
+                                  name="scalar_pattern_{{ dataset_index }}_{{ field_index }}"
+                                  value="{{ validation_rule.pattern if validation_rule else '' }}"
+                                  maxlength="500"
+                                  placeholder="Example: [A-Z]{3}[0-9]{4}"
+                                  spellcheck="false"
+                                  data-rule-pattern
+                                >
+                              </label>
+                              <small>Most users should use the guided checks above. Impodo validates advanced patterns before any row is checked.</small>
+                            </details>
+                          </div>
+
+                          <details class="advanced-rule">
+                            <summary>Advanced: formula or custom calculation</summary>
+                            <label>
+                              Formula
+                              <textarea
+                                name="scalar_formula_{{ dataset_index }}_{{ field_index }}"
+                                maxlength="1000"
+                                rows="2"
+                                placeholder="Example: column_2 * column_3"
+                                spellcheck="false"
+                                data-rule-formula
+                              >{{ transform.formula if transform else '' }}</textarea>
+                            </label>
+                            <small>
+                              Safe formulas only—no files, network, Odoo access, loops, or imported code.
+                              Available values:
+                              <code>value</code> (this field)
+                              {% for column in view.source.columns %}
+                                · <code>column_{{ column.ordinal }}</code> ({{ column.source_name }})
+                              {% endfor %}
+                            </small>
+                          </details>
+                        </div>
+                      </details>
+                    </td>
+                    <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
+                      {{ row.metadata.label }}
+                      {% if view.odoo_pinned %}
+                        <label class="checkbox">
+                          <input
+                            type="checkbox"
+                            name="approved_write_field_{{ dataset_index }}"
+                            value="{{ row.metadata.name }}"
+                            {% if row.write_approved %}checked{% endif %}
+                            {% if not row.write_eligible or not row.write_baseline_captured %}disabled{% endif %}
+                          >
+                          Allow Impodo to update this field
+                        </label>
+                        {% if row.write_block_reason %}<small>{{ row.write_block_reason }}</small>{% else %}<small>Off by default and saved as auditable workspace evidence.</small>{% endif %}
+                      {% endif %}
+                    </th>
+                    <td class="support-cell">
+                      <details class="technical-details">
+                        <summary>Field details</summary>
+                        <code>{{ row.metadata.name }}</code> · {{ row.metadata.type }}
+                        {% if row.metadata.required %} · required{% endif %}
+                        {% if row.metadata.readonly %} · controlled by Odoo{% endif %}
+                      </details>
+                    </td>
+                    <td class="mapping-preview" data-scalar-preview>
+                      {% if row.preview %}
+                        <span data-preview-raw>{{ row.preview.raw }}</span>
+                        <span aria-hidden="true">→</span>
+                        <span class="{% if row.preview.status == 'error' %}preview-error{% endif %}" data-preview-proposed>{{ row.preview.proposed }}</span>
+                      {% else %}
+                        <span class="muted" data-preview-raw>Choose a provider</span>
+                        <span data-preview-proposed></span>
+                      {% endif %}
+                    </td>
+                    <td class="policy-cell">
+                      <details class="technical-details">
+                      <summary>Support options</summary>
+                      <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" data-scalar-compare {% if not mapping or mapping.compare %}checked{% endif %}> Compare with Odoo</label>
+                      <label><input type="checkbox" name="scalar_validate_only_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Check only; do not prepare</label>
+                      <label><input type="checkbox" name="scalar_required_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Must have a value</label>
+                      {% if not view.odoo_pinned %}<label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>{% endif %}
+                      <select name="scalar_null_{{ dataset_index }}_{{ field_index }}">
+                        {% set scalar_null = mapping.null_policy if mapping else 'distinct' %}
+                        {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
+                          <option value="{{ policy }}" {% if scalar_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
+                        {% endfor %}
+                      </select>
+                      </details>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              </table>
+            </div>
+            <nav class="field-catalog-navigation" aria-label="Odoo field display options" data-scalar-pagination>
+              <div class="field-page-size" aria-label="Number of fields shown per page">
+                <span>Show fields:</span>
+                {% for option in view.scalar_page_size_options %}
+                  <a
+                    class="field-count-button{% if option.size == view.scalar_page_size %} active{% endif %}"
+                    href="{{ option.url }}"
+                    {% if option.size == view.scalar_page_size %}aria-current="page"{% endif %}
+                  >{{ option.size }}</a>
+                {% endfor %}
+              </div>
+              <div class="field-pagination">
+                {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous</a>{% endif %}
+                <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
+                {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Show more fields</a>{% endif %}
+              </div>
+            </nav>
+          </div>

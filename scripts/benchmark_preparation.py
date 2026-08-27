@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RESULT_PREFIX = "IMPODO_PREPARATION_BENCHMARK_JSON="
 SUPPORTED_CHILD_SCHEMAS = frozenset({1, 2})
 TEST_NAME = (
-    "tests.test_preparation_scale.PreparationWorkflowScaleTests."
+    "tests.performance.test_preparation_scale.PreparationWorkflowScaleTests."
     "test_complete_preparation_workflow"
 )
 

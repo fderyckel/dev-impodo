@@ -9,7 +9,8 @@ eligible canonical rows to the shared preflight ``PreparedBundle`` without
 executing transformation rules again.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/developer/contracts/preflight.md``, and ``tests/test_readiness.py``.
+``docs/developer/contracts/preflight.md``, and
+``tests/application/workspace/preparation/test_readiness.py``.
 """
 
 from __future__ import annotations

@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Load into Odoo &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/execution.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   {% set target_environment = 'Production' if migration_context.data_version_purpose == 'PRODUCTION' else 'Test' if migration_context.data_version_purpose == 'TEST' else 'Target' %}
   <nav class="load-stepper" aria-label="Load into Odoo progress">

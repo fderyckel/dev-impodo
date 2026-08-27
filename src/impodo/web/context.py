@@ -10,7 +10,8 @@ The context contains no migration state of its own.
 Target reads, the tightly scoped Stage-J writer, and the Stage-K read-back
 reader remain separate boundaries.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+See ``docs/architecture/python-code-map.md`` and
+``tests/integration/web/test_project_setup.py``.
 """
 
 from __future__ import annotations

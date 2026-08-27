@@ -5,7 +5,8 @@ file and catalog hashes and atomically invalidates dependent current evidence
 when files are reinterpreted, reconfirmed, or refrozen. It also projects the
 physical selection plus current derived plan as the effective mapping source.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
+See ``docs/architecture/python-code-map.md`` and
+``tests/integration/duckdb/test_workspace.py``.
 """
 
 from __future__ import annotations

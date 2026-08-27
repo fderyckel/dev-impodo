@@ -348,19 +348,29 @@ Use a test hierarchy that reveals both capability and evidence level:
 tests/
 |-- architecture/
 |-- domain/
+|   |-- project/
 |   |-- data_version/
 |   |-- workspace/
 |   |-- recipe/
-|   `-- run/
+|   |-- run/
+|   |-- cutover/
+|   |-- mapping/
+|   |-- preparation/
+|   `-- execution/
 |-- application/
+|   |-- project/
 |   |-- data_version/
-|   |-- recipe/
-|   `-- run/
+|   |-- workspace/
+|   |-- run/
+|   `-- cutover/
 |-- integration/
 |   |-- duckdb/
 |   |-- artifacts/
+|   |-- odoo/
+|   |-- protected_evidence/
 |   `-- web/
 |-- e2e/
+|-- performance/
 `-- support/
 ```
 
@@ -369,11 +379,13 @@ The important rule is that a test's path identifies what it proves.
 
 Extract deterministic Project, Data version, run, workspace, Recipe, and
 target builders into `tests/support`. Builders must require explicit owner
-identities instead of relying on process globals or prior tests.
+identities instead of relying on process globals or prior tests. Filesystem
+access from moved tests uses `tests.support.paths.REPOSITORY_ROOT`; a test must
+not infer the repository root from its current package depth.
 
-Retain focused contract tests for each owner and transaction. Keep one small
-end-to-end browser smoke path for the complete journey. Split the current
-1,911-line browser scenario into capability tests that share reviewed setup
+Retain focused contract tests for each owner and transaction. Keep one
+end-to-end browser smoke path for the complete journey. Split the former
+8,718-line browser module into capability tests that share reviewed setup
 helpers, not shared mutable application state.
 
 Before reorganizing the test tree, preserve the fix for the former positional
@@ -444,7 +456,7 @@ Phase 0 is implemented. Its maintained evidence is
 - `scripts/architecture_inventory.py` deterministically records the current
   production modules, runtime and type-only imports, strongly connected
   components, and current application-to-adapter edges.
-- `tests/architecture_phase0_baseline.json` is the reviewed current snapshot.
+- `tests/architecture/phase0_baseline.json` is the reviewed current snapshot.
   A structural change must update it deliberately and explain the diff.
 - Focused owner commands, atomic-operation tests, and bounded registry,
   workspace, Odoo, and execution I/O checks are recorded as regression gates.
@@ -464,7 +476,7 @@ The inspection service now supplies its pure inspector to the isolated worker.
 The worker no longer imports the inspection service, so the production module
 graph has no inspection-worker cycle.
 
-`tests/test_architecture_dependency_rules.py` reads the complete temporary
+`tests/architecture/test_dependency_rules.py` reads the complete temporary
 flat-module ownership manifest. It rejects forbidden domain and application
 imports, runtime cycles, and concrete adapter construction outside composition
 or a worker entry point.
@@ -600,35 +612,65 @@ edge.
 
 ### Phase 4: Organize tests and browser assets
 
-Phase 4 is in progress. The completed first slice groups Mapping form,
-validation, and transformation-impact tests under `tests/mapping`, and moves
-the Mapping page to `templates/mapping/page.html`. That page now owns its
-Mapping layout stylesheet and viewport-restoration script. Shared browser
-behavior remains in the common assets.
+Phase 4 is complete. Every discovered test now lives below an explicit
+evidence level: `architecture`, `domain`, `application`, `integration`, `e2e`,
+or `performance`. Capability subpackages then identify the owner or external
+boundary. `tests/architecture/test_test_organization.py` fails on a new flat
+test module, an oversized focused browser module, or a return of the historical
+browser monolith.
 
-The Run domain planning checks now live under `tests/domain/run`, so their path
-identifies both evidence level and owner. The Odoo target page now owns
-`target-connection.js` and `target-connection.css`; connection-state and local
-stack behavior no longer live in the shared browser assets.
+The former 8,718-line `tests.test_web_app` module is deleted. Its 65 browser
+contracts are grouped into Project setup, security, local-stack, source,
+target, Mapping, Preparation, review, and load modules under
+`tests/integration/web`; the complete setup journey lives under `tests/e2e`.
+The three stale expectations recorded during Phase 0 were repaired against the
+current global credential-dialog and source-snapshot contracts before the
+split. Shared browser setup is non-discovered support, and
+`ProjectWorkspaceBuilder` requires an explicit application context instead of
+using process-global or order-dependent state.
 
-The broader `tests.test_web_app` module is not currently a clean gate. On
-2026-08-26 it ran 65 tests with five assertion failures and one error across
-three methods: the two remote-read recovery methods still expect the global
-credential dialog to be absent, and the transformation-impact paging fixture
-lacks the required `physical_selection_hash`. The same outcomes reproduce from
-a clean export of `HEAD`; this remediation does not treat them as regressions
-or silently mark them green. Repair those focused contracts before promoting
-the whole module to a Phase 4 gate.
+The complete journey also exposed a real cross-process boundary defect: the
+Data-version projection canonicalized physical datasets by identity while the
+workspace-only preparation worker could derive generated datasets from the
+authored display order. `mapping_source_selection` now canonicalizes its
+portable input by dataset identity, and a focused regression proves that
+reversing physical display order cannot change the effective selection hash.
+This keeps browser composition and isolated workers on one owner-independent
+pure contract.
 
-- Move tests into the capability and evidence-level hierarchy.
-- Replace broad mutable fixtures with explicit builders.
-- Split the Mapping template, JavaScript, and CSS by page or component.
-- Add focused JavaScript tests only where client behavior cannot be proved by
-  server-rendered tests and static contract assertions.
+Browser assets now expose their ownership in their names and loading sites.
+The shared `app.js` contains only cross-page behavior. Source review, schema,
+normalization, review, execution, transformation impact, and job polling have
+focused scripts. The Mapping page loads separate editor, value-rule, catalogue,
+and viewport-position modules; the target page retains its own script and
+stylesheet. The former `app.css` is deleted in favor of tokens, layout,
+components, workflow-page styles, and existing Mapping and target-page styles.
+No frontend build system was introduced.
 
-**Exit condition:** A focused change has a focused test command and does not
-require editing a cross-feature browser asset unless the shared behavior truly
-changes.
+The Mapping template entry point is now a 69-line composition of named
+partials. Dataset identity, scalar and relationship catalogues, control totals,
+validation, recovery actions, quality checks, and the value-match dialog each
+have an explicit template. The field-catalogue endpoint renders the same
+catalogue partials used by the full page, so progressive updates cannot drift
+from the server-rendered form.
+
+`tests/architecture/test_static_asset_ownership.py` protects asset order,
+page-template ownership, the shared-script boundary, and reviewable module
+sizes. Existing browser contracts and targeted source assertions prove client
+contracts that matter to the server-rendered workflow; `node --check` protects
+syntax. A separate client test runtime was not justified because Phase 4 moves
+unchanged framework-free behavior and does not add a client-only state model.
+
+**Exit condition:** Met. A focused change has a focused test command and does
+not require editing a cross-feature browser asset unless the shared behavior
+truly changes.
+
+Verified on 2026-08-27: repository-root discovery ran 890 tests with 13
+expected skips; focused web discovery ran 92 tests; the complete Project setup
+journey passed; the 26-test integrated-run module passed in normal order and in
+the isolated recorded orders `1729` and `20260826`; architecture inventory,
+dependency, documentation, static-asset, JavaScript syntax, and diff-hygiene
+gates passed.
 
 ### Phase 5: Promote the final organization to current architecture
 

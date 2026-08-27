@@ -1,0 +1,129 @@
+      {% if next_step.blockers %}
+        <section
+          class="notice warning mapping-next-step-blockers"
+          id="next-step-blockers"
+          tabindex="-1"
+          aria-labelledby="next-step-blockers-title"
+        >
+          <strong id="next-step-blockers-title">
+            You cannot continue yet — {{ next_step.blockers|length }} reason{{ "s" if next_step.blockers|length != 1 else "" }}
+          </strong>
+          <ul>
+            {% for blocker in next_step.blockers %}
+              <li>
+                <strong>{{ blocker.title }}</strong>
+                <p>{{ blocker.message }}</p>
+                {% if blocker.readonly_recovery %}
+                  <ul>
+                    {% for item in blocker.readonly_recovery.entries %}
+                      <li>{{ item.dataset_label }} · {{ item.model_label }} · {{ item.field_label }}</li>
+                    {% endfor %}
+                  </ul>
+                  <details class="technical-details">
+                    <summary>Support details</summary>
+                    <code>MAPPING_TARGET_FIELD_READONLY</code>
+                  </details>
+                {% endif %}
+                {% if blocker.default_reviews %}
+                  <ul>
+                    {% for item in blocker.default_reviews %}
+                      <li>
+                        {{ item.dataset_label }} &middot; {{ item.field_label }}:
+                        <strong>{{ item.default_value_label }}</strong>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+                {% if blocker.default_checks %}
+                  <ul>
+                    {% for item in blocker.default_checks %}
+                      <li>{{ item.dataset_label }} &middot; {{ item.field_label }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+                {% if blocker.issue_view %}
+                  {% set issue_view = blocker.issue_view %}
+                  <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>
+                  <div class="actions">
+                    {% if issue_view.fix_url %}
+                      <a class="button secondary" href="{{ issue_view.fix_url }}">Match this field</a>
+                    {% endif %}
+                    {% if issue_view.can_choose_default %}
+                      <button
+                        class="button secondary"
+                        type="submit"
+                        name="action"
+                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_default"
+                      >Let Odoo choose</button>
+                    {% endif %}
+                    {% if issue_view.can_choose_managed %}
+                      <button
+                        class="button secondary"
+                        type="submit"
+                        name="action"
+                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_managed"
+                      >Odoo manages this field</button>
+                    {% endif %}
+                  </div>
+                  <details class="technical-details">
+                    <summary>Support details</summary>
+                    <code>{{ issue_view.issue.code }}</code>
+                    · <code>{{ issue_view.issue.target_model }}.{{ issue_view.issue.target_field }}</code>
+                  </details>
+                {% elif blocker.href %}
+                  <a class="button secondary" href="{{ blocker.href }}">{{ blocker.action_label }}</a>
+                {% elif blocker.action %}
+                  <button class="button secondary" type="submit" name="action" value="{{ blocker.action }}">
+                    {{ blocker.action_label }}
+                  </button>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+          {% if next_step.previous_check_items %}
+            <div class="mapping-previous-check">
+              <strong>Keep working from the last check</strong>
+              <p>These items stay here while you make changes. Check matches to refresh the list.</p>
+              <ul>
+                {% for issue_view in next_step.previous_check_items %}
+                  <li>
+                    <strong>{{ issue_view.dataset_label }}: {{ issue_view.field_label }} needs attention</strong>
+                    <p>{{ issue_view.issue.message }}</p>
+                    {% if issue_view.has_value_provider and issue_view.issue.code == 'MAPPING_REQUIRED_FIELD_UNMAPPED' %}
+                      <p><strong>Decision saved.</strong> Check matches to verify it.</p>
+                    {% else %}
+                      <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>
+                      <div class="actions">
+                        {% if issue_view.fix_url %}
+                          <a class="button secondary" href="{{ issue_view.fix_url }}">Match this field</a>
+                        {% endif %}
+                        {% if issue_view.can_choose_default %}
+                          <button
+                            class="button secondary"
+                            type="submit"
+                            name="action"
+                            value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_default"
+                          >Let Odoo choose</button>
+                        {% endif %}
+                        {% if issue_view.can_choose_managed %}
+                          <button
+                            class="button secondary"
+                            type="submit"
+                            name="action"
+                            value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_managed"
+                          >Odoo manages this field</button>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                    <details class="technical-details">
+                      <summary>Support details</summary>
+                      <code>{{ issue_view.issue.code }}</code>
+                      · <code>{{ issue_view.issue.target_model }}.{{ issue_view.issue.target_field }}</code>
+                    </details>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        </section>
+      {% endif %}

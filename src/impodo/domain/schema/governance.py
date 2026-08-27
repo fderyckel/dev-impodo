@@ -6,7 +6,7 @@ with model and field names; they never contain numeric Odoo IDs. One immutable
 captured schema hash.
 
 See ``docs/architecture/python-code-map.md`` and
-``tests/test_business_keys.py``.
+``tests/domain/workspace/test_business_keys.py``.
 """
 
 from __future__ import annotations

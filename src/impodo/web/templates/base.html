@@ -13,7 +13,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Impodo{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/tokens.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/components.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/workflow-pages.css') }}">
     {% block page_styles %}{% endblock %}
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
     {% block page_scripts %}{% endblock %}

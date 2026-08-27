@@ -257,7 +257,8 @@ of relying on a one-time rewrite.
 - Add a global **Concepts** link that remains available with or without an
   active Project.
 - Add the `/concepts` page with stable anchors for deep links.
-- Add one generic dialog enhancer in `app.js` and shared styles in `app.css`.
+- Add one generic dialog enhancer in `app.js` and shared styles in
+  `workflow-pages.css`.
 - Add the three initial help links and the revised copy from section 7.
 
 ### Slice 3: Audit the Project and workspace workflow
@@ -294,7 +295,7 @@ The likely implementation will affect:
 - `src/impodo/web/templates/project_list.html`;
 - `src/impodo/web/templates/project_business_overview.html`;
 - a new concepts page and a shared concept-help partial;
-- `src/impodo/web/static/app.js` and `app.css`;
+- `src/impodo/web/static/app.js` and `workflow-pages.css`;
 - a shared concepts presenter and a read-only concepts route;
 - setup and browser-focused tests;
 - `docs/user/getting-started.md`, a new data-manager concepts page, the paired
@@ -339,7 +340,7 @@ The implementation adopts these three decisions:
 Implementation evidence is recorded in the
 [browser language review](../reports/browser-language-review-2026-08-23.md),
 the [data-manager Concepts guide](../user/concepts.md), and
-`tests/test_concept_help.py`.
+`tests/integration/web/test_concept_help.py`.
 
 ## Related current authority
 

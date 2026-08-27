@@ -147,13 +147,13 @@ rows or contact Odoo while writing cells.
 
 ## Verification
 
-- [`tests/test_preflight_service.py`](../../../tests/test_preflight_service.py)
-- [`tests/test_preflight_scale.py`](../../../tests/test_preflight_scale.py)
-- [`tests/test_reporting_cli.py`](../../../tests/test_reporting_cli.py)
-- [`tests/test_engine.py`](../../../tests/test_engine.py)
-- [`tests/test_connectors.py`](../../../tests/test_connectors.py)
-- [`tests/test_odoo_comparison.py`](../../../tests/test_odoo_comparison.py)
-- [`tests/test_web_app.py`](../../../tests/test_web_app.py)
+- [`tests/application/workspace/review/test_preflight.py`](../../../tests/application/workspace/review/test_preflight.py)
+- [`tests/performance/test_preflight_scale.py`](../../../tests/performance/test_preflight_scale.py)
+- [`tests/integration/artifacts/test_reporting_cli.py`](../../../tests/integration/artifacts/test_reporting_cli.py)
+- [`tests/integration/artifacts/test_preflight_outputs.py`](../../../tests/integration/artifacts/test_preflight_outputs.py)
+- [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
+- [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
+- [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
 
 Verify fixed classification precedence, batched requests, portable identities,
 snapshot completeness, stale bindings, deterministic artifacts, and absence of

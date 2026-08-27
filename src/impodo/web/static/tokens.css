@@ -1,0 +1,72 @@
+:root {
+  color-scheme: light;
+  --impodo-red: #e8473f;
+  --impodo-red-dark: #c93c35;
+  --impodo-charcoal: #494d46;
+  --impodo-charcoal-dark: #292c28;
+  --impodo-grey: #868981;
+  --impodo-grey-light: #d8d9d4;
+  --impodo-paper: #f4f4f1;
+  --impodo-surface: #ffffff;
+  --impodo-soft: #eeeeea;
+  --impodo-line: #d6d7d2;
+  --impodo-warning: #7d4f00;
+  --impodo-warning-bg: #fff5df;
+  --impodo-danger: #9f2f2f;
+  --impodo-danger-bg: #fce8e7;
+  --ink: var(--impodo-charcoal);
+  --muted: #6f726c;
+  --paper: var(--impodo-paper);
+  --surface: var(--impodo-surface);
+  --line: var(--impodo-line);
+  --brand: var(--impodo-red);
+  --brand-dark: var(--impodo-red-dark);
+  --accent: #f9e8e6;
+  --danger: var(--impodo-danger);
+  --danger-bg: var(--impodo-danger-bg);
+  --warning-bg: var(--impodo-warning-bg);
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 72px;
+  font-family:
+    "Avenir Next",
+    Avenir,
+    "Segoe UI Variable",
+    "Segoe UI",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--paper);
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--impodo-charcoal);
+  text-underline-offset: .18em;
+}
+
+code {
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: .88em;
+  overflow-wrap: anywhere;
+}
+

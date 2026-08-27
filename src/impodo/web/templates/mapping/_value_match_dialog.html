@@ -1,0 +1,38 @@
+    <dialog
+      class="value-match-dialog"
+      data-value-match-dialog
+      data-value-match-endpoint="/workspaces/{{ workspace_id }}/mapping/value-choices"
+      aria-labelledby="value-match-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Match values</p>
+          <h2 id="value-match-title" data-value-match-title>Match source choices to Odoo</h2>
+          <p>For each source choice, select the value already available in Odoo.</p>
+        </div>
+        <button class="dialog-close" type="button" data-close-value-match aria-label="Close dialog">×</button>
+      </div>
+      <div class="notice error" data-value-match-error role="alert" hidden></div>
+      <p class="muted" data-value-match-status role="status" aria-live="polite"></p>
+      <div class="value-match-freshness" data-value-match-freshness hidden>
+        <small data-value-match-freshness-text></small>
+        <button class="button secondary compact" type="button" data-refresh-value-match>Refresh Odoo values</button>
+      </div>
+      <div class="table-scroll value-match-table-wrap" data-value-match-table-wrap hidden>
+        <table class="data-table value-match-table">
+          <thead>
+            <tr>
+              <th>Source choice</th>
+              <th>Rows</th>
+              <th>Odoo choice</th>
+            </tr>
+          </thead>
+          <tbody data-value-match-rows></tbody>
+        </table>
+      </div>
+      <p class="muted">Impodo will keep these choices with this mapping. It will not create or change Odoo records.</p>
+      <div class="dialog-actions">
+        <button class="button secondary" type="button" data-close-value-match>Cancel</button>
+        <button class="button primary" type="button" data-use-value-matches disabled>Use matches</button>
+      </div>
+    </dialog>

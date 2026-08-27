@@ -5,7 +5,8 @@ mapping revisions, validation results, and submissions are immutable evidence.
 Advancing the current mapping revision invalidates canonical staging, while a
 submission must match the stored revision and validation hashes exactly.
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
+See ``docs/architecture/python-code-map.md`` and
+``tests/integration/duckdb/test_workspace.py``.
 """
 
 from __future__ import annotations

@@ -148,13 +148,13 @@ falling back to unbounded Python work.
 
 ## Verification
 
-- [`tests/test_workspace.py`](../../../tests/test_workspace.py)
-- [`tests/test_source_worker_build_contract.py`](../../../tests/test_source_worker_build_contract.py)
-- [`tests/test_source_snapshot.py`](../../../tests/test_source_snapshot.py)
-- [`tests/test_odoo_source_capture.py`](../../../tests/test_odoo_source_capture.py)
-- [`tests/test_odoo_capture_jobs.py`](../../../tests/test_odoo_capture_jobs.py)
-- [`tests/test_derived_entities.py`](../../../tests/test_derived_entities.py)
-- [`tests/test_web_app.py`](../../../tests/test_web_app.py)
+- [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
+- [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)
+- [`tests/domain/data_version/test_source_snapshot.py`](../../../tests/domain/data_version/test_source_snapshot.py)
+- [`tests/integration/odoo/test_source_capture.py`](../../../tests/integration/odoo/test_source_capture.py)
+- [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
+- [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
+- [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
 
 Cover file hashing, configuration, pre-freeze replacement, post-freeze refusal,
 Odoo capture bounds, cancellation, lineage, and both navigation variants.

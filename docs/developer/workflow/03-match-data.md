@@ -194,12 +194,12 @@ look plausible.
 
 ## Verification
 
-- [`tests/mapping/test_forms.py`](../../../tests/mapping/test_forms.py)
-- [`tests/mapping/test_validation.py`](../../../tests/mapping/test_validation.py)
-- [`tests/mapping/test_selection_rules.py`](../../../tests/mapping/test_selection_rules.py)
-- [`tests/mapping/test_impact_presenter.py`](../../../tests/mapping/test_impact_presenter.py)
-- [`tests/test_web_app.py`](../../../tests/test_web_app.py)
-- [`tests/test_recipe_representative_shapes.py`](../../../tests/test_recipe_representative_shapes.py)
+- [`tests/integration/web/test_mapping_forms.py`](../../../tests/integration/web/test_mapping_forms.py)
+- [`tests/domain/mapping/test_validation.py`](../../../tests/domain/mapping/test_validation.py)
+- [`tests/domain/mapping/test_selection_rules.py`](../../../tests/domain/mapping/test_selection_rules.py)
+- [`tests/integration/web/test_mapping_impact_presenter.py`](../../../tests/integration/web/test_mapping_impact_presenter.py)
+- [`tests/integration/web/test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py)
+- [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,
@@ -209,10 +209,10 @@ Run the focused Mapping package with:
 
 ```bash
 .venv/bin/python -m unittest \
-  tests.mapping.test_forms \
-  tests.mapping.test_validation \
-  tests.mapping.test_selection_rules \
-  tests.mapping.test_impact_presenter -v
+  tests.integration.web.test_mapping_forms \
+  tests.domain.mapping.test_validation \
+  tests.domain.mapping.test_selection_rules \
+  tests.integration.web.test_mapping_impact_presenter -v
 ```
 
 ## Related documentation
