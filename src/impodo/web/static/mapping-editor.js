@@ -375,16 +375,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!marksMappingDirty(event.target)) {
         return;
       }
-      rememberMappingInteraction(event.target);
       dirty = true;
-      const scalarRow = event.target.closest("[data-scalar-mapping-row]");
-      if (scalarRow) {
-        window.queueMicrotask(() => rememberScalarRow(scalarRow));
-      }
-      const relationRow = event.target.closest("[data-relation-mapping-row]");
-      if (relationRow) {
-        window.queueMicrotask(() => rememberRelationRow(relationRow));
-      }
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
@@ -392,6 +383,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (confirmMapping) {
         confirmMapping.disabled = true;
         confirmMapping.title = "Check the latest changes before confirming.";
+      }
+      window.impodoMappingPosition?.rememberInteraction(event.target);
+      const scalarRow = event.target.closest("[data-scalar-mapping-row]");
+      if (scalarRow) {
+        window.queueMicrotask(() => rememberScalarRow(scalarRow));
+      }
+      const relationRow = event.target.closest("[data-relation-mapping-row]");
+      if (relationRow) {
+        window.queueMicrotask(() => rememberRelationRow(relationRow));
       }
     };
     mappingForm.addEventListener("input", markMappingDirty);

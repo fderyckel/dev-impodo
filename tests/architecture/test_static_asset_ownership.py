@@ -99,6 +99,30 @@ class StaticAssetOwnershipTests(unittest.TestCase):
                     600,
                 )
 
+    def test_mapping_editor_uses_the_position_module_public_contract(self) -> None:
+        editor = (STATIC_ROOT / "mapping-editor.js").read_text(encoding="utf-8")
+        position = (STATIC_ROOT / "mapping.js").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "window.impodoMappingPosition = { rememberInteraction, remember };",
+            position,
+        )
+        self.assertIn(
+            "window.impodoMappingPosition?.rememberInteraction(event.target);",
+            editor,
+        )
+        self.assertNotIn("rememberMappingInteraction", editor)
+        dirty_handler = editor.split("const markMappingDirty", maxsplit=1)[1].split(
+            'mappingForm.addEventListener("input"',
+            maxsplit=1,
+        )[0]
+        self.assertLess(
+            dirty_handler.index('saveStatus.classList.add("unsaved")'),
+            dirty_handler.index(
+                "window.impodoMappingPosition?.rememberInteraction(event.target);"
+            ),
+        )
+
     def test_static_modules_remain_reviewable(self) -> None:
         oversized_scripts = {
             script.name: len(script.read_text(encoding="utf-8").splitlines())
