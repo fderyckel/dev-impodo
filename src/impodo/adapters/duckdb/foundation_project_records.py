@@ -245,24 +245,14 @@ class FoundationProjectRecords:
         )
         registry_deleted = False
         try:
-            with self._registry_transactions.transaction() as connection:
-                current = connection.execute(
-                    """
-                    SELECT optimistic_revision
-                      FROM migration_project
-                     WHERE project_id = ?
-                    """,
-                    [project_id],
-                ).fetchone()
-                if current is None:
-                    raise MigrationConflictError("Project no longer exists")
-                if int(current[0]) != expected_revision:
-                    raise MigrationConflictError(
-                        "The project changed in another request; reload before deleting"
-                    )
-                self._delete_project_registry_rows(connection, project_id)
+            with self.database.connect(self.registry_path) as connection:
+                self._delete_project_registry_rows_safely(
+                    connection,
+                    project_id,
+                    expected_revision=expected_revision,
+                )
             registry_deleted = True
-        except Exception:
+        except BaseException:
             self._restore_staged_directories(staged)
             raise
 
@@ -336,23 +326,145 @@ class FoundationProjectRecords:
             if temporary.exists() and not original.exists():
                 temporary.rename(original)
 
-    @staticmethod
-    def _delete_project_registry_rows(connection, project_id: str) -> None:
-        """Delete registry dependants in foreign-key order."""
+    @classmethod
+    def _delete_project_registry_rows_safely(
+        cls,
+        connection,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        """Delete target dependants first without risking a partial Project."""
 
-        project_tables = (
-            "production_run_binding",
-            "test_run_parameter_values",
-            "test_run_setup_binding",
-            "project_cutover_selection",
-            "cutover_plan_qualification",
-            "recipe_qualification",
+        connection.begin()
+        try:
+            cls._require_project_revision(
+                connection,
+                project_id,
+                expected_revision=expected_revision,
+            )
+            cls._backup_target_binding_dependants(connection, project_id)
+            cls._delete_target_binding_dependants(connection, project_id)
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+
+        try:
+            connection.begin()
+            cls._require_project_revision(
+                connection,
+                project_id,
+                expected_revision=expected_revision,
+            )
+            cls._delete_project_registry_rows(connection, project_id)
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            try:
+                connection.begin()
+                cls._restore_target_binding_dependants(connection)
+                connection.commit()
+            except BaseException as restore_error:
+                connection.rollback()
+                raise MigrationConflictError(
+                    "Project deletion could not be completed safely"
+                ) from restore_error
+            raise
+
+    @staticmethod
+    def _require_project_revision(
+        connection,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        current = connection.execute(
+            """
+            SELECT optimistic_revision
+              FROM migration_project
+             WHERE project_id = ?
+            """,
+            [project_id],
+        ).fetchone()
+        if current is None:
+            raise MigrationConflictError("Project no longer exists")
+        if int(current[0]) != expected_revision:
+            raise MigrationConflictError(
+                "The project changed in another request; reload before deleting"
+            )
+
+    @staticmethod
+    def _backup_target_binding_dependants(connection, project_id: str) -> None:
+        """Keep transaction-local recovery copies for DuckDB's FK boundary."""
+
+        application_ids = (
+            "SELECT application_id FROM recipe_application WHERE project_id = ?"
         )
-        for table in project_tables:
+        run_ids = "SELECT migration_run_id FROM migration_run WHERE project_id = ?"
+        filters = (
+            ("recipe_application", "project_id = ?"),
+            (
+                "recipe_application_reference_requirement",
+                f"application_id IN ({application_ids})",
+            ),
+            (
+                "recipe_application_requirement",
+                f"application_id IN ({application_ids})",
+            ),
+            (
+                "recipe_application_issue",
+                f"application_id IN ({application_ids})",
+            ),
+            (
+                "migration_run_reference_bundle",
+                f"migration_run_id IN ({run_ids})",
+            ),
+            (
+                "migration_run_target_schema",
+                f"migration_run_id IN ({run_ids})",
+            ),
+            (
+                "migration_run_requirement_plan",
+                f"migration_run_id IN ({run_ids})",
+            ),
+            ("test_run_setup_binding", "project_id = ?"),
+            ("production_run_binding", "project_id = ?"),
+        )
+        for table, predicate in filters:
             connection.execute(
-                f"DELETE FROM {table} WHERE project_id = ?",
+                f"""
+                CREATE TEMP TABLE project_delete_backup_{table} AS
+                SELECT * FROM {table} WHERE {predicate}
+                """,
                 [project_id],
             )
+
+    @staticmethod
+    def _restore_target_binding_dependants(connection) -> None:
+        """Restore the first deletion phase after a later registry failure."""
+
+        for table in (
+            "recipe_application",
+            "recipe_application_reference_requirement",
+            "recipe_application_requirement",
+            "recipe_application_issue",
+            "migration_run_reference_bundle",
+            "migration_run_target_schema",
+            "migration_run_requirement_plan",
+            "test_run_setup_binding",
+            "production_run_binding",
+        ):
+            connection.execute(
+                f"""
+                INSERT INTO {table}
+                SELECT * FROM project_delete_backup_{table}
+                """
+            )
+
+    @staticmethod
+    def _delete_target_binding_dependants(connection, project_id: str) -> None:
+        """Delete rows that hold foreign keys to a Project target binding."""
 
         application_ids = (
             "SELECT application_id FROM recipe_application WHERE project_id = ?"
@@ -376,6 +488,40 @@ class FoundationProjectRecords:
             "migration_run_reference_bundle",
             "migration_run_target_schema",
             "migration_run_requirement_plan",
+        ):
+            connection.execute(
+                f"DELETE FROM {table} WHERE migration_run_id IN ({run_ids})",
+                [project_id],
+            )
+        for table in ("test_run_setup_binding", "production_run_binding"):
+            connection.execute(
+                f"DELETE FROM {table} WHERE project_id = ?",
+                [project_id],
+            )
+
+    @staticmethod
+    def _delete_project_registry_rows(connection, project_id: str) -> None:
+        """Delete registry dependants in foreign-key order."""
+
+        FoundationProjectRecords._delete_target_binding_dependants(
+            connection,
+            project_id,
+        )
+
+        project_tables = (
+            "test_run_parameter_values",
+            "project_cutover_selection",
+            "cutover_plan_qualification",
+            "recipe_qualification",
+        )
+        for table in project_tables:
+            connection.execute(
+                f"DELETE FROM {table} WHERE project_id = ?",
+                [project_id],
+            )
+
+        run_ids = "SELECT migration_run_id FROM migration_run WHERE project_id = ?"
+        for table in (
             "migration_run_cutover_plan",
             "migration_run_target_setup",
         ):

@@ -192,6 +192,54 @@ class ProjectAuthoringTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
+    def _add_target_binding_schema(self, bundle) -> str:
+        target_binding_id = str(uuid4())
+        with self.database.connect(self.database.registry_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO target_binding (
+                    target_binding_id, project_id, migration_run_id, environment,
+                    connection_target_hash, credential_role, credential_generation,
+                    principal_hash, permission_hash, context_hash,
+                    schema_dependency_hash, reference_snapshot_hashes_json,
+                    content_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    target_binding_id,
+                    bundle.project.project_id,
+                    bundle.run.migration_run_id,
+                    "TEST",
+                    "target-hash",
+                    "READ_ONLY",
+                    "generation-1",
+                    "principal-hash",
+                    "permission-hash",
+                    "context-hash",
+                    "schema-dependency-hash",
+                    "[]",
+                    "binding-content-hash",
+                    utc_now().isoformat(),
+                ],
+            )
+            connection.execute(
+                """
+                INSERT INTO migration_run_target_schema (
+                    migration_run_id, target_binding_id, requirement_plan_hash,
+                    schema_hash, schema_json, captured_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    bundle.run.migration_run_id,
+                    target_binding_id,
+                    "requirement-plan-hash",
+                    "schema-hash",
+                    "{}",
+                    utc_now().isoformat(),
+                ],
+            )
+        return target_binding_id
+
     def test_new_project_has_four_distinct_roots_and_no_recipe(self) -> None:
         request_id = str(uuid4())
         bundle = self._bundle(request_id)
@@ -241,6 +289,7 @@ class ProjectAuthoringTests(unittest.TestCase):
             operation_id=str(uuid4()),
             actor=LOCAL_ACTOR,
         )
+
         selected_project_dir = self.database.project_directory(
             selected.project.project_id
         )
@@ -270,6 +319,70 @@ class ProjectAuthoringTests(unittest.TestCase):
             self.projects.get(retained.project.project_id, actor=LOCAL_ACTOR),
             retained.project,
         )
+
+    def test_delete_removes_target_binding_after_its_saved_dependants(self) -> None:
+        selected = self._bundle()
+        target_binding_id = self._add_target_binding_schema(selected)
+
+        self.projects.delete(
+            selected.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=selected.project.optimistic_revision,
+        )
+
+        with self.database.connect(self.database.registry_path) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM target_binding WHERE target_binding_id = ?",
+                    [target_binding_id],
+                ).fetchone(),
+                (0,),
+            )
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT count(*) FROM migration_run_target_schema
+                    WHERE target_binding_id = ?
+                    """,
+                    [target_binding_id],
+                ).fetchone(),
+                (0,),
+            )
+
+    def test_delete_restores_target_dependants_when_final_cleanup_fails(self) -> None:
+        selected = self._bundle()
+        target_binding_id = self._add_target_binding_schema(selected)
+        project_directory = self.database.project_directory(
+            selected.project.project_id
+        )
+
+        with patch.object(
+            MigrationFoundationRepository,
+            "_delete_project_registry_rows",
+            side_effect=SimulatedCrash("registry cleanup failed"),
+        ), self.assertRaises(SimulatedCrash):
+            self.projects.delete(
+                selected.project.project_id,
+                actor=LOCAL_ACTOR,
+                expected_revision=selected.project.optimistic_revision,
+            )
+
+        self.assertTrue(project_directory.is_dir())
+        self.assertEqual(
+            self.projects.get(selected.project.project_id, actor=LOCAL_ACTOR),
+            selected.project,
+        )
+        with self.database.connect(self.database.registry_path) as connection:
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT count(*) FROM migration_run_target_schema
+                    WHERE target_binding_id = ?
+                    """,
+                    [target_binding_id],
+                ).fetchone(),
+                (1,),
+            )
 
     def test_first_publication_does_not_change_project_or_data_version_identity(self) -> None:
         bundle = self._bundle()
