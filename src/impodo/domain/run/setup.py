@@ -74,6 +74,8 @@ class MigrationRunTargetSetupRepository(Protocol):
         migration_run_id: str,
     ) -> MigrationRunTargetSetup | None: ...
 
+    def migration_run_is_mutable(self, migration_run_id: str) -> bool: ...
+
     def replace_migration_run_target_setup(
         self,
         setup: MigrationRunTargetSetup,
@@ -129,6 +131,10 @@ class MigrationRunTargetSetupService:
             Capability.MIGRATION_RUN_EDIT,
             project_id=project_id,
         )
+        if not self.repository.migration_run_is_mutable(migration_run_id):
+            raise MigrationFoundationError(
+                "A completed MigrationRun target is historical evidence"
+            )
         current = self.repository.get_migration_run_target_setup(migration_run_id)
         if current is None:
             if expected_revision is not None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import re
@@ -52,6 +52,10 @@ from impodo.application.preflight_service import PreflightService
 
 DEFAULT_CREATE_BATCH_ROWS = 10
 NO_WRITE_ROWS_MESSAGE = "This preview has no rows to create or update"
+MAX_VISIBLE_LOAD_GROUPS = 5
+MAX_VISIBLE_GROUP_DATASETS = 3
+MAX_VISIBLE_BLOCKER_GROUPS = 5
+MAX_VISIBLE_BLOCKER_DATASETS = 3
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 ReadCredentialBindingProvider = Callable[[WorkspaceState], str]
 
@@ -116,6 +120,49 @@ class ExecutionDatasetPreview:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionLoadGroupPreview:
+    """Bounded business-language projection of one frozen schedule layer."""
+
+    number: int
+    record_count: int
+    dataset_labels: tuple[str, ...]
+    omitted_dataset_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionDependencySummary:
+    """Compact load-order guidance derived from the immutable snapshot."""
+
+    groups: tuple[ExecutionLoadGroupPreview, ...] = ()
+    total_group_count: int = 0
+    omitted_group_count: int = 0
+    relationship_record_count: int = 0
+    relationship_field_count: int = 0
+    relationship_link_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionBlockerGroup:
+    """One actionable browser message for equivalent blocked rows."""
+
+    code: str
+    title: str
+    action: str
+    record_count: int
+    dataset_labels: tuple[str, ...] = ()
+    omitted_dataset_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionBlockerSummary:
+    """Bounded blocker categories without exposing source values or row IDs."""
+
+    groups: tuple[ExecutionBlockerGroup, ...] = ()
+    total_group_count: int = 0
+    omitted_group_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionPreview:
     snapshot: ExecutionSnapshot
     datasets: tuple[ExecutionDatasetPreview, ...]
@@ -124,6 +171,12 @@ class ExecutionPreview:
     deferred_create_count: int
     scope_error: str = ""
     credential_refresh_required: bool = False
+    dependency_summary: ExecutionDependencySummary = field(
+        default_factory=ExecutionDependencySummary
+    )
+    blocker_summary: ExecutionBlockerSummary = field(
+        default_factory=ExecutionBlockerSummary
+    )
 
     @property
     def can_load(self) -> bool:
@@ -232,6 +285,8 @@ class ExecutionService:
                 )
             ),
             credential_refresh_required=bool(credential_error),
+            dependency_summary=_execution_dependency_summary(snapshot),
+            blocker_summary=_execution_blocker_summary(snapshot),
         )
 
     def execute(
@@ -2286,6 +2341,178 @@ def _execution_snapshot_error(
                     "business key"
                 )
     return ""
+
+
+def _execution_dependency_summary(
+    snapshot: ExecutionSnapshot,
+) -> ExecutionDependencySummary:
+    """Describe the first frozen load groups without copying the planner."""
+
+    row_by_id = {row.row_id: row for row in snapshot.rows}
+    dataset_rank = {
+        item.dataset: item.sequence for item in snapshot.datasets
+    }
+    groups: list[ExecutionLoadGroupPreview] = []
+    components = tuple(
+        sorted(
+            snapshot.relationship_plan.components,
+            key=lambda item: item.sequence,
+        )
+    )
+    for component in components[:MAX_VISIBLE_LOAD_GROUPS]:
+        datasets = tuple(
+            sorted(
+                {
+                    row_by_id[row_id].dataset
+                    for row_id in component.row_ids
+                    if row_id in row_by_id
+                },
+                key=lambda value: (dataset_rank.get(value, 10**9), value),
+            )
+        )
+        visible_datasets = datasets[:MAX_VISIBLE_GROUP_DATASETS]
+        groups.append(
+            ExecutionLoadGroupPreview(
+                number=component.sequence + 1,
+                record_count=len(component.row_ids),
+                dataset_labels=tuple(
+                    _execution_dataset_label(value)
+                    for value in visible_datasets
+                ),
+                omitted_dataset_count=max(
+                    0,
+                    len(datasets) - len(visible_datasets),
+                ),
+            )
+        )
+    completion_rows = {
+        item.row_id for item in snapshot.relationship_plan.completions
+    }
+    return ExecutionDependencySummary(
+        groups=tuple(groups),
+        total_group_count=len(components),
+        omitted_group_count=max(0, len(components) - len(groups)),
+        relationship_record_count=len(completion_rows),
+        relationship_field_count=snapshot.relationship_plan.completion_count,
+        relationship_link_count=snapshot.relationship_plan.edge_count,
+    )
+
+
+_BLOCKER_GUIDANCE: dict[str, tuple[str, str]] = {
+    "HARD_DEPENDENCY_CYCLE": (
+        "Required relationships cannot be created in a safe order",
+        "Make one relationship optional, point it to an existing Odoo record, "
+        "or correct the source relationships, then compare again.",
+    ),
+    "MISSING_INCOMING_ROW": (
+        "A related source record is missing",
+        "Add the supporting record or change the relationship to a valid "
+        "reviewed record, then compare again.",
+    ),
+    "DUPLICATE_INCOMING_ROW": (
+        "A related source record is not unique",
+        "Remove the duplicate or choose a business key that identifies one "
+        "record, then compare again.",
+    ),
+    "INCOMPLETE_INCOMING_REFERENCE": (
+        "A source relationship is incomplete",
+        "Complete or remove the relationship in Match data, then compare again.",
+    ),
+    "INCOMING_MODEL_MISMATCH": (
+        "A relationship points to the wrong Odoo record type",
+        "Correct the relationship mapping and compare again.",
+    ),
+    "UNUSABLE_INCOMING_ROW": (
+        "A supporting source record also needs attention",
+        "Resolve the supporting record first, then compare again.",
+    ),
+    "MISSING_DEPENDENCY_STRENGTH": (
+        "A relationship rule is incomplete",
+        "Review whether the relationship is required or optional, then compare "
+        "again.",
+    ),
+    "BLOCKED_DEPENDENCY": (
+        "A record depends on another blocked source record",
+        "Resolve the earlier relationship warning; Impodo will then recalculate "
+        "the load order.",
+    ),
+    "AMBIGUOUS_ROWS": (
+        "Some records match more than one Odoo record",
+        "Choose a unique match in the final review, then compare again.",
+    ),
+    "BLOCKED_ROWS": (
+        "Some records still need a valid mapping or value",
+        "Resolve those rows in the final review, then compare again.",
+    ),
+}
+
+
+def _execution_blocker_summary(
+    snapshot: ExecutionSnapshot,
+) -> ExecutionBlockerSummary:
+    """Group equivalent blocker evidence into bounded actionable messages."""
+
+    row_by_id = {row.row_id: row for row in snapshot.rows}
+    blockers_by_code: dict[str, set[str]] = {}
+    for blocker in snapshot.relationship_plan.blockers:
+        blockers_by_code.setdefault(blocker.code, set()).add(blocker.row_id)
+    for disposition, code in (
+        ("AMBIGUOUS", "AMBIGUOUS_ROWS"),
+        ("BLOCKED", "BLOCKED_ROWS"),
+    ):
+        matching = {
+            row.row_id
+            for row in snapshot.rows
+            if row.disposition == disposition
+        }
+        if matching:
+            blockers_by_code[code] = matching
+
+    groups: list[ExecutionBlockerGroup] = []
+    for code, row_ids in blockers_by_code.items():
+        title, action = _BLOCKER_GUIDANCE.get(
+            code,
+            (
+                "A reviewed relationship cannot be loaded safely",
+                "Review the related source value and mapping, then compare again.",
+            ),
+        )
+        datasets = tuple(
+            sorted(
+                {
+                    row_by_id[row_id].dataset
+                    for row_id in row_ids
+                    if row_id in row_by_id
+                }
+            )
+        )
+        visible_datasets = datasets[:MAX_VISIBLE_BLOCKER_DATASETS]
+        groups.append(
+            ExecutionBlockerGroup(
+                code=code,
+                title=title,
+                action=action,
+                record_count=len(row_ids),
+                dataset_labels=tuple(
+                    _execution_dataset_label(value)
+                    for value in visible_datasets
+                ),
+                omitted_dataset_count=max(
+                    0,
+                    len(datasets) - len(visible_datasets),
+                ),
+            )
+        )
+    visible = tuple(groups[:MAX_VISIBLE_BLOCKER_GROUPS])
+    return ExecutionBlockerSummary(
+        groups=visible,
+        total_group_count=len(groups),
+        omitted_group_count=max(0, len(groups) - len(visible)),
+    )
+
+
+def _execution_dataset_label(value: str) -> str:
+    return value.replace("_", " ").strip().title() or "Prepared records"
 
 
 def _read_credential_snapshot_error(

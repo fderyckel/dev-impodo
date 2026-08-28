@@ -129,6 +129,32 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             can_load=True,
             scope_error="",
             deferred_create_count=0,
+            dependency_summary=SimpleNamespace(
+                groups=(
+                    SimpleNamespace(
+                        number=1,
+                        record_count=2,
+                        dataset_labels=("Units", "Products"),
+                        omitted_dataset_count=0,
+                    ),
+                    SimpleNamespace(
+                        number=2,
+                        record_count=1,
+                        dataset_labels=("BOM Lines",),
+                        omitted_dataset_count=0,
+                    ),
+                ),
+                total_group_count=2,
+                omitted_group_count=0,
+                relationship_record_count=0,
+                relationship_field_count=0,
+                relationship_link_count=2,
+            ),
+            blocker_summary=SimpleNamespace(
+                groups=(),
+                total_group_count=0,
+                omitted_group_count=0,
+            ),
         )
 
         with (
@@ -155,6 +181,22 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             )
             preview.can_load = False
             preview.scope_error = "One reviewed field is no longer available."
+            preview.blocker_summary = SimpleNamespace(
+                groups=(
+                    SimpleNamespace(
+                        record_count=2,
+                        title="A related source record is missing",
+                        action="Add the supporting record, then compare again.",
+                        dataset_labels=("BOM Lines",),
+                        omitted_dataset_count=0,
+                    ),
+                ),
+                total_group_count=1,
+                omitted_group_count=0,
+            )
+            blocked_review = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/load/review"
+            )
             blocked_confirm = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/load/confirm",
                 follow_redirects=False,
@@ -163,6 +205,9 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(review.status_code, 200)
         self.assertIn("Check what will change in Odoo", review.text)
         self.assertIn("Nothing is written from this page", review.text)
+        self.assertIn("What Impodo will load first", review.text)
+        self.assertIn("Units, Products", review.text)
+        self.assertIn("BOM Lines", review.text)
         self.assertNotIn('name="write_api_key"', review.text)
         self.assertEqual(confirm.status_code, 200)
         self.assertIn("Load 3 records into migration", confirm.text)
@@ -175,6 +220,9 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace_state.workspace_id}/load/review",
         )
         self.assertEqual(blocked_confirm.status_code, 303)
+        self.assertIn("Why loading is blocked", blocked_review.text)
+        self.assertIn("A related source record is missing", blocked_review.text)
+        self.assertIn("Add the supporting record", blocked_review.text)
         self.assertEqual(
             blocked_confirm.headers["location"],
             f"/workspaces/{workspace_state.workspace_id}/load/review",
@@ -205,6 +253,8 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             target_server="odoo.example.test",
             target_environment="Test",
             total_rows=3,
+            relationship_total_rows=1,
+            load_group_count=2,
             access_context=context.workspace_access.resolve(
                 workspace_state.workspace_id,
                 actor=context.actor,
@@ -215,7 +265,9 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 verification_complete=False,
             ),
         )
-        progress_url = f"/workspaces/{workspace_state.workspace_id}/load/progress/{job.job_id}"
+        progress_url = (
+            f"/workspaces/{workspace_state.workspace_id}/load/progress/{job.job_id}"
+        )
 
         finished = _wait_for_load(self.client, progress_url)
         page = self.client.get(progress_url)
@@ -229,6 +281,9 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(finished["created_count"], 0)
         self.assertEqual(finished["updated_count"], 0)
         self.assertEqual(finished["attention_count"], 0)
+        self.assertEqual(finished["relationship_total_count"], 1)
+        self.assertEqual(finished["load_group_count"], 2)
+        self.assertIn("Recorded load group", page.text)
         self.assertNotIn("write_api_key", page.text)
 
     def test_confirmed_load_runs_in_background_and_redirects_to_progress(self) -> None:

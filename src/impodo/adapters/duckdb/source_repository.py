@@ -110,6 +110,7 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Atomically replace the complete hash-bound catalog set."""
 
+        self._assert_workspace_mutable(workspace_id)
         catalog_set = tuple(catalogs)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
@@ -191,6 +192,7 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Replace one catalog and invalidate every dependent source decision."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -270,6 +272,7 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Confirm one exact catalog and invalidate selection/mapping/staging."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -388,6 +391,7 @@ class SourceRepository(DuckDbRepository):
     ) -> None:
         """Append a schema/identity-bound plan and advance its pointer atomically."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -613,6 +617,7 @@ class SourceRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")

@@ -65,6 +65,7 @@ class NormalizationRepository(DuckDbRepository):
     ) -> NormalizationRunSummary:
         """Publish complete prepared-data review evidence without Odoo access."""
 
+        self._assert_workspace_mutable(workspace_id)
         if evaluation.workspace_id != workspace_id:
             raise WorkspaceError("Prepared review belongs to another workspace")
         if (

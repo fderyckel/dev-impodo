@@ -129,6 +129,7 @@ class QualityRepository(DuckDbRepository):
     ) -> QualityRuleSet:
         """Publish one complete guided ruleset and retire its quality result."""
 
+        self._assert_workspace_mutable(workspace_id)
         if ruleset.workspace_id != workspace_id:
             raise WorkspaceError("Data-check rules belong to another workspace")
         if ruleset.contract_version != QUALITY_RULESET_CONTRACT_VERSION:
@@ -256,6 +257,7 @@ class QualityRepository(DuckDbRepository):
     ) -> QualityRunSummary:
         """Atomically publish a complete quality overlay and quarantine set."""
 
+        self._assert_workspace_mutable(workspace_id)
         if run.workspace_id != workspace_id:
             raise WorkspaceError("Quality evidence belongs to another workspace")
         if (

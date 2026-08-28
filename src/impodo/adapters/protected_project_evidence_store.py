@@ -22,7 +22,13 @@ _MAGIC = b"IPPRJ001"
 _NONCE_BYTES = 12
 MAX_PROJECT_EVIDENCE_BYTES = 16 * 1024 * 1024
 _ARTIFACT_KINDS = frozenset(
-    {"qualifications", "correction-plans", "correction-confirmations"}
+    {
+        "qualifications",
+        "correction-origins",
+        "correction-target-indexes",
+        "correction-plans",
+        "correction-confirmations",
+    }
 )
 
 

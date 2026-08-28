@@ -59,6 +59,9 @@ class LoadJob:
     updated_count: int
     attention_count: int
     relationship_pending_count: int
+    relationship_total_count: int
+    load_group_number: int
+    load_group_count: int
     progress_percent: int
     execution_run_id: str
     verification_complete: bool
@@ -77,5 +80,18 @@ class LoadJob:
         return not self.active
 
     @property
-    def not_attempted_count(self) -> int:
+    def not_completed_count(self) -> int:
         return max(0, self.total_rows - self.completed_rows)
+
+    @property
+    def relationship_completed_count(self) -> int:
+        if self.phase not in {
+            LoadPhase.RELATIONSHIPS,
+            LoadPhase.VERIFYING,
+            LoadPhase.COMPLETE,
+        }:
+            return 0
+        return max(
+            0,
+            self.relationship_total_count - self.relationship_pending_count,
+        )

@@ -30,7 +30,11 @@ from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.run.production import ProductionRunError
-from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError
+from impodo.domain.workspace.workbench import (
+    WorkspaceState,
+    OdooConnectionMode,
+    WorkspaceStateError,
+)
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.access import WorkspaceAccessContext
@@ -270,6 +274,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
             "workspace_load.html",
             workspace_state=workspace_state,
             preview=preview,
+            dependency_summary=getattr(
+                preview,
+                "dependency_summary",
+                None,
+            ),
+            blocker_summary=getattr(preview, "blocker_summary", None),
             reconciliation=reconciliation,
             load_step=step,
             load_row_page=load_row_page,
@@ -528,19 +538,13 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 raise SecretStoreError(
                     "Enter an Odoo API key approved for loading on this exact target"
                 )
-            api_key = (
-                submitted_key
-                if submitted_key
-                else saved_write_credential.secret
-            )
+            api_key = submitted_key if submitted_key else saved_write_credential.secret
             if (
                 credential_owner.workspace_id != workspace_state.workspace_id
                 and read_credential is not None
                 and compare_digest(read_credential.secret, api_key)
             ):
-                raise SecretStoreError(
-                    "Use a different Odoo API key for write access"
-                )
+                raise SecretStoreError("Use a different Odoo API key for write access")
             remember_write_key = (
                 "remember_write_api_key" in form or "remember_api_key" in form
             )
@@ -587,9 +591,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                         "Enter an Odoo API key approved for loading on this exact target"
                     )
                 read_credential_binding_hash = (
-                    read_credential.binding_hash
-                    if read_credential is not None
-                    else ""
+                    read_credential.binding_hash if read_credential is not None else ""
                 )
                 context.production_runs.assert_execution_authority(
                     workspace_id,
@@ -657,8 +659,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     verification_complete = False
                 else:
                     verification_complete = not (
-                        verification.unknown_count
-                        or verification.fallout_count
+                        verification.unknown_count or verification.fallout_count
                     )
                 return LoadJobResult(
                     execution_run_id=run.run_id,
@@ -676,6 +677,16 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 target_server=_target_server(workspace_state.odoo_base_url),
                 target_environment=target_environment,
                 total_rows=preview.snapshot.write_count,
+                relationship_total_rows=getattr(
+                    preview,
+                    "deferred_create_count",
+                    0,
+                ),
+                load_group_count=getattr(
+                    getattr(preview, "dependency_summary", None),
+                    "total_group_count",
+                    0,
+                ),
                 access_context=access_context,
                 work=run_load,
             )
@@ -742,8 +753,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             if submitted_key:
                 api_key = submitted_key
                 requested_persistence = (
-                    "remember_write_api_key" in form
-                    or "remember_api_key" in form
+                    "remember_write_api_key" in form or "remember_api_key" in form
                 )
             else:
                 write_credential = get_target_credential(
@@ -791,9 +801,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 write_identity=write_identity,
                 write_credential_binding_hash=(
-                    write_credential.binding_hash
-                    if write_identity is not None
-                    else ""
+                    write_credential.binding_hash if write_identity is not None else ""
                 ),
             )
         except (
@@ -906,7 +914,11 @@ def _job_payload(job: LoadJob) -> dict[str, object]:
         "updated_count": job.updated_count,
         "attention_count": job.attention_count,
         "relationship_pending_count": job.relationship_pending_count,
-        "not_attempted_count": job.not_attempted_count,
+        "relationship_total_count": job.relationship_total_count,
+        "relationship_completed_count": job.relationship_completed_count,
+        "load_group_number": job.load_group_number,
+        "load_group_count": job.load_group_count,
+        "not_completed_count": job.not_completed_count,
         "progress_percent": job.progress_percent,
         "execution_run_id": job.execution_run_id,
         "verification_complete": job.verification_complete,
@@ -923,7 +935,9 @@ def _get_job(context: WebContext, workspace_id: str, job_id: str) -> LoadJob:
     try:
         return _manager(context).get(workspace_id, job_id)
     except LoadJobNotFoundError as error:
-        raise HTTPException(status_code=404, detail="Odoo load job not found") from error
+        raise HTTPException(
+            status_code=404, detail="Odoo load job not found"
+        ) from error
 
 
 def _manager(context: WebContext):

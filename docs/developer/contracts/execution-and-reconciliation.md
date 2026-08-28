@@ -97,6 +97,27 @@ A run is complete only when it has no unknown outcome and reconciliation proves
 the expected target state. Otherwise navigation remains in a verify or
 needs-attention state.
 
+## Browser projection boundary
+
+The review UI derives its explanation from the current immutable execution
+snapshot. It may show at most five ordered load groups, at most three prepared
+record-type labels per group, and at most five grouped blocker categories.
+Longer plans report omitted counts. The browser projection carries no source
+values or row identifiers and cannot change the approved schedule.
+
+Blocker categories preserve the snapshot's stable reason code internally but
+present a business explanation, affected-record count, bounded record-type
+labels, and one next action. Unknown codes fall back to a fail-closed review
+message; they do not create an execution exception.
+
+Progress is a projection of durable journal states. A `PLANNED`, `IN_FLIGHT`,
+or `RETRY_READY` row is not final. A `PARTIALLY_APPLIED` row has an accepted
+create receipt but is not final until its frozen relationship fields finish.
+Relationship progress cannot begin while a first-pass row remains unfinished.
+The current load-group number and relationship totals are non-secret browser
+control state only. Support details remain bounded to counts, target-safe
+identifiers, and semantic hashes.
+
 ## Access boundary
 
 Remote writes use named, scoped Odoo 19 JSON-2 operations. Read-back uses a

@@ -351,6 +351,7 @@ class SchemaOrigin(StrEnum):
 
     LIVE_API = "LIVE_API"
     LOCAL_MANUAL = "LOCAL_MANUAL"
+    HISTORICAL_SEED = "HISTORICAL_SEED"
 
 
 @dataclass(frozen=True, slots=True)

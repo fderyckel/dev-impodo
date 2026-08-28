@@ -53,6 +53,7 @@ class SupportingLookupRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        self._assert_workspace_mutable(workspace_id)
         if snapshot.workspace_id != workspace_id:
             raise WorkspaceError("Supporting lookup belongs to another workspace")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"

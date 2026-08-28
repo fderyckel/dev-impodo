@@ -16,7 +16,7 @@ from .forward_upgrades import (
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 4
+MIGRATION_REGISTRY_VERSION = 5
 
 
 EXPECTED_REGISTRY_COLUMNS = {
@@ -367,6 +367,37 @@ EXPECTED_REGISTRY_COLUMNS = {
         "activated_at",
         "contract_version",
     ),
+    "correction_run_binding": (
+        "correction_binding_id",
+        "project_id",
+        "data_version_id",
+        "completed_migration_run_id",
+        "completed_workspace_id",
+        "origin_manifest_id",
+        "origin_manifest_hash",
+        "origin_storage_key",
+        "origin_artifact_hash",
+        "target_index_id",
+        "target_index_hash",
+        "target_index_storage_key",
+        "target_index_artifact_hash",
+        "successor_migration_run_id",
+        "successor_workspace_id",
+        "current_mapping_hash",
+        "current_prepared_hash",
+        "current_plan_id",
+        "current_plan_hash",
+        "current_plan_storage_key",
+        "current_plan_artifact_hash",
+        "current_confirmation_id",
+        "current_confirmation_hash",
+        "current_confirmation_storage_key",
+        "current_confirmation_artifact_hash",
+        "optimistic_revision",
+        "created_at",
+        "updated_at",
+        "contract_version",
+    ),
     "project_operation_intent": (
         "operation_id",
         "project_id",
@@ -516,6 +547,88 @@ def _upgrade_migration_registry_v3_to_v4(
     _create_test_run_parameter_values(connection)
 
 
+def _create_correction_run_binding(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE correction_run_binding (
+            correction_binding_id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL REFERENCES
+                migration_project_identity(project_id),
+            data_version_id VARCHAR NOT NULL REFERENCES
+                data_version_identity(data_version_id),
+            completed_migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
+                migration_run_identity(migration_run_id),
+            completed_workspace_id VARCHAR NOT NULL UNIQUE REFERENCES
+                migration_workspace_identity(workspace_id),
+            origin_manifest_id VARCHAR NOT NULL UNIQUE,
+            origin_manifest_hash VARCHAR NOT NULL,
+            origin_storage_key VARCHAR NOT NULL,
+            origin_artifact_hash VARCHAR NOT NULL,
+            target_index_id VARCHAR NOT NULL UNIQUE,
+            target_index_hash VARCHAR NOT NULL,
+            target_index_storage_key VARCHAR NOT NULL,
+            target_index_artifact_hash VARCHAR NOT NULL,
+            successor_migration_run_id VARCHAR UNIQUE REFERENCES
+                migration_run_identity(migration_run_id),
+            successor_workspace_id VARCHAR UNIQUE REFERENCES
+                migration_workspace_identity(workspace_id),
+            current_mapping_hash VARCHAR,
+            current_prepared_hash VARCHAR,
+            current_plan_id VARCHAR UNIQUE,
+            current_plan_hash VARCHAR,
+            current_plan_storage_key VARCHAR,
+            current_plan_artifact_hash VARCHAR,
+            current_confirmation_id VARCHAR UNIQUE,
+            current_confirmation_hash VARCHAR,
+            current_confirmation_storage_key VARCHAR,
+            current_confirmation_artifact_hash VARCHAR,
+            optimistic_revision INTEGER NOT NULL CHECK (
+                optimistic_revision >= 1
+            ),
+            created_at VARCHAR NOT NULL,
+            updated_at VARCHAR NOT NULL,
+            contract_version INTEGER NOT NULL CHECK (contract_version = 1),
+            CHECK (
+                (successor_migration_run_id IS NULL AND successor_workspace_id IS NULL)
+                OR
+                (successor_migration_run_id IS NOT NULL AND successor_workspace_id IS NOT NULL)
+            ),
+            CHECK (
+                (current_plan_id IS NULL AND current_plan_hash IS NULL
+                    AND current_plan_storage_key IS NULL
+                    AND current_plan_artifact_hash IS NULL)
+                OR
+                (current_plan_id IS NOT NULL AND current_plan_hash IS NOT NULL
+                    AND current_plan_storage_key IS NOT NULL
+                    AND current_plan_artifact_hash IS NOT NULL
+                    AND current_mapping_hash IS NOT NULL
+                    AND current_prepared_hash IS NOT NULL)
+            ),
+            CHECK (
+                (current_confirmation_id IS NULL
+                    AND current_confirmation_hash IS NULL
+                    AND current_confirmation_storage_key IS NULL
+                    AND current_confirmation_artifact_hash IS NULL)
+                OR
+                (current_confirmation_id IS NOT NULL
+                    AND current_confirmation_hash IS NOT NULL
+                    AND current_confirmation_storage_key IS NOT NULL
+                    AND current_confirmation_artifact_hash IS NOT NULL
+                    AND current_plan_id IS NOT NULL)
+            )
+        )
+        """
+    )
+
+
+def _upgrade_migration_registry_v4_to_v5(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    _create_correction_run_binding(connection)
+
+
 MIGRATION_REGISTRY_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="migration-registry-v1-to-v2-migration-ledger",
@@ -528,6 +641,10 @@ MIGRATION_REGISTRY_UPGRADES = {
     3: ForwardSchemaUpgrade(
         migration_id="migration-registry-v3-to-v4-test-run-values",
         apply=_upgrade_migration_registry_v3_to_v4,
+    ),
+    4: ForwardSchemaUpgrade(
+        migration_id="migration-registry-v4-to-v5-correction-binding",
+        apply=_upgrade_migration_registry_v4_to_v5,
     ),
 }
 
@@ -1106,6 +1223,7 @@ def _initialize_migration_registry(
             );
             """
         )
+        _create_correction_run_binding(connection)
         create_schema_migration_ledger(connection)
         connection.commit()
     except Exception:

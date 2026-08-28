@@ -262,6 +262,11 @@ certification remain pending.
   re-matched by the governed business key before retry safety is classified;
 - the browser end-to-end test previews, confirms, journals, reads back, and
   renders a verified load without exposing the submitted API key;
+- **Check changes** shows at most five snapshot-derived load groups and five
+  grouped actionable blocker categories without source values or row IDs;
+- browser progress does not count planned, in-flight, retry-ready, or
+  partially applied rows as final and does not start relationship completion
+  while a first-pass write remains unfinished;
 - reconciliation reports retain status, field names, and recovery guidance,
   but not source or target business values;
 - recovery assessment reads a running journal without publishing final
@@ -323,13 +328,16 @@ retarget rejection before the journal, and receipt-before-dependent-write
 event ordering. Phase 4 adds exact in-flight checkpoints, restart reload,
 ephemeral recovery assessment, hash-bound recovery transitions, safe absent-
 create retry, exact optional-cycle completion resume, stop-on-known-rejection,
-and field-scope-grouped read-back.
+and field-scope-grouped read-back. Phase 5 adds bounded load-order and blocker
+presentation plus durable-state-derived load-group and relationship progress.
 
 The implementation evidence is recorded in the
 [Phase 2 row-scheduling report](../reports/scalable-relationship-phase-2-row-scheduling-2026-08-28.md)
 and [Phase 3 bounded-execution report](../reports/scalable-relationship-phase-3-bounded-execution-2026-08-28.md).
 The [Phase 4 recovery report](../reports/scalable-relationship-phase-4-recovery-and-reconciliation-2026-08-28.md)
 records the interruption and resume evidence.
+The [Phase 5 progressive-guidance report](../reports/scalable-relationship-phase-5-progressive-guidance-2026-08-28.md)
+records the browser projection and progress evidence.
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by

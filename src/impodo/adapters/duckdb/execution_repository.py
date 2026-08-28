@@ -37,6 +37,7 @@ class ExecutionRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        self._assert_workspace_mutable(workspace_id)
         try:
             canonical_run_id = str(UUID(run.run_id))
             canonical_preflight_id = str(UUID(run.preflight_run_id))
@@ -168,6 +169,7 @@ class ExecutionRepository(DuckDbRepository):
 
         if not rows:
             return
+        self._assert_workspace_mutable(workspace_id)
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
@@ -300,6 +302,7 @@ class ExecutionRepository(DuckDbRepository):
 
         if not rows:
             raise WorkspaceError("Execution transport batch is empty")
+        self._assert_workspace_mutable(workspace_id)
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
@@ -419,6 +422,7 @@ class ExecutionRepository(DuckDbRepository):
     ) -> None:
         """Atomically bind every resumable row to one read-back report."""
 
+        self._assert_workspace_mutable(workspace_id)
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
@@ -556,6 +560,7 @@ class ExecutionRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> ExecutionRun:
+        self._assert_workspace_mutable(workspace_id)
         if status is ExecutionRunStatus.RUNNING:
             raise WorkspaceError("Execution completion status is invalid")
         canonical_run_id = str(UUID(run_id))

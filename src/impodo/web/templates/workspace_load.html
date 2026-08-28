@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Load into Odoo &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/execution.css') }}">
+{% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/execution.js') }}" defer></script>
 {% endblock %}
@@ -85,6 +88,57 @@
       </div>
     </section>
 
+    {% if dependency_summary and dependency_summary.groups %}
+      <section class="form-card load-order-card" aria-labelledby="load-order-title">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Related-record order</p>
+            <h2 id="load-order-title">What Impodo will load first</h2>
+            <p>This order comes from the relationships you reviewed. Change the mappings, included rows, or optional relationships and compare again whenever the business order should change.</p>
+          </div>
+          <span class="status {% if blocker_summary and blocker_summary.groups %}blocked{% else %}ready{% endif %}">
+            {% if blocker_summary and blocker_summary.groups %}Needs attention{% else %}Order ready{% endif %}
+          </span>
+        </div>
+        <ol class="load-order-list">
+          {% for group in dependency_summary.groups %}
+            <li>
+              <span class="load-order-number" aria-hidden="true">{{ group.number }}</span>
+              <div>
+                <strong>{{ group.dataset_labels|join(', ') if group.dataset_labels else 'Prepared records' }}{% if group.omitted_dataset_count %} and {{ group.omitted_dataset_count }} more record type{{ 's' if group.omitted_dataset_count != 1 else '' }}{% endif %}</strong>
+                <small>{{ group.record_count }} record{{ 's' if group.record_count != 1 else '' }} become ready at this point.</small>
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+        {% if dependency_summary.omitted_group_count %}
+          <p class="muted">Then {{ dependency_summary.omitted_group_count }} more load group{{ 's follow' if dependency_summary.omitted_group_count != 1 else ' follows' }} the same reviewed order.</p>
+        {% endif %}
+        {% if dependency_summary.relationship_record_count %}
+          <p class="muted">After those records exist, Impodo finishes the reviewed optional relationships for {{ dependency_summary.relationship_record_count }} new record{{ 's' if dependency_summary.relationship_record_count != 1 else '' }}.</p>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if blocker_summary and blocker_summary.groups %}
+      <section class="form-card load-blocker-card" aria-labelledby="load-blockers-title">
+        <p class="eyebrow">Why loading is blocked</p>
+        <h2 id="load-blockers-title">Resolve these relationship issues</h2>
+        <div class="load-blocker-list">
+          {% for blocker in blocker_summary.groups %}
+            <article>
+              <strong>{{ blocker.record_count }} record{{ 's' if blocker.record_count != 1 else '' }} &middot; {{ blocker.title }}</strong>
+              {% if blocker.dataset_labels %}<small>{{ blocker.dataset_labels|join(', ') }}{% if blocker.omitted_dataset_count %} and {{ blocker.omitted_dataset_count }} more record type{{ 's' if blocker.omitted_dataset_count != 1 else '' }}{% endif %}</small>{% endif %}
+              <p>{{ blocker.action }}</p>
+            </article>
+          {% endfor %}
+        </div>
+        {% if blocker_summary.omitted_group_count %}
+          <p class="muted">{{ blocker_summary.omitted_group_count }} more issue categor{{ 'ies are' if blocker_summary.omitted_group_count != 1 else 'y is' }} available in the final review.</p>
+        {% endif %}
+      </section>
+    {% endif %}
+
     <section class="form-card" aria-labelledby="load-scope-title">
       <div class="page-heading compact">
         <div>
@@ -121,6 +175,10 @@
       <details class="technical-details">
         <summary>Support details</summary>
         <p>Reviewed captured Odoo fields only.</p>
+        {% if dependency_summary %}
+          <p>{{ dependency_summary.total_group_count }} load group{{ 's' if dependency_summary.total_group_count != 1 else '' }}, {{ dependency_summary.relationship_link_count }} reviewed relationship link{{ 's' if dependency_summary.relationship_link_count != 1 else '' }}, and {{ dependency_summary.relationship_field_count }} follow-up relationship field{{ 's' if dependency_summary.relationship_field_count != 1 else '' }}.</p>
+          <p>Only the first {{ dependency_summary.groups|length }} load group{{ 's are' if dependency_summary.groups|length != 1 else ' is' }} shown above.</p>
+        {% endif %}
         <p>Preview <code>{{ preview.snapshot.semantic_hash }}</code></p>
         <p>Target <code>{{ preview.snapshot.target_hash }}</code></p>
       </details>
@@ -187,8 +245,10 @@
         <h2 id="confirm-load-title">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into {{ preview.snapshot.target_database }}</h2>
         {% if preview.deferred_create_count %}
           <p>{{ preview.deferred_create_count }} new {{ 'records need' if preview.deferred_create_count != 1 else 'record needs' }} a second relationship step. Impodo creates the records first, then sets those relationships after the related records exist.</p>
+        {% elif dependency_summary and dependency_summary.total_group_count %}
+          <p>Impodo sends {{ dependency_summary.total_group_count }} bounded load group{{ 's' if dependency_summary.total_group_count != 1 else '' }} in the order shown on <strong>Check changes</strong>.</p>
         {% else %}
-          <p>Impodo sends bounded batches in dependency order.</p>
+          <p>Impodo sends bounded batches in the reviewed order.</p>
         {% endif %}
         <p>If a write response is lost, Impodo stops and requires verification. It will not retry blindly.</p>
       </div>

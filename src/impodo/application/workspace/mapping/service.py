@@ -767,10 +767,10 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "Freeze datasets and capture Odoo schema first"
             )
-        if schema.origin is SchemaOrigin.LOCAL_MANUAL:
+        if schema.origin is not SchemaOrigin.LIVE_API:
             raise WorkspaceError(
                 "Capture the live Odoo schema before confirming field matches; "
-                "the current local schema is unverified"
+                "the current schema seed is unverified"
             )
         if revision is None:
             raise WorkspaceError(

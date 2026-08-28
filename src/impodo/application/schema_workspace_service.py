@@ -341,6 +341,90 @@ class SchemaWorkspaceService:
         )
         return catalog
 
+    def seed_historical_correction(
+        self,
+        completed_workspace_id: str,
+        successor_workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Seed field shapes for editing without carrying live access evidence.
+
+        The seed is intentionally ineligible for mapping submission.  Review
+        must replace it through a fresh authenticated schema capture first.
+        """
+
+        self.authorization.require(
+            actor,
+            Capability.SCHEMA_DISCOVER,
+            workspace_id=successor_workspace_id,
+        )
+        successor = self.workspaces.get(successor_workspace_id)
+        if successor.status is not WorkspaceStatus.REGISTERED:
+            raise WorkspaceError(
+                "Register the correction workspace before seeding Odoo fields"
+            )
+        previous = self.schemas.get_odoo_schema_catalog(completed_workspace_id)
+        if previous is None:
+            raise WorkspaceError("Completed Odoo field evidence is missing")
+        expected_target = _target_identity_hash(successor)
+        if previous.connection_target_hash != expected_target:
+            raise WorkspaceError(
+                "Completed Odoo fields belong to another correction target"
+            )
+        existing = self.schemas.get_odoo_schema_catalog(successor_workspace_id)
+        if existing is not None:
+            if (
+                existing.origin is SchemaOrigin.HISTORICAL_SEED
+                and existing.connection_target_hash == expected_target
+                and existing.models == previous.models
+            ):
+                return existing
+            raise WorkspaceError(
+                "Correction workspace already has different Odoo field evidence"
+            )
+        no_access = content_hash(
+            {
+                "completed_workspace_id": completed_workspace_id,
+                "kind": "historical-correction-seed-no-access",
+                "successor_workspace_id": successor_workspace_id,
+            }
+        )
+        meaning = {
+            "connection_target_hash": expected_target,
+            "models": [asdict(model) for model in previous.models],
+            "origin": SchemaOrigin.HISTORICAL_SEED.value,
+            "policy_hash": previous.policy_hash,
+            "read_context_hash": no_access,
+            "read_credential_binding_hash": no_access,
+            "read_permission_hash": no_access,
+            "read_principal_hash": no_access,
+        }
+        now = datetime.now(timezone.utc)
+        seed = OdooSchemaCatalog(
+            workspace_id=successor_workspace_id,
+            policy_hash=previous.policy_hash,
+            captured_at=now,
+            captured_by=actor.identity.display_name,
+            connection_mode=previous.connection_mode,
+            database=previous.database,
+            odoo_version=previous.odoo_version,
+            models=previous.models,
+            content_hash=content_hash(meaning),
+            origin=SchemaOrigin.HISTORICAL_SEED,
+            read_credential_binding_hash=no_access,
+            read_principal_hash=no_access,
+            read_permission_hash=no_access,
+            read_context_hash=no_access,
+            connection_target_hash=expected_target,
+        )
+        self.schemas.save_odoo_schema_catalog(
+            successor_workspace_id,
+            seed,
+            actor=actor,
+        )
+        return seed
+
     def check_refresh(
         self,
         workspace_id: str,

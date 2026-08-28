@@ -84,6 +84,8 @@ class LoadJobManager:
         target_server: str,
         target_environment: str,
         total_rows: int,
+        relationship_total_rows: int = 0,
+        load_group_count: int = 0,
         access_context: WorkspaceAccessContext,
         work: LoadWork,
     ) -> LoadJob:
@@ -109,7 +111,8 @@ class LoadJobManager:
                 job_id=str(uuid4()),
                 access_context=access_context,
                 workspace_id=workspace_id,
-                migration_project_name=migration_project_name.strip()[:300] or "Data project",
+                migration_project_name=migration_project_name.strip()[:300]
+                or "Data project",
                 target_database=target_database.strip()[:200],
                 target_server=target_server.strip()[:300],
                 target_environment=target_environment.strip()[:50] or "Target",
@@ -122,6 +125,9 @@ class LoadJobManager:
                 updated_count=0,
                 attention_count=0,
                 relationship_pending_count=0,
+                relationship_total_count=max(0, int(relationship_total_rows)),
+                load_group_number=0,
+                load_group_count=max(0, int(load_group_count)),
                 progress_percent=0,
                 execution_run_id="",
                 verification_complete=False,
@@ -157,7 +163,11 @@ class LoadJobManager:
     def latest(self, workspace_id: str) -> LoadJob | None:
         with self._lock:
             return max(
-                (job for job in self._jobs.values() if job.workspace_id == workspace_id),
+                (
+                    job
+                    for job in self._jobs.values()
+                    if job.workspace_id == workspace_id
+                ),
                 key=lambda job: job.created_at,
                 default=None,
             )
@@ -264,7 +274,9 @@ class LoadJobManager:
             if job.terminal:
                 return
             updated = _job_from_run(job, run, phase=LoadPhase.VERIFYING)
-            self._store(replace(updated, progress_percent=max(90, updated.progress_percent)))
+            self._store(
+                replace(updated, progress_percent=max(90, updated.progress_percent))
+            )
 
     def _finish_succeeded(
         self,
@@ -347,19 +359,11 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
         }
         for row in run.rows
     )
-    if run.status is not ExecutionRunStatus.RUNNING:
-        completed_rows = (
-            run.total_count
-            - run.planned_count
-            - run.in_flight_count
-            - run.retry_ready_count
-        )
     created_count = sum(
         row.operation == "CREATE" and row.status in committed for row in run.rows
     )
     updated_count = sum(
-        row.operation == "UPDATE"
-        and row.status is ExecutionRowStatus.COMMITTED
+        row.operation == "UPDATE" and row.status is ExecutionRowStatus.COMMITTED
         for row in run.rows
     )
     attention_statuses = {
@@ -370,42 +374,91 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
     attention_count = sum(row.status in attention_statuses for row in run.rows)
     if run.status is not ExecutionRunStatus.RUNNING:
         attention_count += relationship_pending_count
+    unfinished_first_pass = sum(
+        row.status
+        in {
+            ExecutionRowStatus.PLANNED,
+            ExecutionRowStatus.IN_FLIGHT,
+            ExecutionRowStatus.RETRY_READY,
+        }
+        for row in run.rows
+    )
     effective_phase = (
         LoadPhase.RELATIONSHIPS
         if phase is LoadPhase.WRITING
-        and run.planned_count == 0
-        and (
-            relationship_pending_count
-            or job.phase is LoadPhase.RELATIONSHIPS
-        )
+        and unfinished_first_pass == 0
+        and (relationship_pending_count or job.phase is LoadPhase.RELATIONSHIPS)
         else phase
     )
-    attempted_rows = run.total_count - run.planned_count
-    attempted_fraction = (
-        attempted_rows / run.total_count if run.total_count else 0.0
-    )
+    settled_first_pass = run.total_count - unfinished_first_pass
+    settled_fraction = settled_first_pass / run.total_count if run.total_count else 0.0
     percent = min(
         82,
-        8 + round(74 * max(0.0, min(1.0, attempted_fraction))),
+        8 + round(74 * max(0.0, min(1.0, settled_fraction))),
     )
     if effective_phase is LoadPhase.RELATIONSHIPS:
-        settled_fraction = (
-            completed_rows / run.total_count if run.total_count else 0.0
+        relationship_total = max(
+            job.relationship_total_count,
+            relationship_pending_count,
+        )
+        relationship_completed = max(
+            0,
+            relationship_total - relationship_pending_count,
+        )
+        relationship_fraction = (
+            relationship_completed / relationship_total if relationship_total else 1.0
         )
         percent = min(
             89,
-            82 + round(7 * max(0.0, min(1.0, settled_fraction))),
+            82 + round(7 * max(0.0, min(1.0, relationship_fraction))),
         )
+    scheduled_components = tuple(
+        sorted(
+            {
+                getattr(row, "schedule_component", -1)
+                for row in run.rows
+                if getattr(row, "schedule_component", -1) >= 0
+            }
+        )
+    )
+    group_count = max(job.load_group_count, len(scheduled_components))
+    active_components = {
+        getattr(row, "schedule_component", -1)
+        for row in run.rows
+        if getattr(row, "schedule_component", -1) >= 0
+        and row.status
+        in {
+            ExecutionRowStatus.PLANNED,
+            ExecutionRowStatus.IN_FLIGHT,
+            ExecutionRowStatus.RETRY_READY,
+        }
+    }
+    if active_components:
+        active_component = min(active_components)
+        group_number = scheduled_components.index(active_component) + 1
+    elif group_count:
+        group_number = group_count
+    else:
+        group_number = 0
+    message = LOAD_PHASE_LABELS[effective_phase]
+    if effective_phase is LoadPhase.WRITING and group_number and group_count:
+        message = f"Sending load group {group_number} of {group_count} to Odoo"
     return replace(
         job,
         phase=effective_phase,
-        message=LOAD_PHASE_LABELS[effective_phase],
+        message=message,
         total_rows=run.total_count,
         completed_rows=completed_rows,
         created_count=created_count,
         updated_count=updated_count,
         attention_count=attention_count,
         relationship_pending_count=relationship_pending_count,
+        relationship_total_count=max(
+            job.relationship_total_count,
+            relationship_pending_count,
+        ),
+        load_group_number=group_number,
+        load_group_count=group_count,
         progress_percent=max(job.progress_percent, percent),
         execution_run_id=run.run_id,
         updated_at=_now(),

@@ -24,6 +24,7 @@ class RecipeQualitySeedRepository(DuckDbRepository):
         rules: tuple[QualityRule, ...],
         actor: Actor,
     ) -> None:
+        self._assert_workspace_mutable(workspace_id)
         rule_payload = [item.to_portable_dict() for item in rules]
         seed_hash = content_hash(
             {
@@ -91,4 +92,3 @@ class RecipeQualitySeedRepository(DuckDbRepository):
         if expected != str(row[2]):
             raise WorkspaceError("Stored Recipe quality seed is invalid")
         return tuple(QualityRule.from_dict(dict(item)) for item in payload)
-

@@ -89,8 +89,31 @@ The accepted [scalable relationship dependency
 plan](../../plans/scalable-relationship-dependency-planning.md) now provides
 immutable row-edge and schedule evidence, exact cycle classification, bounded
 crosswalk revalidation, receipt-gated component execution, and read-back-gated
-component recovery. Progressive browser guidance and Product/BOM scale
-qualification remain planned work.
+component recovery. The browser now derives bounded progressive guidance from
+that same snapshot; Product/BOM scale qualification remains planned work.
+
+## Browser guidance and progress
+
+`ExecutionService.current_preview` projects the immutable relationship plan
+into at most five visible load groups. Each group contains only its sequence,
+record count, and at most three prepared-data labels. It also groups equivalent
+snapshot blockers into at most five plain-language categories with a record
+count, bounded record-type labels, and one next action. These projections do
+not recalculate ordering, carry row identifiers into the template, or become
+execution authority.
+
+The review page explicitly says that the order follows the current mappings,
+included rows, and optional relationships. It is therefore safe for a complex
+BOM while preserving the data manager's ability to change those choices and
+compare again. Exact hashes and bounded plan counts remain collapsed under
+**Support details**.
+
+`LoadJobManager` derives the current load-group position and relationship
+totals from journalled row states. `PLANNED`, `IN_FLIGHT`, and `RETRY_READY`
+rows keep first-pass progress open. `PARTIALLY_APPLIED` rows keep relationship
+progress open. The browser does not call any of those states complete, and it
+does not enter relationship completion until every first-pass write has a
+recorded outcome.
 
 ## Code references
 
@@ -98,6 +121,8 @@ qualification remain planned work.
 | --- | --- |
 | Execution orchestration | [`ExecutionService`](../../../src/impodo/application/workspace/execution/service.py) |
 | Background load jobs | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
+| Browser load guidance | [`ExecutionPreview`](../../../src/impodo/application/workspace/execution/service.py) |
+| Browser load-job contract | [`LoadJob`](../../../src/impodo/application/workspace/execution/job_models.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 | Dataset dependency order | [`dependency_ordered_execution_datasets`](../../../src/impodo/domain/execution_snapshot.py) |
 | Row dependency scheduling | [`dependency_scheduler.py`](../../../src/impodo/domain/execution/dependency_scheduler.py) |
@@ -123,6 +148,8 @@ record retains the active component and batch after a process restart without
 adding a parallel recovery store. Final reconciliation is new evidence and
 does not rewrite the journal. A recovery assessment remains unpublished;
 execution atomically records its semantic hash on every row before resume.
+The compact browser summary and job counters are disposable projections of
+this evidence. They do not alter the snapshot or journal contract.
 
 ## Completion and navigation
 

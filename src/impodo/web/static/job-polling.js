@@ -205,6 +205,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const updated = loadJob.querySelector("[data-load-updated]");
     const attention = loadJob.querySelector("[data-load-attention]");
     const attentionCard = loadJob.querySelector("[data-load-attention-card]");
+    const loadGroup = loadJob.querySelector("[data-load-group]");
+    const loadGroupSupport = loadJob.querySelector("[data-load-group-support]");
     const relationships = loadJob.querySelector("[data-load-relationships]");
     const guidance = loadJob.querySelector("[data-load-guidance]");
     const spinner = loadJob.querySelector("[data-load-spinner]");
@@ -226,19 +228,33 @@ document.addEventListener("DOMContentLoaded", () => {
       if (updated) updated.textContent = Number(job.updated_count).toLocaleString();
       if (attention) attention.textContent = Number(job.attention_count).toLocaleString();
       if (rows) {
-        const completedLabel = `${Number(job.completed_rows).toLocaleString()} of ${Number(job.total_rows).toLocaleString()} records completed`;
-        rows.textContent = job.status === "FAILED" && job.not_attempted_count
-          ? `${completedLabel} · ${Number(job.not_attempted_count).toLocaleString()} not attempted`
+        const completedLabel = `${Number(job.completed_rows).toLocaleString()} of ${Number(job.total_rows).toLocaleString()} records have a final write result`;
+        rows.textContent = job.status === "FAILED" && job.not_completed_count
+          ? `${completedLabel} · ${Number(job.not_completed_count).toLocaleString()} not complete`
           : completedLabel;
+      }
+      if (loadGroup) {
+        loadGroup.hidden = !job.load_group_count;
+        loadGroup.textContent = job.load_group_count
+          ? `Load group ${Number(job.load_group_number).toLocaleString()} of ${Number(job.load_group_count).toLocaleString()}`
+          : "";
+      }
+      if (loadGroupSupport) {
+        loadGroupSupport.hidden = !job.load_group_count;
+        const values = loadGroupSupport.querySelectorAll("span");
+        if (values[0]) values[0].textContent = Number(job.load_group_number).toLocaleString();
+        if (values[1]) values[1].textContent = Number(job.load_group_count).toLocaleString();
       }
       if (attentionCard) {
         attentionCard.classList.toggle("blocked", Boolean(job.attention_count));
         attentionCard.classList.toggle("ready", !job.attention_count);
       }
       if (relationships) {
-        relationships.hidden = !job.relationship_pending_count;
-        relationships.textContent = job.relationship_pending_count
-          ? `${Number(job.relationship_pending_count).toLocaleString()} new record(s) still need their reviewed relationships.`
+        relationships.hidden = !job.relationship_total_count;
+        const relationshipTotal = Number(job.relationship_total_count);
+        const relationshipNoun = relationshipTotal === 1 ? "record" : "records";
+        relationships.textContent = relationshipTotal
+          ? `Relationships finished for ${Number(job.relationship_completed_count).toLocaleString()} of ${relationshipTotal.toLocaleString()} new ${relationshipNoun}${job.relationship_pending_count ? `; ${Number(job.relationship_pending_count).toLocaleString()} still pending` : ""}.`
           : "";
       }
       if (guidance) {

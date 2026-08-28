@@ -19,30 +19,49 @@ from impodo.adapters.polars_correction import (
     iter_polars_correction_candidate_batches,
     write_polars_correction_candidates,
 )
+from impodo.adapters.correction_review_pipeline import (
+    CorrectionAuthoringReviewResult,
+    CorrectionDatasetReviewInput,
+    NativeCorrectionReviewPipeline,
+)
 from impodo.adapters.polars_transformation import write_polars_prepared_snapshot
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarSupport,
     compile_columnar_transformation_program,
 )
 from impodo.domain.correction import CorrectionValueKind
+from impodo.domain.correction_origin import (
+    CorrectionOriginManifest,
+    CorrectionPreparedArtifact,
+    ProtectedCorrectionArtifactReference,
+)
 from impodo.domain.execution.models import (
     ExecutionRowStatus,
     ExecutionRunStatus,
 )
 from impodo.domain.execution.odoo_readback import ReadbackRecord
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
+from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
+    ScalarValueSource,
+    SelectionCondition,
+    SelectionConditionOperator,
+    SelectionRule,
+    SelectionRuleSet,
     ValueMapping,
 )
+from impodo.domain.preparation.source import SourceRow
 from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.reconciliation import (
     ReconciliationRowStatus,
     ReconciliationRunStatus,
 )
 from impodo.domain.shared.models import target_record_binding_hash
+from impodo.domain.shared.access import Actor, ActorIdentity
+from impodo.domain.shared.models import OdooReadIdentity
 
 from tests.integration.columnar.test_polars_transformation import (
     DATASET_ID,
@@ -160,6 +179,292 @@ class PolarsCorrectionTests(unittest.TestCase):
                 for candidate in candidates
             )
         )
+
+    def test_phase_two_pipeline_requires_native_programs_and_emits_sparse_candidates(
+        self,
+    ) -> None:
+        dataset = self.previous_definition.datasets[0]
+        corrected_definition = canonicalize_mapping_definition(
+            replace(
+                self.previous_definition,
+                datasets=(
+                    replace(
+                        dataset,
+                        fields=tuple(
+                            replace(
+                                field,
+                                transform=replace(field.transform, case_mode="uppercase"),
+                            )
+                            if field.target_field == "name"
+                            else field
+                            for field in dataset.fields
+                        ),
+                    ),
+                ),
+            )
+        )
+        previous_program, previous_path, previous_snapshot = self._prepare(
+            self.previous_definition,
+            "phase-two-previous.parquet",
+        )
+        corrected_program, corrected_path, corrected_snapshot = self._prepare(
+            corrected_definition,
+            "phase-two-corrected.parquet",
+        )
+        actor = Actor(
+            ActorIdentity("test", "data-manager", "Data manager"),
+            frozenset(),
+        )
+        hashes = tuple("sha256:" + character * 64 for character in "123456789abc")
+        ids = tuple(
+            f"{value:08d}-0000-4000-8000-000000000000"
+            for value in range(1, 10)
+        )
+        manifest = CorrectionOriginManifest.create(
+            manifest_id=ids[0],
+            project_id=ids[1],
+            data_version_id=ids[2],
+            completed_migration_run_id=ids[3],
+            completed_workspace_id=previous_snapshot.workspace_id,
+            mapping_id=ids[4],
+            mapping_version=1,
+            mapping_content_hash=previous_snapshot.mapping_hash,
+            prepared_artifacts=(
+                CorrectionPreparedArtifact(
+                    dataset_id=previous_snapshot.dataset_id,
+                    dataset_name=previous_snapshot.dataset_name,
+                    source_snapshot_hash=previous_snapshot.source_snapshot_hash,
+                    logical_hash=previous_snapshot.logical_hash,
+                    content_hash=previous_snapshot.content_hash,
+                    parquet_storage_key=previous_snapshot.parquet_storage_key,
+                    parquet_sha256=previous_snapshot.parquet_sha256,
+                    row_count=previous_snapshot.row_count,
+                ),
+            ),
+            execution_snapshot_hash=hashes[0],
+            execution_snapshot_root_hash=hashes[1],
+            preflight_run_id=ids[5],
+            execution_run_id=ids[6],
+            execution_evidence_hash=hashes[2],
+            reconciliation_id=ids[7],
+            reconciliation_hash=hashes[3],
+            target_hash=hashes[4],
+            schema_hash=previous_snapshot.schema_hash,
+            read_context_hash=hashes[5],
+            target_observed_at="2026-08-28T04:00:00Z",
+            target_index=ProtectedCorrectionArtifactReference(
+                artifact_id=ids[8],
+                logical_hash=hashes[6],
+                storage_key="project/correction-target-indexes/index.ipe",
+                artifact_hash=hashes[7],
+            ),
+            created_by=actor.identity,
+            created_at=NOW,
+        )
+        reader = _FakeReadbackReader({71: {"name": "alpha one"}})
+        stage_result = CorrectionAuthoringReviewResult(
+            mapping=MappingRevision(
+                mapping_id=corrected_definition.mapping_id,
+                version=2,
+                parent_version=1,
+                definition=corrected_definition,
+                created_at=NOW,
+                created_by=actor.identity.display_name,
+            ),
+            datasets=(
+                CorrectionDatasetReviewInput(
+                    previous_path=previous_path,
+                    previous_snapshot=previous_snapshot,
+                    previous_program=previous_program,
+                    corrected_path=corrected_path,
+                    corrected_snapshot=corrected_snapshot,
+                    corrected_program=corrected_program,
+                ),
+            ),
+            reader=reader,
+            reader_scope_hash=reader.scope_hash,
+            read_credential_binding_hash=hashes[8],
+            read_identity=OdooReadIdentity(
+                target_hash=reader.target_hash,
+                principal_hash=hashes[9],
+                permission_hash=hashes[10],
+                context_hash=hashes[11],
+                readable_models=("product.template",),
+                observed_at="2026-08-28T04:00:00Z",
+            ),
+            reviewed_at=NOW,
+        )
+
+        class Stages:
+            def prepare_review(self, *args, **kwargs):
+                return stage_result
+
+        evidence = NativeCorrectionReviewPipeline(Stages()).run(
+            manifest,
+            corrected_snapshot.workspace_id,
+            actor=actor,
+        )
+        candidates = tuple(
+            candidate
+            for batch in evidence.candidate_batches
+            for candidate in batch
+        )
+
+        self.assertEqual(tuple(item.target_field for item in candidates), ("name",))
+        self.assertEqual((candidates[0].previous, candidates[0].corrected), (
+            "alpha one",
+            "ALPHA ONE",
+        ))
+        self.assertEqual(evidence.previous_prepared_hash, manifest.prepared_set_hash)
+
+    def test_product_active_fixture_reduces_999_rows_to_768_sparse_updates(
+        self,
+    ) -> None:
+        selection = replace(
+            self.selection,
+            datasets=(replace(self.selection.datasets[0], row_count=999),),
+        )
+        base_values = {
+            **_rows()[0].values,
+            "required_text": "ok",
+            "validated_required": "ABC",
+        }
+        status_codes = (
+            *("10" for _ in range(768)),
+            *("30" for _ in range(141)),
+            *("90" for _ in range(90)),
+        )
+        rows = tuple(
+            SourceRow(
+                number=source_row,
+                values={
+                    **base_values,
+                    "id": f"P-{source_row}",
+                    "sku": f"SKU-{source_row}",
+                    "category": status_code,
+                },
+            )
+            for source_row, status_code in enumerate(status_codes, start=2)
+        )
+        source_path, source_snapshot = _write_snapshot(
+            self.root,
+            selection,
+            rows,
+        )
+        base_definition = _definition(selection)
+
+        def with_active_rule(status_code: str):
+            dataset = base_definition.datasets[0]
+            active_rule = SelectionRuleSet(
+                rules=(
+                    SelectionRule(
+                        rule_id="10000000-0000-4000-8000-000000000001",
+                        conditions=(
+                            SelectionCondition(
+                                condition_id=(
+                                    "10000000-0000-4000-8000-000000000002"
+                                ),
+                                source_column_key="product.category",
+                                operator=SelectionConditionOperator.EQUALS,
+                                comparison_value=status_code,
+                            ),
+                        ),
+                        target_value="true",
+                    ),
+                ),
+                otherwise_value="false",
+            )
+            return canonicalize_mapping_definition(
+                replace(
+                    base_definition,
+                    datasets=(
+                        replace(
+                            dataset,
+                            fields=tuple(
+                                replace(
+                                    field,
+                                    source_column_key=None,
+                                    value_source=ScalarValueSource.CONDITIONAL_RULES,
+                                    selection_rules=active_rule,
+                                )
+                                if field.target_field == "active"
+                                else field
+                                for field in dataset.fields
+                            ),
+                        ),
+                    ),
+                )
+            )
+
+        def prepare(definition, filename: str):
+            decision = compile_columnar_transformation_program(
+                definition,
+                selection,
+                DATASET_ID,
+            )
+            self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+            assert decision.program is not None
+            path = self.root / filename
+            candidate = write_polars_prepared_snapshot(
+                source_path,
+                source_snapshot,
+                decision.program,
+                path,
+            )
+            snapshot = PreparedSnapshot.create(
+                workspace_id="11111111-1111-4111-8111-111111111111",
+                dataset_id=source_snapshot.dataset_id,
+                dataset_name=source_snapshot.dataset_name,
+                source_snapshot_hash=source_snapshot.content_hash,
+                mapping_hash=decision.program.mapping_content_hash,
+                schema_hash=decision.program.schema_hash,
+                transformation_program_hash=decision.program.content_hash,
+                row_count=candidate.row_count,
+                physical_schema_hash=candidate.physical_schema_hash,
+                parquet_sha256=candidate.parquet_sha256,
+                created_at=NOW,
+            )
+            return decision.program, path, snapshot
+
+        previous_program, previous_path, previous_snapshot = prepare(
+            with_active_rule("60"),
+            "product-active-previous.parquet",
+        )
+        corrected_program, corrected_path, corrected_snapshot = prepare(
+            with_active_rule("10"),
+            "product-active-corrected.parquet",
+        )
+        with patch(
+            "impodo.adapters.polars_correction.pl.scan_parquet",
+            wraps=pl.scan_parquet,
+        ) as scan_parquet:
+            artifact = write_polars_correction_candidates(
+                previous_path,
+                previous_snapshot,
+                previous_program,
+                corrected_path,
+                corrected_snapshot,
+                corrected_program,
+                self.root / "product-active-candidates.parquet",
+            )
+
+        scanned_paths = tuple(
+            Path(call.args[0]).resolve() for call in scan_parquet.call_args_list
+        )
+        self.assertEqual(scanned_paths.count(previous_path.resolve()), 1)
+        self.assertEqual(scanned_paths.count(corrected_path.resolve()), 1)
+        self.assertEqual(artifact.candidate_count, 768)
+        counts_by_field = dict(artifact.candidate_counts_by_field)
+        self.assertEqual(counts_by_field["active"], 768)
+        self.assertTrue(
+            all(
+                count == 0
+                for field, count in counts_by_field.items()
+                if field != "active"
+            )
+        )
+        self.assertEqual(999 - artifact.candidate_count, 231)
+        self.assertEqual(counts_by_field["name"], 0)
 
     def test_many2one_key_changes_use_the_same_candidate_contract(self) -> None:
         dataset = self.previous_definition.datasets[0]

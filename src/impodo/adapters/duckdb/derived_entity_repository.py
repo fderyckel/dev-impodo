@@ -57,6 +57,7 @@ class DerivedEntityRepository(DuckDbRepository):
     ) -> None:
         """Append one exact plan revision and invalidate mapping/staging."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")

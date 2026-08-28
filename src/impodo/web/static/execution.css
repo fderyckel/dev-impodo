@@ -1,0 +1,66 @@
+.load-order-card,
+.load-blocker-card {
+  margin-bottom: 1rem;
+}
+
+.load-order-list {
+  display: grid;
+  gap: .65rem;
+  margin: 1.25rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.load-order-list li {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  align-items: center;
+  gap: .85rem;
+  border-bottom: 1px solid var(--line);
+  padding: 0 0 .65rem;
+}
+
+.load-order-list li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.load-order-number {
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--impodo-charcoal);
+  color: white;
+  font-weight: 800;
+}
+
+.load-order-list strong,
+.load-order-list small,
+.load-blocker-list strong,
+.load-blocker-list small {
+  display: block;
+}
+
+.load-blocker-list {
+  display: grid;
+  gap: .75rem;
+  margin-top: 1rem;
+}
+
+.load-blocker-list article {
+  border-left: 4px solid var(--danger);
+  background: var(--danger-bg);
+  padding: .9rem 1rem;
+}
+
+.load-blocker-list p {
+  margin: .45rem 0 0;
+}
+
+.load-group-progress {
+  margin: 0 0 1rem;
+  color: var(--impodo-charcoal);
+  font-weight: 750;
+}

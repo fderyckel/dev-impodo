@@ -66,6 +66,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
         actor: Actor,
     ) -> None:
         _require(actor, Capability.COVERAGE_SCOPE)
+        self._assert_workspace_mutable(workspace_id)
         if scope.workspace_id != workspace_id or scope.approved_by != actor.identity:
             raise WorkspaceError("Coverage scope approval identity is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -147,6 +148,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
         actor: Actor,
     ) -> None:
         _require(actor, Capability.COVERAGE_SCOPE)
+        self._assert_workspace_mutable(workspace_id)
         if bundle.workspace_id != workspace_id:
             raise WorkspaceError("Reference bundle belongs to another workspace")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -250,6 +252,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
         actor: Actor,
     ) -> None:
         _require(actor, Capability.COVERAGE_SCOPE)
+        self._assert_workspace_mutable(workspace_id)
         if policy.workspace_id != workspace_id:
             raise WorkspaceError("Resolution policy belongs to another workspace")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -344,6 +347,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
         actor: Actor,
     ) -> ResolutionRunSummary:
         _require(actor, Capability.RESOLUTION_DECIDE)
+        self._assert_workspace_mutable(workspace_id)
         if evaluation.workspace_id != workspace_id:
             raise WorkspaceError("Resolution evaluation belongs to another workspace")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"

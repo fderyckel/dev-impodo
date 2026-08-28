@@ -37,6 +37,12 @@ class FoundationMigrationRunRecords:
     def migration_run_project_id(self, migration_run_id: str) -> str:
         return self.get_migration_run(migration_run_id).project_id
 
+    def migration_run_is_mutable(self, migration_run_id: str) -> bool:
+        return self.get_migration_run(migration_run_id).state.value not in {
+            "COMPLETED",
+            "CLOSED",
+        }
+
     def get_migration_run_target_setup(
         self,
         migration_run_id: str,

@@ -497,7 +497,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         needs_capture = (
             saved_workspace_state.revision != workspace_state.revision
             or existing_schema is None
-            or existing_schema.origin is SchemaOrigin.LOCAL_MANUAL
+            or existing_schema.origin is not SchemaOrigin.LIVE_API
         )
         if needs_capture:
             try:

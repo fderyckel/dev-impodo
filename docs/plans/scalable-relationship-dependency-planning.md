@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted implementation plan, revised 2026-08-28. Phases 0 through
-4 are complete, and Phase 5 is next. The remaining plan is not current
+5 are complete, and Phase 6 is next. The remaining plan is not current
 browser behavior and does not authorize a Production load.
 
 The current implementation orders related datasets and rows before their
@@ -609,6 +609,17 @@ implemented.
 
 **Exit result:** a data manager can explain what loads first, why the plan is
 blocked, and what to do next without reading graph terminology.
+
+**Completed 2026-08-28:** **Check changes** now derives at most five numbered
+load groups and five grouped actionable blocker categories from the immutable
+execution snapshot. The presentation stays bounded, hides row identifiers and
+source values, and explicitly preserves the data manager's freedom to change
+mappings, rows, keys, and optional relationships before comparing again. Load
+progress now follows durable journal states, names the current load group, and
+does not count in-flight, retry-ready, or relationship-pending rows as final.
+The [Phase 5 progressive-guidance
+report](../reports/scalable-relationship-phase-5-progressive-guidance-2026-08-28.md)
+records the implementation and browser evidence.
 
 ### Phase 6: qualify representative scale and Odoo 19 behavior
 

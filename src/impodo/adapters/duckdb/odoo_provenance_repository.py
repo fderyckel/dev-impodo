@@ -64,6 +64,7 @@ class OdooProvenanceRepository(DuckDbRepository):
     ) -> None:
         """Promote values, origins, and all current pointers as one publication."""
 
+        self._assert_workspace_mutable(workspace_id)
         _validate_complete_capture(
             workspace_id,
             manifest,

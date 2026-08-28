@@ -50,6 +50,9 @@ class DuckDbRepository:
 
         return self._database.unit_of_work(workspace_id)
 
+    def _assert_workspace_mutable(self, workspace_id: str) -> None:
+        self._database.assert_workspace_mutable(workspace_id)
+
     def _connect(self, path: Path):
         return self._database._connect(path)
 
@@ -147,4 +150,3 @@ class DuckDbRepository:
     @staticmethod
     def _workspace_revision(connection: duckdb.DuckDBPyConnection) -> int:
         return DuckDbWorkspaceDatabase._workspace_revision(connection)
-

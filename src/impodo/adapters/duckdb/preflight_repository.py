@@ -126,6 +126,8 @@ class PreflightRepository(DuckDbRepository):
         staging, quality, and frozen normalization evidence. Validation or any
         write failure rolls back the database transaction.
         """
+
+        self._assert_workspace_mutable(workspace_id)
         try:
             canonical_run_id = str(UUID(report.run_id))
             canonical_staging_run_id = str(UUID(report.staging_run_id))

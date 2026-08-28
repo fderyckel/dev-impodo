@@ -2,15 +2,20 @@
 
 ## Status and proposed decision
 
-**Status:** In progress. The generalized output-difference engine, sparse
-native Polars/Parquet comparison, completed-load exact-target consolidation,
-bounded exact-ID read review, immutable whole-plan hashing, explicit
-write-identity confirmation, and encrypted correction-plan storage are
-implemented. Successor-workspace provisioning, correction-origin publication,
-run-owned current pointers and invalidation, correction writes, automatic
-verification, and the browser journey are not implemented yet.
+**Status:** In progress. Phases 1 and 2 are implemented at the domain,
+application, protected-evidence, and registry boundaries. A verified completed
+Authoring load can now publish one encrypted lean origin manifest and compact
+exact-target index while atomically closing its historical run and workspace.
+The restart-safe successor coordinator creates a new Authoring run and
+workspace over the same frozen DataVersion, copies only credential-free target
+setup, seeds the prior rules as an explicitly unverified draft, orders mapping,
+native preparation, quality, and fresh target-read owners, reduces `A/C` with
+Polars, reads `B` only for sparse candidates, and publishes one current
+protected scalar plan. Mapping or prepared-evidence changes clear that pointer.
+Correction writes, automatic verification, and the browser journey remain
+unimplemented Phases 3 and 4.
 
-The implemented foundation deliberately has no write entry point. A
+The implemented workflow deliberately has no correction write entry point. A
 blocker-free scalar review can be sealed into one protected plan and one
 separately bound write confirmation, but neither is an execution authority
 until the run-owned current pointer and just-in-time reread are implemented.
@@ -661,7 +666,7 @@ outcomes. Measure current preflight, execution, and reconciliation call counts.
 **Exit result:** product, security, and engineering reviewers agree on one
 correction meaning and one first-release boundary. No runtime behavior changes.
 
-### Phase 1: seal completed work and publish lean origin evidence
+### Phase 1: seal completed work and publish lean origin evidence — complete
 
 Enforce completed-run immutability in the application services before adding a
 browser redirect. Every mutation entry point must reject a completed workspace.
@@ -674,7 +679,17 @@ source row has one exact protected target, and missing or contradictory evidence
 fails closed. The implementation adds no duplicate prepared values and no
 per-row or per-field hash tree.
 
-### Phase 2: create and review a vectorized scalar correction
+Implemented by `domain/correction_origin.py`,
+`application/correction_orchestration.py`,
+`adapters/protected_correction_store.py`, and the single registry-owned
+`correction_run_binding` table. Origin files are authenticated before their
+registry reference becomes visible; a fault before the registry commit leaves
+the run and workspace open, while replay returns the same binding. The
+application and workspace-engine write boundaries reject later mutation of the
+closed workspace. Integrity is one whole-index hash and one whole-manifest
+hash; prepared values remain only in their existing Parquet artifacts.
+
+### Phase 2: create and review a vectorized scalar correction — complete
 
 Extend run purpose and lineage through the registry-owned run service. Create a
 new Authoring run and workspace over the same DataVersion, seed the exact prior
@@ -692,6 +707,16 @@ Add invalidation and restart recovery without a new correction state machine.
 231 unchanged fields, zero Description writes, and no manual traversal of the
 six Authoring stages. Tests prove that the accepted fixture uses the native
 columnar backend without Python row processing.
+
+Implemented by `CorrectionSuccessorService`,
+`CorrectionMappingSeedService`, `CorrectionAuthoringStageCoordinator`,
+`NativeCorrectionReviewPipeline`, `CorrectionReviewOrchestrator`, and the
+existing exact-ID review and plan services. The coordinator exposes one
+application use case; Phase 4 still needs to compose it into the browser and
+background progress presentation. The native reducer scans each previous and
+corrected prepared Parquet artifact once, adapts only sparse changed rows, and
+never introduces a Python source-row classifier, per-row hash, per-value hash,
+or connector call inside a source-row loop.
 
 ### Phase 3: execute and automatically verify scalar corrections
 

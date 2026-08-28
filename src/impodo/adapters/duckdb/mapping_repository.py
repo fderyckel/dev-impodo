@@ -93,6 +93,7 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Replace unchecked editor progress using its optimistic draft version."""
 
+        self._assert_workspace_mutable(workspace_id)
         if draft.workspace_id != workspace_id:
             raise WorkspaceError("Working draft belongs to another workspace")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -324,6 +325,7 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Promote an expected editor state to a checked immutable revision."""
 
+        self._assert_workspace_mutable(workspace_id)
         if revision.definition.mapping_id != revision.mapping_id:
             raise WorkspaceError(
                 "Mapping revision and definition IDs do not match"
@@ -484,6 +486,7 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Append revalidation only when its mapping content hash matches."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -546,6 +549,7 @@ class MappingRepository(DuckDbRepository):
     ) -> None:
         """Append a submission only when validation and warnings match exactly."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")

@@ -128,6 +128,7 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Replace access provenance without invalidating semantic dependents."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )
@@ -206,6 +207,7 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Store freshness or a pending candidate without retiring dependents."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -300,6 +302,7 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Store default evidence only; preserve governance and mapping pointers."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )
@@ -395,6 +398,7 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Atomically promote the reviewed candidate and retire dependents."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -503,6 +507,7 @@ class SchemaRepository(DuckDbRepository):
     ) -> None:
         """Append the next exact governance revision and invalidate dependents."""
 
+        self._assert_workspace_mutable(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")

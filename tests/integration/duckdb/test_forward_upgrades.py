@@ -92,6 +92,7 @@ def _workspace() -> MigrationWorkspace:
 
 
 def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute("DROP TABLE IF EXISTS correction_run_binding")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
@@ -212,6 +213,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     (1, 2, "migration-registry-v1-to-v2-migration-ledger"),
                     (2, 3, "migration-registry-v2-to-v3-test-run-setup"),
                     (3, 4, "migration-registry-v3-to-v4-test-run-values"),
+                    (4, 5, "migration-registry-v4-to-v5-correction-binding"),
                 ],
             )
             self.assertEqual(

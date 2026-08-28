@@ -18,6 +18,7 @@ import duckdb
 
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.workspace.errors import WorkspaceError
 from .audit import AuditMixin
 from .invalidation import EvidenceInvalidationMixin
 from .schema.workspace_engine import WorkspaceEngineSchemaMixin
@@ -78,6 +79,22 @@ class DuckDbWorkspaceDatabase(
             prepare=self._ensure_workspace_database_schema,
         )
 
+    def assert_workspace_mutable(self, workspace_id: str) -> None:
+        """Reject writes to a locally closed workspace-engine owner."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            row = connection.execute(
+                "SELECT status FROM workspace_projection_cache"
+            ).fetchone()
+        if row is None:
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        if str(row[0]) == "CLOSED":
+            raise WorkspaceError("This MigrationWorkspace is closed and read-only")
+
     def _read_json_rows(
         self,
         workspace_id: str,
@@ -112,6 +129,7 @@ class DuckDbWorkspaceDatabase(
         actor: Actor,
         invalidate: tuple[str, ...] = (),
     ) -> None:
+        self.assert_workspace_mutable(workspace_id)
         permitted = {
             ("source_selection", "selection_json"),
             ("odoo_model_catalog", "catalog_json"),
@@ -178,4 +196,3 @@ class DuckDbWorkspaceDatabase(
     def _connect(self, path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
         with self.connection_factory.connect(path) as connection:
             yield connection
-

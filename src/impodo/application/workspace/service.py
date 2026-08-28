@@ -14,6 +14,7 @@ from ...domain.workspace.models import (
 )
 from impodo.domain.project.foundation import (
     FaultInjector,
+    MigrationConflictError,
     require_revision,
     require_uuid,
     utc_now,
@@ -108,6 +109,11 @@ class MigrationWorkspaceService:
             Capability.MIGRATION_WORKSPACE_EDIT,
             project_id=current.project_id,
         )
+        expected_revision = require_revision(expected_revision)
+        if current.optimistic_revision != expected_revision:
+            raise MigrationConflictError("MigrationWorkspace close revision is stale")
+        if current.state is MigrationWorkspaceState.CLOSED:
+            return current
         now = utc_now()
         return self.repository.save_migration_workspace(
             replace(
@@ -116,7 +122,7 @@ class MigrationWorkspaceService:
                 closed_at=now,
                 updated_at=now,
             ),
-            expected_revision=require_revision(expected_revision),
+            expected_revision=expected_revision,
             event_type="MIGRATION_WORKSPACE_CLOSED",
             actor=actor,
         )

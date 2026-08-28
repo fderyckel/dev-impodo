@@ -161,6 +161,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
     ) -> None:
         """Persist workbench effects, then advance the canonical owner."""
 
+        self.assert_workspace_mutable(workbench.workspace_id)
         workspace = self.foundation.get_migration_workspace(workbench.workspace_id)
         super().save(
             workbench,
@@ -197,6 +198,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
     ) -> None:
         """Add canonical DataVersion evidence before its workbench cache."""
 
+        self.assert_workspace_mutable(workbench.workspace_id)
         workspace = self.foundation.get_migration_workspace(workbench.workspace_id)
         current = self._draft_file_package(workspace.data_version_id)
         candidate = replace(
@@ -231,6 +233,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
     ) -> None:
         """Remove canonical DataVersion evidence and its workbench cache."""
 
+        self.assert_workspace_mutable(workbench.workspace_id)
         workspace = self.foundation.get_migration_workspace(workbench.workspace_id)
         current = self._draft_file_package(workspace.data_version_id)
         if source_file.file_id not in {item.file_id for item in current.files}:

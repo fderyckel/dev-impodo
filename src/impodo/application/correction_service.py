@@ -25,6 +25,7 @@ from impodo.domain.correction import (
     CorrectionValueKind,
     classify_correction_field,
 )
+from impodo.domain.correction_origin import CorrectionTargetIndexEntry
 from impodo.domain.execution.models import (
     ExecutionRowStatus,
     ExecutionRun,
@@ -52,35 +53,6 @@ from impodo.domain.shared.models import (
 
 class CorrectionReviewError(ValueError):
     """Raised when completed or current target evidence is unsafe."""
-
-
-@dataclass(frozen=True, slots=True)
-class CorrectionTargetIndexEntry:
-    """Protected exact target for one completed-load source row."""
-
-    dataset: str
-    source_row: int
-    row_id: str
-    target_model: str
-    odoo_id: int
-    completed_disposition: str
-    target_binding_hash: str
-
-    def __post_init__(self) -> None:
-        if (
-            not self.dataset
-            or self.source_row < 1
-            or not self.row_id
-            or not self.target_model
-            or type(self.odoo_id) is not int
-            or self.odoo_id <= 0
-            or self.completed_disposition not in {"CREATE", "UPDATE", "UNCHANGED"}
-        ):
-            raise CorrectionReviewError("Correction target index entry is invalid")
-
-    @property
-    def lineage_key(self) -> tuple[str, int, str]:
-        return (self.dataset, self.source_row, self.target_model)
 
 
 @dataclass(frozen=True, slots=True)

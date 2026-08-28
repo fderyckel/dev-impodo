@@ -47,6 +47,7 @@ def _run(*, terminal: bool) -> ExecutionRun:
             operation="CREATE",
             field_names=("name",),
             proposed_external_id="impodo.contact_1",
+            schedule_component=0,
             status=ExecutionRowStatus.COMMITTED,
             attempt=1,
             odoo_id=101,
@@ -59,6 +60,7 @@ def _run(*, terminal: bool) -> ExecutionRun:
             operation="UPDATE",
             field_names=("name",),
             proposed_external_id="",
+            schedule_component=0,
             status=ExecutionRowStatus.COMMITTED,
             attempt=1,
             odoo_id=42,
@@ -71,6 +73,7 @@ def _run(*, terminal: bool) -> ExecutionRun:
             operation="CREATE",
             field_names=("name", "parent_id"),
             proposed_external_id="impodo.contact_3",
+            schedule_component=1,
             status=ExecutionRowStatus.PARTIALLY_APPLIED,
             attempt=1,
             odoo_id=103,
@@ -149,6 +152,8 @@ class LoadJobManagerTests(unittest.TestCase):
             target_server="odoo.example.test",
             target_environment="Production",
             total_rows=3,
+            relationship_total_rows=1,
+            load_group_count=2,
             access_context=_access_context(),
             work=work,
         )
@@ -156,10 +161,14 @@ class LoadJobManagerTests(unittest.TestCase):
         manager.shutdown()
 
         self.assertEqual(finished.status.value, "SUCCEEDED")
-        self.assertEqual(finished.completed_rows, 3)
+        self.assertEqual(finished.completed_rows, 2)
         self.assertEqual(finished.created_count, 2)
         self.assertEqual(finished.updated_count, 1)
         self.assertEqual(finished.relationship_pending_count, 1)
+        self.assertEqual(finished.relationship_total_count, 1)
+        self.assertEqual(finished.relationship_completed_count, 0)
+        self.assertEqual(finished.load_group_number, 2)
+        self.assertEqual(finished.load_group_count, 2)
         self.assertEqual(finished.attention_count, 1)
         self.assertEqual(finished.progress_percent, 100)
         self.assertTrue(finished.verification_complete)
@@ -194,6 +203,8 @@ class LoadJobManagerTests(unittest.TestCase):
             target_server="odoo.example.test",
             target_environment="Test",
             total_rows=3,
+            relationship_total_rows=1,
+            load_group_count=2,
             access_context=_access_context(),
             work=work,
         )
@@ -205,8 +216,66 @@ class LoadJobManagerTests(unittest.TestCase):
         self.assertEqual(active.completed_rows, 2)
         self.assertEqual(active.created_count, 2)
         self.assertEqual(active.relationship_pending_count, 1)
+        self.assertEqual(active.relationship_total_count, 1)
+        self.assertEqual(active.relationship_completed_count, 0)
+        self.assertEqual(active.load_group_number, 2)
+        self.assertEqual(active.load_group_count, 2)
         self.assertGreaterEqual(active.progress_percent, 82)
         self.assertLess(active.progress_percent, 90)
+        release.set()
+        _wait_for_terminal(manager, queued.job_id)
+        manager.shutdown()
+
+    def test_in_flight_row_is_not_reported_as_final_or_as_relationship_work(
+        self,
+    ) -> None:
+        manager = LoadJobManager()
+        writing_phase = Event()
+        release = Event()
+        run = _run(terminal=False)
+        in_flight = replace(
+            run,
+            rows=(
+                replace(
+                    run.rows[0],
+                    status=ExecutionRowStatus.IN_FLIGHT,
+                    transport_page=0,
+                    transport_batch=2,
+                    transport_phase="CREATE",
+                ),
+                *run.rows[1:],
+            ),
+        )
+
+        def work(_access_context, report_writing, _report_verifying):
+            report_writing(in_flight)
+            writing_phase.set()
+            release.wait(1)
+            return LoadJobResult(
+                execution_run_id=in_flight.run_id,
+                verification_complete=False,
+            )
+
+        queued = manager.enqueue(
+            WORKSPACE_ID,
+            "Customer migration",
+            target_database="migration",
+            target_server="odoo.example.test",
+            target_environment="Test",
+            total_rows=3,
+            relationship_total_rows=1,
+            load_group_count=2,
+            access_context=_access_context(),
+            work=work,
+        )
+        self.assertTrue(writing_phase.wait(1))
+
+        active = manager.get(WORKSPACE_ID, queued.job_id)
+
+        self.assertEqual(active.phase, LoadPhase.WRITING)
+        self.assertEqual(active.completed_rows, 1)
+        self.assertEqual(active.load_group_number, 1)
+        self.assertLess(active.progress_percent, 82)
         release.set()
         _wait_for_terminal(manager, queued.job_id)
         manager.shutdown()

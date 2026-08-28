@@ -76,6 +76,17 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "application/cutover_plan_service.py::IntegratedQualificationReview",
         "application/run/planning_models.py::IntegratedRunReview",
         "application/recipe_publication_service.py::RecipeDraft",
+        "application/correction_orchestration.py::CorrectionBinding",
+        "application/correction_orchestration.py::StoredOrigin",
+        "application/correction_orchestration.py::StoredPlan",
+        "application/correction_orchestration.py::StoredTargetIndex",
+        "adapters/protected_correction_store.py::StoredCorrectionConfirmation",
+        "adapters/protected_correction_store.py::StoredCorrectionOrigin",
+        "adapters/protected_correction_store.py::StoredCorrectionPlan",
+        "adapters/protected_correction_store.py::StoredCorrectionTargetIndex",
+        "domain/correction.py::CorrectionPlan",
+        "domain/correction_origin.py::CorrectionOriginManifest",
+        "domain/correction_origin.py::CorrectionTargetIndex",
     }
 )
 

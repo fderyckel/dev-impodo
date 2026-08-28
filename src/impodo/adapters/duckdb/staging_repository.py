@@ -66,6 +66,7 @@ class StagingRepository(DuckDbRepository):
     ) -> StagingRunSummary:
         """Atomically publish immutable canonical rows for one submitted mapping."""
 
+        self._assert_workspace_mutable(workspace_id)
         if run.workspace_id != workspace_id:
             raise WorkspaceError("Prepared data belongs to another workspace")
         if (

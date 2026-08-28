@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Loading into Odoo &middot; {{ job.migration_project_name }} &middot; Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/execution.css') }}">
+{% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/job-polling.js') }}" defer></script>
 {% endblock %}
@@ -40,7 +43,7 @@
       <div>
         <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Confirm and load{% else %}Stage 6 of 6 &middot; Confirm and load{% endif %}</p>
         <h1>Loading {{ job.migration_project_name }} into {{ job.target_environment }} Odoo</h1>
-        <p>Impodo records each completed Odoo call before reporting it here. You can leave this page and return to the load from this workspace_state.</p>
+        <p>Impodo records each completed Odoo call before reporting it here. You can leave this page and return to the load from this workspace.</p>
       </div>
       <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% else %}ready{% endif %}" data-load-state>
         {% if job.status.value == 'SUCCEEDED' %}Finished{% elif job.status.value == 'FAILED' %}Stopped{% else %}In progress{% endif %}
@@ -70,8 +73,9 @@
       <progress max="100" value="{{ job.progress_percent }}" data-load-progress>{{ job.progress_percent }}%</progress>
       <div class="load-progress-numbers">
         <strong data-load-percent>{{ job.progress_percent }}%</strong>
-        <span data-load-rows>{{ job.completed_rows }} of {{ job.total_rows }} records completed</span>
+        <span data-load-rows>{{ job.completed_rows }} of {{ job.total_rows }} records have a final write result</span>
       </div>
+      <p class="load-group-progress" data-load-group {% if not job.load_group_count %}hidden{% endif %}>Load group {{ job.load_group_number }} of {{ job.load_group_count }}</p>
       <div class="readiness-cards load-progress-counts" aria-label="Recorded Odoo load totals">
         <div class="readiness-card ready">
           <span>New accepted</span>
@@ -92,7 +96,7 @@
       <p class="muted" data-load-guidance>
         {% if job.phase.value == 'VERIFYING' %}Impodo is now checking the saved results against Odoo.{% elif job.phase.value == 'RELATIONSHIPS' %}The records exist in Odoo. Impodo is finishing their reviewed relationships before verification.{% else %}Accepted totals are not called verified until Impodo reads the completed records back from Odoo.{% endif %}
       </p>
-      <p class="muted" data-load-relationships {% if not job.relationship_pending_count %}hidden{% endif %}>{{ job.relationship_pending_count }} new record{{ 's' if job.relationship_pending_count != 1 else '' }} still need their reviewed relationships.</p>
+      <p class="muted" data-load-relationships {% if not job.relationship_total_count %}hidden{% endif %}>Relationships finished for {{ job.relationship_completed_count }} of {{ job.relationship_total_count }} new record{{ 's' if job.relationship_total_count != 1 else '' }}{% if job.relationship_pending_count %}; {{ job.relationship_pending_count }} still pending{% endif %}.</p>
     </section>
 
     <section class="next-action-card blocked" data-load-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
@@ -120,6 +124,7 @@
 
     <details class="technical-details form-card">
       <summary>Support details</summary>
+      <p data-load-group-support {% if not job.load_group_count %}hidden{% endif %}>Recorded load group <span>{{ job.load_group_number }}</span> of <span>{{ job.load_group_count }}</span>.</p>
       <p>Job <code>{{ job.job_id }}</code></p>
       <p data-load-run {% if not job.execution_run_id %}hidden{% endif %}>Load run <code>{{ job.execution_run_id }}</code></p>
     </details>

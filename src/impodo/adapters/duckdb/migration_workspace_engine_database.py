@@ -10,6 +10,7 @@ from impodo.domain.project.foundation import (
     MigrationNotFoundError,
     require_uuid,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     current_workspace_access_context,
@@ -105,6 +106,20 @@ class MigrationWorkspaceEngineDatabase(DuckDbWorkspaceDatabase):
             recipe_application_id=(str(row[3]) if row[3] is not None else None),
         )
 
+    def assert_workspace_mutable(self, workspace_id: str) -> None:
+        """Use the registry lifecycle rather than the derived workbench cache."""
+
+        context = self.workspace_access_context(workspace_id)
+        with self.foundation.connect(self.foundation.registry_path) as connection:
+            row = connection.execute(
+                "SELECT state FROM migration_workspace WHERE workspace_id = ?",
+                [context.workspace_id],
+            ).fetchone()
+        if row is None:
+            raise MigrationNotFoundError("MigrationWorkspace not found")
+        if str(row[0]) != "OPEN":
+            raise WorkspaceError("This MigrationWorkspace is closed and read-only")
+
     def resolve_workspace_access_context(
         self,
         workspace_id: str,
@@ -178,3 +193,20 @@ class FixedMigrationWorkspaceEngineDatabase(DuckDbWorkspaceDatabase):
         workspace_id: str,
     ) -> WorkspaceAccessContext:
         return self.workspace_access_context(workspace_id)
+
+    def assert_workspace_mutable(self, workspace_id: str) -> None:
+        """Check the canonical registry before a fixed worker evidence write."""
+
+        context = self.workspace_access_context(workspace_id)
+        registry_path = self.root / "registry.duckdb"
+        if not registry_path.is_file():
+            raise MigrationNotFoundError("Migration registry not found")
+        with self._connect(registry_path) as connection:
+            row = connection.execute(
+                "SELECT state FROM migration_workspace WHERE workspace_id = ?",
+                [context.workspace_id],
+            ).fetchone()
+        if row is None:
+            raise MigrationNotFoundError("MigrationWorkspace not found")
+        if str(row[0]) != "OPEN":
+            raise WorkspaceError("This MigrationWorkspace is closed and read-only")

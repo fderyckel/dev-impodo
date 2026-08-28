@@ -104,6 +104,7 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> TransformationImpactSnapshot:
         """Build and atomically replace the bounded-browser impact source."""
 
+        self._assert_workspace_mutable(workspace_id)
         with self._transformation_impact_lock:
             current = self.get_transformation_impact_snapshot(workspace_id, identity)
             if current is not None:

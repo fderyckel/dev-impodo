@@ -25,6 +25,7 @@ class ReconciliationRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        self._assert_workspace_mutable(workspace_id)
         try:
             report = ReconciliationRun.from_json(report.to_json())
         except (KeyError, TypeError, ValueError) as error:

@@ -9,6 +9,7 @@ from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from ...domain.run.models import MigrationRun, MigrationRunPurpose, MigrationRunState
 from ...domain.serialization import content_hash
 from impodo.domain.project.foundation import (
+    MigrationFoundationError,
     FaultInjector,
     require_revision,
     require_uuid,
@@ -125,6 +126,10 @@ class MigrationRunService:
             Capability.MIGRATION_RUN_EDIT,
             project_id=current.project_id,
         )
+        if current.state in {MigrationRunState.COMPLETED, MigrationRunState.CLOSED}:
+            raise MigrationFoundationError(
+                "A completed MigrationRun is historical evidence and cannot be edited"
+            )
         return self.repository.save_migration_run(
             replace(current, label=label, updated_at=utc_now()),
             expected_revision=require_revision(expected_revision),

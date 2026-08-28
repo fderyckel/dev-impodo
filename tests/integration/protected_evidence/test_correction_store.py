@@ -21,6 +21,7 @@ from impodo.domain.correction import (
 from impodo.domain.cutover.models import MigrationCutoverError
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
+from tests.domain.test_correction_origin import _index, _manifest
 
 
 HASHES = tuple("sha256:" + character * 64 for character in "123456789abc")
@@ -126,6 +127,21 @@ class ProtectedCorrectionStoreTests(unittest.TestCase):
         ).read_bytes()
         self.assertNotIn(b'"odoo_id"', encrypted)
         self.assertNotIn(b'"corrected"', encrypted)
+
+    def test_origin_and_target_index_round_trip_in_protected_paths(self) -> None:
+        index = _index()
+        manifest = _manifest(index)
+
+        index_reference = self.store.put_target_index(index)
+        manifest_reference = self.store.put_origin(manifest)
+
+        self.assertIn(
+            "/correction-target-indexes/",
+            index_reference.storage_key,
+        )
+        self.assertIn("/correction-origins/", manifest_reference.storage_key)
+        self.assertEqual(self.store.read_target_index(index_reference), index)
+        self.assertEqual(self.store.read_origin(manifest_reference), manifest)
 
     def test_ciphertext_tampering_fails_before_plan_parsing(self) -> None:
         reference = self.store.put_plan(_plan())
