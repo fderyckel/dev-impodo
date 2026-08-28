@@ -59,7 +59,7 @@
       <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo details</a>
     </section>
   {% else %}
-    <section class="form-card">
+    <section class="form-card" id="capture-plan">
       <div class="page-heading compact">
         <div>
           <p class="eyebrow">Closed selection contract</p>
@@ -140,7 +140,13 @@
         <span class="status registered">Plan saved</span>
       </div>
       <p><strong>{{ current.dataset_name }}</strong> will read at most {{ current.max_rows }} {{ current.model }} record(s), using {{ current.field_names|length }} selected field(s).</p>
-      {% if schema and not schema.pending_refresh and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
+      {% if current_plan_error %}
+        <div class="notice warning" role="alert">
+          <strong>This capture plan needs review.</strong>
+          The saved fields no longer match the bounded Odoo fields Impodo can capture. Review and save the plan before freezing records.
+        </div>
+        <p><a class="button primary" href="#capture-plan">Review and save capture plan</a></p>
+      {% elif schema and not schema.pending_refresh and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
         <div class="notice warning">
           <strong>{% if current_manifest %}This creates a replacement version.{% else %}This creates the first frozen version.{% endif %}</strong>
           The current version changes only after all target checks, value data, and protected origins are complete. A stop or failure leaves the existing current version unchanged.

@@ -424,6 +424,53 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             }.issubset({item.code for item in result.issues})
         )
 
+    def test_pinned_odoo_update_keeps_unknown_compute_metadata_ineligible(
+        self,
+    ) -> None:
+        selection, schema = _pinned_odoo_inputs()
+        model = schema.models[0]
+        schema = replace(
+            schema,
+            models=(
+                replace(
+                    model,
+                    fields=tuple(
+                        replace(field, computed=None)
+                        if field.name == "name"
+                        else field
+                        for field in model.fields
+                    ),
+                ),
+            ),
+        )
+        definition = MappingDefinition(
+            mapping_id="mapping:odoo-pinned-unknown-compute",
+            source_selection_hash=selection.content_hash,
+            schema_hash=schema.content_hash,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=selection.datasets[0].dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.ODOO_PINNED_UPDATE,
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            source_column_key="odoo:name",
+                        ),
+                    ),
+                    approved_write_fields=("name",),
+                ),
+            ),
+        )
+
+        result = self.validator.validate(definition, selection, schema, None)
+
+        self.assertEqual(result.status, MappingValidationStatus.INVALID)
+        self.assertIn(
+            "MAPPING_ODOO_WRITE_FIELD_INELIGIBLE",
+            {item.code for item in result.issues},
+        )
+
     def test_reviewed_country_code_resolves_without_capturing_country_as_target(
         self,
     ) -> None:

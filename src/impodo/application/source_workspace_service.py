@@ -29,10 +29,15 @@ from ..domain.source_snapshot import (
 )
 from ..domain.odoo_capture import (
     MAX_ODOO_CAPTURE_ROWS,
-    ODOO_CAPTURE_FIELD_TYPES,
     OdooCaptureContractError,
     OdooCaptureFilterPolicy,
     OdooCaptureSelection,
+)
+from ..domain.odoo_source_capture import (
+    OdooSourceCaptureConfigurationError,
+    is_odoo_capture_filter_field,
+    is_odoo_capture_value_field,
+    plan_odoo_source_capture,
 )
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..domain.source_binding import FileSourceBinding, require_file_source
@@ -255,7 +260,7 @@ class SourceWorkspaceService:
                 name
                 for name in normalized_fields
                 if name not in fields_by_name
-                or fields_by_name[name].type not in ODOO_CAPTURE_FIELD_TYPES
+                or not is_odoo_capture_value_field(fields_by_name.get(name))
                 or name in {"id", "write_date"}
             ),
             None,
@@ -291,7 +296,11 @@ class SourceWorkspaceService:
                         if include_archived
                         else OdooCaptureFilterPolicy.ACTIVE_RECORDS
                     )
-                    if "active" in fields_by_name
+                    if (
+                        fields_by_name.get("active") is not None
+                        and fields_by_name["active"].type == "boolean"
+                        and is_odoo_capture_filter_field(fields_by_name["active"])
+                    )
                     else OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS
                 ),
                 max_rows=parsed_max_rows,
@@ -304,6 +313,10 @@ class SourceWorkspaceService:
                 created_by=actor.identity.display_name,
             )
         except OdooCaptureContractError as error:
+            raise WorkspaceError(str(error)) from error
+        try:
+            plan_odoo_source_capture(selection, schema)
+        except OdooSourceCaptureConfigurationError as error:
             raise WorkspaceError(str(error)) from error
         self.sources.save_odoo_capture_selection(
             workspace_id,

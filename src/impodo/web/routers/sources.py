@@ -38,7 +38,11 @@ from ...application.odoo_capture_job_service import (
     OdooCaptureJobStateError,
 )
 from impodo.domain.odoo.contracts import ConnectorError
-from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES
+from ...domain.odoo_source_capture import (
+    OdooSourceCaptureConfigurationError,
+    is_odoo_capture_value_field,
+    plan_odoo_source_capture,
+)
 from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...domain.data_version.models import DataVersionState
@@ -393,6 +397,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "Odoo fields changed. Review the checked Odoo changes before "
                     "freezing another source version."
                 )
+            plan_odoo_source_capture(selection, schema)
             gateway = context.source_capture_factory(workspace_state, credential.secret)
             manager = _odoo_capture_manager(context)
             workspace = context.migration_workspaces.get(
@@ -415,6 +420,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             ConnectorError,
             MigrationFoundationError,
             OdooCaptureJobStateError,
+            OdooSourceCaptureConfigurationError,
             WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
@@ -837,7 +843,7 @@ def _render_odoo_capture_selection(
             (
                 field
                 for field in (selected_model.fields if selected_model else ())
-                if field.type in ODOO_CAPTURE_FIELD_TYPES
+                if is_odoo_capture_value_field(field)
                 and field.name not in {"id", "write_date"}
             ),
             key=lambda item: (item.label.casefold(), item.name),
@@ -857,6 +863,12 @@ def _render_odoo_capture_selection(
             else ""
         )
     )
+    current_plan_error = None
+    if current is not None and schema is not None:
+        try:
+            plan_odoo_source_capture(current, schema)
+        except OdooSourceCaptureConfigurationError as plan_error:
+            current_plan_error = str(plan_error)
     try:
         read_credential = get_target_credential(
             context.secret_store,
@@ -893,6 +905,7 @@ def _render_odoo_capture_selection(
         selected_field_names=selected_field_names,
         dataset_name_default=dataset_name_default,
         current=current,
+        current_plan_error=current_plan_error,
         current_manifest=current_manifest,
         capture_history=capture_history,
         read_credential_present=read_credential_present,

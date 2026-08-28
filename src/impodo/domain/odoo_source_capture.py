@@ -375,14 +375,14 @@ def plan_odoo_source_capture(
             "Odoo capture model is outside the approved schema scope"
         )
     fields = {item.name: item for item in schema_model.fields}
-    if not _eligible_write_date(fields.get("write_date")):
+    if not is_odoo_capture_write_date_field(fields.get("write_date")):
         raise OdooSourceCaptureConfigurationError(
             "Odoo capture requires eligible write_date metadata"
         )
     projection: list[OdooCaptureFieldProjection] = []
     for name in selection.field_names:
         field = fields.get(name)
-        if not _eligible_projection(field):
+        if not is_odoo_capture_value_field(field):
             raise OdooSourceCaptureConfigurationError(
                 f"Odoo field {name} is not eligible for Tier-1 capture"
             )
@@ -390,13 +390,13 @@ def plan_odoo_source_capture(
         projection.append(OdooCaptureFieldProjection(name, field.type))
     if selection.filter_policy is not OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS:
         active = fields.get("active")
-        if not _eligible_filter_field(active) or active.type != "boolean":
+        if not is_odoo_capture_filter_field(active) or active.type != "boolean":
             raise OdooSourceCaptureConfigurationError(
                 "Active/archive capture requires an eligible active field"
             )
     for clause in selection.filter_clauses:
         field = fields.get(clause.field_name)
-        if not _eligible_filter_field(field):
+        if not is_odoo_capture_filter_field(field):
             raise OdooSourceCaptureConfigurationError(
                 f"Odoo filter field {clause.field_name} is not eligible"
             )
@@ -437,32 +437,42 @@ def require_not_cancelled(probe: CancellationProbe | None) -> None:
         raise OdooSourceCaptureCancelled("Odoo source capture was cancelled")
 
 
-def _eligible_projection(field: SchemaField | None) -> bool:
+def is_odoo_capture_value_field(field: SchemaField | None) -> bool:
+    """Return whether live Odoo evidence supports bounded read-only capture.
+
+    Odoo 19 does not expose ``compute`` as a standard ``fields_get``
+    description property. Stored computed values remain valid snapshot data,
+    so missing compute evidence must not be treated as a read prohibition.
+    Positive related-field evidence is still excluded from this Tier-1 value
+    surface. Write eligibility is deliberately governed elsewhere.
+    """
+
     return bool(
         field is not None
         and field.type in ODOO_CAPTURE_FIELD_TYPES
         and field.relation is None
         and field.stored is True
-        and field.computed is False
-        and field.related is False
-        and field.translated is not None
+        and field.related is not True
         and field.company_dependent is False
         and field.exportable is True
     )
 
 
-def _eligible_filter_field(field: SchemaField | None) -> bool:
-    return bool(_eligible_projection(field) and field.searchable is True)
+def is_odoo_capture_filter_field(field: SchemaField | None) -> bool:
+    """Return whether a capturable value may also bound record membership."""
+
+    return bool(is_odoo_capture_value_field(field) and field.searchable is True)
 
 
-def _eligible_write_date(field: SchemaField | None) -> bool:
+def is_odoo_capture_write_date_field(field: SchemaField | None) -> bool:
+    """Return whether ``write_date`` can anchor protected capture provenance."""
+
     return bool(
         field is not None
         and field.type == "datetime"
         and field.relation is None
         and field.stored is True
-        and field.computed is False
-        and field.related is False
+        and field.related is not True
         and field.company_dependent is False
     )
 

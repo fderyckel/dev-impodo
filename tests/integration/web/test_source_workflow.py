@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from tests.support.browser_scenarios import (
     BytesIO,
     MANIFEST_NAME,
@@ -321,6 +323,46 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Ready to freeze", saved_page.text)
 
         context = self.app.state.context
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        self.assertIsNotNone(schema)
+        assert schema is not None
+        partner = schema.models[0]
+        stale_schema = replace(
+            schema,
+            models=(
+                replace(
+                    partner,
+                    fields=tuple(
+                        replace(field, stored=False)
+                        if field.name == "name"
+                        else field
+                        for field in partner.fields
+                    ),
+                ),
+            ),
+        )
+        with patch.object(
+            context.queries,
+            "get_odoo_schema_catalog",
+            return_value=stale_schema,
+        ):
+            repair_page = self.client.get(f"/workspaces/{workspace_id}/sources")
+            self.assertIn("This capture plan needs review", repair_page.text)
+            self.assertIn("Review and save capture plan", repair_page.text)
+            self.assertNotIn("Freeze these Odoo records", repair_page.text)
+            blocked_plan = self._post(
+                f"/workspaces/{workspace_id}/sources/odoo-capture",
+                {
+                    "csrf_token": self.csrf,
+                    "selection_id": selection.selection_id,
+                    "selection_hash": selection.content_hash,
+                    "confirm_capture": "1",
+                },
+            )
+            self.assertEqual(blocked_plan.status_code, 422)
+            self.assertIn("not eligible", blocked_plan.text)
+            self.assertIsNone(context.odoo_capture_jobs.active(workspace_id))
+
         original_schema_reader = context.schema_reader
         changed_snapshot = _browser_schema(workspace_state)
         changed_partner = changed_snapshot.models["res.partner"]

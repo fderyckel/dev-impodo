@@ -4,7 +4,6 @@ from tests.support.paths import REPOSITORY_ROOT
 
 from dataclasses import replace
 from datetime import datetime, timezone
-from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -678,11 +677,25 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.workspace_state = odoo_project
         schema = self.schemas.capture(
             self.workspace_state.workspace_id,
-            _metadata_snapshot(),
+            _odoo_capture_metadata_snapshot(),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("res.partner",)),
             actor=LOCAL_ACTOR,
         )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "display_name is not eligible",
+        ):
+            self.sources.define_odoo_capture_selection(
+                self.workspace_state.workspace_id,
+                dataset_name="odoo_contacts",
+                model="res.partner",
+                field_names=("display_name",),
+                include_archived=False,
+                max_rows=100,
+                actor=LOCAL_ACTOR,
+            )
 
         first = self.sources.define_odoo_capture_selection(
             self.workspace_state.workspace_id,
@@ -727,7 +740,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(first.connection_target_hash, schema.connection_target_hash)
 
-        unchanged_snapshot = _metadata_snapshot()
+        unchanged_snapshot = _odoo_capture_metadata_snapshot()
         unchanged_snapshot = replace(
             unchanged_snapshot,
             fingerprint=replace(
@@ -752,7 +765,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             second,
         )
 
-        changed_snapshot = _metadata_snapshot()
+        changed_snapshot = _odoo_capture_metadata_snapshot()
         partner = changed_snapshot.models["res.partner"]
         changed_snapshot = replace(
             changed_snapshot,
@@ -1498,6 +1511,54 @@ def _metadata_snapshot(
             )
         },
         create_defaults=create_defaults or {},
+    )
+
+
+def _odoo_capture_metadata_snapshot() -> MetadataSnapshot:
+    """Return the Odoo 19 ``fields_get`` shape used by source capture."""
+
+    snapshot = _metadata_snapshot()
+    partner = snapshot.models["res.partner"]
+    eligible_fields = {
+        name: replace(
+            field,
+            stored=True,
+            computed=None,
+            related=None,
+            translated=None,
+            company_dependent=False,
+            searchable=True,
+            sortable=True,
+            exportable=True,
+        )
+        for name, field in partner.fields.items()
+        if name in {"active", "name"}
+    }
+    return replace(
+        snapshot,
+        models={
+            "res.partner": replace(
+                partner,
+                fields={
+                    **partner.fields,
+                    **eligible_fields,
+                    "write_date": FieldMetadata(
+                        name="write_date",
+                        type="datetime",
+                        label="Last Updated on",
+                        readonly=True,
+                        stored=True,
+                        computed=None,
+                        related=None,
+                        translated=None,
+                        company_dependent=False,
+                        searchable=True,
+                        sortable=True,
+                        exportable=True,
+                    ),
+                },
+            )
+        },
     )
 
 

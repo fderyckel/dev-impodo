@@ -25,7 +25,11 @@ from ...domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES, OdooCaptureSelection
+from ...domain.odoo_capture import OdooCaptureSelection
+from ...domain.odoo_source_capture import (
+    OdooSourceCaptureConfigurationError,
+    plan_odoo_source_capture,
+)
 from impodo.application.data_version.inspection import SourceFileCatalog, SourceInspectionError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
 from impodo.domain.workspace.contracts import (
@@ -410,31 +414,12 @@ class SourceRepository(DuckDbRepository):
                     "Capture the eligible Odoo fields before selecting records"
                 )
             schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
-            schema_model = next(
-                (item for item in schema.models if item.name == selection.model),
-                None,
-            )
-            if (
-                selection.policy_hash != schema.policy_hash
-                or selection.connection_target_hash
-                != schema.connection_target_hash
-                or selection.schema_scope_hash != schema.content_hash
-                or selection.read_principal_hash != schema.read_principal_hash
-                or selection.read_permission_hash != schema.read_permission_hash
-                or selection.context_hash != schema.read_context_hash
-                or schema_model is None
-                or not set(selection.field_names).issubset(
-                    {
-                        field.name
-                        for field in schema_model.fields
-                        if field.type in ODOO_CAPTURE_FIELD_TYPES
-                        and field.name not in {"id", "write_date"}
-                    }
-                )
-            ):
+            try:
+                plan_odoo_source_capture(selection, schema)
+            except OdooSourceCaptureConfigurationError as error:
                 raise WorkspaceError(
                     "Odoo capture selection does not match the current schema identity"
-                )
+                ) from error
             current = connection.execute(
                 """
                 SELECT selection_id, version

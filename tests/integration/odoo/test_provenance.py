@@ -156,6 +156,17 @@ class OdooProvenanceTests(unittest.TestCase):
             updated_at=self.now,
         )
         self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
+        capture_eligibility = {
+            "stored": True,
+            "computed": None,
+            "has_inverse": False,
+            "related": None,
+            "translated": None,
+            "company_dependent": False,
+            "searchable": True,
+            "sortable": True,
+            "exportable": True,
+        }
         schema = OdooSchemaCatalog(
             workspace_id=self.workspace_state.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
@@ -178,6 +189,7 @@ class OdooProvenanceTests(unittest.TestCase):
                             relation=None,
                             relation_field=None,
                             selection=(),
+                            **capture_eligibility,
                         ),
                         SchemaField(
                             name="name",
@@ -188,6 +200,18 @@ class OdooProvenanceTests(unittest.TestCase):
                             relation=None,
                             relation_field=None,
                             selection=(),
+                            **capture_eligibility,
+                        ),
+                        SchemaField(
+                            name="write_date",
+                            label="Last Updated on",
+                            type="datetime",
+                            required=False,
+                            readonly=True,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            **capture_eligibility,
                         ),
                     ),
                 ),

@@ -384,14 +384,34 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             workspace_access_service(),
         )
 
-    def test_planner_requires_explicit_tier_one_metadata(self) -> None:
+    def test_planner_uses_read_evidence_without_inventing_compute_metadata(
+        self,
+    ) -> None:
         request = plan_odoo_source_capture(self.selection, self.schema)
         self.assertEqual(request.field_names, ("name",))
 
-        name = self.schema.models[0].fields[0]
-        changed_model = replace(
+        live_model = replace(
             self.schema.models[0],
-            fields=(replace(name, stored=None), self.schema.models[0].fields[1]),
+            fields=tuple(
+                replace(
+                    field,
+                    computed=None,
+                    related=None,
+                    translated=None,
+                )
+                for field in self.schema.models[0].fields
+            ),
+        )
+        live_request = plan_odoo_source_capture(
+            self.selection,
+            replace(self.schema, models=(live_model,)),
+        )
+        self.assertEqual(live_request.field_names, ("name",))
+
+        name = live_model.fields[0]
+        changed_model = replace(
+            live_model,
+            fields=(replace(name, stored=None), live_model.fields[1]),
         )
         with self.assertRaisesRegex(
             OdooSourceCaptureConfigurationError,
@@ -400,6 +420,19 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             plan_odoo_source_capture(
                 self.selection,
                 replace(self.schema, models=(changed_model,)),
+            )
+
+        related_model = replace(
+            live_model,
+            fields=(replace(name, related=True), live_model.fields[1]),
+        )
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConfigurationError,
+            "not eligible",
+        ):
+            plan_odoo_source_capture(
+                self.selection,
+                replace(self.schema, models=(related_model,)),
             )
 
     def test_service_checks_identity_and_schema_at_both_ends(self) -> None:
