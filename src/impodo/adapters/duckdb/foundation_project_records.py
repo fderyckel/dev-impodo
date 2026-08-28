@@ -457,6 +457,7 @@ class FoundationProjectRecords:
             "test_run_setup_binding": "project_id = ?",
             "test_run_parameter_values": "project_id = ?",
             "production_run_binding": "project_id = ?",
+            "correction_run_binding": "project_id = ?",
             "project_operation_intent": "project_id = ?",
             "migration_event": "project_id = ?",
         }
