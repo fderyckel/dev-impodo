@@ -96,14 +96,14 @@ or no sent value so Odoo can apply its default. Transformations, null behavior, 
 relationship resolution use closed, versioned choices rather than arbitrary
 code.
 
-Mapping contract version 12 adds `conditional_rules` as a first-class scalar
-provider. A `SelectionRuleSet` preserves author order, applies first-match-wins
-semantics, and ends with either one captured Odoo technical choice or an
-explicit unresolved-row block. Each rule combines one to eight typed source
-conditions with `all` or `any`; the complete field is bounded to 20 rules and
-20 distinct source columns. The contract rejects a conditional provider that
-also carries a source, literal, fallback, inline value match, reference lookup,
-or hidden formula.
+Mapping contract version 13 retains the `conditional_rules` scalar provider
+introduced in version 12. A `SelectionRuleSet` preserves author order, applies
+first-match-wins semantics, and ends with either one captured Odoo technical
+choice or an explicit unresolved-row block. Each rule combines one to eight
+typed source conditions with `all` or `any`; the complete field is bounded to
+20 rules and 20 distinct source columns. The contract rejects a conditional
+provider that also carries a source, literal, fallback, inline value match,
+reference lookup, or hidden formula.
 
 `evaluate_scalar_mapping_value` is the shared row oracle for preview and
 preparation. `CategoricalCoverageService` projects the union of every
@@ -167,6 +167,15 @@ Execution preserves the reviewed split. A `RESOLVED_TARGET` outcome becomes a
 portable `BusinessReference`. A `RESOLVED_INCOMING` outcome becomes an
 incoming `LogicalReference`, which keeps the dataset dependency needed to
 create and link the missing related record.
+
+Mapping contract version 13 optionally freezes a
+`dataset_projection_field` on `target_then_dataset`. It is valid only when the
+selected incoming dataset targets a different captured model and that model
+exposes a read-only many2one to the relationship target model. Compilation
+carries the field into the incoming `ResolveSpec`; execution snapshot version
+7 then binds it to the exact relationship intent. Numeric generated IDs remain
+runtime journal receipts and never enter the reusable mapping or prepared
+canonical rows.
 
 `extract_dataset_dependency_edges` gives browser mappings and compiled
 profiles one incoming-dependency meaning. Target identity and scope edges are

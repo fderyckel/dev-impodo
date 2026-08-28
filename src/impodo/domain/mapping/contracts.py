@@ -30,7 +30,7 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 12
+MAPPING_CONTRACT_VERSION = 13
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -225,6 +225,7 @@ class RelationshipResolver:
     key_mappings: tuple[ReferenceKeyMapping, ...] = ()
     scope_mappings: tuple[ReferenceKeyMapping, ...] = ()
     value_mappings: tuple[ValueMapping, ...] = ()
+    dataset_projection_field: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "origin", ResolverOrigin(self.origin))
@@ -925,7 +926,7 @@ def _selection_rule_set_from_dict(payload: Mapping[str, Any]) -> SelectionRuleSe
     _require_contract_fields(
         payload,
         _contract_fields(SelectionRuleSet),
-        "Selection rule set fields do not match contract v12",
+        "Selection rule set fields do not match the current mapping contract",
     )
     rules_payload = payload.get("rules")
     if not isinstance(rules_payload, list):
@@ -944,7 +945,7 @@ def _selection_rule_from_dict(payload: Mapping[str, Any]) -> SelectionRule:
     _require_contract_fields(
         payload,
         _contract_fields(SelectionRule),
-        "Selection rule fields do not match contract v12",
+        "Selection rule fields do not match the current mapping contract",
     )
     conditions_payload = payload.get("conditions")
     if not isinstance(conditions_payload, list):
@@ -963,7 +964,7 @@ def _selection_condition_from_dict(payload: Mapping[str, Any]) -> SelectionCondi
     _require_contract_fields(
         payload,
         _contract_fields(SelectionCondition),
-        "Selection-rule condition fields do not match contract v12",
+        "Selection-rule condition fields do not match the current mapping contract",
     )
     return SelectionCondition(
         condition_id=str(payload.get("condition_id", "")),
@@ -1078,6 +1079,7 @@ def _resolver_from_dict(
             _value_mapping_from_dict(item)
             for item in payload.get("value_mappings", ())
         ),
+        dataset_projection_field=payload.get("dataset_projection_field"),
     )
 
 

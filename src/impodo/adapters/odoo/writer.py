@@ -22,6 +22,7 @@ from impodo.adapters.odoo.connectors import Json2Config, Transport, _urllib_tran
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
+    MAX_PROJECTED_RECEIPT_IDS,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
@@ -274,6 +275,73 @@ class Json2WriteExecutor:
         )
         if response is not True:
             raise OdooWriteOutcomeUnknown("Odoo update returned an invalid receipt")
+
+    def read_projected_ids(
+        self,
+        model: str,
+        identifiers: Sequence[int],
+        projection_field: str,
+        target_model: str,
+    ) -> tuple[int, ...]:
+        """Read one reviewed generated many-to-one receipt for exact IDs."""
+
+        requested = tuple(identifiers)
+        if (
+            not requested
+            or len(requested) > MAX_PROJECTED_RECEIPT_IDS
+            or len(set(requested)) != len(requested)
+            or any(type(item) is not int or item <= 0 for item in requested)
+            or projection_field not in self.scope.read_fields(model)
+            or self.scope.model(target_model) is None
+        ):
+            raise OdooWriteRejected(
+                "Odoo generated-record read-back is outside the reviewed preview"
+            )
+        response = self._post(
+            model,
+            "search_read",
+            {
+                "domain": [["id", "in", list(requested)]],
+                "fields": ["id", projection_field],
+                "limit": len(requested),
+                "order": "id asc",
+                "context": dict(self.config.context),
+            },
+            write=False,
+        )
+        if not isinstance(response, list) or len(response) != len(requested):
+            raise OdooWriteRejected(
+                "Odoo generated-record read-back did not cover every created record"
+            )
+        projected_by_id: dict[int, int] = {}
+        for item in response:
+            if not isinstance(item, Mapping):
+                raise OdooWriteRejected(
+                    "Odoo returned an invalid generated-record receipt"
+                )
+            source_id = item.get("id")
+            raw_target = item.get(projection_field)
+            target_id = (
+                raw_target[0]
+                if isinstance(raw_target, (list, tuple)) and raw_target
+                else raw_target
+            )
+            if (
+                type(source_id) is not int
+                or source_id not in requested
+                or source_id in projected_by_id
+                or type(target_id) is not int
+                or target_id <= 0
+            ):
+                raise OdooWriteRejected(
+                    "Odoo returned an invalid generated-record receipt"
+                )
+            projected_by_id[source_id] = target_id
+        if set(projected_by_id) != set(requested):
+            raise OdooWriteRejected(
+                "Odoo generated-record read-back changed the exact source IDs"
+            )
+        return tuple(projected_by_id[item] for item in requested)
 
     def _validate_values(self, model: str, values: Mapping[str, Any]) -> None:
         permitted = self.scope.write_fields(model)

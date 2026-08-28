@@ -94,6 +94,22 @@
                         {% endfor %}
                       </select>
                     </label>
+                    {% if row.projection_options %}
+                      <label>
+                        If Odoo creates the linked record from that table
+                        <select name="relation_projection_{{ dataset_index }}_{{ relation_index }}">
+                          <option value="">The incoming table already targets this Odoo model</option>
+                          {% for option in row.projection_options %}
+                            <option value="{{ option.value }}" {% if row.selected_projection == option.value %}selected{% endif %}>
+                              Read {{ option.field.label }} ({{ option.field.name }}) from {{ option.dataset_name }} after it is created
+                            </option>
+                          {% endfor %}
+                        </select>
+                        <small>Use this only when Odoo generates the linked record, such as a Product variant from a Product template. Impodo reads the captured link in batches before dependent records load.</small>
+                      </label>
+                    {% else %}
+                      <input type="hidden" name="relation_projection_{{ dataset_index }}_{{ relation_index }}" value="">
+                    {% endif %}
                     <label>
                       How is the matching choice identified?
                       <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" {% if not row.related_keys %}disabled{% endif %}>

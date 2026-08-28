@@ -16,6 +16,7 @@ from impodo.domain.execution.models import (
     ExecutionRun,
     ExecutionRunStatus,
     MAX_CREATE_BATCH_ROWS,
+    ProjectedOdooReceipt,
 )
 from impodo.domain.execution.dependency_scheduler import dependency_component_pages
 from impodo.domain.execution_snapshot import (
@@ -37,6 +38,7 @@ from impodo.domain.shared.models import (
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
+    MAX_PROJECTED_RECEIPT_IDS,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
@@ -543,12 +545,28 @@ class ExecutionService:
         recorded: dict[str, ExecutionRowAttempt] = {
             item.row_id: item for item in run.rows
         }
-        source_cache: dict[tuple[str, str], int] = {
-            (row.dataset, _portable_key(row.source_identity)): attempt.odoo_id
+        source_cache: dict[tuple[str, str, str, str], int] = {
+            (
+                row.dataset,
+                _portable_key(row.source_identity),
+                row.target_model,
+                "",
+            ): attempt.odoo_id
             for row in write_rows
             if row.disposition == "CREATE"
             and (attempt := recorded[row.row_id]).odoo_id is not None
         }
+        for row in write_rows:
+            attempt = recorded[row.row_id]
+            for receipt in attempt.projected_receipts:
+                source_cache[
+                    (
+                        row.dataset,
+                        _portable_key(row.source_identity),
+                        receipt.target_model,
+                        receipt.projection_field,
+                    )
+                ] = receipt.odoo_id
         for row in write_rows:
             attempt = recorded[row.row_id]
             if attempt.odoo_id is not None:
@@ -559,6 +577,7 @@ class ExecutionService:
             if recorded[row.row_id].status is ExecutionRowStatus.PARTIALLY_APPLIED
             and (deferred := self._deferred_create_intents(row))
         }
+        projected_requirements = _projected_receipt_requirements(snapshot)
         stop_after_unknown = False
         stop_after_rejection = False
         next_transport_batch = 1 + max(
@@ -596,6 +615,30 @@ class ExecutionService:
                         if stop_after_unknown
                         else "Not attempted after an Odoo rejection"
                     ),
+                )
+                report_progress(replace(run, rows=tuple(recorded.values())))
+                continue
+            try:
+                self._ensure_projected_receipts(
+                    workspace_id,
+                    run.run_id,
+                    dataset_rows,
+                    row_by_id,
+                    recorded,
+                    metadata,
+                    source_cache,
+                    identity_cache,
+                    executor,
+                    projected_requirements,
+                    deferred_by_row,
+                )
+            except (WorkspaceError, OdooWriteRejected) as error:
+                self._record_blocked(
+                    workspace_id,
+                    run.run_id,
+                    dataset_rows,
+                    recorded,
+                    str(error),
                 )
                 report_progress(replace(run, rows=tuple(recorded.values())))
                 continue
@@ -739,11 +782,14 @@ class ExecutionService:
                     for (row, _values, deferred), identifier in zip(
                         prepared_group, identifiers, strict=True
                     ):
+                        needs_projection = bool(
+                            projected_requirements.get(row.row_id)
+                        )
                         outcome = replace(
                             recorded[row.row_id],
                             status=(
                                 ExecutionRowStatus.PARTIALLY_APPLIED
-                                if deferred
+                                if deferred or needs_projection
                                 else ExecutionRowStatus.COMMITTED
                             ),
                             odoo_id=identifier,
@@ -753,11 +799,23 @@ class ExecutionService:
                                 else ""
                             ),
                         )
+                        if needs_projection and not deferred:
+                            outcome = replace(
+                                outcome,
+                                safe_error=(
+                                    "Created; generated relationship read-back pending"
+                                ),
+                            )
                         outcomes.append(outcome)
                         if deferred:
                             deferred_by_row[row.row_id] = deferred
                         source_cache[
-                            (row.dataset, _portable_key(row.source_identity))
+                            (
+                                row.dataset,
+                                _portable_key(row.source_identity),
+                                row.target_model,
+                                "",
+                            )
                         ] = identifier
                         identity_cache[_identity_cache_key(row)] = identifier
                     self.journal.record_outcomes(
@@ -954,6 +1012,7 @@ class ExecutionService:
         }
         outcomes = {item.row_id: item for item in recovery.rows}
         attempts = {item.row_id: item for item in run.rows}
+        projected_requirements = _projected_receipt_requirements(snapshot)
         if set(rows) != set(outcomes) or set(rows) != set(attempts):
             raise WorkspaceError("The recovery report does not cover every load row")
 
@@ -980,6 +1039,15 @@ class ExecutionService:
             deferred_difference = bool(differing_fields) and differing_fields.issubset(
                 deferred_fields
             )
+            projected_keys = {
+                (item.projection_field, item.target_model)
+                for item in attempt.projected_receipts
+            }
+            projection_pending = bool(
+                projected_requirements.get(row_id, frozenset()).difference(
+                    projected_keys
+                )
+            )
 
             if status is ExecutionRowStatus.COMMITTED:
                 if (
@@ -999,9 +1067,21 @@ class ExecutionService:
                 if outcome.status is ReconciliationRowStatus.VERIFIED:
                     if outcome.odoo_id is None:
                         raise WorkspaceError("Recovery found no durable Odoo receipt")
-                    status = ExecutionRowStatus.COMMITTED
+                    status = (
+                        ExecutionRowStatus.PARTIALLY_APPLIED
+                        if projection_pending or deferred_fields
+                        else ExecutionRowStatus.COMMITTED
+                    )
                     odoo_id = outcome.odoo_id
-                    safe_error = ""
+                    safe_error = (
+                        "Created; generated relationship read-back pending"
+                        if projection_pending
+                        else (
+                            "Created; deferred relationship update pending"
+                            if deferred_fields
+                            else ""
+                        )
+                    )
                 elif (
                     attempt.transport_phase == "CREATE"
                     and outcome.status is ReconciliationRowStatus.NOT_APPLIED
@@ -1037,8 +1117,16 @@ class ExecutionService:
                     outcome.status is ReconciliationRowStatus.VERIFIED
                     and outcome.odoo_id == odoo_id
                 ):
-                    status = ExecutionRowStatus.COMMITTED
-                    safe_error = ""
+                    status = (
+                        ExecutionRowStatus.PARTIALLY_APPLIED
+                        if projection_pending
+                        else ExecutionRowStatus.COMMITTED
+                    )
+                    safe_error = (
+                        "Created; generated relationship read-back pending"
+                        if projection_pending
+                        else ""
+                    )
                 elif (
                     outcome.status is ReconciliationRowStatus.DIFFERENT
                     and outcome.odoo_id == odoo_id
@@ -1316,6 +1404,15 @@ class ExecutionService:
                     raise WorkspaceError(
                         "A required Odoo create receipt was not journalled"
                     )
+                if intent.incoming_projection_field and not any(
+                    receipt.projection_field
+                    == intent.incoming_projection_field
+                    and receipt.target_model == intent.related_model
+                    for receipt in attempt.projected_receipts
+                ):
+                    raise WorkspaceError(
+                        "A generated Odoo relationship receipt was not journalled"
+                    )
 
     def _start_transport_batch(
         self,
@@ -1398,6 +1495,177 @@ class ExecutionService:
             if intent.defer_on_create and intent.action == "SET_VALUE"
         )
 
+    def _ensure_projected_receipts(
+        self,
+        workspace_id: str,
+        run_id: str,
+        consumer_rows: Sequence[ExecutionRow],
+        row_by_id: Mapping[str, ExecutionRow],
+        recorded: dict[str, ExecutionRowAttempt],
+        metadata: Mapping[str, ExecutionDataset],
+        source_cache: dict[tuple[str, str, str, str], int],
+        identity_cache: dict[str, int],
+        executor: OdooWriteExecutor,
+        requirements: Mapping[str, frozenset[tuple[str, str]]],
+        deferred_by_row: Mapping[str, tuple[FieldIntent, ...]],
+    ) -> None:
+        """Read and journal exact generated records before their consumers."""
+
+        grouped: dict[
+            tuple[str, str, str],
+            dict[str, tuple[ExecutionRow, int]],
+        ] = {}
+        for consumer in consumer_rows:
+            for intent in consumer.fields:
+                projection_field = intent.incoming_projection_field
+                if not projection_field:
+                    continue
+                for dependency_row_id in intent.dependency_row_ids:
+                    dependency = row_by_id[dependency_row_id]
+                    cache_key = (
+                        dependency.dataset,
+                        _portable_key(dependency.source_identity),
+                        intent.related_model,
+                        projection_field,
+                    )
+                    if cache_key in source_cache:
+                        continue
+                    if dependency.disposition == "CREATE":
+                        attempt = recorded.get(dependency_row_id)
+                        if (
+                            attempt is None
+                            or attempt.status
+                            not in {
+                                ExecutionRowStatus.PARTIALLY_APPLIED,
+                                ExecutionRowStatus.COMMITTED,
+                            }
+                            or attempt.odoo_id is None
+                        ):
+                            raise WorkspaceError(
+                                "A generated relationship source was not created"
+                            )
+                        source_id = attempt.odoo_id
+                    else:
+                        source_id = self._find_row_id(
+                            dependency,
+                            metadata[dependency.dataset],
+                            identity_cache,
+                            executor,
+                        )
+                    grouped.setdefault(
+                        (
+                            dependency.target_model,
+                            projection_field,
+                            intent.related_model,
+                        ),
+                        {},
+                    )[dependency_row_id] = (dependency, source_id)
+
+        observed: list[
+            tuple[ExecutionRow, str, str, int]
+        ] = []
+        for (
+            source_model,
+            projection_field,
+            target_model,
+        ), dependencies in sorted(grouped.items()):
+            ordered = tuple(
+                dependencies[row_id] for row_id in sorted(dependencies)
+            )
+            for start in range(0, len(ordered), MAX_PROJECTED_RECEIPT_IDS):
+                page = ordered[start : start + MAX_PROJECTED_RECEIPT_IDS]
+                projected_ids = executor.read_projected_ids(
+                    source_model,
+                    tuple(source_id for _row, source_id in page),
+                    projection_field,
+                    target_model,
+                )
+                if len(projected_ids) != len(page):
+                    raise WorkspaceError(
+                        "Odoo generated-record read-back was incomplete"
+                    )
+                observed.extend(
+                    (
+                        row,
+                        projection_field,
+                        target_model,
+                        projected_id,
+                    )
+                    for (row, _source_id), projected_id in zip(
+                        page,
+                        projected_ids,
+                        strict=True,
+                    )
+                )
+
+        new_by_row: dict[str, list[ProjectedOdooReceipt]] = {}
+        for row, projection_field, target_model, projected_id in observed:
+            if row.disposition != "CREATE":
+                continue
+            new_by_row.setdefault(row.row_id, []).append(
+                ProjectedOdooReceipt(
+                    projection_field=projection_field,
+                    target_model=target_model,
+                    odoo_id=projected_id,
+                )
+            )
+        outcomes: list[ExecutionRowAttempt] = []
+        for row_id, new_receipts in sorted(new_by_row.items()):
+            attempt = recorded[row_id]
+            if attempt.status is not ExecutionRowStatus.PARTIALLY_APPLIED:
+                raise WorkspaceError(
+                    "A generated relationship source journal is inconsistent"
+                )
+            receipts = {
+                (item.projection_field, item.target_model): item
+                for item in attempt.projected_receipts
+            }
+            for receipt in new_receipts:
+                key = (receipt.projection_field, receipt.target_model)
+                previous = receipts.get(key)
+                if previous is not None and previous.odoo_id != receipt.odoo_id:
+                    raise WorkspaceError(
+                        "An Odoo generated-record receipt changed"
+                    )
+                receipts[key] = receipt
+            missing = requirements.get(row_id, frozenset()).difference(receipts)
+            waiting_for_relationships = row_id in deferred_by_row
+            outcomes.append(
+                replace(
+                    attempt,
+                    status=(
+                        ExecutionRowStatus.PARTIALLY_APPLIED
+                        if missing or waiting_for_relationships
+                        else ExecutionRowStatus.COMMITTED
+                    ),
+                    safe_error=(
+                        "Created; generated relationship read-back pending"
+                        if missing
+                        else (
+                            "Created; deferred relationship update pending"
+                            if waiting_for_relationships
+                            else ""
+                        )
+                    ),
+                    projected_receipts=tuple(
+                        receipts[key] for key in sorted(receipts)
+                    ),
+                )
+            )
+        if outcomes:
+            self.journal.record_outcomes(workspace_id, run_id, outcomes)
+            recorded.update({item.row_id: item for item in outcomes})
+
+        for row, projection_field, target_model, projected_id in observed:
+            source_cache[
+                (
+                    row.dataset,
+                    _portable_key(row.source_identity),
+                    target_model,
+                    projection_field,
+                )
+            ] = projected_id
+
     def _apply_deferred_relationships(
         self,
         workspace_id: str,
@@ -1407,7 +1675,7 @@ class ExecutionService:
         recorded: dict[str, ExecutionRowAttempt],
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
-        source_cache: dict[tuple[str, str], int],
+        source_cache: dict[tuple[str, str, str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
         next_transport_batch: int,
@@ -1502,7 +1770,7 @@ class ExecutionService:
         row: ExecutionRow,
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
-        source_cache: dict[tuple[str, str], int],
+        source_cache: dict[tuple[str, str, str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
         *,
@@ -1549,7 +1817,7 @@ class ExecutionService:
         intent: FieldIntent,
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
-        source_cache: dict[tuple[str, str], int],
+        source_cache: dict[tuple[str, str, str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
     ) -> tuple[str, object]:
@@ -1602,10 +1870,21 @@ class ExecutionService:
                 "many2one import slice"
             )
         if isinstance(value, LogicalReference) and value.origin == "incoming":
-            return (
-                f"{intent.field}/id",
-                self._relation_external_id(intent, by_source),
+            if not intent.incoming_projection_field:
+                return (
+                    f"{intent.field}/id",
+                    self._relation_external_id(intent, by_source),
+                )
+            identifier = self._relation_reference_id(
+                value,
+                intent,
+                metadata,
+                by_source,
+                source_cache,
+                identity_cache,
+                executor,
             )
+            return f"{intent.field}/.id", str(identifier)
         if isinstance(value, BusinessReference):
             if value.model != intent.related_model:
                 raise WorkspaceError(
@@ -1664,7 +1943,7 @@ class ExecutionService:
         intent: FieldIntent,
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
-        source_cache: dict[tuple[str, str], int],
+        source_cache: dict[tuple[str, str, str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
     ) -> object:
@@ -1714,19 +1993,30 @@ class ExecutionService:
         intent: FieldIntent,
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
-        source_cache: dict[tuple[str, str], int],
+        source_cache: dict[tuple[str, str, str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
     ) -> int:
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if value.dataset is None:
                 raise WorkspaceError("An incoming relationship is incomplete")
-            source_key = (value.dataset, _portable_key(value.key))
+            source_key = (
+                value.dataset,
+                _portable_key(value.key),
+                intent.related_model,
+                intent.incoming_projection_field,
+            )
             if source_key in source_cache:
                 return source_cache[source_key]
-            referenced = by_source.get(source_key)
+            referenced = by_source.get(
+                (value.dataset, _portable_key(value.key))
+            )
             if referenced is None:
                 raise WorkspaceError("A related prepared row could not be found")
+            if intent.incoming_projection_field:
+                raise WorkspaceError(
+                    "A generated Odoo relationship receipt was not journalled"
+                )
             if referenced.disposition == "CREATE":
                 raise WorkspaceError("A related Odoo create did not complete")
             related_id = self._find_row_id(
@@ -1735,7 +2025,14 @@ class ExecutionService:
                 identity_cache,
                 executor,
             )
-            source_cache[source_key] = related_id
+            source_cache[
+                (
+                    value.dataset,
+                    _portable_key(value.key),
+                    referenced.target_model,
+                    "",
+                )
+            ] = related_id
             return related_id
         if isinstance(value, BusinessReference):
             key, scope = value.key, value.scope
@@ -1857,6 +2154,26 @@ def _planned_deferred_create_count(
             for item in snapshot.relationship_plan.completions
         }
     )
+
+
+def _projected_receipt_requirements(
+    snapshot: ExecutionSnapshot,
+) -> dict[str, frozenset[tuple[str, str]]]:
+    """Index exact generated-record receipts required by incoming relations."""
+
+    requirements: dict[str, set[tuple[str, str]]] = {}
+    for row in snapshot.rows:
+        for intent in row.fields:
+            if not intent.incoming_projection_field:
+                continue
+            for dependency_row_id in intent.dependency_row_ids:
+                requirements.setdefault(dependency_row_id, set()).add(
+                    (intent.incoming_projection_field, intent.related_model)
+                )
+    return {
+        row_id: frozenset(items)
+        for row_id, items in requirements.items()
+    }
 
 
 def validated_create_batch_rows(value: int | str) -> int:
@@ -2008,6 +2325,7 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
     write_fields: dict[str, set[str]] = {}
     read_fields: dict[str, set[str]] = {}
     lookup_fields: dict[str, set[str]] = {}
+    row_by_id = {row.row_id: row for row in snapshot.rows}
     for dataset in snapshot.datasets:
         lookup_fields.setdefault(dataset.target_model, set()).update(
             (*dataset.identity_fields, *dataset.scope_fields)
@@ -2026,6 +2344,13 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
                         *intent.related_scope_fields,
                     )
                 )
+                if intent.incoming_projection_field:
+                    for dependency_row_id in intent.dependency_row_ids:
+                        dependency = row_by_id[dependency_row_id]
+                        read_fields.setdefault(
+                            dependency.target_model,
+                            set(),
+                        ).add(intent.incoming_projection_field)
     model_names = sorted(set(write_fields) | set(read_fields) | set(lookup_fields))
     return OdooApiScope(
         preview_hash=snapshot.semantic_hash,
@@ -2178,7 +2503,13 @@ def _execution_snapshot_error(
         referenced = rows_by_source.get(
             (value.dataset, _portable_key(value.key))
         )
-        if referenced is None or referenced.target_model != intent.related_model:
+        if referenced is None or (
+            referenced.target_model != intent.related_model
+            and not intent.incoming_projection_field
+        ) or (
+            referenced.target_model == intent.related_model
+            and intent.incoming_projection_field
+        ):
             return (
                 f"{dataset.dataset}.{intent.field} has no reviewed imported record"
             )
@@ -2199,6 +2530,7 @@ def _execution_snapshot_error(
             require_created
             and referenced.disposition == "CREATE"
             and not referenced.proposed_external_id
+            and not intent.incoming_projection_field
         ):
             return f"{dataset.dataset}.{intent.field} has no imported create record"
         return ""

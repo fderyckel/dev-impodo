@@ -42,7 +42,7 @@ from impodo.domain.relationship_dependencies import (
 )
 
 
-EXECUTION_SNAPSHOT_VERSION = 6
+EXECUTION_SNAPSHOT_VERSION = 7
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -74,6 +74,7 @@ class FieldIntent:
     dependency_strength: str = ""
     dependency_row_ids: tuple[str, ...] = ()
     target_binding_hashes: tuple[str, ...] = ()
+    incoming_projection_field: str = ""
     defer_on_create: bool = False
 
     def portable_dict(self) -> dict[str, Any]:
@@ -98,6 +99,10 @@ class FieldIntent:
             if self.target_binding_hashes:
                 payload["target_binding_hashes"] = list(
                     self.target_binding_hashes
+                )
+            if self.incoming_projection_field:
+                payload["incoming_projection_field"] = (
+                    self.incoming_projection_field
                 )
             if self.defer_on_create:
                 payload["defer_on_create"] = True
@@ -1105,6 +1110,7 @@ def _intent(
     related_scope_fields: tuple[str, ...] = (),
     dependency_strength: str = "",
     target_binding_hashes: tuple[str, ...] = (),
+    incoming_projection_field: str = "",
     defer_on_create: bool = False,
 ) -> FieldIntent:
     empty_relation = kind == "relation" and value == ()
@@ -1125,6 +1131,7 @@ def _intent(
         related_scope_fields=related_scope_fields,
         dependency_strength=dependency_strength,
         target_binding_hashes=target_binding_hashes,
+        incoming_projection_field=incoming_projection_field,
         defer_on_create=defer_on_create and action == "SET_VALUE",
     )
 
@@ -1306,6 +1313,9 @@ def _relation_shape(
             "related_model": resolve.target_model,
             "related_identity_fields": tuple(resolve.target_fields),
             "related_scope_fields": tuple(resolve.target_scope_fields),
+            "incoming_projection_field": (
+                resolve.incoming_projection_field or ""
+            ),
         }
     if resolve.dataset is None:
         raise ValueError("Execution relationship target is incomplete")
@@ -1424,11 +1434,27 @@ def plan_execution_rows(
                         )
                         continue
                     dependency = matches[0]
-                    if dependency.target_model != intent.related_model:
+                    if (
+                        dependency.target_model != intent.related_model
+                        and not intent.incoming_projection_field
+                    ):
                         blockers.append(
                             ScheduleBlocker(
                                 row_id=row.row_id,
                                 code="INCOMING_MODEL_MISMATCH",
+                                field=intent.field,
+                                dependency_row_id=dependency.row_id,
+                            )
+                        )
+                        continue
+                    if (
+                        dependency.target_model == intent.related_model
+                        and intent.incoming_projection_field
+                    ):
+                        blockers.append(
+                            ScheduleBlocker(
+                                row_id=row.row_id,
+                                code="UNNEEDED_INCOMING_PROJECTION",
                                 field=intent.field,
                                 dependency_row_id=dependency.row_id,
                             )
@@ -1665,6 +1691,7 @@ def _validate_rows(
                 or intent.dependency_strength
                 or intent.dependency_row_ids
                 or intent.target_binding_hashes
+                or intent.incoming_projection_field
                 or intent.defer_on_create
             ):
                 raise ValueError("Execution snapshot relation shape is invalid")
@@ -1678,6 +1705,12 @@ def _validate_rows(
                 not intent.related_model or not intent.related_identity_fields
             ):
                 raise ValueError("Execution snapshot relation shape is invalid")
+            if intent.incoming_projection_field and (
+                intent.kind != "relation"
+                or not intent.dependency_strength
+                or intent.action != "SET_VALUE"
+            ):
+                raise ValueError("Execution snapshot incoming projection is invalid")
             if intent.defer_on_create and (
                 row.disposition != Classification.CREATE.value
                 or intent.action != "SET_VALUE"
@@ -1855,6 +1888,9 @@ def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
             ),
             target_binding_hashes=tuple(
                 str(value) for value in item.get("target_binding_hashes", ())
+            ),
+            incoming_projection_field=str(
+                item.get("incoming_projection_field", "")
             ),
             defer_on_create=bool(item.get("defer_on_create", False)),
         )

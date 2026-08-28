@@ -873,6 +873,19 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 ),
             ),
         )
+        invalidations = []
+
+        class Invalidator:
+            def invalidate_successor_mapping(
+                self,
+                workspace_id,
+                *,
+                mapping_hash,
+                actor,
+            ):
+                invalidations.append((workspace_id, mapping_hash, actor))
+
+        self.mappings.downstream_invalidator = Invalidator()
         draft = self.mappings.save_working_draft(
             self.workspace_state.workspace_id,
             datasets=(dataset_mapping,),
@@ -885,6 +898,16 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 self.workspace_state.workspace_id
             ),
             draft,
+        )
+        self.assertEqual(
+            invalidations,
+            [
+                (
+                    self.workspace_state.workspace_id,
+                    draft.content_hash,
+                    LOCAL_ACTOR,
+                )
+            ],
         )
 
         replacement = _catalog(

@@ -260,6 +260,28 @@ class ExecutionRepository(DuckDbRepository):
                     )
                     if stable_before != stable_after:
                         raise WorkspaceError("Execution outcome transition is invalid")
+                    previous_projected = {
+                        (receipt.projection_field, receipt.target_model): receipt.odoo_id
+                        for receipt in previous.projected_receipts
+                    }
+                    current_projected = {
+                        (receipt.projection_field, receipt.target_model): receipt.odoo_id
+                        for receipt in item.projected_receipts
+                    }
+                    if (
+                        any(
+                            current_projected.get(key) != identifier
+                            for key, identifier in previous_projected.items()
+                        )
+                        or (
+                            current_projected != previous_projected
+                            and previous.status
+                            is not ExecutionRowStatus.PARTIALLY_APPLIED
+                        )
+                    ):
+                        raise WorkspaceError(
+                            "Execution projected Odoo receipt changed"
+                        )
                     if (
                         previous.status is ExecutionRowStatus.IN_FLIGHT
                         and previous.transport_phase in {"UPDATE", "COMPLETION"}
@@ -365,6 +387,7 @@ class ExecutionRepository(DuckDbRepository):
                         or item.field_names != previous.field_names
                         or item.proposed_external_id != previous.proposed_external_id
                         or item.recovery_hash != previous.recovery_hash
+                        or item.projected_receipts != previous.projected_receipts
                         or item.safe_error
                         or (
                             item.transport_phase == "CREATE"
@@ -514,6 +537,7 @@ class ExecutionRepository(DuckDbRepository):
                     if (
                         stable_before != stable_after
                         or item.status not in allowed.get(previous.status, set())
+                        or item.projected_receipts != previous.projected_receipts
                     ):
                         raise WorkspaceError(
                             "Execution recovery transition is invalid"

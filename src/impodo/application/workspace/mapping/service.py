@@ -188,6 +188,18 @@ class MappingSupportingLookupRepository(Protocol):
     ) -> SupportingLookupSnapshot | None: ...
 
 
+class MappingDownstreamInvalidator(Protocol):
+    """Clear correction evidence before changed mapping intent is persisted."""
+
+    def invalidate_successor_mapping(
+        self,
+        workspace_id: str,
+        *,
+        mapping_hash: str,
+        actor: Actor,
+    ) -> None: ...
+
+
 class MappingWorkspaceService:
     """Own Stage D concurrency, evidence binding, and submission gates.
 
@@ -205,6 +217,7 @@ class MappingWorkspaceService:
         authorization: AuthorizationPolicy,
         categorical_coverage: CategoricalCoverageService,
         supporting_lookups: MappingSupportingLookupRepository | None = None,
+        downstream_invalidator: MappingDownstreamInvalidator | None = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
@@ -212,6 +225,7 @@ class MappingWorkspaceService:
         self.authorization = authorization
         self.categorical_coverage = categorical_coverage
         self.supporting_lookups = supporting_lookups
+        self.downstream_invalidator = downstream_invalidator
         self.validator = MappingSemanticValidator()
 
     def save_working_draft(
@@ -270,6 +284,12 @@ class MappingWorkspaceService:
             updated_at=datetime.now(timezone.utc),
             updated_by=actor.identity.display_name,
         )
+        if self.downstream_invalidator is not None:
+            self.downstream_invalidator.invalidate_successor_mapping(
+                workspace_id,
+                mapping_hash=definition.content_hash,
+                actor=actor,
+            )
         self.mappings.save_mapping_working_draft(
             workspace_id,
             draft,

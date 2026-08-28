@@ -351,7 +351,24 @@ class PolarsCorrectionTests(unittest.TestCase):
             selection,
             rows,
         )
-        base_definition = _definition(selection)
+        unmodified_definition = _definition(selection)
+        unmodified_dataset = unmodified_definition.datasets[0]
+        base_definition = canonicalize_mapping_definition(
+            replace(
+                unmodified_definition,
+                datasets=(
+                    replace(
+                        unmodified_dataset,
+                        fields=tuple(
+                            replace(field, target_field="description")
+                            if field.target_field == "optional_text"
+                            else field
+                            for field in unmodified_dataset.fields
+                        ),
+                    ),
+                ),
+            )
+        )
 
         def with_active_rule(status_code: str):
             dataset = base_definition.datasets[0]
@@ -464,7 +481,7 @@ class PolarsCorrectionTests(unittest.TestCase):
             )
         )
         self.assertEqual(999 - artifact.candidate_count, 231)
-        self.assertEqual(counts_by_field["name"], 0)
+        self.assertEqual(counts_by_field["description"], 0)
 
     def test_many2one_key_changes_use_the_same_candidate_contract(self) -> None:
         dataset = self.previous_definition.datasets[0]

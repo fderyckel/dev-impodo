@@ -78,6 +78,15 @@ write. It then applies the snapshot's completion fields after the required
 receipts exist. The journal keeps those rows `PARTIALLY_APPLIED` until
 relationship completion succeeds.
 
+When a reviewed incoming relationship targets a record that Odoo generates
+from an earlier create, its field intent carries one captured read-only
+many2one projection. After the direct source create is journalled, the service
+reads that field in exact pages of at most 500 source identifiers and records
+the projected model and identifier on the source attempt. The dependent row
+uses Odoo's numeric relationship import only after that receipt is durable.
+This covers a Product template whose generated variant is needed by a BOM line
+without adding a Product-specific service path.
+
 Before the journal starts, the service collects all existing row identities
 and reviewed target relationship identities. `find_ids_many` resolves them in
 model-grouped pages of at most 100 exact keys. The snapshot's opaque binding
@@ -90,7 +99,9 @@ plan](../../plans/scalable-relationship-dependency-planning.md) now provides
 immutable row-edge and schedule evidence, exact cycle classification, bounded
 crosswalk revalidation, receipt-gated component execution, and read-back-gated
 component recovery. The browser now derives bounded progressive guidance from
-that same snapshot; Product/BOM scale qualification remains planned work.
+that same snapshot. The current 25,000-row Product/BOM macOS qualification and
+the bounded Odoo 19 generated-variant execution probe pass; clean Windows and
+browser-evidence gates remain.
 
 ## Browser guidance and progress
 
@@ -129,7 +140,7 @@ recorded outcome.
 | Bounded component paging | [`dependency_component_pages`](../../../src/impodo/domain/execution/dependency_scheduler.py) |
 | Snapshot row-plan construction | [`plan_execution_rows`](../../../src/impodo/domain/execution_snapshot.py) |
 | Odoo identity lookup contract | [`odoo_write.py`](../../../src/impodo/domain/execution/odoo_write.py) |
-| JSON-2 bulk crosswalk adapter | [`writer.py`](../../../src/impodo/adapters/odoo/writer.py) |
+| JSON-2 bulk crosswalk and projected-receipt adapter | [`writer.py`](../../../src/impodo/adapters/odoo/writer.py) |
 | Canonical dependency evidence | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Required dependency validation | [`dependencies.py`](../../../src/impodo/domain/mapping/validation/dependencies.py) |
 | Journal states | [`execution/models.py`](../../../src/impodo/domain/execution/models.py) |
@@ -143,9 +154,10 @@ recorded outcome.
 
 The execution snapshot is semantic-hash bound. `ExecutionRun` and
 `ExecutionRowAttempt` distinguish planned, in-flight, retry-ready, committed,
-partially applied, failed, blocked, and outcome-unknown states. The attempt
-record retains the active component and batch after a process restart without
-adding a parallel recovery store. Final reconciliation is new evidence and
+partially applied, failed, blocked, and outcome-unknown states. A partially
+applied create can retain immutable projected Odoo receipts as well as its
+direct identifier. The attempt record retains the active component and batch
+after a process restart without adding a parallel recovery store. Final reconciliation is new evidence and
 does not rewrite the journal. A recovery assessment remains unpublished;
 execution atomically records its semantic hash on every row before resume.
 The compact browser summary and job counters are disposable projections of
@@ -183,6 +195,11 @@ transport resumes.
 Deferred relationships are applied only after their dependencies exist. A
 partial relationship outcome remains explicit and recoverable through the
 journal.
+
+If interruption occurs between a direct create and generated-record read-back,
+resume reuses the direct journal receipt and repeats only the exact projection
+read. It never sends the source create again. A missing or changed projection
+blocks the dependent component.
 
 ## Odoo 19 and performance
 

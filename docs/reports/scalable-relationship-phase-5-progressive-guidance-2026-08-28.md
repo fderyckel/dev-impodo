@@ -76,7 +76,8 @@ plan now describe the same boundary.
 
 The following checks passed on 2026-08-28:
 
-- 67 focused execution-service, load-job, and browser workflow tests passed.
+- 132 focused snapshot, scheduler, dependency, execution, reconciliation,
+  load-job, DuckDB journal, browser, and dependency-baseline tests passed.
 - A journalled in-flight row remains in first-pass loading, does not count as a
   final result, and cannot trigger relationship completion.
 - Optional-cycle previews expose the exact affected-record and field counts.
@@ -86,6 +87,14 @@ The following checks passed on 2026-08-28:
 - Ruff passed for the Phase 5 Python code and focused tests.
 - The load polling JavaScript passed syntax validation.
 - Documentation quality and exact workflow-symbol checks passed.
+
+The repository-wide run executed 995 tests with 13 optional skips. It was not
+a clean acceptance run: the worktree changed while the suite was running, so
+source-worker checks correctly reported that Impodo had been updated in the
+open process. The run finished with 10 failures and 12 errors, including
+concurrent correction-store deletion ownership and previously recorded mapping
+template organization guards. None reproduced in the 132-test Phase 5 scope,
+which passed again after the broad run completed.
 
 ## Remaining boundary
 

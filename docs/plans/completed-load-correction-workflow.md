@@ -716,7 +716,9 @@ application use case; Phase 4 still needs to compose it into the browser and
 background progress presentation. The native reducer scans each previous and
 corrected prepared Parquet artifact once, adapts only sparse changed rows, and
 never introduces a Python source-row classifier, per-row hash, per-value hash,
-or connector call inside a source-row loop.
+or connector call inside a source-row loop. Saving semantically changed mapping
+intent in the successor clears its prepared, plan, and confirmation pointers
+before the draft write; a canonically unchanged save keeps current evidence.
 
 ### Phase 3: execute and automatically verify scalar corrections
 

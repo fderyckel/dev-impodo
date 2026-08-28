@@ -290,10 +290,47 @@ def _validate_resolver(
             )
             return
         referenced_model = context.dataset_targets.get(resolver.dataset_id)
+        projection_valid = False
+        projection_field = resolver.dataset_projection_field
+        if projection_field is not None:
+            referenced_schema = context.schema_models.get(referenced_model or "")
+            projected = next(
+                (
+                    field
+                    for field in (referenced_schema.fields if referenced_schema else ())
+                    if field.name == projection_field
+                ),
+                None,
+            )
+            projection_valid = bool(
+                resolver.origin is ResolverOrigin.TARGET_THEN_DATASET
+                and referenced_model is not None
+                and expected_model is not None
+                and referenced_model != expected_model
+                and projected is not None
+                and projected.type == "many2one"
+                and projected.relation == expected_model
+                and projected.readonly
+            )
+            if not projection_valid:
+                issues.append(
+                    _issue(
+                        "MAPPING_GENERATED_TARGET_INVALID",
+                        path,
+                        (
+                            "The selected generated-record link is not one captured "
+                            "read-only many-to-one field from the incoming table's "
+                            "Odoo model to this relationship model."
+                        ),
+                        "Choose a captured generated-record link or use matching Odoo models.",
+                        dataset=dataset,
+                    )
+                )
         if (
             referenced_model is not None
             and expected_model is not None
             and referenced_model != expected_model
+            and not projection_valid
         ):
             issues.append(
                 _issue(
@@ -312,6 +349,7 @@ def _validate_resolver(
             or resolver.key_mappings
             or resolver.scope_mappings
             or resolver.value_mappings
+            or resolver.dataset_projection_field
         ):
             issues.append(
                 _issue(
@@ -327,14 +365,20 @@ def _validate_resolver(
 
     if (
         resolver.origin is ResolverOrigin.TARGET_CATALOG
-        and resolver.dataset_id is not None
+        and (
+            resolver.dataset_id is not None
+            or resolver.dataset_projection_field is not None
+        )
     ):
         issues.append(
             _issue(
                 "MAPPING_REFERENCE_KEY_INVALID",
                 path,
-                "Target-catalog resolution cannot name an incoming dataset.",
-                "Remove the dataset selection.",
+                (
+                    "Target-catalog resolution cannot name an incoming dataset "
+                    "or generated-record link."
+                ),
+                "Remove the incoming dataset settings.",
                 dataset=dataset,
             )
         )

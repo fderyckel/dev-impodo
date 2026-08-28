@@ -109,7 +109,7 @@ one exact schema revision. Mapping evidence then binds the exact source
 selection, schema, governance, providers, transformations, relationships,
 validation result, reviewed warnings, and actor submission.
 
-The exact current mapping contract is version 12. It binds an explicit
+The exact current mapping contract is version 13. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -123,9 +123,12 @@ values and parameter choices as DataVersion or workspace evidence; they are
 not reusable Recipe identity unless the Recipe contract explicitly defines
 their portable shape.
 
-Mapping contract version 12 also binds conditional Selection providers, ordered rule and
-condition identifiers, typed comparisons, referenced source-column keys,
-captured Odoo output keys, and the otherwise decision. Categorical validation
+Mapping contract version 13 retains the conditional Selection providers
+introduced in version 12 and also binds the optional captured projection used
+when Odoo creates a relationship target from an imported source record. It
+continues to bind ordered rule and condition identifiers, typed comparisons,
+referenced source-column keys, captured Odoo output keys, and the otherwise
+decision. Categorical validation
 projects all referenced columns in the dataset's existing bounded scan and
 fails closed when a row cannot produce a current Odoo choice. Recipe
 publication replaces physical column keys with logical source-column IDs;

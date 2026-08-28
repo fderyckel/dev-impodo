@@ -50,6 +50,64 @@ class CorrectionRepository:
             )
         return self._binding(dict(zip(columns, row, strict=True))) if row else None
 
+    def invalidate_successor_mapping(
+        self,
+        workspace_id: str,
+        *,
+        mapping_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Clear stale prepared/plan pointers before a mapping draft changes."""
+
+        workspace_id = require_uuid(workspace_id, "workspace_id")
+        mapping_hash = require_hash(mapping_hash, "mapping_hash")
+        with self.foundation._registry_transactions.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM correction_run_binding "
+                "WHERE successor_workspace_id = ?",
+                [workspace_id],
+            ).fetchone()
+            if row is None:
+                return
+            columns = tuple(item[0] for item in connection.description)
+            current = self._binding(dict(zip(columns, row, strict=True)))
+            if current.current_mapping_hash == mapping_hash:
+                return
+            now = datetime.now(timezone.utc)
+            revision = current.optimistic_revision
+            connection.execute(
+                """
+                UPDATE correction_run_binding
+                   SET current_mapping_hash = ?, current_prepared_hash = NULL,
+                       current_plan_id = NULL, current_plan_hash = NULL,
+                       current_plan_storage_key = NULL,
+                       current_plan_artifact_hash = NULL,
+                       current_confirmation_id = NULL,
+                       current_confirmation_hash = NULL,
+                       current_confirmation_storage_key = NULL,
+                       current_confirmation_artifact_hash = NULL,
+                       optimistic_revision = ?, updated_at = ?
+                 WHERE successor_workspace_id = ? AND optimistic_revision = ?
+                """,
+                [
+                    mapping_hash,
+                    revision + 1,
+                    now.isoformat(),
+                    workspace_id,
+                    revision,
+                ],
+            )
+            self._event(
+                connection,
+                current,
+                aggregate_kind="CORRECTION_BINDING",
+                aggregate_id=current.correction_binding_id,
+                revision=revision + 1,
+                event_type="CORRECTION_MAPPING_CHANGED",
+                actor=actor,
+                occurred_at=now,
+            )
+
     def seal_completed_origin(
         self,
         binding: CorrectionBinding,

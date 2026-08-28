@@ -1006,6 +1006,9 @@ class RecipeApplicationCompiler:
                 )
             ),
             "target_dataset_id": item.get("target_dataset_id"),
+            "dataset_projection_field": item.get(
+                "dataset_projection_field"
+            ),
             "target_model": item.get("target_model"),
             "target_key_mappings": item.get("target_key_mappings", ()),
             "target_scope_mappings": item.get("target_scope_mappings", ()),
@@ -1036,6 +1039,11 @@ class RecipeApplicationCompiler:
             key_mappings=tuple(ReferenceKeyMapping(source_column_key=bindings[str(item["source_column_id"])], target_field=str(item["target_field"])) for item in payload.get("target_key_mappings", ())),
             scope_mappings=tuple(ReferenceKeyMapping(source_column_key=bindings[str(item["source_column_id"])], target_field=str(item["target_field"])) for item in payload.get("target_scope_mappings", ())),
             value_mappings=tuple(ValueMapping(source_value=str(item["source_value"]), target_value=str(item["target_value"])) for item in payload.get("value_matches", ())),
+            dataset_projection_field=(
+                str(payload["dataset_projection_field"])
+                if payload.get("dataset_projection_field")
+                else None
+            ),
         )
 
     @staticmethod

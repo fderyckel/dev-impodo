@@ -205,7 +205,7 @@ class CorrectionRepositoryTests(unittest.TestCase):
             MigrationWorkspaceState.OPEN,
         )
 
-    def test_successor_plan_pointer_is_replaced_by_invalidation_not_a_state(self) -> None:
+    def test_successor_mapping_change_invalidates_plan_without_a_new_state(self) -> None:
         project, data_version, run, workspace = self._roots()
         current = self.corrections.seal_completed_origin(
             self._binding(project, data_version, run, workspace),
@@ -250,16 +250,19 @@ class CorrectionRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(current.current_plan, plan)
 
-        invalidated = self.corrections.invalidate_plan(
-            workspace.workspace_id,
-            current_mapping_hash=HASHES[5],
-            current_prepared_hash=None,
-            expected_revision=current.optimistic_revision,
+        self.corrections.invalidate_successor_mapping(
+            successor_workspace.workspace_id,
+            mapping_hash=HASHES[5],
             actor=LOCAL_ACTOR,
         )
+        invalidated = self.corrections.get_for_completed_workspace(
+            workspace.workspace_id
+        )
+        assert invalidated is not None
 
         self.assertIsNone(invalidated.current_plan)
         self.assertEqual(invalidated.current_mapping_hash, HASHES[5])
+        self.assertIsNone(invalidated.current_prepared_hash)
         self.assertEqual(
             self.runs.get(successor_run.migration_run_id, actor=LOCAL_ACTOR).state,
             MigrationRunState.DRAFT,

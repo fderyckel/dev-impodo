@@ -13,6 +13,7 @@ from impodo.domain.shared.models import canonical_json_bytes
 
 MAX_CREATE_BATCH_ROWS = 50
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
+_TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
 
 class ExecutionRunStatus(StrEnum):
@@ -31,6 +32,24 @@ class ExecutionRowStatus(StrEnum):
     FAILED = "FAILED"
     BLOCKED = "BLOCKED"
     OUTCOME_UNKNOWN = "OUTCOME_UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedOdooReceipt:
+    """One exact related record read from a created Odoo record."""
+
+    projection_field: str
+    target_model: str
+    odoo_id: int
+
+    def __post_init__(self) -> None:
+        if (
+            _TECHNICAL_NAME.fullmatch(self.projection_field) is None
+            or _TECHNICAL_NAME.fullmatch(self.target_model) is None
+            or type(self.odoo_id) is not int
+            or self.odoo_id <= 0
+        ):
+            raise ValueError("Projected Odoo receipt is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +72,7 @@ class ExecutionRowAttempt:
     transport_batch: int = -1
     transport_phase: str = ""
     recovery_hash: str = ""
+    projected_receipts: tuple[ProjectedOdooReceipt, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -74,6 +94,13 @@ class ExecutionRowAttempt:
                 self.recovery_hash
                 and not _SHA256.fullmatch(self.recovery_hash)
             )
+            or len(
+                {
+                    (item.projection_field, item.target_model)
+                    for item in self.projected_receipts
+                }
+            )
+            != len(self.projected_receipts)
         ):
             raise ValueError("Execution row attempt is invalid")
 
@@ -106,6 +133,14 @@ class ExecutionRowAttempt:
             transport_batch=int(payload.get("transport_batch", -1)),
             transport_phase=str(payload.get("transport_phase", "")),
             recovery_hash=str(payload.get("recovery_hash", "")),
+            projected_receipts=tuple(
+                ProjectedOdooReceipt(
+                    projection_field=str(item["projection_field"]),
+                    target_model=str(item["target_model"]),
+                    odoo_id=int(item["odoo_id"]),
+                )
+                for item in payload.get("projected_receipts", ())
+            ),
         )
 
 

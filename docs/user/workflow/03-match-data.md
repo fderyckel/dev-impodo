@@ -114,6 +114,15 @@ another incoming table, choose the source of that record deliberately:
   update it merely because it won the relationship match. When it finds none,
   Impodo resolves the value through the selected incoming table.
 
+Some Odoo records create a second linked record automatically. For example, a
+Product template creates its Product variant, while a BOM component needs the
+variant. When the captured Odoo fields support this shape, Match data shows
+**If Odoo creates the linked record from that table**. Select the reviewed
+generated link only with the incoming table that creates it. Impodo then waits
+for Odoo to create and return that link before loading the dependent rows. You
+can leave it unset for normal relationships, change the incoming table, or
+revise the relationship before **Check changes**.
+
 For example, suppose a product file uses `PCE`, `UNI`, `kg`, and `m`, and an
 incoming `sales_uoms` table defines those four values. Odoo already contains
 `Unit`, `kg`, and `m`. Choose **Use Odoo first, otherwise use the incoming

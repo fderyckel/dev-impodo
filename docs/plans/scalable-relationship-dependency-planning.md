@@ -3,8 +3,9 @@
 ## Status and authority
 
 **Status:** Accepted implementation plan, revised 2026-08-28. Phases 0 through
-5 are complete, and Phase 6 is next. The remaining plan is not current
-browser behavior and does not authorize a Production load.
+5 are complete. Phase 6 is in progress at the conservative current
+25,000-row boundary. The remaining plan is not current browser behavior and
+does not authorize a Production load or raise an existing row limit.
 
 The current implementation orders related datasets and rows before their
 consumers, rejects actual required-at-create row cycles, applies only the
@@ -448,6 +449,21 @@ for that reference shape.
 - Reconcile by model and bounded field scope. Do not read back one row at a
   time.
 
+The live Odoo 19 BOM probe exposed one generated-record boundary that the
+earlier simplified fixtures did not represent. Creating a `product.template`
+also creates its `product.product` variant. A BOM header needs the template
+receipt, while each BOM component line needs the generated variant receipt.
+
+The implemented generic revision is a schema-approved generated target binding.
+When a reviewed mapping depends on a record that Odoo generates from an
+earlier create, the snapshot freezes the source model, the captured
+many2one projection field, and the related target model. After that create
+component commits, execution reads the projection field back in bounded
+ID pages, journals the derived receipts, and only then releases its dependents.
+The data manager must review this relationship choice. The executor will not
+infer it from Product or BOM model names, call a Product-specific method, or
+perform a target lookup for each row.
+
 No throughput claim is accepted from algorithm inspection alone. The release
 report must include actual request counts, wall time, peak memory, artifact
 size, and repeat-run evidence.
@@ -623,14 +639,41 @@ records the implementation and browser evidence.
 
 ### Phase 6: qualify representative scale and Odoo 19 behavior
 
-Run the exact worker and disposable Odoo 19 paths with clean revisions. Test a
-16,000-Product and 80,000-BOM-line relationship shape plus representative
-multi-level dependencies. Repeat on Windows using the existing related-data
-qualification protocol.
+Run the exact worker and disposable Odoo 19 paths with clean revisions. The
+first qualification target is no more than 25,000 scheduled records across
+Products, BOM headers, component lines, and small supporting datasets. This is
+the conservative current derived or materialized preparation boundary. It
+does not reinterpret the separate direct-route limits.
+
+The 16,000-Product and 80,000-BOM-line shape remains a deferred limit-increase
+qualification. It is not required to validate current 25,000-row behavior.
+Repeat the accepted current-boundary shape on Windows using the existing
+related-data qualification protocol.
 
 **Exit result:** correctness, determinism, request-count, wall-time, memory,
-artifact-size, restart, and read-back gates pass. Only then may a separate
-decision raise the current related-data limit.
+artifact-size, restart, generated-binding, and read-back gates pass. Only then
+may a separate decision raise the current related-data limit.
+
+**In progress 2026-08-28:** Three fresh macOS execution runs scheduled exactly
+25,000 rows and 44,998 relationship edges with stable hashes, bounded request
+classes, and no relationship-completion write. Three production worker
+first/repeat pairs also passed the current time, memory, snapshot-reuse, worker
+exit, and semantic-hash gates. A provided remote Odoo 19 Enterprise demo
+confirmed the captured Product and Manufacturing schema and verified a small
+multi-level BOM through create and exact read-back before deleting the probe
+records. A second cleaned fixture verified two sequenced BOM operations, two
+work centers, linked equipment, component-to-operation links, a by-product,
+and a confirmed manufacturing order that generated two ordered work orders.
+Those authored rows fit the existing dependency plan. Mapping contract 13 and
+execution snapshot 7 now freeze the optional generated relationship. The
+execution journal records its exact projected receipt before a dependent can
+load, and restart re-reads an incomplete projection without recreating its
+source. A production-path probe imported two Products, a BOM, and one component
+line through that path, matched exact Odoo read-back, and cleaned up. The
+clean-revision run, refreshed browser evidence, and Windows repeat are still
+required, so Phase 6 is not complete. The [Phase 6 qualification
+report](../reports/scalable-relationship-phase-6-current-boundary-qualification-2026-08-28.md)
+records the evidence and remaining gates.
 
 ## Verification matrix
 

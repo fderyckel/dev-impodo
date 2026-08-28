@@ -4,7 +4,7 @@ from tests.support.paths import REPOSITORY_ROOT
 
 from collections.abc import Callable
 import csv
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -156,6 +156,22 @@ def _benchmark_uuid(label: str) -> UUID:
         f"{int(PREPARATION_SCALE_DIRTY)}"
     )
     return uuid5(NAMESPACE_URL, f"impodo:preparation-scale:{fixture_key}:{label}")
+
+
+@contextmanager
+def _stable_foundation_ids():
+    """Keep fresh benchmark Projects semantically comparable across processes."""
+
+    modules = (
+        ("impodo.application.project.service.uuid4", "project"),
+        ("impodo.application.data_version.service.uuid4", "data-version"),
+        ("impodo.application.run.service.uuid4", "migration-run"),
+        ("impodo.application.workspace.service.uuid4", "workspace"),
+    )
+    with ExitStack() as stack:
+        for target, label in modules:
+            stack.enter_context(patch(target, return_value=_benchmark_uuid(label)))
+        yield
 
 
 class _PeakWorkingSetSampler:
@@ -1263,11 +1279,20 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert selection is not None
         manager = self.context.preparation_jobs
         assert manager is not None
-        workspace = PreparationWorkspace.from_resolution(
-            self.context.recipes.resolve_workspace(
-                workspace_id,
+        migration_workspace = self.context.migration_workspaces.get(
+            workspace_id,
+            actor=self.context.actor,
+        )
+        workspace = PreparationWorkspace.from_context(
+            migration_workspace,
+            self.context.data_versions.get(
+                migration_workspace.data_version_id,
                 actor=self.context.actor,
-            )
+            ),
+            self.context.migration_runs.get(
+                migration_workspace.migration_run_id,
+                actor=self.context.actor,
+            ),
         )
         parent_process = psutil.Process()
         parent_rss_before_jobs = parent_process.memory_info().rss
@@ -1329,7 +1354,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 ).fetchone()
             assert database_size_row is not None
             block_size = int(database_size_row[2])
-            project_directory = self.root / workspace_id
+            # This benchmark owns the complete temporary storage root. The
+            # current Project-first layout no longer stores all evidence under
+            # a top-level workspace-id directory.
+            project_directory = self.root
             return {
                 "database_file_bytes": database_path.stat().st_size,
                 "database_free_bytes": block_size * int(database_size_row[5]),
@@ -1393,8 +1421,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         expected_prepared_count = 2 if related_product_bom else 1
         self.assertEqual(len(prepared), expected_prepared_count)
         prepared_modified = {
-            item.parquet_storage_key: (
-                self.root / workspace_id / item.parquet_storage_key
+            item.parquet_storage_key: self.artifacts._prepared_snapshot_path(
+                workspace_id,
+                item.parquet_storage_key,
+                create=False,
             )
             .stat()
             .st_mtime_ns
@@ -1442,8 +1472,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         self.assertEqual(
             {
-                item.parquet_storage_key: (
-                    self.root / workspace_id / item.parquet_storage_key
+                item.parquet_storage_key: self.artifacts._prepared_snapshot_path(
+                    workspace_id,
+                    item.parquet_storage_key,
+                    create=False,
                 )
                 .stat()
                 .st_mtime_ns
@@ -1535,13 +1567,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         if column_count < 4 or mapped_field_count < 4:
             self.fail("The related fixture requires at least four columns")
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        authoring = self.context.project_authoring.create(
-            actor=self.context.actor,
-            display_name="96k related Product/BOM preparation benchmark",
-            source_mode="FILE",
-            creation_request_id=str(_benchmark_uuid("related-project-create")),
-            source_system_identity="Deterministic related CSV fixtures",
-        )
+        with _stable_foundation_ids():
+            authoring = self.context.project_authoring.create(
+                actor=self.context.actor,
+                display_name="96k related Product/BOM preparation benchmark",
+                source_mode="FILE",
+                creation_request_id=str(_benchmark_uuid("related-project-create")),
+                source_system_identity="Deterministic related CSV fixtures",
+            )
         workspace_state = authoring.workspace_state
 
         fixture_specs = (
@@ -1693,7 +1726,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 source_column_key=bom_lines.columns[index].stable_key,
                 transform=(
                     ScalarTransformPolicy(trim=True)
-                    if 1 <= index <= PREPARATION_SCALE_EFFECT_FIELDS
+                    if 4 <= index < 4 + PREPARATION_SCALE_EFFECT_FIELDS
                     else ScalarTransformPolicy()
                 ),
                 value_type="decimal" if index == 3 else "string",
@@ -1851,13 +1884,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         dirty: bool = False,
     ) -> tuple[str, str, int]:
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        authoring = self.context.project_authoring.create(
-            actor=self.context.actor,
-            display_name="100k complete preparation benchmark",
-            source_mode="FILE",
-            creation_request_id=str(_benchmark_uuid("project-create")),
-            source_system_identity="Deterministic CSV fixture",
-        )
+        with _stable_foundation_ids():
+            authoring = self.context.project_authoring.create(
+                actor=self.context.actor,
+                display_name="100k complete preparation benchmark",
+                source_mode="FILE",
+                creation_request_id=str(_benchmark_uuid("project-create")),
+                source_system_identity="Deterministic CSV fixture",
+            )
         workspace_state = authoring.workspace_state
         source_path = self.root / "preparation-scale-input.csv"
         headers = _headers(column_count, PREPARATION_SCALE_WORKLOAD)

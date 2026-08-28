@@ -18,6 +18,7 @@ from impodo.domain.execution.models import (
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
+    ProjectedOdooReceipt,
 )
 from impodo.domain.reconciliation import (
     ReconciliationRow,
@@ -257,6 +258,65 @@ class ExecutionRepositoryTests(unittest.TestCase):
 
         self.assertEqual(finished.rows[0].status, ExecutionRowStatus.COMMITTED)
         self.assertEqual(finished.rows[0].odoo_id, 42)
+
+    def test_projected_receipt_is_durable_and_cannot_change(self) -> None:
+        run = self._run()
+        self.repository.start_run(
+            self.workspace_state.workspace_id,
+            run,
+            actor=LOCAL_ACTOR,
+        )
+        create = self._start_batch(
+            run,
+            (run.rows[0],),
+            phase="CREATE",
+            batch=0,
+        )[0]
+        partial = replace(
+            create,
+            status=ExecutionRowStatus.PARTIALLY_APPLIED,
+            odoo_id=42,
+            safe_error="Created; generated relationship read-back pending",
+        )
+        self.repository.record_outcomes(
+            self.workspace_state.workspace_id,
+            run.run_id,
+            (partial,),
+        )
+        receipt = ProjectedOdooReceipt(
+            projection_field="product_variant_id",
+            target_model="product.product",
+            odoo_id=142,
+        )
+        projected = replace(
+            partial,
+            projected_receipts=(receipt,),
+        )
+        self.repository.record_outcomes(
+            self.workspace_state.workspace_id,
+            run.run_id,
+            (projected,),
+        )
+
+        reloaded = self.repository.get_run(
+            self.workspace_state.workspace_id,
+            run.run_id,
+        )
+
+        self.assertEqual(reloaded.rows[0].projected_receipts, (receipt,))
+        with self.assertRaisesRegex(WorkspaceError, "projected.*changed"):
+            self.repository.record_outcomes(
+                self.workspace_state.workspace_id,
+                run.run_id,
+                (
+                    replace(
+                        projected,
+                        status=ExecutionRowStatus.COMMITTED,
+                        safe_error="",
+                        projected_receipts=(replace(receipt, odoo_id=999),),
+                    ),
+                ),
+            )
 
     def test_process_restart_reloads_the_exact_in_flight_batch(self) -> None:
         run = self._run()

@@ -75,6 +75,7 @@ def compile_browser_mapping(
                     )
                     or None
                 ),
+                incoming_projection_field=value.dataset_projection_field,
             )
         return ResolveSpec(
             target_model=value.model,

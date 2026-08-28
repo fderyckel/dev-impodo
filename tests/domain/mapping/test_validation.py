@@ -305,11 +305,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:03a0c3a19c5a9bdceb8be3998f95aaf968be3e8451e276226e25d27c2075ecc9",
+            "sha256:9f11acde136655839fbc36fe4ee46be98f75bf817219f61ae0fa4baa95f515d7",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:de832b48146fb35cfc354c17e68a64eea75b040ef08366b4fda24e6f7707dc68",
+            "sha256:76a59233ea90502ade746d030a69234dca3435ad0c07cb46960aaf06029f3e49",
         )
         reversed_definition = replace(
             definition,
@@ -825,6 +825,278 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertTrue(compiled_partner.relations["parent_id"].required_on_create)
         self.assertEqual(edge.strength, DependencyStrength.HARD)
         self.assertTrue(edge.is_self_reference)
+
+    def test_generated_target_projection_is_reviewed_and_compiled_generically(
+        self,
+    ) -> None:
+        selection = SourceSelection(
+            selection_id="selection:generated-target",
+            version=1,
+            data_version_id="project:test",
+            created_at=NOW,
+            created_by="Test operator",
+            datasets=(
+                SourceDataset(
+                    dataset_id="dataset:products",
+                    name="products",
+                    source=FileSourceBinding(
+                        file_id="file:products",
+                        table_key="csv",
+                        source_sha256="a" * 64,
+                        catalog_hash="sha256:" + "1" * 64,
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
+                    row_count=2,
+                    columns=(
+                        SourceDatasetColumn(
+                            1,
+                            "Product code",
+                            "product.code",
+                            "string",
+                        ),
+                        SourceDatasetColumn(
+                            2,
+                            "Product name",
+                            "product.name",
+                            "string",
+                        ),
+                    ),
+                ),
+                SourceDataset(
+                    dataset_id="dataset:bom-lines",
+                    name="bom_lines",
+                    source=FileSourceBinding(
+                        file_id="file:bom-lines",
+                        table_key="csv",
+                        source_sha256="b" * 64,
+                        catalog_hash="sha256:" + "2" * 64,
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
+                    row_count=2,
+                    columns=(
+                        SourceDatasetColumn(
+                            1,
+                            "Line code",
+                            "line.code",
+                            "string",
+                        ),
+                        SourceDatasetColumn(
+                            2,
+                            "Product code",
+                            "line.product_code",
+                            "string",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:" + "3" * 64,
+        )
+        schema = replace(
+            self.schema,
+            models=(
+                SchemaModel(
+                    "mrp.bom.line",
+                    "BOM Component",
+                    (
+                        _field("x_legacy_key", required=True),
+                        _field(
+                            "product_id",
+                            "many2one",
+                            required=True,
+                            relation="product.product",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    "product.product",
+                    "Product Variant",
+                    (_field("default_code", required=True),),
+                ),
+                SchemaModel(
+                    "product.template",
+                    "Product",
+                    (
+                        _field("default_code", required=True),
+                        _field("name", required=True),
+                        _field(
+                            "product_variant_id",
+                            "many2one",
+                            readonly=True,
+                            relation="product.product",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:" + "4" * 64,
+        )
+        governance = SchemaGovernance(
+            governance_id="governance:generated-target",
+            version=1,
+            workspace_id=schema.workspace_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=tuple(model.name for model in schema.models),
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="bom-line-key",
+                    model="mrp.bom.line",
+                    key_fields=("x_legacy_key",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="variant-code",
+                    model="product.product",
+                    key_fields=("default_code",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="template-code",
+                    model="product.template",
+                    key_fields=("default_code",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            recorded_at=NOW,
+            recorded_by="Test operator",
+        )
+        products = DatasetMapping(
+            dataset_id="dataset:products",
+            target_model="product.template",
+            source_identity_column_keys=("product.code",),
+            target_identity=(
+                IdentityComponentMapping(
+                    source_column_keys=("product.code",),
+                    target_fields=("default_code",),
+                ),
+            ),
+            fields=(
+                ScalarFieldMapping(
+                    target_field="name",
+                    source_column_key="product.name",
+                ),
+            ),
+        )
+        relation = RelationshipMapping(
+            target_field="product_id",
+            kind="many2one",
+            source_column_keys=("line.product_code",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_THEN_DATASET,
+                dataset_id=products.dataset_id,
+                model="product.product",
+                key_mappings=(
+                    ReferenceKeyMapping(
+                        "line.product_code",
+                        "default_code",
+                    ),
+                ),
+                dataset_projection_field="product_variant_id",
+            ),
+            required=True,
+            required_on_create=True,
+            categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+        )
+        definition = MappingDefinition(
+            mapping_id="mapping:generated-target",
+            source_selection_hash=selection.content_hash,
+            schema_hash=governance.content_hash,
+            datasets=(
+                products,
+                DatasetMapping(
+                    dataset_id="dataset:bom-lines",
+                    target_model="mrp.bom.line",
+                    source_identity_column_keys=("line.code",),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=("line.code",),
+                            target_fields=("x_legacy_key",),
+                        ),
+                    ),
+                    relationships=(relation,),
+                ),
+            ),
+        )
+
+        validation = self.validator.validate(
+            definition,
+            selection,
+            schema,
+            governance,
+        )
+        compiled = compile_browser_mapping(definition, selection)
+
+        self.assertEqual(validation.status, MappingValidationStatus.VALID)
+        self.assertEqual(validation.issues, ())
+        self.assertEqual(
+            compiled.dataset("bom_lines")
+            .relations["product_id"]
+            .resolve.incoming_projection_field,
+            "product_variant_id",
+        )
+        invalid = replace(
+            definition,
+            datasets=(
+                products,
+                replace(
+                    definition.datasets[1],
+                    relationships=(
+                        replace(
+                            relation,
+                            resolver=replace(
+                                relation.resolver,
+                                dataset_projection_field="name",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertIn(
+            "MAPPING_GENERATED_TARGET_INVALID",
+            {
+                item.code
+                for item in self.validator.validate(
+                    invalid,
+                    selection,
+                    schema,
+                    governance,
+                ).issues
+            },
+        )
+        target_only_projection = replace(
+            definition,
+            datasets=(
+                products,
+                replace(
+                    definition.datasets[1],
+                    relationships=(
+                        replace(
+                            relation,
+                            resolver=replace(
+                                relation.resolver,
+                                origin=ResolverOrigin.TARGET_CATALOG,
+                                dataset_id=None,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertIn(
+            "MAPPING_REFERENCE_KEY_INVALID",
+            {
+                item.code
+                for item in self.validator.validate(
+                    target_only_projection,
+                    selection,
+                    schema,
+                    governance,
+                ).issues
+            },
+        )
 
     def test_every_frozen_dataset_and_governed_key_are_required(self) -> None:
         valid = _valid_definition(self.selection, self.governance)

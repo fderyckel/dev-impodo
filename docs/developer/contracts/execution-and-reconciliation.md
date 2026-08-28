@@ -57,6 +57,16 @@ created identifier before the dependent write. A required row cycle or
 unusable dependency stops before the journal and target transport. A deferred
 row remains explicit if it is only partially applied.
 
+A reviewed incoming relationship may name one captured, read-only many2one
+field on its source model when Odoo creates the required related record from
+that source. The snapshot freezes that projection field and target model.
+After the direct create receipt is durable, execution reads the projection in
+exact pages of at most 500 identifiers and journals the projected receipt
+while the source row is `PARTIALLY_APPLIED`. A dependent write cannot consume
+the projected identifier until that journal transition succeeds. The adapter
+does not infer Product or BOM model names or expose a caller-selected Odoo
+method.
+
 ## Unknown outcomes, interruption, and retry
 
 A connection reset, timeout, or wrapped upstream error may leave target state
@@ -77,6 +87,10 @@ read-back found no matching record. It may accept a write as committed only
 when read-back proves every intended final field. It may retain a created row
 as `PARTIALLY_APPLIED` only when all non-deferred fields match and the differing
 fields are contained by that row's frozen relationship-completion fields. A
+created row whose required projected receipt is absent also remains partially
+applied. Resume re-reads the frozen projection from the already created source
+identifier; it never recreates the source or accepts a changed projected
+identifier. A
 completed earlier component that changed, an ambiguous match, a missing
 receipt, another target, or another principal stops resume. Known rejections
 and terminal `OUTCOME_UNKNOWN` runs require a new **Check changes** result.
@@ -112,7 +126,8 @@ message; they do not create an execution exception.
 
 Progress is a projection of durable journal states. A `PLANNED`, `IN_FLIGHT`,
 or `RETRY_READY` row is not final. A `PARTIALLY_APPLIED` row has an accepted
-create receipt but is not final until its frozen relationship fields finish.
+create receipt but is not final until its frozen relationship fields or
+generated-record receipt finishes.
 Relationship progress cannot begin while a first-pass row remains unfinished.
 The current load-group number and relationship totals are non-secret browser
 control state only. Support details remain bounded to counts, target-safe

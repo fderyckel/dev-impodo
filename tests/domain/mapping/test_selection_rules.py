@@ -18,7 +18,6 @@ from impodo.adapters.polars_transformation import (
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarInputColumn,
     ColumnarOperationKind,
-    ColumnarScalarFieldProgram,
     ColumnarSelectionConditionProgram,
     ColumnarSelectionRuleProgram,
     ColumnarValueProviderProgram,
@@ -237,7 +236,7 @@ class SelectionRuleTests(unittest.TestCase):
         self.assertEqual(zero_match.acknowledgement_reason, "zero_match")
         self.assertEqual(overlap.acknowledgement_reason, "overlap")
 
-    def test_contract_v12_round_trips_rules_without_changing_order(self) -> None:
+    def test_contract_v13_round_trips_rules_without_changing_order(self) -> None:
         definition = MappingDefinition(
             mapping_id=str(uuid4()),
             source_selection_hash=HASH_A,
@@ -254,14 +253,14 @@ class SelectionRuleTests(unittest.TestCase):
         restored = MappingDefinition.from_json(definition.to_json())
 
         self.assertEqual(restored, definition)
-        self.assertEqual(restored.contract_version, 12)
+        self.assertEqual(restored.contract_version, 13)
         with self.assertRaisesRegex(ValueError, "current contract"):
             MappingDefinition(
                 mapping_id=definition.mapping_id,
                 source_selection_hash=HASH_A,
                 schema_hash=HASH_A,
                 datasets=definition.datasets,
-                contract_version=11,
+                contract_version=12,
             )
 
     def test_form_parser_rejects_extra_fields_and_accepts_portable_rules(self) -> None:

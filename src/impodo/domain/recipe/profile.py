@@ -165,6 +165,7 @@ class ResolveSpec(StrictModel):
     target_fields: tuple[str, ...] = ()
     target_scope_fields: tuple[str, ...] = ()
     target_value_mappings: tuple[tuple[str, str], ...] | None = None
+    incoming_projection_field: str | None = None
 
     @model_validator(mode="after")
     def validate_origin(self) -> "ResolveSpec":
@@ -202,6 +203,13 @@ class ResolveSpec(StrictModel):
                 for source, target_value in self.target_value_mappings
             ):
                 raise ValueError("target value mappings are invalid")
+        if self.incoming_projection_field is not None:
+            if not incoming or not target:
+                raise ValueError(
+                    "incoming projection requires target-first incoming resolution"
+                )
+            if not self.incoming_projection_field.strip():
+                raise ValueError("incoming projection field is invalid")
         return self
 
     @property

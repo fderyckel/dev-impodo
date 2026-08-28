@@ -19,7 +19,7 @@ from impodo.application.correction_service import (
     CorrectionReviewService,
     build_completed_load_target_index,
 )
-from impodo.domain.correction import CorrectionPlan
+from impodo.domain.correction import CorrectionCandidate, CorrectionPlan
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarTransformationProgram,
 )
@@ -36,8 +36,13 @@ from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.odoo.contracts import RecordSnapshot
 from impodo.domain.prepared_snapshot import PreparedSnapshot
-from impodo.domain.project.foundation import FaultInjector, require_uuid
-from impodo.domain.project.foundation import require_aware, require_hash, require_revision
+from impodo.domain.project.foundation import (
+    FaultInjector,
+    require_aware,
+    require_hash,
+    require_revision,
+    require_uuid,
+)
 from impodo.domain.reconciliation import ReconciliationRun
 from impodo.domain.run.models import MigrationRun, MigrationRunPurpose
 from impodo.domain.run.setup import MigrationRunTargetSetupService
@@ -709,7 +714,7 @@ class CorrectionReviewEvidence:
     mapping: MappingRevision
     previous_prepared_hash: str
     corrected_prepared_hash: str
-    candidate_batches: Iterable[tuple]
+    candidate_batches: Iterable[tuple[CorrectionCandidate, ...]]
     reader: OdooReadbackReader
     reader_scope_hash: str
     read_credential_binding_hash: str

@@ -103,7 +103,7 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
         restored = ExecutionSnapshot.from_json(snapshot.to_json())
 
-        self.assertEqual(restored.contract_version, 6)
+        self.assertEqual(restored.contract_version, 7)
         self.assertTrue(
             all(
                 row.target_binding_hash.startswith("sha256:")

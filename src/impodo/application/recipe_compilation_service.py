@@ -630,6 +630,9 @@ class RecipeCompiler:
                             if resolver.dataset_id is not None
                             else None
                         ),
+                        "dataset_projection_field": (
+                            resolver.dataset_projection_field
+                        ),
                         "target_key_fields": [
                             item.target_field for item in resolver.key_mappings
                         ],
@@ -712,6 +715,9 @@ class RecipeCompiler:
                         self._dataset(resolver.dataset_id, dataset_ids)
                         if resolver.dataset_id is not None
                         else None
+                    ),
+                    "dataset_projection_field": (
+                        resolver.dataset_projection_field
                     ),
                     "target_model": resolver.model,
                     "target_key_fields": [

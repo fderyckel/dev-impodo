@@ -4,19 +4,161 @@ from tests.support.paths import REPOSITORY_ROOT
 
 import json
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 
 from starlette.datastructures import FormData
 
 from impodo.web.presenters.mapping_forms import (
     _mapping_allowed_fields,
+    _mapping_datasets_from_form,
     _text_steps_from_form,
 )
 from impodo.web.presenters.mapping_view import _is_phone_field
+from impodo.domain.schema.governance import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+)
+from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.workspace.contracts import (
+    SchemaField,
+    SchemaModel,
+    SourceDataset,
+    SourceDatasetColumn,
+)
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_generated_record_link_is_preserved_by_the_mapping_form(self) -> None:
+        file_binding = FileSourceBinding(
+            file_id="file:test",
+            table_key="csv",
+            source_sha256="a" * 64,
+            catalog_hash="sha256:" + "b" * 64,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        )
+        selection = SimpleNamespace(
+            datasets=(
+                SourceDataset(
+                    dataset_id="dataset:products",
+                    name="Products",
+                    source=file_binding,
+                    row_count=2,
+                    columns=(
+                        SourceDatasetColumn(
+                            1,
+                            "default_code",
+                            "product.default_code",
+                            "string",
+                        ),
+                    ),
+                ),
+                SourceDataset(
+                    dataset_id="dataset:bom-lines",
+                    name="BOM lines",
+                    source=file_binding,
+                    row_count=1,
+                    columns=(
+                        SourceDatasetColumn(
+                            1,
+                            "component_code",
+                            "line.component_code",
+                            "string",
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        def field(
+            name: str,
+            field_type: str,
+            *,
+            readonly: bool = False,
+            relation: str | None = None,
+        ) -> SchemaField:
+            return SchemaField(
+                name=name,
+                label=name.replace("_", " ").title(),
+                type=field_type,
+                required=False,
+                readonly=readonly,
+                relation=relation,
+                relation_field=None,
+                selection=(),
+            )
+
+        schema = SimpleNamespace(
+            models=(
+                SchemaModel(
+                    "product.template",
+                    "Product",
+                    (
+                        field("default_code", "char"),
+                        field(
+                            "product_variant_id",
+                            "many2one",
+                            readonly=True,
+                            relation="product.product",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    "mrp.bom.line",
+                    "BOM line",
+                    (
+                        field(
+                            "product_id",
+                            "many2one",
+                            relation="product.product",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    "product.product",
+                    "Product variant",
+                    (field("default_code", "char"),),
+                ),
+            )
+        )
+        product_key = BusinessKeyDefinition(
+            key_id="key:product-product-code",
+            model="product.product",
+            key_fields=("default_code",),
+            scope_fields=(),
+            description="Product variant code",
+            status=BusinessKeyStatus.CONFIRMED,
+        )
+        form = FormData(
+            (
+                ("target_model_0", "product.template"),
+                ("target_model_1", "mrp.bom.line"),
+                ("relation_source_1_0", "line.component_code"),
+                ("relation_origin_1_0", "target_then_dataset"),
+                ("relation_dataset_1_0", "dataset:products"),
+                (
+                    "relation_projection_1_0",
+                    "dataset:products|product_variant_id",
+                ),
+                ("relation_key_1_0", product_key.key_id),
+            )
+        )
+
+        datasets = _mapping_datasets_from_form(
+            form,
+            selection,
+            schema,
+            governance=SimpleNamespace(business_keys=(product_key,)),
+        )
+
+        resolver = datasets[1].relationships[0].resolver
+        self.assertEqual(resolver.dataset_id, "dataset:products")
+        self.assertEqual(
+            resolver.dataset_projection_field,
+            "product_variant_id",
+        )
+
     def test_phone_quick_start_is_suggested_only_for_phone_fields(self) -> None:
         for name, label in (
             ("phone", "Phone"),

@@ -6,6 +6,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 
 MAX_IDENTITY_LOOKUP_KEYS = 100
+MAX_PROJECTED_RECEIPT_IDS = 500
 
 
 class OdooWriteError(RuntimeError):
@@ -60,3 +61,11 @@ class OdooWriteExecutor(Protocol):
         record_id: int,
         values: Mapping[str, Any],
     ) -> None: ...
+
+    def read_projected_ids(
+        self,
+        model: str,
+        identifiers: Sequence[int],
+        projection_field: str,
+        target_model: str,
+    ) -> tuple[int, ...]: ...

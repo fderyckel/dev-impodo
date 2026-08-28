@@ -104,6 +104,7 @@ from ..adapters.duckdb.run_aware_advanced_coverage_repository import (
 )
 from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from ..adapters.duckdb.mapping_repository import MappingRepository
+from ..adapters.duckdb.correction_repository import CorrectionRepository
 from ..adapters.duckdb.mapping_field_catalog_repository import (
     MappingFieldCatalogRepository,
 )
@@ -298,6 +299,7 @@ def create_local_app(
     )
     foundation_database = foundation.foundation_database
     foundation_repository = foundation.foundation_repository
+    correction_repository = CorrectionRepository(foundation_repository)
     database = foundation.workspace_database
     artifacts = foundation.artifacts
     workspace_state_repository = MigrationWorkspaceStateRepository(
@@ -480,6 +482,7 @@ def create_local_app(
         workspace_access,
         categorical_coverage=categorical_coverage,
         supporting_lookups=supporting_lookup_repository,
+        downstream_invalidator=correction_repository,
     )
     recipe_application_service = RecipeApplicationService(
         sources=workspace_mapping_sources,

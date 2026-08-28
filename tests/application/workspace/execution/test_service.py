@@ -281,6 +281,77 @@ def _remote_many2many_snapshot() -> ExecutionSnapshot:
     )
 
 
+def _generated_variant_snapshot() -> ExecutionSnapshot:
+    snapshot = _snapshot()
+    product = _row(
+        dataset="products",
+        model="product.template",
+        source_row=20,
+        source_identity=("P1",),
+        business_identity=("P1",),
+        disposition="CREATE",
+        fields=(FieldIntent("default_code", "SET_VALUE", "P1"),),
+    )
+    component = _row(
+        dataset="bom_lines",
+        model="mrp.bom.line",
+        source_row=21,
+        source_identity=("BOM1", "P1"),
+        business_identity=("BOM1", "P1"),
+        disposition="CREATE",
+        fields=(
+            FieldIntent(
+                "product_id",
+                "SET_VALUE",
+                LogicalReference(
+                    origin="incoming",
+                    key=("P1",),
+                    dataset="products",
+                ),
+                kind="relation",
+                relation_operation="replace",
+                related_model="product.product",
+                related_identity_fields=("default_code",),
+                dependency_strength="hard",
+                incoming_projection_field="product_variant_id",
+            ),
+        ),
+    )
+    return _with_plan(
+        replace(
+            snapshot,
+            datasets=(
+                ExecutionDataset(
+                    "products",
+                    "product.template",
+                    0,
+                    (),
+                    "update",
+                    ("default_code",),
+                    (),
+                ),
+                ExecutionDataset(
+                    "bom_lines",
+                    "mrp.bom.line",
+                    1,
+                    ("products",),
+                    "update",
+                    ("bom_id", "product_id"),
+                    (),
+                ),
+            ),
+            rows=(product, component),
+            counts={
+                "CREATE": 2,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+    )
+
+
 def _remote_relation_update_snapshot(*, many2many: bool) -> ExecutionSnapshot:
     snapshot = _snapshot()
     relation = (
@@ -489,6 +560,7 @@ class _Executor:
         self.creates = []
         self.loads = []
         self.updates = []
+        self.projection_reads = []
         self.next_id = 10
 
     def find_ids(self, model, domain):
@@ -530,6 +602,19 @@ class _Executor:
             raise self.update_error
         self.updates.append((model, record_id, dict(values)))
 
+    def read_projected_ids(
+        self,
+        model,
+        identifiers,
+        projection_field,
+        target_model,
+    ):
+        requested = tuple(identifiers)
+        self.projection_reads.append(
+            (model, requested, projection_field, target_model)
+        )
+        return tuple(identifier + 100 for identifier in requested)
+
 
 class _CrashAfterCheckpoint(_Executor):
     def create_rows(self, model, values):
@@ -551,6 +636,18 @@ class _CrashDuringCompletion(_Executor):
     def update_row(self, model, record_id, values):
         del model, record_id, values
         raise RuntimeError("simulated completion interruption")
+
+
+class _CrashDuringProjection(_Executor):
+    def read_projected_ids(
+        self,
+        model,
+        identifiers,
+        projection_field,
+        target_model,
+    ):
+        del model, identifiers, projection_field, target_model
+        raise RuntimeError("simulated generated-receipt interruption")
 
 
 class ExecutionServiceTests(unittest.TestCase):
@@ -635,6 +732,50 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         self.assertEqual(len(blocker_summary.groups), 5)
         self.assertEqual(blocker_summary.omitted_group_count, 2)
+
+    def test_generated_variant_is_read_in_one_page_and_journalled_before_bom(self):
+        snapshot = _generated_variant_snapshot()
+        service, _journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+
+        run = service.execute(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(
+            executor.projection_reads,
+            [
+                (
+                    "product.template",
+                    (10,),
+                    "product_variant_id",
+                    "product.product",
+                )
+            ],
+        )
+        self.assertEqual(executor.loads[1][1][0]["product_id/.id"], "110")
+        product_attempt = next(
+            item for item in run.rows if item.dataset == "products"
+        )
+        self.assertEqual(product_attempt.status, ExecutionRowStatus.COMMITTED)
+        self.assertEqual(
+            tuple(
+                (
+                    item.projection_field,
+                    item.target_model,
+                    item.odoo_id,
+                )
+                for item in product_attempt.projected_receipts
+            ),
+            (("product_variant_id", "product.product", 110),),
+        )
 
     def test_changed_confirmation_hash_stops_before_journal_or_target_io(self):
         snapshot = _snapshot()
@@ -1122,6 +1263,82 @@ class ExecutionServiceTests(unittest.TestCase):
                 tuple(sorted(values)) for _model, _record_id, values in executor.updates
             ),
             (("second_id",),),
+        )
+
+    def test_generated_receipt_restart_rereads_without_recreating_source(self):
+        snapshot = _generated_variant_snapshot()
+        service, journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        scope_hash = execution_api_scope(snapshot).semantic_hash
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "generated-receipt interruption",
+        ):
+            service.execute(
+                snapshot.workspace_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=_CrashDuringProjection(scope_hash),
+                actor=LOCAL_ACTOR,
+            )
+
+        interrupted = journal.run
+        self.assertEqual(
+            tuple(item.status for item in interrupted.rows),
+            (
+                ExecutionRowStatus.PARTIALLY_APPLIED,
+                ExecutionRowStatus.PLANNED,
+            ),
+        )
+        recovery = ReconciliationRun(
+            reconciliation_id=str(uuid4()),
+            workspace_id=snapshot.workspace_id,
+            execution_run_id=interrupted.run_id,
+            snapshot_hash=snapshot.semantic_hash,
+            target_hash=snapshot.target_hash,
+            target_database=snapshot.target_database,
+            status=ReconciliationRunStatus.FALLOUT,
+            verified_at=datetime.now(timezone.utc),
+            verified_by="Local operator",
+            unchanged_count=0,
+            rows=tuple(
+                ReconciliationRow(
+                    row_id=row.row_id,
+                    dataset=row.dataset,
+                    source_row=row.source_row,
+                    target_model=row.target_model,
+                    operation=row.disposition,
+                    execution_status=interrupted.rows[index].status.value,
+                    status=(
+                        ReconciliationRowStatus.VERIFIED
+                        if index == 0
+                        else ReconciliationRowStatus.NOT_WRITTEN
+                    ),
+                    odoo_id=(interrupted.rows[index].odoo_id if index == 0 else None),
+                    message="Generated-receipt recovery evidence",
+                )
+                for index, row in enumerate(snapshot.rows)
+            ),
+        )
+        executor = _Executor(scope_hash)
+
+        completed = service.resume(
+            snapshot.workspace_id,
+            expected_execution_run_id=interrupted.run_id,
+            recovery=recovery,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(completed.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(len(executor.loads), 1)
+        self.assertEqual(executor.loads[0][0], "mrp.bom.line")
+        self.assertEqual(len(executor.projection_reads), 1)
+        self.assertEqual(
+            completed.rows[0].projected_receipts[0].odoo_id,
+            110,
         )
 
     def test_scope_comes_from_reviewed_standard_extension_and_custom_fields(self):
@@ -2440,6 +2657,65 @@ class Json2WriteExecutorTests(unittest.TestCase):
             ["|", ["ref", "=", "C1"], ["ref", "=", "C2"]],
         )
         self.assertEqual(calls[0][1]["limit"], 5)
+
+    def test_generated_receipt_readback_is_exact_bounded_and_positional(self):
+        calls = []
+
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            calls.append((url, json.loads(body)))
+            return 200, [
+                {"id": 42, "product_variant_id": [142, "Variant B"]},
+                {"id": 41, "product_variant_id": [141, "Variant A"]},
+            ]
+
+        scope = OdooApiScope(
+            preview_hash=HASH,
+            models=(
+                OdooModelScope(
+                    "product.product",
+                    read_fields=("default_code",),
+                    lookup_fields=("default_code",),
+                ),
+                OdooModelScope(
+                    "product.template",
+                    read_fields=("product_variant_id",),
+                    lookup_fields=("default_code",),
+                ),
+            ),
+        )
+        executor = Json2WriteExecutor(
+            self.executor.config,
+            scope,
+            transport=transport,
+        )
+
+        projected = executor.read_projected_ids(
+            "product.template",
+            (41, 42),
+            "product_variant_id",
+            "product.product",
+        )
+
+        self.assertEqual(projected, (141, 142))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            calls[0][1],
+            {
+                "context": {},
+                "domain": [["id", "in", [41, 42]]],
+                "fields": ["id", "product_variant_id"],
+                "limit": 2,
+                "order": "id asc",
+            },
+        )
+        with self.assertRaises(OdooWriteRejected):
+            executor.read_projected_ids(
+                "product.template",
+                (41,),
+                "unreviewed_field",
+                "product.product",
+            )
 
     def test_rejects_fields_and_models_not_present_in_the_reviewed_preview(self):
         with self.assertRaises(OdooWriteRejected):

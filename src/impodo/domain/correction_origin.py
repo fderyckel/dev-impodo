@@ -343,15 +343,21 @@ class CorrectionOriginManifest:
             _hash(value, name)
         if self.mapping_version < 1:
             raise CorrectionOriginError("Correction origin mapping version is invalid")
-        artifacts = tuple(sorted(self.prepared_artifacts, key=lambda item: item.dataset_id))
+        artifacts = tuple(
+            sorted(self.prepared_artifacts, key=lambda item: item.dataset_id)
+        )
         if not artifacts or artifacts != self.prepared_artifacts:
-            raise CorrectionOriginError("Correction prepared artifacts are not deterministic")
+            raise CorrectionOriginError(
+                "Correction prepared artifacts are not deterministic"
+            )
         if len({item.dataset_id for item in artifacts}) != len(artifacts):
             raise CorrectionOriginError("Correction prepared artifacts are ambiguous")
         try:
             required_text(self.target_observed_at, "target_observed_at", maximum=100)
         except ValueError as error:
-            raise CorrectionOriginError("Correction target observation is invalid") from error
+            raise CorrectionOriginError(
+                "Correction target observation is invalid"
+            ) from error
         require_aware(self.created_at, "created_at")
         object.__setattr__(self, "created_at", self.created_at.astimezone(timezone.utc))
 
@@ -392,7 +398,10 @@ class CorrectionOriginManifest:
     def from_protected_json(cls, payload: bytes) -> "CorrectionOriginManifest":
         try:
             raw = json.loads(payload)
-            if not isinstance(raw, dict) or raw.get("contract") != CORRECTION_ORIGIN_CONTRACT:
+            if (
+                not isinstance(raw, dict)
+                or raw.get("contract") != CORRECTION_ORIGIN_CONTRACT
+            ):
                 raise CorrectionOriginError("Correction origin contract is unsupported")
             manifest = cls(
                 manifest_id=str(raw["manifest_id"]),
@@ -417,7 +426,9 @@ class CorrectionOriginManifest:
                     for item in raw["prepared_artifacts"]
                 ),
                 execution_snapshot_hash=str(raw["execution_snapshot_hash"]),
-                execution_snapshot_root_hash=str(raw["execution_snapshot_root_hash"]),
+                execution_snapshot_root_hash=str(
+                    raw["execution_snapshot_root_hash"]
+                ),
                 preflight_run_id=str(raw["preflight_run_id"]),
                 execution_run_id=str(raw["execution_run_id"]),
                 execution_evidence_hash=str(raw["execution_evidence_hash"]),
@@ -440,7 +451,9 @@ class CorrectionOriginManifest:
         except CorrectionOriginError:
             raise
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise CorrectionOriginError("Correction origin payload is invalid") from error
+            raise CorrectionOriginError(
+                "Correction origin payload is invalid"
+            ) from error
         if content_hash(manifest._meaning_dict()) != manifest.manifest_hash:
             raise CorrectionOriginError("Correction origin hash changed")
         return manifest

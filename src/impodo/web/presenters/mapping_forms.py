@@ -265,6 +265,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"relation_source_{dataset_index}_{relation_index}",
                     f"relation_origin_{dataset_index}_{relation_index}",
                     f"relation_dataset_{dataset_index}_{relation_index}",
+                    f"relation_projection_{dataset_index}_{relation_index}",
                     f"relation_key_{dataset_index}_{relation_index}",
                     f"relation_operation_{dataset_index}_{relation_index}",
                     f"relation_compare_{dataset_index}_{relation_index}",
@@ -625,6 +626,25 @@ def _mapping_datasets_from_form(
                     or None,
                 )
             elif origin is ResolverOrigin.TARGET_THEN_DATASET:
+                resolver_dataset_id = _text(
+                    form,
+                    f"relation_dataset_{dataset_index}_{relation_index}",
+                ) or None
+                projection_binding = _text(
+                    form,
+                    f"relation_projection_{dataset_index}_{relation_index}",
+                )
+                projection_dataset_id, separator, projection_field = (
+                    projection_binding.partition("|")
+                )
+                if projection_binding and (
+                    separator != "|"
+                    or projection_dataset_id != resolver_dataset_id
+                    or not projection_field
+                ):
+                    raise ValueError(
+                        "The generated-record link does not match the incoming table"
+                    )
                 resolver = replace(
                     _target_catalog_resolver(
                         metadata.relation,
@@ -637,17 +657,16 @@ def _mapping_datasets_from_form(
                         selected_sources,
                     ),
                     origin=origin,
-                    dataset_id=_text(
-                        form,
-                        f"relation_dataset_{dataset_index}_{relation_index}",
-                    )
-                    or None,
+                    dataset_id=resolver_dataset_id,
                     value_mappings=_value_mappings_from_form(
                         form,
                         (
                             f"relation_value_matches_{dataset_index}_"
                             f"{relation_index}"
                         ),
+                    ),
+                    dataset_projection_field=(
+                        projection_field if projection_binding else None
                     ),
                 )
             else:

@@ -56,7 +56,12 @@ class NativeCorrectionReviewPipeline:
             successor_workspace_id,
             actor=actor,
         )
-        datasets = tuple(sorted(result.datasets, key=lambda item: item.previous_snapshot.dataset_id))
+        datasets = tuple(
+            sorted(
+                result.datasets,
+                key=lambda item: item.previous_snapshot.dataset_id,
+            )
+        )
         expected = {
             item.dataset_id: item for item in manifest.prepared_artifacts
         }

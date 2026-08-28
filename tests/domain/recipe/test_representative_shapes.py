@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 import unittest
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -265,7 +264,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             mappings=(mapping,),
             models=(partner_model,),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=12,
+            mapping_contract_version=13,
         )
         with_related_capture = _publish(
             base_selection=selection,
@@ -283,7 +282,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                 ),
             ),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=12,
+            mapping_contract_version=13,
         )
 
         self.assertEqual(without_related_capture, with_related_capture)
@@ -320,7 +319,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                     ),
                 ),
                 business_keys=(_key("res.partner", "ref"),),
-                mapping_contract_version=12,
+                mapping_contract_version=13,
             )
 
     def test_product_recipe_compiles_scalar_and_target_reference_meaning(self):

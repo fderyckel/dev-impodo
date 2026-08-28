@@ -1422,6 +1422,36 @@ def _mapping_dataset_views(
                 "matched_choice_count": len(
                     mapping.resolver.value_mappings if mapping else ()
                 ),
+                "projection_options": tuple(
+                    {
+                        "value": f"{candidate.dataset_id}|{projection.name}",
+                        "dataset_name": candidate.name,
+                        "field": projection,
+                    }
+                    for candidate in selection.datasets
+                    if candidate.dataset_id != source_dataset.dataset_id
+                    for candidate_model in (
+                        models.get(
+                            selected_model_by_dataset.get(candidate.dataset_id, "")
+                        ),
+                    )
+                    if candidate_model is not None
+                    and candidate_model.name != field.relation
+                    for projection in candidate_model.fields
+                    if projection.type == "many2one"
+                    and projection.relation == field.relation
+                    and projection.readonly
+                ),
+                "selected_projection": (
+                    (
+                        f"{mapping.resolver.dataset_id}|"
+                        f"{mapping.resolver.dataset_projection_field}"
+                    )
+                    if mapping
+                    and mapping.resolver.dataset_id
+                    and mapping.resolver.dataset_projection_field
+                    else ""
+                ),
             }
             if recommendation is not None:
                 row["recommended_dataset_id"] = recommendation["dataset_id"]

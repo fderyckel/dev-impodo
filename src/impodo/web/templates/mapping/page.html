@@ -11,7 +11,6 @@
 {% endblock %}
 {% block content %}
   {% include "mapping/_heading.html" %}
-
   {% if selection and schema and (governance or odoo_pinned) %}
     <form
       method="post"
@@ -32,7 +31,6 @@
         {% endfor %}
       {% endfor %}
       <div class="notice error" data-mapping-save-error role="alert" hidden></div>
-
       <details class="technical-evidence">
         <summary>
           Support details
@@ -45,7 +43,6 @@
           {% if validation %}<div><dt>Validation</dt><dd><code title="{{ validation.validation_hash }}">{{ validation.validation_hash }}</code></dd></div>{% endif %}
         </div>
       </details>
-
       {% for view in dataset_views %}
         {% set dataset_position = loop.index %}
         {% include "mapping/_dataset.html" %}
