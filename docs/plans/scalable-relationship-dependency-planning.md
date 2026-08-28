@@ -3,9 +3,9 @@
 ## Status and authority
 
 **Status:** Accepted implementation plan, revised 2026-08-28. Phases 0 through
-5 are complete. Phase 6 is in progress at the conservative current
-25,000-row boundary. The remaining plan is not current browser behavior and
-does not authorize a Production load or raise an existing row limit.
+5 and the Phase 6 implementation and macOS qualification are complete at the
+conservative current 25,000-row boundary. The Windows repeat remains open.
+This plan does not authorize a Production load or raise an existing row limit.
 
 The current implementation orders related datasets and rows before their
 consumers, rejects actual required-at-create row cycles, applies only the
@@ -654,25 +654,32 @@ related-data qualification protocol.
 artifact-size, restart, generated-binding, and read-back gates pass. Only then
 may a separate decision raise the current related-data limit.
 
-**In progress 2026-08-28:** Three fresh macOS execution runs scheduled exactly
-25,000 rows and 44,998 relationship edges with stable hashes, bounded request
-classes, and no relationship-completion write. Three production worker
-first/repeat pairs also passed the current time, memory, snapshot-reuse, worker
-exit, and semantic-hash gates. A provided remote Odoo 19 Enterprise demo
-confirmed the captured Product and Manufacturing schema and verified a small
-multi-level BOM through create and exact read-back before deleting the probe
-records. A second cleaned fixture verified two sequenced BOM operations, two
-work centers, linked equipment, component-to-operation links, a by-product,
+**macOS qualification completed 2026-08-28:** Three fresh execution runs from
+clean revision `899057e4e0dc808467e8a3434b160665d8c87223` scheduled exactly
+25,000 rows and 44,998 relationship edges with stable hashes, 501 bounded
+request calls, and no relationship-completion write. Three clean production
+worker first/repeat pairs also passed the current time, memory, snapshot-reuse,
+worker-exit, and semantic-hash gates. The full clean test discovery and the
+architecture and test-organization guards pass. A provided remote Odoo 19
+Enterprise demo confirmed the captured Product and Manufacturing schema and
+verified a small multi-level BOM through create and exact read-back before
+deleting the probe records. A second cleaned fixture verified two sequenced
+BOM operations, two work centers, linked equipment, component-to-operation
+links, a by-product,
 and a confirmed manufacturing order that generated two ordered work orders.
 Those authored rows fit the existing dependency plan. Mapping contract 13 and
 execution snapshot 7 now freeze the optional generated relationship. The
 execution journal records its exact projected receipt before a dependent can
 load, and restart re-reads an incomplete projection without recreating its
 source. A production-path probe imported two Products, a BOM, and one component
-line through that path, matched exact Odoo read-back, and cleaned up. The
-clean-revision run, refreshed browser evidence, and Windows repeat are still
-required, so Phase 6 is not complete. The [Phase 6 qualification
-report](../reports/scalable-relationship-phase-6-current-boundary-qualification-2026-08-28.md)
+line through that path, matched exact Odoo read-back, and cleaned up. Focused
+browser workflow tests cover the generated-link decision and the existing
+relationship-catalog screenshot remains accurate. A refreshed eligible-field
+capture could not be produced because the available browser blocks local and
+embedded pages; this is recorded as a non-functional documentation limitation,
+not a reason to weaken the automated gate. Only the clean Windows repeat is
+still required, so Phase 6 remains cross-platform incomplete. The
+[Phase 6 qualification report](../reports/scalable-relationship-phase-6-current-boundary-qualification-2026-08-28.md)
 records the evidence and remaining gates.
 
 ## Verification matrix

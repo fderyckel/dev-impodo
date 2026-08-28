@@ -19,31 +19,36 @@ The current snapshot-owned representation passes the 25,000-row macOS scale
 gate. It does not pass the earlier 100,000-row aspiration. A live Odoo 19 test
 also found one real Product/BOM dependency that the simplified fixtures did
 not represent. Impodo now freezes and journals that generated Product-variant
-binding through a schema-approved generic projection. Phase 6 remains in
-progress until the accepted gate runs from a clean revision on Windows and the
-changed Match data decision point receives refreshed browser evidence.
+binding through a schema-approved generic projection. The implementation,
+clean macOS gate, and bounded live Odoo qualification pass. Phase 6 remains
+cross-platform incomplete only until the accepted gate is repeated from a
+clean Windows revision.
 
 ## Evidence boundary
 
-Python 3.12.13 ran on macOS 26.5.1 arm64. The retained measurements identify
-repository revision `f7139f6435fbc4536abad5e51a3aff5da51a3eea` plus the
-uncommitted Phase 6 harness and documentation changes. Other correction work
-was also present in the shared worktree. The evidence is diagnostic and
-reproducible, but the dirty worktree prevents release qualification.
+Python 3.12.13 ran on macOS 26.5.1 arm64. The retained qualifying measurements
+identify clean repository revision
+`899057e4e0dc808467e8a3434b160665d8c87223`. The work ran in an isolated
+detached worktree so unrelated correction changes in the shared worktree did
+not affect the suite, benchmark inputs, or worktree fingerprint.
 
 The Match data relationship catalogue now exposes one optional generated-link
 selector when a different selected table targets a model with a captured,
 read-only many2one projection to the relationship model. Focused form and
-browser workflow tests passed, but screenshots were not refreshed from this
-dirty shared worktree. The full suite was not used as release evidence; a
-clean revision, refreshed browser evidence, and the Windows run remain
-explicit gates below.
+browser workflow tests passed. The available in-app browser blocked both local
+and embedded page URLs and explicitly prohibited an alternate capture route.
+The existing relationship-catalog screenshot remains accurate, but it does not
+show the eligible generated-link selector. This documentation limitation is
+recorded rather than treated as weaker functional evidence. The full clean
+suite and clean benchmark runs are the macOS release evidence below.
 
 The raw non-secret results are local diagnostic artifacts:
 
-- `.tmp/scalable-relationship-phase6-execution-25k-mac-v7.json`;
-- `.tmp/scalable-relationship-phase6-worker-25k-mac-v13.json`;
-- `.tmp/scalable-relationship-phase6-execution-mac-diagnostic.json`.
+- `.tmp/scalable-relationship-phase6-execution-25k-mac-clean.json`;
+- `.tmp/scalable-relationship-phase6-worker-25k-mac-clean.json`;
+- `.tmp/scalable-relationship-phase6-execution-25k-mac-v7.json` and
+  `.tmp/scalable-relationship-phase6-worker-25k-mac-v13.json` as the earlier
+  dirty diagnostic comparison.
 
 No API key, target URL, user identity, Product value, or Odoo record identifier
 is stored in those files or this report. The remote probes read the API key
@@ -76,11 +81,11 @@ recording Odoo writer contract. The worker used 50 rows per create batch.
 | Scheduled rows | 25,000 |
 | Relationship edges | 44,998 |
 | Snapshot size | 36,713,910 bytes |
-| Median fixture construction | 5.249 seconds |
-| Median preview | 1.576 seconds |
-| Median execution | 4.449 seconds |
-| Median peak RSS | 791.734 MiB |
-| Median peak increment | 716.469 MiB |
+| Median fixture construction | 8.344 seconds |
+| Median preview | 2.640 seconds |
+| Median execution | 7.175 seconds |
+| Median peak RSS | 785.625 MiB |
+| Median peak increment | 710.344 MiB |
 | Create/import calls | 501 |
 | Target lookups | 0 |
 | Relationship-completion writes | 0 |
@@ -113,13 +118,13 @@ prepared snapshots.
 
 | Gate | Worst or median result |
 | --- | ---: |
-| Maximum first wall time | 6.354 seconds |
-| Maximum repeat wall time | 6.735 seconds |
-| Maximum first worker peak | 521.156 MiB |
-| Maximum repeat worker peak | 516.813 MiB |
-| Maximum parent repeat delta | -0.359 MiB |
-| Median first project storage | 103.440 MiB |
-| Median repeat project storage | 129.690 MiB |
+| Maximum first wall time | 10.232 seconds |
+| Maximum repeat wall time | 10.768 seconds |
+| Maximum first worker peak | 525.156 MiB |
+| Maximum repeat worker peak | 519.000 MiB |
+| Maximum parent repeat delta | -0.328 MiB |
+| Median first project storage | 102.940 MiB |
+| Median repeat project storage | 129.190 MiB |
 
 All workers exited. No repeat reopened a source. Every repeat reused both
 prepared snapshots without changing their modification times. All three fresh
@@ -213,14 +218,15 @@ applied and rejects a changed projection key or Odoo identifier. A crash after
 the Product create but before projection read-back therefore resumes by
 re-reading the created template; it does not create that template again.
 
-The implementation regression run passed 135 focused mapping, snapshot,
-execution, form, and DuckDB-journal tests; 26 integrated Recipe-application
-tests; 22 end-to-end Match data browser tests; and 17 focused architecture and
-documentation tests. Ruff, Python compilation, documentation quality, and
-diff-integrity checks also passed. The shared worktree's full architecture run
-still has two unrelated baseline failures: two unreviewed production import
-edges from concurrent correction work, and the existing 2,068-line Match data
-workflow test module. Neither is used as Phase 6 release evidence.
+The clean full test discovery passed with only its expected optional skips.
+The architecture baseline now records the reviewed 2,085 runtime import edges
+with no runtime cycle and no application-to-adapter edge. The Match data
+workflow browser evidence was split into focused modules so both remain within
+the repository's test-organization limit. The first clean discovery run found
+that Project deletion did not yet own the new correction binding table and
+that two end-to-end assertions still expected earlier browser wording. Those
+narrow regressions were fixed, their focused suites passed, and the second
+full clean discovery passed.
 
 ## Gate disposition
 
@@ -230,13 +236,13 @@ workflow test module. Neither is used as Phase 6 release evidence.
 | Determinism | Passed on macOS | Three execution runs and three worker first/repeat pairs retained exact semantic hashes. |
 | Request count | Passed for the current fixture | Execution used 501 fixed-size create/import calls and no lookup or completion loop. The production-path live probe used three import calls and one generated-receipt read. |
 | Wall time | Passed on macOS | Execution and production worker results remain below the existing 120-second gates. |
-| Memory | Passed on macOS | Median execution peak was 791.734 MiB; preparation peaked at 521.156 MiB. |
+| Memory | Passed on macOS | Median execution peak was 785.625 MiB; preparation peaked at 525.156 MiB. |
 | Artifact and storage size | Passed on macOS | The execution snapshot is 36.7 MB; worker storage is recorded above. |
 | Restart and source reuse | Passed on macOS | Repeat workers reused immutable snapshots after source deletion; a projection interruption re-read the created source without recreating it. |
 | Live Odoo 19 schema and read-back | Passed for bounded probes | Multi-level and extended BOM fixtures matched; the production execution path also used and journalled a generated variant. Every probe cleaned up. |
 | Generated Product-variant binding | Passed | The mapping, snapshot, bounded writer read, durable receipt, dependency gate, and restart path are generic and verified. |
-| Browser evidence | Incomplete | Focused form and workflow tests passed; refresh the Match data screenshot from the clean revision. |
-| Clean revision | Not run | The shared worktree contains unrelated correction work and Phase 6 changes. |
+| Browser evidence | Passed automatically; capture limited | Focused form and workflow tests cover the generated-link choice. The existing overview screenshot remains accurate; the available browser policy blocked a new eligible-field capture. |
+| Clean revision | Passed on macOS | Full discovery, architecture guards, execution benchmark, and worker benchmark ran from clean revision `899057e4`. |
 | Windows repeat | Not run | A clean Windows host must repeat the accepted current-boundary protocol. |
 
 ## Conclusion
@@ -246,10 +252,13 @@ does not need a new relationship-plan aggregate or sidecar artifact for the
 current cap. The 100,000-row negative diagnostic confirms that a later limit
 increase would need a different representation or a material memory reduction.
 
-Phase 6 is not complete, but the generated-target implementation and its live
-read-back and restart gates now pass. The remaining release evidence is the
-clean-revision run, refreshed Match data browser evidence, and the Windows
-repeat. No Production load or row-limit change is authorized by this report.
+The Phase 6 implementation and macOS qualification are complete. The
+generated-target implementation, live read-back, restart, full clean suite,
+and both clean 25,000-row benchmarks pass. The Windows repeat is the only open
+functional gate. The screenshot limitation above remains visible as
+documentation debt rather than being hidden or substituted with a prohibited
+capture workaround. No Production load or row-limit change is authorized by
+this report.
 
 ## Related documentation
 

@@ -21,8 +21,11 @@ are supported through 100,000 physical rows. Direct multi-dataset or direct
 relationship routes and mappings requiring the Python oracle remain at 50,000,
 and
 derived/materialized preparation and durable preflight retain their separate
-25,000-row boundaries. Broader Odoo-side ACL/record-rule matrices and
-representative production sizing remain pending for later risk profiles.
+25,000-row boundaries. The clean Phase 6 macOS qualification passes that
+current common relationship boundary, including deterministic Product/BOM
+execution and first/repeat production workers. Broader Odoo-side
+ACL/record-rule matrices, the clean Windows repeat, and sizing beyond the
+current boundary remain pending for later risk profiles.
 
 ## Validation command
 
@@ -338,6 +341,77 @@ The [Phase 4 recovery report](../reports/scalable-relationship-phase-4-recovery-
 records the interruption and resume evidence.
 The [Phase 5 progressive-guidance report](../reports/scalable-relationship-phase-5-progressive-guidance-2026-08-28.md)
 records the browser projection and progress evidence.
+
+### Phase 6 current-boundary qualification
+
+Clean macOS revision `899057e4e0dc808467e8a3434b160665d8c87223` passes the
+full discovered suite, the architecture and test-organization guards, and the
+two retained 25,000-row qualification harnesses. The execution fixture orders
+25,000 rows and 44,998 relationship edges deterministically, uses 501 bounded
+create/import calls, and retains a 36,713,910-byte snapshot. Median execution
+peak RSS is 785.625 MiB. The production worker fixture peaks at 525.156 MiB;
+its worst first and repeat wall times are 10.232 and 10.768 seconds. Every
+repeat reuses both immutable prepared snapshots after the registered sources
+are deleted, and no repeat reopens a source.
+
+The retained non-secret macOS results are:
+
+- `.tmp/scalable-relationship-phase6-execution-25k-mac-clean.json`;
+- `.tmp/scalable-relationship-phase6-worker-25k-mac-clean.json`.
+
+The live Odoo 19 demo qualification covers Products and generated variants,
+multi-level BOMs, work centers, equipment, ordered operations,
+component-operation links, by-products, and a manufacturing order that
+produced ordered work orders. A production-path probe also journals the
+generated Product-variant receipt before its dependent BOM component. Every
+created demo record was deleted after exact read-back.
+
+Run the accepted macOS or Linux shape from a clean worktree with:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python \
+  scripts/benchmark_dependency_execution.py \
+  --runs 3 --batch-size 50 --shape product_bom \
+  --bom-products 4000 --bom-headers 998 --bom-lines 20000 \
+  --output .tmp/scalable-relationship-phase6-execution-25k.json
+
+PYTHONPATH=src:. .venv/bin/python \
+  scripts/benchmark_preparation_workers.py \
+  --runs 3 --rows 25000 --columns 10 --mapped-fields 6 --effect-fields 1 \
+  --products 5000 --bom-lines 20000 --workload product-bom \
+  --timeout-seconds 120 \
+  --output .tmp/scalable-relationship-phase6-worker-25k.json
+```
+
+The remaining Windows gate uses the same clean revision and fixture:
+
+```powershell
+git status --short
+$env:PYTHONPATH = "src;."
+.\.venv\Scripts\python.exe scripts\benchmark_dependency_execution.py `
+  --runs 3 --batch-size 50 --shape product_bom `
+  --bom-products 4000 --bom-headers 998 --bom-lines 20000 `
+  --output .tmp\scalable-relationship-phase6-execution-25k-windows.json
+.\.venv\Scripts\python.exe scripts\benchmark_preparation_workers.py `
+  --runs 3 --rows 25000 --columns 10 --mapped-fields 6 --effect-fields 1 `
+  --products 5000 --bom-lines 20000 --workload product-bom `
+  --timeout-seconds 120 `
+  --output .tmp\scalable-relationship-phase6-worker-25k-windows.json
+```
+
+`git status --short` must print nothing. Do not pass
+`--allow-dirty-worktree`. The Windows result must preserve the macOS semantic
+and call-sequence hashes, complete all rows, keep both worker wall times below
+120 seconds, keep both worker peak measurements below 900 MiB, reuse both
+prepared snapshots, reopen no source, and exit every worker.
+
+Focused browser integration covers the generated-link choice. The existing
+relationship-catalog screenshot remains accurate, but the current in-app
+browser policy blocked a new local eligible-field capture and prohibited an
+alternate capture route. This is retained as documentation debt, not used as
+a substitute for the executable browser gate. The [Phase 6 qualification
+report](../reports/scalable-relationship-phase-6-current-boundary-qualification-2026-08-28.md)
+records the detailed evidence and limitation.
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by
