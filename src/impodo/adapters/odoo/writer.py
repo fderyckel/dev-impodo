@@ -14,28 +14,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import socket
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Mapping, Sequence
 from urllib.error import URLError
 from urllib.parse import quote
 
 from impodo.adapters.odoo.connectors import Json2Config, Transport, _urllib_transport
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
+from impodo.domain.execution.odoo_write import (
+    MAX_IDENTITY_LOOKUP_KEYS,
+    OdooWriteOutcomeUnknown,
+    OdooWriteRejected,
+)
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 from impodo.domain.execution.odoo_scope import OdooApiScope
 
 
 MAX_WRITE_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
-
-
-from impodo.domain.execution.odoo_write import (
-    OdooWriteError,
-    OdooWriteExecutor,
-    OdooWriteOutcomeUnknown,
-    OdooWriteRejected,
-)
-
-
 @dataclass(slots=True)
 class Json2WriteExecutor:
     """Native JSON-2 load/create/write adapter with no automatic write retry."""
@@ -99,6 +94,68 @@ class Json2WriteExecutor:
         if any(identifier <= 0 for identifier in identifiers):
             raise OdooWriteRejected("Odoo returned an invalid lookup result")
         return identifiers
+
+    def find_ids_many(
+        self,
+        model: str,
+        domains: Sequence[Sequence[tuple[str, str, Any]]],
+    ) -> tuple[tuple[int, ...], ...]:
+        """Resolve a bounded page of exact keys with one read request."""
+
+        permitted = self.scope.lookup_fields(model)
+        domain_page = tuple(tuple(domain) for domain in domains)
+        if not permitted:
+            raise OdooWriteRejected("Odoo lookup model is outside the reviewed preview")
+        if not domain_page or len(domain_page) > MAX_IDENTITY_LOOKUP_KEYS:
+            raise OdooWriteRejected("Odoo business-key lookup page is outside the safe bound")
+        normalized: list[tuple[tuple[str, str, Any], ...]] = []
+        requested_fields: set[str] = set()
+        for domain in domain_page:
+            if not domain:
+                raise OdooWriteRejected("An exact Odoo business key is required")
+            conditions = []
+            for field, operator, value in domain:
+                if field not in permitted or operator != "=":
+                    raise OdooWriteRejected(
+                        "Odoo business-key lookup is outside the reviewed preview"
+                    )
+                requested_fields.add(field)
+                conditions.append((field, "=", value))
+            normalized.append(tuple(conditions))
+
+        query_domain: list[Any] = ["|"] * (len(normalized) - 1)
+        for domain in normalized:
+            query_domain.extend(["&"] * (len(domain) - 1))
+            query_domain.extend([list(condition) for condition in domain])
+        fields = tuple(sorted(requested_fields))
+        response = self._post(
+            model,
+            "search_read",
+            {
+                "domain": query_domain,
+                "fields": ["id", *fields],
+                "limit": (2 * len(normalized)) + 1,
+                "order": "id asc",
+                "context": dict(self.config.context),
+            },
+            write=False,
+        )
+        if not isinstance(response, list) or len(response) > 2 * len(normalized):
+            raise OdooWriteRejected("Odoo returned an invalid bulk lookup result")
+        results: list[list[int]] = [[] for _domain in normalized]
+        for item in response:
+            if not isinstance(item, Mapping):
+                raise OdooWriteRejected("Odoo returned an invalid bulk lookup result")
+            identifier = item.get("id")
+            if type(identifier) is not int or identifier <= 0:
+                raise OdooWriteRejected("Odoo returned an invalid bulk lookup result")
+            for index, domain in enumerate(normalized):
+                if all(
+                    _lookup_values_equal(item.get(field), value)
+                    for field, _operator, value in domain
+                ):
+                    results[index].append(identifier)
+        return tuple(tuple(dict.fromkeys(items)) for items in results)
 
     def create_rows(
         self,
@@ -325,3 +382,11 @@ def _safe_import_error(_messages: object) -> str:
     """Return a fixed error because import details can contain secrets or data."""
 
     return "Odoo rejected one or more imported rows"
+
+
+def _lookup_values_equal(actual: object, expected: object) -> bool:
+    """Compare JSON-2 search values with exact generated domain scalars."""
+
+    if expected is None and actual is False:
+        return True
+    return actual == expected

@@ -1,56 +1,44 @@
-"""Incoming-dataset dependency graph validation."""
+"""Validation projection for canonical incoming-dataset dependencies."""
 
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Iterable, Mapping
 
+from impodo.domain.relationship_dependencies import (
+    DatasetDependencyEdge,
+    required_cross_dataset_cycle,
+)
 from ..contracts import DatasetMapping
 from .common import _issue
 from .evidence import MappingValidationIssue
 
 
 def _validate_dependencies(
-    dependencies: Mapping[str, set[str]],
-    required_on_create_dependencies: Mapping[str, set[str]],
+    dependencies: Iterable[DatasetDependencyEdge],
     datasets_by_id: Mapping[str, DatasetMapping],
     issues: list[MappingValidationIssue],
 ) -> None:
     known = set(datasets_by_id)
-    for owner, targets in dependencies.items():
-        for target in targets:
-            if target not in known:
-                issues.append(
-                    _issue(
-                        "MAPPING_DATASET_UNKNOWN",
-                        "/datasets",
-                        "An incoming relationship references an unknown dataset.",
-                        "Choose a configured source dataset.",
-                        dataset=datasets_by_id.get(owner),
-                    )
-                )
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(node: str) -> None:
-        if node in visiting:
+    edges = tuple(dependencies)
+    for edge in edges:
+        if edge.dependency_dataset not in known:
             issues.append(
                 _issue(
-                    "MAPPING_DEPENDENCY_CYCLE",
+                    "MAPPING_DATASET_UNKNOWN",
                     "/datasets",
-                    "Required-at-create relationships contain a dependency cycle.",
-                    "Make at least one relationship deferrable or remove the cycle.",
-                    dataset=datasets_by_id.get(node),
+                    "An incoming relationship references an unknown dataset.",
+                    "Choose a configured source dataset.",
+                    dataset=datasets_by_id.get(edge.owner_dataset),
                 )
             )
-            return
-        if node in visited:
-            return
-        visiting.add(node)
-        for child in sorted(required_on_create_dependencies.get(node, ())):
-            if child in known:
-                visit(child)
-        visiting.remove(node)
-        visited.add(node)
-
-    for item in sorted(known):
-        visit(item)
+    cycle = required_cross_dataset_cycle(edges, known)
+    if cycle is not None:
+        issues.append(
+            _issue(
+                "MAPPING_DEPENDENCY_CYCLE",
+                "/datasets",
+                "Required-at-create relationships contain a dependency cycle.",
+                "Make at least one relationship deferrable or remove the cycle.",
+                dataset=datasets_by_id.get(cycle[0]),
+            )
+        )

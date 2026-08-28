@@ -34,8 +34,6 @@ def _validate_relationship(
     relation: RelationshipMapping,
     path: str,
     columns: Mapping[str, SourceColumnView],
-    dependencies: dict[str, set[str]],
-    required_on_create_dependencies: dict[str, set[str]],
     issues: list[MappingValidationIssue],
 ) -> None:
     fields = context.fields_by_model[dataset.target_model]
@@ -258,19 +256,9 @@ def _validate_relationship(
         relation.source_column_keys,
         metadata.relation,
         metadata,
-        dependencies,
         issues,
         require_governed_key=True,
     )
-    if (
-        relation.resolver.origin
-        in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
-        and relation.resolver.dataset_id
-        and (metadata.required or relation.required_on_create)
-    ):
-        required_on_create_dependencies.setdefault(
-            dataset.dataset_id, set()
-        ).add(relation.resolver.dataset_id)
 
 
 def _validate_resolver(
@@ -281,7 +269,6 @@ def _validate_resolver(
     source_columns: tuple[str, ...],
     expected_model: str | None,
     relationship_metadata,
-    dependencies: dict[str, set[str]],
     issues: list[MappingValidationIssue],
     *,
     require_governed_key: bool,
@@ -302,9 +289,6 @@ def _validate_resolver(
                 )
             )
             return
-        dependencies.setdefault(dataset.dataset_id, set()).add(
-            resolver.dataset_id
-        )
         referenced_model = context.dataset_targets.get(resolver.dataset_id)
         if (
             referenced_model is not None

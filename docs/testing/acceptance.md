@@ -98,7 +98,7 @@ the original source unavailable.
 | Recipe contracts, authoring, persistence, protected storage, and recovery | `test_recipe_phase_r0_contract`, `test_recipe_authoring`, `test_recipe_persistence` |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_source_snapshot`, `test_source_snapshot_io`, `test_project_setup`, `test_source_workflow`, `test_target_workflow`, `test_project_setup_journey` |
 | Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_mapping_workflow`, `test_preparation_workflow`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
-| Profile-driven preflight and practical execution | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_execution_snapshot`, `test_execution_service`, `test_execution_repository`, `test_preflight_scale`, `test_reporting_cli` |
+| Profile-driven preflight and practical execution | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_execution_snapshot`, `test_dependency_scheduler`, `test_execution_service`, `test_execution_repository`, `test_dependency_execution_baseline`, `test_preflight_scale`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
 
@@ -241,11 +241,13 @@ certification remain pending.
 - Local Odoo 19 and the bounded remote Odoo 19 slice can write, while the exact
   standard/custom models and writable fields come from the current
   captured-schema-bound preview;
-- the native adapter exposes exact business-key lookup, bounded create, and
-  single-record update rather than generic RPC;
-- dependency-ordered creates resolve incoming relationship IDs before
-  dependants, including many2one and many2many fields;
-- every proposed write is journaled before target I/O and receives a terminal
+- the native adapter exposes bounded exact-key crosswalk lookup, bounded
+  create, and single-record update rather than generic RPC;
+- every existing row and target relationship is bulk-resolved before the
+  journal, still resolves uniquely, and retains its opaque reviewed binding;
+- dependency-ordered creates journal their receipts before dependants resolve
+  incoming many2one or many2many fields;
+- every proposed write is journaled before write transport and receives a terminal
   row outcome;
 - a lost write response is recorded as `OUTCOME_UNKNOWN`, is not retried, and
   blocks the remaining work;
@@ -265,6 +267,50 @@ now accepts a remote HTTPS Odoo 19 target, binds the current exact writer and
 read-back scopes, and emits phase timings and observed rows per second. The
 remote run remains pending until a disposable on-premises target is available;
 see the [remote acceptance runbook](../developer/runbooks/remote-odoo-acceptance.md).
+
+### Relationship dependency regression baseline
+
+The Phase 0 dependency harness freezes four current execution shapes without
+contacting Odoo: Product and unit, a same-dataset parent hierarchy, an optional
+cycle, and a Product and BOM graph. It records dataset order, connector-call
+classes, relationship patches, snapshot size, planning and load time, and peak
+memory in a fresh process.
+
+```console
+PYTHONPATH=src .venv/bin/python scripts/benchmark_dependency_execution.py \
+  --runs 3 \
+  --output .tmp/scalable-relationship-phase0-mac.json
+```
+
+[`test_dependency_execution_baseline.py`](../../tests/performance/test_dependency_execution_baseline.py)
+protects the exact fixture rows, edges, business order, current relationship
+patches, and repeated-run semantic evidence. The point-in-time measurements
+and their limitations are recorded in the
+[Phase 0 baseline report](../reports/scalable-relationship-phase-0-baseline-2026-08-28.md).
+
+Phase 1 adds a contract-level regression gate. Browser mappings and compiled
+profiles must produce the same sorted hard and deferrable dependency edges.
+Permuting dataset input order must not change those edges. Hard
+self-references must remain available for later row analysis, while a hard
+cycle that crosses datasets must fail before preflight transport.
+
+[`test_relationship_dependencies.py`](../../tests/domain/test_relationship_dependencies.py)
+protects extractor, compiler, preflight, permutation, self-reference, and
+cross-dataset cycle behavior. Mapping validation tests also prove that a
+captured Odoo-required relationship compiles as hard. The implementation and
+current limitation are recorded in the
+[Phase 1 dependency-contract report](../reports/scalable-relationship-phase-1-dependency-contract-2026-08-28.md).
+
+Phase 2 protects deterministic row components, exact optional-cycle completion
+fields, hard-cycle blockers, same-dataset hierarchy order, and schedule hash
+validation. Phase 3 adds bounded component paging, a 101-key crosswalk fixture
+that requires pages of 100 and 1 with no single-key service lookup, exact
+retarget rejection before the journal, and receipt-before-dependent-write
+event ordering.
+
+The implementation evidence is recorded in the
+[Phase 2 row-scheduling report](../reports/scalable-relationship-phase-2-row-scheduling-2026-08-28.md)
+and [Phase 3 bounded-execution report](../reports/scalable-relationship-phase-3-bounded-execution-2026-08-28.md).
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by

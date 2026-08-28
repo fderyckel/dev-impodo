@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any, Mapping, Protocol, Sequence
 
 
+MAX_IDENTITY_LOOKUP_KEYS = 100
+
+
 class OdooWriteError(RuntimeError):
     """Base class for safe Stage-J writer failures."""
 
@@ -31,6 +34,12 @@ class OdooWriteExecutor(Protocol):
         model: str,
         domain: Sequence[tuple[str, str, Any]],
     ) -> tuple[int, ...]: ...
+
+    def find_ids_many(
+        self,
+        model: str,
+        domains: Sequence[Sequence[tuple[str, str, Any]]],
+    ) -> tuple[tuple[int, ...], ...]: ...
 
     def create_rows(
         self,

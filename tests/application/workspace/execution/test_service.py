@@ -22,12 +22,14 @@ from impodo.domain.execution_snapshot import (
     ExecutionRow,
     ExecutionSnapshot,
     FieldIntent,
+    plan_execution_rows,
 )
 from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
     OdooReadIdentity,
     OdooWriteIdentity,
+    target_record_binding_hash,
 )
 from impodo.adapters.odoo.writer import Json2WriteExecutor
 from impodo.domain.execution.odoo_write import OdooWriteOutcomeUnknown, OdooWriteRejected
@@ -103,6 +105,7 @@ def _snapshot() -> ExecutionSnapshot:
                 relation_operation="replace",
                 related_model="product.category",
                 related_identity_fields=("name",),
+                dependency_strength="hard",
             ),
         ),
     )
@@ -115,7 +118,7 @@ def _snapshot() -> ExecutionSnapshot:
         disposition="UPDATE",
         fields=(FieldIntent("email", "SET_VALUE", "new@example.test"),),
     )
-    return ExecutionSnapshot(
+    snapshot = ExecutionSnapshot(
         workspace_id=str(uuid4()),
         preflight_run_id=str(uuid4()),
         mapping_id=str(uuid4()),
@@ -178,6 +181,48 @@ def _snapshot() -> ExecutionSnapshot:
         rows=(category, product, contact),
         root_hash=HASH,
     )
+    return _with_plan(snapshot)
+
+
+def _with_plan(snapshot: ExecutionSnapshot) -> ExecutionSnapshot:
+    rows_with_strength = tuple(
+        replace(
+            row,
+            fields=tuple(
+                replace(
+                    intent,
+                    dependency_strength=(
+                        "deferrable" if intent.defer_on_create else "hard"
+                    ),
+                )
+                if (
+                    intent.kind == "relation"
+                    and not intent.dependency_strength
+                    and any(
+                        isinstance(value, LogicalReference)
+                        and value.origin == "incoming"
+                        for value in (
+                            intent.value
+                            if isinstance(intent.value, tuple)
+                            else (intent.value,)
+                        )
+                    )
+                )
+                else intent
+                for intent in row.fields
+            ),
+        )
+        for row in snapshot.rows
+    )
+    rows, relationship_plan = plan_execution_rows(
+        rows_with_strength,
+        snapshot.datasets,
+    )
+    return replace(
+        snapshot,
+        rows=rows,
+        relationship_plan=relationship_plan,
+    )
 
 
 def _remote_many2many_snapshot() -> ExecutionSnapshot:
@@ -207,7 +252,7 @@ def _remote_many2many_snapshot() -> ExecutionSnapshot:
             ),
         ),
     )
-    return replace(
+    return _with_plan(replace(
         snapshot,
         datasets=snapshot.datasets[:2],
         rows=(snapshot.rows[0], product),
@@ -218,7 +263,7 @@ def _remote_many2many_snapshot() -> ExecutionSnapshot:
             "AMBIGUOUS": 0,
             "BLOCKED": 0,
         },
-    )
+    ))
 
 
 def _remote_relation_update_snapshot(*, many2many: bool) -> ExecutionSnapshot:
@@ -248,7 +293,7 @@ def _remote_relation_update_snapshot(*, many2many: bool) -> ExecutionSnapshot:
         )
     )
     contact = replace(snapshot.rows[-1], fields=(relation,))
-    return replace(
+    return _with_plan(replace(
         snapshot,
         datasets=(snapshot.datasets[-1],),
         rows=(contact,),
@@ -259,7 +304,7 @@ def _remote_relation_update_snapshot(*, many2many: bool) -> ExecutionSnapshot:
             "AMBIGUOUS": 0,
             "BLOCKED": 0,
         },
-    )
+    ))
 
 
 def _remote_cycle_snapshot(*, required_at_create: bool = False) -> ExecutionSnapshot:
@@ -285,6 +330,9 @@ def _remote_cycle_snapshot(*, required_at_create: bool = False) -> ExecutionSnap
                 relation_operation="replace",
                 related_model="x.second.node",
                 related_identity_fields=("code",),
+                dependency_strength=(
+                    "hard" if required_at_create else "deferrable"
+                ),
                 defer_on_create=not required_at_create,
             ),
         ),
@@ -310,11 +358,14 @@ def _remote_cycle_snapshot(*, required_at_create: bool = False) -> ExecutionSnap
                 relation_operation="replace",
                 related_model="x.first.node",
                 related_identity_fields=("code",),
-                defer_on_create=True,
+                dependency_strength=(
+                    "hard" if required_at_create else "deferrable"
+                ),
+                defer_on_create=not required_at_create,
             ),
         ),
     )
-    return replace(
+    return _with_plan(replace(
         snapshot,
         datasets=(
             ExecutionDataset(
@@ -344,7 +395,7 @@ def _remote_cycle_snapshot(*, required_at_create: bool = False) -> ExecutionSnap
             "AMBIGUOUS": 0,
             "BLOCKED": 0,
         },
-    )
+    ))
 
 
 class _Journal:
@@ -394,15 +445,28 @@ class _Executor:
         self.lookup_ids = lookup_ids
         self.lookup_results = lookup_results or {}
         self.lookups = []
+        self.bulk_lookups = []
+        self.single_lookup_count = 0
         self.creates = []
         self.loads = []
         self.updates = []
         self.next_id = 10
 
     def find_ids(self, model, domain):
+        self.single_lookup_count += 1
         self.lookup = (model, tuple(domain))
         self.lookups.append(self.lookup)
         return self.lookup_results.get(self.lookup, self.lookup_ids)
+
+    def find_ids_many(self, model, domains):
+        page = tuple(tuple(domain) for domain in domains)
+        self.bulk_lookups.append((model, page))
+        results = []
+        for domain in page:
+            self.lookup = (model, domain)
+            self.lookups.append(self.lookup)
+            results.append(self.lookup_results.get(self.lookup, self.lookup_ids))
+        return tuple(results)
 
     def create_rows(self, model, values):
         if self.unknown:
@@ -430,6 +494,13 @@ class _Executor:
 
 class ExecutionServiceTests(unittest.TestCase):
     def _service(self, snapshot, *, mode=OdooConnectionMode.LOCAL):
+        planned = _with_plan(snapshot)
+        object.__setattr__(snapshot, "rows", planned.rows)
+        object.__setattr__(
+            snapshot,
+            "relationship_plan",
+            planned.relationship_plan,
+        )
         journal = _Journal()
         project = SimpleNamespace(
             workspace_id=snapshot.workspace_id,
@@ -1045,7 +1116,7 @@ class ExecutionServiceTests(unittest.TestCase):
             (50, [50, 1]),
         ):
             with self.subTest(batch_rows=batch_rows):
-                service, _journal = self._service(
+                service, journal = self._service(
                     relationship_snapshot,
                     mode=OdooConnectionMode.REMOTE,
                 )
@@ -1232,7 +1303,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         for lookup_ids in ((), (50, 51)):
             with self.subTest(lookup_ids=lookup_ids):
-                service, _journal = self._service(
+                service, journal = self._service(
                     relationship_snapshot,
                     mode=OdooConnectionMode.REMOTE,
                 )
@@ -1241,26 +1312,19 @@ class ExecutionServiceTests(unittest.TestCase):
                     lookup_ids=lookup_ids,
                 )
 
-                run = service.execute(
-                    relationship_snapshot.workspace_id,
-                    expected_snapshot_hash=relationship_snapshot.semantic_hash,
-                    executor=executor,
-                    actor=LOCAL_ACTOR,
-                )
+                with self.assertRaisesRegex(
+                    WorkspaceError,
+                    "no longer matches exactly one record",
+                ):
+                    service.execute(
+                        relationship_snapshot.workspace_id,
+                        expected_snapshot_hash=relationship_snapshot.semantic_hash,
+                        executor=executor,
+                        actor=LOCAL_ACTOR,
+                    )
 
-                self.assertEqual(
-                    run.status,
-                    ExecutionRunStatus.COMPLETED_WITH_ERRORS,
-                )
-                self.assertEqual(
-                    run.rows[0].status,
-                    ExecutionRowStatus.COMMITTED,
-                )
-                self.assertEqual(
-                    run.rows[1].status,
-                    ExecutionRowStatus.BLOCKED,
-                )
-                self.assertEqual(len(executor.loads), 1)
+                self.assertIsNone(journal.run)
+                self.assertEqual(executor.loads, [])
 
     def test_remote_many2many_create_links_imported_and_existing_records(self):
         snapshot = _remote_many2many_snapshot()
@@ -1293,7 +1357,7 @@ class ExecutionServiceTests(unittest.TestCase):
         snapshot = _remote_many2many_snapshot()
         for lookup_ids in ((), (50, 51)):
             with self.subTest(lookup_ids=lookup_ids):
-                service, _journal = self._service(
+                service, journal = self._service(
                     snapshot,
                     mode=OdooConnectionMode.REMOTE,
                 )
@@ -1302,25 +1366,19 @@ class ExecutionServiceTests(unittest.TestCase):
                     lookup_ids=lookup_ids,
                 )
 
-                run = service.execute(
-                    snapshot.workspace_id,
-                    expected_snapshot_hash=snapshot.semantic_hash,
-                    executor=executor,
-                    actor=LOCAL_ACTOR,
-                )
+                with self.assertRaisesRegex(
+                    WorkspaceError,
+                    "no longer matches exactly one record",
+                ):
+                    service.execute(
+                        snapshot.workspace_id,
+                        expected_snapshot_hash=snapshot.semantic_hash,
+                        executor=executor,
+                        actor=LOCAL_ACTOR,
+                    )
 
-                self.assertEqual(
-                    run.status,
-                    ExecutionRunStatus.COMPLETED_WITH_ERRORS,
-                )
-                self.assertEqual(
-                    tuple(item.status for item in run.rows),
-                    (
-                        ExecutionRowStatus.COMMITTED,
-                        ExecutionRowStatus.BLOCKED,
-                    ),
-                )
-                self.assertEqual(len(executor.loads), 1)
+                self.assertIsNone(journal.run)
+                self.assertEqual(executor.loads, [])
 
     def test_remote_scalar_update_rematches_and_writes_one_exact_record(self):
         snapshot = _snapshot()
@@ -1337,7 +1395,7 @@ class ExecutionServiceTests(unittest.TestCase):
                 "BLOCKED": 0,
             },
         )
-        service, _journal = self._service(
+        service, journal = self._service(
             update_snapshot,
             mode=OdooConnectionMode.REMOTE,
         )
@@ -1378,7 +1436,7 @@ class ExecutionServiceTests(unittest.TestCase):
                 "BLOCKED": 0,
             },
         )
-        service, _journal = self._service(
+        service, journal = self._service(
             update_snapshot,
             mode=OdooConnectionMode.REMOTE,
         )
@@ -1387,16 +1445,18 @@ class ExecutionServiceTests(unittest.TestCase):
             lookup_ids=(),
         )
 
-        run = service.execute(
-            update_snapshot.workspace_id,
-            expected_snapshot_hash=update_snapshot.semantic_hash,
-            executor=executor,
-            actor=LOCAL_ACTOR,
-        )
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "no longer matches exactly one record",
+        ):
+            service.execute(
+                update_snapshot.workspace_id,
+                expected_snapshot_hash=update_snapshot.semantic_hash,
+                executor=executor,
+                actor=LOCAL_ACTOR,
+            )
 
-        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
-        self.assertEqual(run.rows[0].status, ExecutionRowStatus.BLOCKED)
-        self.assertEqual(run.rows[0].attempt, 0)
+        self.assertIsNone(journal.run)
         self.assertEqual(executor.updates, [])
 
     def test_remote_update_unknown_outcome_is_not_retried(self):
@@ -1595,7 +1655,7 @@ class ExecutionServiceTests(unittest.TestCase):
         snapshot = _remote_relation_update_snapshot(many2many=True)
         for blue_ids in ((), (60, 62)):
             with self.subTest(blue_ids=blue_ids):
-                service, _journal = self._service(
+                service, journal = self._service(
                     snapshot,
                     mode=OdooConnectionMode.REMOTE,
                 )
@@ -1609,22 +1669,18 @@ class ExecutionServiceTests(unittest.TestCase):
                     },
                 )
 
-                run = service.execute(
-                    snapshot.workspace_id,
-                    expected_snapshot_hash=snapshot.semantic_hash,
-                    executor=executor,
-                    actor=LOCAL_ACTOR,
-                )
+                with self.assertRaisesRegex(
+                    WorkspaceError,
+                    "no longer matches exactly one record",
+                ):
+                    service.execute(
+                        snapshot.workspace_id,
+                        expected_snapshot_hash=snapshot.semantic_hash,
+                        executor=executor,
+                        actor=LOCAL_ACTOR,
+                    )
 
-                self.assertEqual(
-                    run.status,
-                    ExecutionRunStatus.COMPLETED_WITH_ERRORS,
-                )
-                self.assertEqual(
-                    run.rows[0].status,
-                    ExecutionRowStatus.BLOCKED,
-                )
-                self.assertEqual(run.rows[0].attempt, 0)
+                self.assertIsNone(journal.run)
                 self.assertEqual(executor.updates, [])
 
     def test_remote_relationship_update_rejects_incremental_commands(self):
@@ -1748,7 +1804,48 @@ class ExecutionServiceTests(unittest.TestCase):
         assert preview is not None
         self.assertEqual(preview.deferred_create_count, 0)
         self.assertFalse(preview.can_load)
-        self.assertIn("required during create", preview.scope_error)
+        self.assertIn("Required create-time relationships", preview.scope_error)
+
+    def test_missing_incoming_row_is_blocked_before_journal_or_write(self):
+        snapshot = _snapshot()
+        product = snapshot.rows[1]
+        relation = product.fields[-1]
+        product = replace(
+            product,
+            fields=(
+                *product.fields[:-1],
+                replace(
+                    relation,
+                    value=LogicalReference(
+                        origin="incoming",
+                        key=("MISSING",),
+                        dataset="categories",
+                    ),
+                ),
+            ),
+        )
+        snapshot = replace(
+            snapshot,
+            rows=(snapshot.rows[0], product, snapshot.rows[2]),
+        )
+        service, journal = self._service(snapshot)
+        executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+
+        preview = service.current_preview(snapshot.workspace_id)
+
+        assert preview is not None
+        self.assertFalse(preview.can_load)
+        self.assertIn("cannot be scheduled safely", preview.scope_error)
+        with self.assertRaisesRegex(WorkspaceError, "cannot be scheduled safely"):
+            service.execute(
+                snapshot.workspace_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=executor,
+                actor=LOCAL_ACTOR,
+            )
+        self.assertIsNone(journal.run)
+        self.assertEqual(executor.loads, [])
+        self.assertEqual(executor.creates, [])
 
     def test_rejected_cycle_patch_retains_created_id_as_partial(self):
         snapshot = _remote_cycle_snapshot()
@@ -1796,6 +1893,137 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertEqual(run.rows[0].status, ExecutionRowStatus.OUTCOME_UNKNOWN)
         self.assertEqual(run.rows[0].odoo_id, 10)
         self.assertEqual(run.rows[1].status, ExecutionRowStatus.COMMITTED)
+
+    def test_existing_identity_retarget_is_rejected_before_journal(self):
+        snapshot = _snapshot()
+        contact = replace(
+            snapshot.rows[-1],
+            target_binding_hash=target_record_binding_hash("res.partner", 50),
+        )
+        snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            rows=(contact,),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 1,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(
+            execution_api_scope(snapshot).semantic_hash,
+            lookup_ids=(51,),
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "different record"):
+            service.execute(
+                snapshot.workspace_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=executor,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNone(journal.run)
+        self.assertEqual(executor.updates, [])
+        self.assertEqual(executor.single_lookup_count, 0)
+
+    def test_existing_identities_are_bulk_resolved_in_bounded_pages(self):
+        snapshot = _snapshot()
+        template = snapshot.rows[-1]
+        rows = tuple(
+            replace(
+                template,
+                row_id="sha256:" + f"{index + 1000:064x}",
+                source_row=index + 2,
+                source_trace_id="sha256:" + f"{index + 2000:064x}",
+                source_identity=(f"C{index:03d}",),
+                business_identity=(f"C{index:03d}",),
+                target_binding_hash="",
+            )
+            for index in range(101)
+        )
+        snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            rows=rows,
+            counts={
+                "CREATE": 0,
+                "UPDATE": len(rows),
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(snapshot)
+        lookup_results = {
+            ("res.partner", (("ref", "=", f"C{index:03d}"),)): (index + 1,)
+            for index in range(101)
+        }
+        executor = _Executor(
+            execution_api_scope(snapshot).semantic_hash,
+            lookup_results=lookup_results,
+        )
+
+        run = service.execute(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.committed_count, 101)
+        self.assertEqual(tuple(len(page) for _model, page in executor.bulk_lookups), (100, 1))
+        self.assertEqual(executor.single_lookup_count, 0)
+
+    def test_dependency_receipt_is_journalled_before_dependent_write(self):
+        snapshot = _snapshot()
+        snapshot = replace(
+            snapshot,
+            datasets=snapshot.datasets[:2],
+            rows=snapshot.rows[:2],
+            counts={
+                "CREATE": 2,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, journal = self._service(snapshot)
+        executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+        events = []
+        record_outcomes = journal.record_outcomes
+        create_rows = executor.create_rows
+
+        def recording_outcomes(project_id, run_id, rows):
+            events.append(("journal", tuple(item.dataset for item in rows)))
+            record_outcomes(project_id, run_id, rows)
+
+        def recording_create(model, values):
+            events.append(("write", model))
+            return create_rows(model, values)
+
+        journal.record_outcomes = recording_outcomes
+        executor.create_rows = recording_create
+
+        run = service.execute(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertLess(
+            events.index(("journal", ("categories",))),
+            events.index(("write", "product.template")),
+        )
 
 
 class Json2WriteExecutorTests(unittest.TestCase):
@@ -1875,6 +2103,39 @@ class Json2WriteExecutorTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 5)
         self.assertTrue(self.calls[1][0].endswith("/json/2/res.partner/create"))
         self.assertNotIn(b"secret", self.calls[1][2])
+
+    def test_bulk_lookup_uses_one_bounded_or_query_and_returns_positional_matches(self):
+        calls = []
+
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            calls.append((url, json.loads(body)))
+            return 200, [
+                {"id": 41, "ref": "C1"},
+                {"id": 42, "ref": "C2"},
+            ]
+
+        executor = Json2WriteExecutor(
+            self.executor.config,
+            self.scope,
+            transport=transport,
+        )
+
+        matches = executor.find_ids_many(
+            "res.partner",
+            (
+                (("ref", "=", "C1"),),
+                (("ref", "=", "C2"),),
+            ),
+        )
+
+        self.assertEqual(matches, ((41,), (42,)))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            calls[0][1]["domain"],
+            ["|", ["ref", "=", "C1"], ["ref", "=", "C2"]],
+        )
+        self.assertEqual(calls[0][1]["limit"], 5)
 
     def test_rejects_fields_and_models_not_present_in_the_reviewed_preview(self):
         with self.assertRaises(OdooWriteRejected):

@@ -35,38 +35,60 @@ exists, the confirmation page requires a key approved for loading. Remote
 execution probes the selected key against the exact reviewed readable and
 writable model scope before writer construction.
 
-`ExecutionService` validates the workspace evidence and API scope, starts a durable run,
-records planned rows before transport, executes datasets in dependency order,
-and records row-level results. If an outcome becomes unknown, the service stops
+`ExecutionService` validates the workspace evidence and API scope, bulk-checks
+the frozen existing-target crosswalk, starts a durable run, records planned
+rows before write transport, executes datasets in dependency order, and
+records row-level results. If an outcome becomes unknown, the service stops
 before sending later writes. `ReconciliationService` then reads back the
 affected scope and publishes a separate reconciliation run.
 
 ## Current relationship ordering
 
-`build_execution_snapshot` derives every dataset dependency from compiled
-identity, scope, and relationship resolvers.
+`extract_dataset_dependency_edges` derives every dataset dependency from
+compiled identity, scope, and relationship resolvers. The same immutable edge
+evidence is used by browser and profile validation, compilation, preflight,
+and `build_execution_snapshot`. The preflight requirement plan records the
+hard and deferrable edges in its semantic hash.
 `dependency_ordered_execution_datasets` calculates strongly connected dataset
 components, places every acyclic dependency component before its consumers,
 and retains reviewed order only inside a component. The resulting order and
 dependency list contribute to the `ExecutionSnapshot` semantic hash.
 
-Required-at-create cross-dataset cycles fail during mapping or compiled-profile
-validation. Optional cycles remain valid because `ExecutionService` can omit
-the exact unresolved optional fields from first-pass creates and apply those
-fields after the required records have durable Odoo identifiers. The journal
-keeps those rows `PARTIALLY_APPLIED` until relationship completion succeeds.
+`plan_execution_rows` then resolves each incoming relationship through the
+frozen source business-key index. Each actionable row receives a deterministic
+ordinal and component. Each incoming relational field records its resolved
+dependency row identifiers and its hard or deferrable strength.
 
-This is a dataset-level planner. It does not freeze a topological order between
-rows in the same dataset. An optional same-dataset reference can complete in
-the current second pass, but the executor may perform more relationship update
-calls than an exact row plan would require. A required same-dataset hierarchy
-is currently rejected conservatively at the dataset-cycle boundary.
+The iterative row scheduler treats an existing unique target as already
+satisfied and a new target as satisfied only after its create receipt. It
+orders acyclic references, including same-dataset parent hierarchies, without
+a relationship patch. When optional edges form a cycle, it omits only the
+exact planned owner fields and records those fields in the snapshot completion
+list. A hard-edge row cycle or an unusable incoming target creates snapshot
+blocker evidence and prevents the execution journal and Odoo transport from
+starting.
+
+`ExecutionService` consumes the frozen topological component layers through
+pages of at most 500 rows. A page never mixes components. It groups only
+dependency-independent rows by dataset and compatible create shape, journals
+each create receipt, and requires that receipt before a retained dependency can
+write. It then applies the snapshot's completion fields after the required
+receipts exist. The journal keeps those rows `PARTIALLY_APPLIED` until
+relationship completion succeeds.
+
+Before the journal starts, the service collects all existing row identities
+and reviewed target relationship identities. `find_ids_many` resolves them in
+model-grouped pages of at most 100 exact keys. The snapshot's opaque binding
+hash proves that a still-unique key did not silently retarget to a different
+Odoo record. Numeric Odoo IDs remain runtime-only. Failure returns to **Check
+changes** without creating a run or sending an Odoo write.
 
 The proposed [scalable relationship dependency
-plan](../../plans/scalable-relationship-dependency-planning.md) adds immutable
-row-edge and schedule evidence, exact cycle classification, bounded crosswalks,
-component recovery, and Product/BOM scale qualification. These additions are
-planned, not current behavior.
+plan](../../plans/scalable-relationship-dependency-planning.md) now provides
+immutable row-edge and schedule evidence, exact cycle classification, bounded
+crosswalk revalidation, and receipt-gated component execution. Component
+recovery, progressive browser guidance, and Product/BOM scale qualification
+remain planned work.
 
 ## Code references
 
@@ -76,6 +98,12 @@ planned, not current behavior.
 | Background load jobs | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 | Dataset dependency order | [`dependency_ordered_execution_datasets`](../../../src/impodo/domain/execution_snapshot.py) |
+| Row dependency scheduling | [`dependency_scheduler.py`](../../../src/impodo/domain/execution/dependency_scheduler.py) |
+| Bounded component paging | [`dependency_component_pages`](../../../src/impodo/domain/execution/dependency_scheduler.py) |
+| Snapshot row-plan construction | [`plan_execution_rows`](../../../src/impodo/domain/execution_snapshot.py) |
+| Odoo identity lookup contract | [`odoo_write.py`](../../../src/impodo/domain/execution/odoo_write.py) |
+| JSON-2 bulk crosswalk adapter | [`writer.py`](../../../src/impodo/adapters/odoo/writer.py) |
+| Canonical dependency evidence | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Required dependency validation | [`dependencies.py`](../../../src/impodo/domain/mapping/validation/dependencies.py) |
 | Journal states | [`execution/models.py`](../../../src/impodo/domain/execution/models.py) |
 | Reconciliation | [`ReconciliationService`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
@@ -116,10 +144,12 @@ journal.
 
 Remote writes use the Odoo 19 JSON-2 boundary with named, scoped operations.
 Creates are grouped by compatible field shape and sent in bounded batches.
-For updates, Impodo currently resolves identity and calls `update_row` once per
-record. This path is sensitive to N+1 performance and must be measured before
-any production-scale claim. Any future batching change must preserve per-row
-journaling and unknown-outcome semantics.
+Existing-row and target-relationship identities are resolved in bounded bulk
+queries; relationship count therefore does not create per-row lookup traffic.
+Impodo still calls `update_row` once per changed record so each write has an
+exact journal outcome. Production-scale qualification must measure that write
+path. Any future write batching change must preserve per-row journaling and
+unknown-outcome semantics.
 
 Read-back reconciliation must batch by model and requested field scope. Keep
 write and read interfaces separate so a nominally read-only component cannot
@@ -136,7 +166,9 @@ authorization.
 - [`tests/integration/duckdb/test_execution_repository.py`](../../../tests/integration/duckdb/test_execution_repository.py)
 - [`tests/application/workspace/execution/test_load_jobs.py`](../../../tests/application/workspace/execution/test_load_jobs.py)
 - [`tests/domain/execution/test_snapshot.py`](../../../tests/domain/execution/test_snapshot.py)
+- [`tests/domain/execution/test_dependency_scheduler.py`](../../../tests/domain/execution/test_dependency_scheduler.py)
 - [`tests/domain/recipe/test_profile_and_values.py`](../../../tests/domain/recipe/test_profile_and_values.py)
+- [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
 - [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
 - [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)
 

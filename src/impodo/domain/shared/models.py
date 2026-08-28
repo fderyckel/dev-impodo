@@ -338,6 +338,7 @@ class Decision:
     business_scope: tuple[Any, ...]
     classification: Classification
     target_match_count: int
+    target_binding_hash: str = ""
     source_trace_id: str = ""
     differences: tuple[FieldDifference, ...] = ()
     issues: tuple[Issue, ...] = ()
@@ -352,6 +353,7 @@ class ReferenceResolution:
     reference: LogicalReference
     status: str
     match_count: int
+    target_binding_hash: str = ""
     affected_count: int = 1
 
 
@@ -416,6 +418,7 @@ class PreflightResult:
                     "business_scope": portable_value(decision.business_scope),
                     "classification": decision.classification.value,
                     "target_match_count": decision.target_match_count,
+                    "target_binding_hash": decision.target_binding_hash,
                     "differences": [
                         {
                             "dataset": difference.dataset,
@@ -444,6 +447,7 @@ class PreflightResult:
                     "reference": portable_value(resolution.reference),
                     "status": resolution.status,
                     "match_count": resolution.match_count,
+                    "target_binding_hash": resolution.target_binding_hash,
                     "affected_count": resolution.affected_count,
                 }
                 for resolution in self.reference_resolutions
@@ -651,6 +655,21 @@ def target_identity_hash(
         "database": database.strip(),
     }
     return "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
+
+
+def target_record_binding_hash(model: str, identifier: int) -> str:
+    """Return a portable opaque binding for one target model and record.
+
+    The numeric identifier remains inside the read/write boundary.  Snapshots
+    carry only this one-way token so execution can prove that a business key
+    still resolves to the exact record reviewed during preflight.
+    """
+
+    if not model or type(identifier) is not int or identifier <= 0:
+        raise ValueError("target record binding input is invalid")
+    return "sha256:" + sha256(
+        canonical_json_bytes({"model": model, "identifier": identifier})
+    ).hexdigest()
 
 
 def assert_no_numeric_odoo_ids(value: Any, path: str = "$") -> None:

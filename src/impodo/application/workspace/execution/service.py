@@ -17,6 +17,7 @@ from impodo.domain.execution.models import (
     ExecutionRunStatus,
     MAX_CREATE_BATCH_ROWS,
 )
+from impodo.domain.execution.dependency_scheduler import dependency_component_pages
 from impodo.domain.execution_snapshot import (
     ExecutionDataset,
     ExecutionRow,
@@ -31,9 +32,11 @@ from impodo.domain.shared.models import (
     OdooWriteIdentity,
     canonical_json_text,
     portable_value,
+    target_record_binding_hash,
 )
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.execution.odoo_write import (
+    MAX_IDENTITY_LOOKUP_KEYS,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
@@ -267,6 +270,17 @@ class ExecutionService:
             for row in snapshot.rows
             if row.disposition in {"CREATE", "UPDATE"}
         )
+        metadata = {item.dataset: item for item in snapshot.datasets}
+        by_source = {
+            (row.dataset, _portable_key(row.source_identity)): row
+            for row in snapshot.rows
+        }
+        identity_cache = self._resolve_identity_crosswalk(
+            write_rows,
+            metadata,
+            by_source,
+            executor,
+        )
         attempts = tuple(
             ExecutionRowAttempt(
                 row_id=row.row_id,
@@ -309,29 +323,32 @@ class ExecutionService:
         report_progress = progress or (lambda _run: None)
         report_progress(run)
 
-        metadata = {item.dataset: item for item in snapshot.datasets}
-        by_source = {
-            (row.dataset, _portable_key(row.source_identity)): row
-            for row in snapshot.rows
-        }
-        identity_cache: dict[str, int] = {}
         source_cache: dict[tuple[str, str], int] = {}
         recorded: dict[str, ExecutionRowAttempt] = {
             item.row_id: item for item in attempts
         }
         deferred_by_row: dict[str, tuple[FieldIntent, ...]] = {}
         stop_after_unknown = False
-        for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
-            dataset_rows = tuple(
-                row
-                for row in write_rows
-                if row.dataset == dataset.dataset
-                and row.row_id not in {
-                    row_id
-                    for row_id, attempt in recorded.items()
-                    if attempt.status is not ExecutionRowStatus.PLANNED
-                }
+        row_by_id = {row.row_id: row for row in snapshot.rows}
+        component_pages = dependency_component_pages(
+            (
+                (component.sequence, component.row_ids)
+                for component in snapshot.relationship_plan.components
             )
+        )
+        scheduled_groups = (
+            (dataset, dataset_rows)
+            for page in component_pages
+            for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence)
+            if (
+                dataset_rows := tuple(
+                    row_by_id[row_id]
+                    for row_id in page.row_ids
+                    if row_by_id[row_id].dataset == dataset.dataset
+                )
+            )
+        )
+        for dataset, dataset_rows in scheduled_groups:
             if stop_after_unknown:
                 self._record_blocked(
                     workspace_id,
@@ -351,11 +368,12 @@ class ExecutionService:
                 ] = []
                 for row in batch:
                     try:
-                        deferred = self._deferred_create_intents(
+                        self._require_dependency_receipts(
                             row,
-                            by_source,
-                            source_cache,
+                            row_by_id,
+                            recorded,
                         )
+                        deferred = self._deferred_create_intents(row)
                         values = self._row_values(
                             row,
                             metadata,
@@ -491,6 +509,11 @@ class ExecutionService:
                     report_progress(replace(run, rows=tuple(recorded.values())))
                     continue
                 try:
+                    self._require_dependency_receipts(
+                        row,
+                        row_by_id,
+                        recorded,
+                    )
                     record_id = self._find_row_id(
                         row,
                         metadata[row.dataset],
@@ -662,6 +685,195 @@ class ExecutionService:
         )
 
     @staticmethod
+    def _resolve_identity_crosswalk(
+        write_rows: Sequence[ExecutionRow],
+        metadata: Mapping[str, ExecutionDataset],
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        executor: OdooWriteExecutor,
+    ) -> dict[str, int]:
+        """Bulk-verify every existing target before journaling any write."""
+
+        requirements: dict[str, dict[str, Any]] = {}
+
+        def add_requirement(
+            model: str,
+            domain: tuple[tuple[str, str, Any], ...],
+            expected_binding_hash: str,
+            *aliases: str,
+        ) -> None:
+            key = _domain_cache_key(model, domain)
+            current = requirements.get(key)
+            if current is None:
+                requirements[key] = {
+                    "model": model,
+                    "domain": domain,
+                    "expected": expected_binding_hash,
+                    "aliases": {key, *aliases},
+                }
+                return
+            if (
+                current["model"] != model
+                or current["domain"] != domain
+                or (
+                    current["expected"]
+                    and expected_binding_hash
+                    and current["expected"] != expected_binding_hash
+                )
+            ):
+                raise WorkspaceError(
+                    "The reviewed Odoo identity bindings conflict"
+                )
+            if not current["expected"]:
+                current["expected"] = expected_binding_hash
+            current["aliases"].update(aliases)
+
+        def add_row(row: ExecutionRow) -> None:
+            dataset = metadata[row.dataset]
+            domain = _identity_domain(
+                dataset.identity_fields,
+                row.business_identity,
+                dataset.scope_fields,
+                row.business_scope,
+            )
+            add_requirement(
+                row.target_model,
+                domain,
+                row.target_binding_hash,
+                _identity_cache_key(row),
+            )
+
+        for row in write_rows:
+            if row.disposition == "UPDATE":
+                add_row(row)
+            for intent in row.fields:
+                if intent.action != "SET_VALUE" or intent.kind != "relation":
+                    continue
+                values = (
+                    intent.value
+                    if isinstance(intent.value, tuple)
+                    else (intent.value,)
+                )
+                bindings = intent.target_binding_hashes or ("",) * len(values)
+                for value, binding_hash in zip(values, bindings, strict=True):
+                    if (
+                        isinstance(value, LogicalReference)
+                        and value.origin == "incoming"
+                    ):
+                        if value.dataset is None:
+                            raise WorkspaceError(
+                                "An incoming relationship is incomplete"
+                            )
+                        referenced = by_source.get(
+                            (value.dataset, _portable_key(value.key))
+                        )
+                        if referenced is None:
+                            raise WorkspaceError(
+                                "A related prepared row could not be found"
+                            )
+                        if referenced.disposition != "CREATE":
+                            add_row(referenced)
+                        continue
+                    if isinstance(value, BusinessReference):
+                        key, scope = value.key, value.scope
+                    elif isinstance(value, LogicalReference):
+                        key, scope = value.key, value.scope
+                    else:
+                        raise WorkspaceError(
+                            "A relationship is not expressed by a business key"
+                        )
+                    domain = _identity_domain(
+                        intent.related_identity_fields,
+                        key,
+                        intent.related_scope_fields,
+                        scope,
+                    )
+                    add_requirement(
+                        intent.related_model,
+                        domain,
+                        binding_hash,
+                    )
+
+        identity_cache: dict[str, int] = {}
+        by_model: dict[str, list[dict[str, Any]]] = {}
+        for requirement in requirements.values():
+            by_model.setdefault(requirement["model"], []).append(requirement)
+        try:
+            for model in sorted(by_model):
+                model_requirements = sorted(
+                    by_model[model],
+                    key=lambda item: _domain_cache_key(model, item["domain"]),
+                )
+                for start in range(
+                    0,
+                    len(model_requirements),
+                    MAX_IDENTITY_LOOKUP_KEYS,
+                ):
+                    page = model_requirements[
+                        start : start + MAX_IDENTITY_LOOKUP_KEYS
+                    ]
+                    matches = executor.find_ids_many(
+                        model,
+                        tuple(item["domain"] for item in page),
+                    )
+                    if len(matches) != len(page):
+                        raise WorkspaceError(
+                            "Odoo returned an incomplete identity crosswalk"
+                        )
+                    for requirement, identifiers in zip(
+                        page,
+                        matches,
+                        strict=True,
+                    ):
+                        if len(identifiers) != 1:
+                            raise WorkspaceError(
+                                "The Odoo business key no longer matches exactly one record"
+                            )
+                        identifier = identifiers[0]
+                        expected = requirement["expected"]
+                        if expected and target_record_binding_hash(
+                            model, identifier
+                        ) != expected:
+                            raise WorkspaceError(
+                                "An Odoo business key now targets a different record; compare again"
+                            )
+                        for alias in requirement["aliases"]:
+                            identity_cache[alias] = identifier
+        except OdooWriteRejected as error:
+            raise WorkspaceError(
+                "Odoo identity verification failed before loading"
+            ) from error
+        return identity_cache
+
+    @staticmethod
+    def _require_dependency_receipts(
+        row: ExecutionRow,
+        row_by_id: Mapping[str, ExecutionRow],
+        recorded: Mapping[str, ExecutionRowAttempt],
+    ) -> None:
+        """Require journalled create receipts before a dependent write."""
+
+        for intent in row.fields:
+            if intent.defer_on_create:
+                continue
+            for dependency_row_id in intent.dependency_row_ids:
+                dependency = row_by_id[dependency_row_id]
+                if dependency.disposition != "CREATE":
+                    continue
+                attempt = recorded.get(dependency_row_id)
+                if (
+                    attempt is None
+                    or attempt.status
+                    not in {
+                        ExecutionRowStatus.COMMITTED,
+                        ExecutionRowStatus.PARTIALLY_APPLIED,
+                    }
+                    or attempt.odoo_id is None
+                ):
+                    raise WorkspaceError(
+                        "A required Odoo create receipt was not journalled"
+                    )
+
+    @staticmethod
     def _validate_execution_scope(
         workspace_state: WorkspaceState,
         preview: ExecutionPreview,
@@ -695,38 +907,14 @@ class ExecutionService:
     @staticmethod
     def _deferred_create_intents(
         row: ExecutionRow,
-        by_source: Mapping[tuple[str, str], ExecutionRow],
-        source_cache: Mapping[tuple[str, str], int],
     ) -> tuple[FieldIntent, ...]:
-        """Return optional incoming relationships whose creates are not known yet."""
+        """Return the exact completion fields frozen by row scheduling."""
 
-        deferred = []
-        for intent in row.fields:
-            if not intent.defer_on_create or intent.action != "SET_VALUE":
-                continue
-            references = (
-                intent.value if isinstance(intent.value, tuple) else (intent.value,)
-            )
-            for reference in references:
-                if not (
-                    isinstance(reference, LogicalReference)
-                    and reference.origin == "incoming"
-                    and reference.dataset is not None
-                ):
-                    continue
-                source_key = (
-                    reference.dataset,
-                    _portable_key(reference.key),
-                )
-                referenced = by_source.get(source_key)
-                if (
-                    referenced is not None
-                    and referenced.disposition == "CREATE"
-                    and source_key not in source_cache
-                ):
-                    deferred.append(intent)
-                    break
-        return tuple(deferred)
+        return tuple(
+            intent
+            for intent in row.fields
+            if intent.defer_on_create and intent.action == "SET_VALUE"
+        )
 
     def _apply_deferred_relationships(
         self,
@@ -1091,13 +1279,9 @@ class ExecutionService:
     ) -> int:
         if cache_key in identity_cache:
             return identity_cache[cache_key]
-        matches = executor.find_ids(model, domain)
-        if len(matches) != 1:
-            raise WorkspaceError(
-                "The Odoo business key no longer matches exactly one record"
-            )
-        identity_cache[cache_key] = matches[0]
-        return matches[0]
+        raise WorkspaceError(
+            "The reviewed Odoo identity crosswalk is incomplete"
+        )
 
     def _record_blocked(
         self,
@@ -1149,36 +1333,13 @@ def _planned_deferred_create_count(
 ) -> int:
     """Count create rows expected to need the reviewed second relation pass."""
 
-    by_source = {
-        (row.dataset, _portable_key(row.source_identity)): row
-        for row in snapshot.rows
-    }
-    available: dict[tuple[str, str], int] = {}
-    count = 0
-    create_batch_rows = validated_create_batch_rows(create_batch_rows)
-    for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
-        creates = tuple(
-            row
-            for row in snapshot.rows
-            if row.dataset == dataset.dataset and row.disposition == "CREATE"
-        )
-        for start in range(0, len(creates), create_batch_rows):
-            batch = creates[start : start + create_batch_rows]
-            count += sum(
-                bool(
-                    ExecutionService._deferred_create_intents(
-                        row,
-                        by_source,
-                        available,
-                    )
-                )
-                for row in batch
-            )
-            for row in batch:
-                available[
-                    (row.dataset, _portable_key(row.source_identity))
-                ] = 1
-    return count
+    validated_create_batch_rows(create_batch_rows)
+    return len(
+        {
+            item.row_id
+            for item in snapshot.relationship_plan.completions
+        }
+    )
 
 
 def validated_create_batch_rows(value: int | str) -> int:
@@ -1336,6 +1497,70 @@ def _execution_snapshot_error(
         return "Configure the exact Odoo load target first"
     if not snapshot.target_odoo_version.startswith("19."):
         return "The schema-bound load path requires Odoo 19"
+    plan = snapshot.relationship_plan
+    scheduled_rows = tuple(
+        sorted(
+            (row for row in snapshot.rows if row.schedule_ordinal >= 0),
+            key=lambda row: row.schedule_ordinal,
+        )
+    )
+    component_row_ids = tuple(
+        row_id
+        for component in plan.components
+        for row_id in component.row_ids
+    )
+    schedule_component_by_row = {
+        row_id: component.sequence
+        for component in plan.components
+        for row_id in component.row_ids
+    }
+    blocked_row_ids = {item.row_id for item in plan.blockers}
+    expected_scheduled_ids = {
+        row.row_id
+        for row in snapshot.rows
+        if row.disposition in {"CREATE", "UPDATE"}
+        and row.row_id not in blocked_row_ids
+    }
+    completion_fields = {
+        (item.row_id, item.field) for item in plan.completions
+    }
+    deferred_fields = {
+        (row.row_id, intent.field)
+        for row in snapshot.rows
+        for intent in row.fields
+        if intent.defer_on_create
+    }
+    if (
+        plan.contract_version != 1
+        or not _SHA256.fullmatch(plan.root_hash)
+        or tuple(component.sequence for component in plan.components)
+        != tuple(range(plan.component_count))
+        or tuple(row.row_id for row in scheduled_rows) != component_row_ids
+        or {row.row_id for row in scheduled_rows} != expected_scheduled_ids
+        or tuple(row.schedule_ordinal for row in scheduled_rows)
+        != tuple(range(len(scheduled_rows)))
+        or any(
+            row.schedule_component
+            != schedule_component_by_row.get(row.row_id, -1)
+            for row in scheduled_rows
+        )
+        or completion_fields != deferred_fields
+    ):
+        return (
+            "The reviewed relationship schedule changed. Compare with Odoo "
+            "again before loading."
+        )
+    if plan.blockers:
+        blocker = plan.blockers[0]
+        if blocker.code == "HARD_DEPENDENCY_CYCLE":
+            return (
+                "Required create-time relationships form a row cycle. Revise "
+                "those relationships before loading."
+            )
+        return (
+            "A reviewed relationship dependency cannot be scheduled safely. "
+            "Resolve the blocked imported relationship before loading."
+        )
     sequenced_datasets = tuple(
         sorted(snapshot.datasets, key=lambda item: item.sequence)
     )
@@ -1397,35 +1622,25 @@ def _execution_snapshot_error(
             return (
                 f"{dataset.dataset}.{intent.field} has no reviewed imported record"
             )
-        if related_dataset.sequence >= dataset.sequence:
-            if not intent.defer_on_create:
-                return (
-                    f"{dataset.dataset}.{intent.field} is required during create "
-                    "and cannot participate in a dependency cycle"
-                )
-            if (
-                referenced.disposition != "CREATE"
-                or not referenced.proposed_external_id
-            ):
-                return (
-                    f"{dataset.dataset}.{intent.field} has no deferred create record"
-                )
-            return ""
-        if require_created and (
-            referenced.disposition != "CREATE"
-            or not referenced.proposed_external_id
-        ):
+        if referenced.row_id not in intent.dependency_row_ids:
             return (
-                f"{dataset.dataset}.{intent.field} has no earlier imported record"
+                f"{dataset.dataset}.{intent.field} is missing its reviewed row "
+                "dependency"
             )
-        if not require_created and referenced.disposition not in {
+        if referenced.disposition not in {
             "CREATE",
             "UPDATE",
             "UNCHANGED",
         }:
             return (
-                f"{dataset.dataset}.{intent.field} has no usable earlier record"
+                f"{dataset.dataset}.{intent.field} has no usable imported record"
             )
+        if (
+            require_created
+            and referenced.disposition == "CREATE"
+            and not referenced.proposed_external_id
+        ):
+            return f"{dataset.dataset}.{intent.field} has no imported create record"
         return ""
 
     for row in write_rows:

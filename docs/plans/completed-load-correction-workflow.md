@@ -13,9 +13,11 @@ Authoring run, carries forward the frozen source and reviewed rules, asks the
 data manager only for the corrected rule, recalculates every dependent result,
 and proposes only the fields that genuinely need correction.
 
-This plan covers the product workflow, evidence model, implementation slices,
-Odoo 19 boundary, performance controls, and acceptance gates. It does not make
-the proposed buttons or write capability current behavior.
+This plan covers the product workflow, lean evidence model, implementation
+slices, Odoo 19 boundary, performance controls, and acceptance gates. The first
+delivery supports scalar corrections. Exact-existing many-to-one corrections
+follow only after the scalar path qualifies independently. This plan does not
+make the proposed buttons or write capability current behavior.
 
 ## Reader and intended outcome
 
@@ -60,6 +62,32 @@ successor run carries forward their protected identities.
 The correction is neither a new migration from scratch nor an edit to history.
 It is a new governed decision based on one completed load.
 
+### Correction meaning is independent of the editor control
+
+Impodo identifies a correction from changed target-field intent, not from the
+kind of mapping control the data manager edited. The same comparison therefore
+covers:
+
+- a source field that was matched to the wrong scalar rule;
+- an incorrect Selection value mapping or conditional Selection outcome;
+- an incorrect constant or fallback;
+- a missing, extra, uppercase, lowercase, trimming, or replacement
+  transformation; and
+- after separate relationship qualification, a many-to-one value that should
+  point to another exact existing Odoo record.
+
+Formula correction is only one way to produce a different corrected intent. It
+must not receive its own correction model or execution path. Scalar values and
+relationship identities use different canonical comparators, but both publish
+the same field-difference meaning for review and execution.
+
+Changing which Odoo target field receives a value is a separate field-scope
+correction. Removing the old field from a mapping does not prove what value
+should restore that Odoo field, especially when the completed load created the
+record. The first release therefore requires the corrected rule to retain the
+same target field. A later field-scope slice must use preserved pre-load target
+evidence and fail closed when it cannot prove a restoration value.
+
 ## Proposed data-manager journey
 
 ```text
@@ -88,11 +116,10 @@ same successor action. It must not silently mutate the completed workspace.
 
 The correction page starts from the exact mapping revision used for the load.
 It shows the existing business rules and their effects. The data manager edits
-only the mistaken rule. The first supported controls are:
-
-- scalar source, constant, fallback, formula, and value-matching rules already
-  supported by Authoring; and
-- a many-to-one rule that changes a field to one exact existing Odoo record.
+only the mistaken rule. The first release supports scalar source, constant,
+fallback, formula, and value-matching rules already supported by Authoring. A
+later independently qualified slice adds a many-to-one rule that changes a
+field to one exact existing Odoo record.
 
 The page keeps one obvious next action: **Review correction**. Saving a local
 decision, including **Let Odoo choose**, must immediately recalculate that
@@ -107,41 +134,62 @@ press **Check matches** again merely to refresh the page.
 1. save the corrected mapping draft;
 2. validate complete mapping and categorical coverage;
 3. confirm the corrected immutable mapping revision;
-4. prepare the same frozen source rows;
-5. run the required quality and normalization checks;
-6. prove the exact Odoo target and current access again;
-7. read the affected Odoo records by protected identifier in bounded groups;
-8. calculate the three-way field comparison; and
-9. publish the correction review or the smallest actionable blocker list.
+4. open the completed run's hash-verified prepared Parquet snapshot as previous
+   intent;
+5. prepare the corrected intent through the existing compiled Polars and
+   Parquet path;
+6. lazy-scan both prepared snapshots, project only stable row lineage and the
+   eligible scalar fields, and filter changed intent with vectorized Polars
+   expressions;
+7. run the required quality checks and confirm that no resolution or
+   normalization decision changes an eligible field;
+8. prove the exact Odoo target and current read access again;
+9. read only the candidate Odoo records by protected identifier in bounded
+   groups;
+10. calculate the three-way field comparison set-wise; and
+11. publish the correction review or the smallest actionable blocker list.
 
 Each internal result remains immutable evidence with its existing hashes and
 lineage. The browser reports progress without turning those internal gates into
-nine user decisions. A restart resumes from the last valid saved result.
+separate user decisions. A restart resumes from the last valid saved result.
+
+The correction path must not reconstruct previous intent by rerunning the old
+mapping through the current application build. For the first scalar boundary,
+the completed prepared Parquet snapshot is the approved previous intent because
+eligible fields cannot have been changed later by resolution, normalization, or
+relationship materialization. If that snapshot is absent, outside retention,
+incompatible, or fails its existing integrity check, the completed load is not
+eligible for this correction workflow.
 
 ### Correction review
 
 The normal review starts with a business summary, for example:
 
-> 768 Products need an Active correction. Of those Products, 37 also need the
-> standard Odoo Unit. No Product will be created. Descriptions will not be
-> rewritten.
+> 768 Products need an Active correction. No Product will be created. Units of
+> Measure and Descriptions will not be rewritten.
 
 The page then shows bounded samples with the Product identity, field, value
-loaded previously, current Odoo value, and corrected value. It lists only
-conflicts that require a decision. Technical hashes, numeric Odoo identifiers,
-and raw transport evidence remain in protected support evidence.
+loaded previously, current Odoo value, and corrected value. It lists conflicts
+as blockers. The first scalar delivery does not offer a conflict override or a
+partial apply action. Any conflict, missing record, inaccessible record, or
+unproved prior outcome disables **Apply N corrections** until the cause is
+resolved and the data manager runs **Review correction** again. Technical
+hashes, numeric Odoo identifiers, and raw transport evidence remain in
+protected support evidence.
 
 When no field needs correction, Impodo finishes the review without offering a
-write action. When safe changes exist, the one main action is **Apply N
-corrections**.
+write action. When safe changes exist and no blocker remains, the one main
+action is **Apply N corrections**.
 
 ### Apply and verify
 
 Confirmation binds the actor, successor run, exact target, current correction
-plan, current credentials, and change count. Impodo rechecks the affected
-fields immediately before writing, records every planned attempt before
-transport, applies only the reviewed field differences, and verifies the
-result automatically.
+plan, freshly resolved write-capable principal, credential generation, and
+change count. Review-time reads and apply-time writes use separate capabilities
+and record their principal provenance separately, even when both capabilities
+resolve to the same Odoo user. Impodo rechecks the affected fields immediately
+before writing, records every planned attempt before transport, applies only
+the reviewed field differences, and verifies the result automatically.
 
 The outcome distinguishes:
 
@@ -165,8 +213,8 @@ For each affected record and field, Impodo compares:
 | `A = C` | The corrected rule did not change this field. Any `B` difference is existing verification fallout, not a correction. | Do not write. Surface fallout separately when relevant. |
 | `B = A` and `C != A` | Odoo still has the value produced by the completed load. | Ready to correct from `B` to `C`. |
 | `B = C` | Odoo already has the corrected value. | Mark already corrected and do not write. |
-| `B != A` and `B != C` | The field changed independently after the load. | Conflict. Require review; the first delivery blocks this field. |
-| Record missing or inaccessible | The exact prior target cannot be proved. | Block the record. Do not use a business-key fallback. |
+| `B != A` and `B != C` | The field changed independently after the load. | Conflict. The first delivery blocks the whole correction plan. |
+| Record missing or inaccessible | The exact prior target cannot be proved. | Block the whole correction plan. Do not use a business-key fallback. |
 | Previous outcome unknown | Impodo cannot establish a safe baseline. | Reconcile the prior load before permitting correction. |
 
 Equality uses the field's governed canonical comparison. It must not be a raw
@@ -199,10 +247,10 @@ workspace:
 MigrationProject
 |-- Authoring DataVersion: the same frozen accepted source rows
 |-- completed Authoring MigrationRun
-|   |-- completed workspace and mapping revision A
-|   `-- execution, reconciliation, and verified-load baseline
+|   |-- completed workspace, mapping, and prepared intent A
+|   `-- execution, reconciliation, correction-origin manifest, and protected target index
 `-- successor correction MigrationRun
-    |-- correction link to the completed run and baseline
+    |-- correction link to the completed run and origin manifest
     |-- same target identity, proved again with fresh access
     |-- successor workspace and corrected mapping revision C
     `-- correction comparison, execution, and reconciliation
@@ -239,74 +287,96 @@ An earlier Test qualification or Production selection does not transfer to the
 successor Recipe revision. Test and Production continue to require fresh
 evidence and their normal approvals.
 
-## Verified-load baseline
+## Correction-origin evidence
 
-### Proposed evidence
+### Lean manifest and protected target index
 
-Every completed or partially verified load should publish one immutable,
-protected **VerifiedLoadBaseline**. For each source row and target field it
-contains or references:
+An eligible completed load publishes one immutable
+`CorrectionOriginManifest`. The manifest points to the existing evidence that
+already proves the completed load. It does not copy prepared field values,
+execution rows, or reconciliation rows into a second baseline.
 
-- Project, DataVersion, `MigrationRun`, workspace, mapping revision, staging
-  run, preflight result, execution snapshot, execution run, and reconciliation
-  identifiers and hashes;
-- source row lineage and portable business identity;
-- target model and exact target-specific Odoo record identifier;
-- intended canonical value approved before the load;
-- reviewed operation: create, update, unchanged, excluded, or blocked;
-- verified post-load canonical value when known;
-- per-field verification state and known Odoo side-effect classification;
-- target fingerprint, principal class, company context, schema fingerprint,
-  and observation time; and
-- the evidence needed to prove whether the record was created, updated, or
-  already present.
+The manifest records:
+
+- the Project, DataVersion, completed `MigrationRun`, workspace, mapping,
+  prepared snapshot, preflight, execution, and reconciliation identities and
+  their existing hashes;
+- the exact target fingerprint, schema fingerprint, company context, and
+  observation boundary;
+- the protected target-index storage reference and its integrity value; and
+- an eligibility summary that proves the completed run has no unresolved
+  outcome.
+
+The protected target index contains one compact entry for each eligible source
+row and target model. Each entry binds stable source lineage to the exact Odoo
+record identifier and its known completed-load outcome. Previous canonical
+field values for the eligible direct scalar scope remain in the completed
+prepared Parquet snapshot. They are not copied into the index and do not
+receive per-value or per-row hashes. A future scope whose executed value can
+differ from that snapshot requires a separate evidence decision; it must not
+silently reuse this assumption.
 
 Numeric Odoo identifiers, principal identifiers, company identifiers, and
-target-specific values are restricted target evidence. They are encrypted in
-the protected Project store and never appear in a Recipe, portable mapping,
+target-specific values are restricted target evidence. Impodo encrypts them in
+the protected Project store. They never appear in a Recipe, portable mapping,
 review workbook, ordinary browser projection, or another target's run.
 
-The baseline is a projection over existing immutable evidence, not a second
-editable truth. Its root hash binds every contributing artifact. Publication
-must be atomic: a partial baseline is unavailable for correction.
+Publication is atomic. Impodo computes the compact index integrity value while
+streaming the index to protected storage and computes the manifest hash once
+from its references. It reuses the existing hashes of referenced artifacts and
+does not create a new root hash by rereading and rehashing every contributing
+artifact.
 
-### Current gap to close
+At the start of a correction-review job, Impodo verifies each required artifact
+through its owning store once before use. Browser rendering, progress polling,
+classification, confirmation, and read-back must not repeat those full-file
+hashing passes. A restarted job may verify its inputs again at its new trust
+boundary.
+
+### Current identity gap to close
 
 The execution journal records an Odoo identifier for attempted create or
 update rows. A row classified as unchanged may have no execution attempt,
-although preflight already resolved its protected target identity. The baseline
-publisher must consolidate protected preflight identity, execution receipts,
-and reconciliation read-back so every eligible row has one exact target.
+although preflight already resolved its protected target identity. The target
+index publisher must consolidate protected preflight identity, execution
+receipts, and reconciliation read-back set-wise so every in-scope source row has
+one exact target.
 
-It must not perform another business-key search to fill this gap. A missing,
-ambiguous, or contradictory identity blocks baseline publication for that row.
+The publisher must not perform another business-key search to fill this gap. A
+missing, ambiguous, cross-target, or contradictory identity makes the completed
+load ineligible for correction. An absent or unverifiable completed prepared
+snapshot has the same result.
 
 ## Correction lifecycle and invariants
 
-### Proposed states
+### Derive progress from existing owners
 
-```text
-DRAFT
-  -> EVALUATING
-  -> READY | REVIEW_REQUIRED | BLOCKED
-  -> CONFIRMED
-  -> APPLYING
-  -> VERIFYING
-  -> VERIFIED | VERIFIED_WITH_FALLOUT | OUTCOME_UNKNOWN
-```
+The correction feature must not persist a second correction state machine. The
+registry-owned `MigrationRun` lifecycle remains authoritative. The browser
+derives correction progress from the current owner of each result:
 
-The registry-owned `MigrationRun` lifecycle remains authoritative. These are
-correction workflow states or evidence states inside a successor Authoring run;
-they must not create a second competing meaning for `COMPLETED`.
+| Data-manager progress | Authoritative current evidence |
+| --- | --- |
+| Editing the correction | The successor workspace and mapping draft |
+| Reviewing | The resumable correction-review job |
+| Ready to apply | One current correction plan with no blockers |
+| Needs attention | The current review blockers or invalidated plan |
+| Applying | The correction-scoped `ExecutionRun` |
+| Verifying | Reconciliation for that execution |
+| Complete or needs attention | The current reconciliation outcome |
+
+The browser may use a projection that combines these facts, but that projection
+is not another lifecycle authority. It cannot advance independently or create a
+second meaning for a completed `MigrationRun`.
 
 ### Invalidation
 
 Changing the corrected mapping invalidates correction preparation, quality,
 comparison, confirmation, and execution planning. Changing the accepted source
 creates a new DataVersion and exits this workflow. A changed target identity,
-schema, company context, credential principal, permission result, or freshly
-read affected field invalidates confirmation and requires **Review correction**
-again.
+schema, company context, read-principal provenance, write-principal provenance,
+credential generation, permission result, or freshly read affected field
+invalidates confirmation and requires **Review correction** again.
 
 Historical artifacts remain readable. Invalidation clears only the successor
 run's current pointers and never deletes or rewrites the completed load.
@@ -321,16 +391,27 @@ This rule prevents an Active correction from rewriting a Description that the
 new mapping did not change. It also reduces side effects, concurrency risk,
 review noise, and Odoo request size.
 
-## First supported boundary
+Impodo computes the correction-plan hash once while it publishes the canonical
+protected plan. Confirmation and execution compare the stored hash and bound
+identities. They do not reconstruct and rehash every source or evidence
+artifact.
+
+## First scalar boundary
 
 The first release supports only:
 
 - one unchanged accepted file-source DataVersion;
 - one exact Odoo 19 target used by the completed load;
 - a completed load with known row and field outcomes;
+- a direct physical dataset whose accepted mapping uses the native compiled
+  columnar backend;
+- eligible fields whose approved execution intent is exactly the value in the
+  completed prepared Parquet snapshot, without a later resolution,
+  normalization, or relationship-materialization change;
+- field types whose governed canonical comparison is implemented with native
+  Polars expressions;
+- the same target-field scope in the completed and corrected mappings;
 - update-only scalar corrections for an allowlisted field set;
-- a many-to-one correction to one exact, unique, existing target record after
-  scalar qualification passes;
 - the same company context and permitted model scope; and
 - Authoring against the existing disposable-target write policy.
 
@@ -338,9 +419,13 @@ The first release does not support:
 
 - creates, deletes, archive or unarchive operations;
 - identity-field corrections;
+- moving a value from one Odoo target field to another;
 - business-key fallback when a prior Odoo identifier is missing;
 - source-row changes inside the same DataVersion;
-- one-to-many or many-to-many commands;
+- Python-fallback or derived/materialized transformation paths;
+- fields whose final approved value was changed after the prepared Parquet
+  snapshot by resolution or normalization;
+- many-to-one, one-to-many, or many-to-many relationship corrections;
 - creating, editing, merging, or deleting supporting Odoo records;
 - computed, related, translated, company-dependent, or unqualified fields;
 - arbitrary Odoo methods, imports, direct SQL, `sudo`, or browser automation;
@@ -352,7 +437,7 @@ successor Recipe revision when reusable, a fresh Integrated Test
 qualification, and a new Production rollout. The completed Test or Production
 run remains immutable.
 
-## Product-status and Unit of Measure acceptance example
+## Scalar acceptance and later Unit of Measure example
 
 Use the motivating Products case as one sanitized acceptance fixture:
 
@@ -362,21 +447,23 @@ Use the motivating Products case as one sanitized acceptance fixture:
 - 90 rows with code `90`;
 - the completed mapping incorrectly made Active true only for code `60`;
 - the corrected mapping makes Active true only for code `10`;
-- 37 rows use source value `UNI` and the corrected rule selects the exact
-  standard Odoo Unit record;
-- `PCE` remains a distinct Unit of Measure;
-- existing `Kg` and `m` values reuse their exact Odoo records; and
+- 37 rows use source value `UNI`, which is retained for the later relationship
+  qualification fixture; and
 - Product descriptions use the same previous and corrected intent.
 
-The expected correction review is:
+The expected first scalar correction review is:
 
 - 768 Active updates;
-- 37 of those Products also receive the corrected Unit relationship;
 - 231 Active values remain unchanged;
-- no Product, Unit of Measure, or other supporting record is created;
-- no Description field is written; and
-- cleanup of an accidentally created custom `UNI` Unit of Measure is a
-  separate governed task, not an implicit side effect of Product correction.
+- no Product or supporting record is created; and
+- no Unit of Measure or Description field is written.
+
+After the scalar release qualifies, the separate many-to-one slice reuses the
+same sanitized dataset. Its expected review proposes 37 Product relationship
+updates to the exact standard Odoo Unit record. `PCE`, `Kg`, and `m` retain
+their governed meanings. No Unit of Measure record is created, edited, merged,
+or deleted. Cleanup of an accidentally created custom `UNI` Unit of Measure is
+a separate governed task, not an implicit side effect of Product correction.
 
 ## Odoo 19, concurrency, and security boundaries
 
@@ -385,11 +472,21 @@ The expected correction review is:
 - The captured Odoo 19 schema decides whether a model and field are writable
   and supported. The plan cannot override readonly, computed, related,
   translated, company, access-control, or record-rule evidence.
+- Review resolves a read-only target capability and records its credential
+  generation and principal provenance. It cannot construct the correction
+  writer.
+- Apply separately resolves the existing narrow write capability and records
+  its credential generation, write principal, permissions, and context. The
+  successor run never inherits a credential or write confirmation from the
+  completed run.
 - The executor accepts only the exact model, record identifier, field, value,
   target fingerprint, and correction-plan hash reviewed by the data manager.
+- The executor passes that protected record identifier directly to the scoped
+  Odoo writer. It must not search for the row again by business key before the
+  read, write, or read-back.
 - A just-in-time bounded re-read compares every affected current field with
-  the confirmed comparison. Any unexpected value blocks that field before
-  write.
+  the confirmed comparison. Any unexpected value invalidates the plan and
+  blocks all writes in the first scalar delivery.
 - Native JSON-2 cannot make the final read and write atomic. Therefore the
   first delivery remains limited to the accepted disposable-target policy.
 - Impodo records planned attempts before transport. A lost or invalid response
@@ -410,19 +507,40 @@ idempotence.
 The correction path must be proportional to affected models, field shapes,
 and bounded pages rather than to rows multiplied by connector calls.
 
-### Baseline and comparison
+### Local intent comparison
 
-- Build the verified baseline set-wise from preflight, execution, and
-  reconciliation artifacts.
+- Generate corrected intent through the existing compiled columnar
+  transformation program and prepared Parquet publisher. The first scalar
+  release rejects an accepted-rule shape that would require the Python
+  fallback.
+- Lazy-scan previous intent `A` and corrected intent `C` from their immutable
+  prepared Parquet snapshots. Validate stable source lineage, then project only
+  that lineage and the allowlisted correction fields.
+- Compare `A` with `C` through native Polars expressions. Filter unchanged
+  intent before any Odoo record read and preserve bounded or streaming
+  execution where the Polars operation supports it.
+- Permit one existing integrity verification and one logical columnar scan of
+  each prepared artifact per review attempt. Do not rescan either artifact for
+  browser summaries, progress polling, confirmation, or read-back.
+- Do not use a Python UDF, Python source-row classifier, per-row hash, database
+  query, or repository lookup for the `A/C` comparison.
+
+### Protected target comparison
+
+- Join changed source lineage to the protected exact-target index set-wise.
+  Do not resolve a candidate record again from its business key.
 - Group exact Odoo identifiers by model, field scope, company context, and
   target binding before reading.
 - Read bounded identifier pages and request only identity, concurrency, and
-  affected fields.
-- Resolve each corrected many-to-one target key once per model, identity
-  shape, scope, and company context. Reuse the protected result for every
-  Product row.
+  affected fields. Convert each returned page to typed canonical values and
+  classify `A/B/C` for the page set-wise.
+- Read Odoo only for `A/C` candidates. Connector calls must not depend on the
+  total source-row count when most intent is unchanged.
+- In the later many-to-one slice, resolve each distinct corrected target key
+  once per model, identity shape, scope, and company context. Join the protected
+  result back to every affected Product row.
 - Do not call schema inspection, permission inspection, `search_read`,
-  `name_search`, repository lookup, or relationship resolution inside the
+  `name_search`, repository lookup, or relationship resolution inside a
   source-row loop.
 
 ### Execution and verification
@@ -434,7 +552,8 @@ and bounded pages rather than to rows multiplied by connector calls.
 - Reconcile by model and bounded field scope. Do not read back one row at a
   time.
 - Publish request counts, row counts, changed-field counts, page counts, wall
-  time, and peak memory for the acceptance fixture and a larger qualified run.
+  time, peak memory, prepared-artifact scan counts, and selected transformation
+  backend for the acceptance fixture and a larger qualified run.
 
 An implementation is not accepted merely because it contains a batch API.
 Tests must prove upper bounds on schema, permission, relationship, comparison,
@@ -444,35 +563,39 @@ write, and read-back calls.
 
 ### Domain
 
-Create `src/impodo/domain/correction/` for pure correction meaning:
+Start with one small pure correction module under `src/impodo/domain/`. It owns:
 
-- baseline references and per-field verification states;
-- the `A/B/C` classifier;
+- correction-origin manifest and protected target-index contracts;
+- canonical `A/B/C` truth-table semantics that can be compiled into vectorized
+  expressions;
 - correction plan rows and field differences;
 - conflict and blocker codes;
-- state transitions and invalidation inputs; and
+- invalidation inputs; and
 - portable-versus-protected assertions.
 
 The domain receives canonical field values and protected opaque target
 references. It performs no Odoo, filesystem, DuckDB, browser, or credential
-work.
+work. Do not create a correction aggregate, repository, or persisted state type
+for each browser progress label.
 
 ### Application
 
-Create `src/impodo/application/correction/` for use-case orchestration:
+Add one correction application service that coordinates:
 
 - successor correction-run creation through the existing Project and run
   services;
-- verified-baseline publication;
+- correction-origin manifest and protected target-index publication;
 - prior-mapping seeding into a new workspace;
-- the automatic validation, preparation, quality, and fresh-comparison
-  pipeline;
+- the automatic validation, native columnar preparation, quality, and
+  fresh-comparison pipeline;
 - correction confirmation and execution-snapshot construction; and
 - automatic reconciliation and restart recovery.
 
 The orchestrator uses existing mapping, preparation, preflight, execution, and
 reconciliation ports. It must not duplicate their business semantics or write
-directly into another owner's repository.
+directly into another owner's repository. Split the service only when measured
+responsibility or test isolation requires it; the plan does not require a new
+application subsystem.
 
 ### Persistence and protected evidence
 
@@ -482,15 +605,16 @@ repositories and transaction ports:
 - add a successor correction reference to `MigrationRun` or one run-owned
   correction binding without placing target evidence in the portable run
   projection;
-- persist immutable verified-baseline manifests and paged per-row/per-field
-  artifacts;
+- persist one immutable correction-origin manifest and one compact protected
+  exact-target index;
 - persist the correction plan and confirmation hash;
 - support atomic publication, bounded reads, schema-version rejection, and
   historical read-back; and
 - retain target-specific identifiers only in the encrypted protected store.
 
 Do not add a second editable copy of mapping, prepared data, or reconciliation
-rows to the registry database.
+rows to the registry database. Prefer one run-owned correction binding and the
+two protected artifacts over a family of correction tables and repositories.
 
 ### Browser
 
@@ -500,7 +624,7 @@ under the existing Project authorization boundary. The browser owns only:
 - the entry action from a completed result;
 - the focused rule editor;
 - progress for **Review correction**;
-- the compact correction summary and conflict action list;
+- the compact correction summary and blocker list;
 - explicit confirmation; and
 - automatic verification outcome.
 
@@ -519,85 +643,80 @@ outcomes. Measure current preflight, execution, and reconciliation call counts.
 **Exit result:** product, security, and engineering reviewers agree on one
 correction meaning and one first-release boundary. No runtime behavior changes.
 
-### Phase 1: publish the verified-load baseline
+### Phase 1: seal completed work and publish lean origin evidence
 
-Implement the immutable baseline manifest, paged protected artifacts,
-repository ports, codecs, hash bindings, and atomic publisher. Consolidate
-preflight target identities, execution receipts, and reconciliation outcomes,
-including rows that required no write.
+Enforce completed-run immutability in the application services before adding a
+browser redirect. Every mutation entry point must reject a completed workspace.
+Publish the correction-origin manifest and compact protected target index
+atomically. Consolidate preflight target identities, execution receipts, and
+reconciliation outcomes set-wise, including rows that required no write.
 
-**Exit result:** every eligible row and field from a completed load has one
-known previous intent, exact protected target, and verification state. Missing
-or contradictory evidence fails closed.
+**Exit result:** the completed run remains historical evidence, every in-scope
+source row has one exact protected target, and missing or contradictory evidence
+fails closed. The implementation adds no duplicate prepared values and no
+per-row or per-field hash tree.
 
-### Phase 2: implement pure three-way classification
-
-Implement canonical `A/B/C` comparison, field-scope reduction, stable conflict
-codes, deterministic ordering, and property tests. The classifier must exclude
-unchanged intent before interpreting current Odoo drift as a correction.
-
-**Exit result:** identical evidence produces an identical correction-plan hash,
-and the Active/Description fixture proposes only Active fields.
-
-### Phase 3: create successor correction runs
+### Phase 2: create and review a vectorized scalar correction
 
 Extend run purpose and lineage through the registry-owned run service. Create a
 new Authoring run and workspace over the same DataVersion, seed the exact prior
-mapping as a draft, and bind the baseline without reopening the completed run.
-Add invalidation and restart recovery.
+mapping as a draft, and bind the correction-origin manifest without reopening
+the completed run.
 
-**Exit result:** the completed run remains byte-for-byte historical evidence;
-the successor has independent current pointers and no inherited credentials or
-write confirmation.
-
-### Phase 4: automate review for scalar corrections
-
-Build the **Review correction** job over the existing mapping validation,
-preparation, quality, target check, and preflight services. Add automatic
-field-level recheck after mapping choices. Publish a compact review and
-conflict action list. Support only the qualified scalar allowlist.
+Build **Review correction** over the existing validation, native columnar
+preparation, quality, target-check, and preflight services. Lazy-scan `A` and
+`C`, reduce to changed intent with Polars, read `B` only for candidates, and
+apply the canonical three-way truth table set-wise. Publish one deterministic
+protected plan and its hash. Any conflict or blocker prevents confirmation.
+Add invalidation and restart recovery without a new correction state machine.
 
 **Exit result:** correcting the Product Active rule produces 768 safe updates,
 231 unchanged fields, zero Description writes, and no manual traversal of the
-six Authoring stages.
+six Authoring stages. Tests prove that the accepted fixture uses the native
+columnar backend without Python row processing.
 
-### Phase 5: execute and automatically verify scalar corrections
+### Phase 3: execute and automatically verify scalar corrections
 
-Construct a correction-scoped `ExecutionSnapshot`, add just-in-time reread,
-require explicit confirmation, reuse journal-before-transport execution, and
-start reconciliation automatically. Preserve known-failure and
-`OUTCOME_UNKNOWN` semantics.
+Construct a correction-scoped `ExecutionSnapshot` that carries protected exact
+Odoo identifiers. Add a bounded just-in-time reread, require explicit
+confirmation, resolve the narrow write capability separately, reuse
+journal-before-transport execution, and start reconciliation automatically.
+Neither execution nor reconciliation may search again by business key. Preserve
+known-failure and `OUTCOME_UNKNOWN` semantics.
 
 **Exit result:** only reviewed scalar fields are written to exact prior Odoo
-records, and the browser reports a verified or actionable final result without
+records, and the service reports a verified or actionable final result without
 a manual verification action.
 
-### Phase 6: add exact-existing many-to-one corrections
-
-Reuse the relationship resolver in bounded groups, preserve case-sensitive
-matching, prefer one exact existing Odoo record over an identical proposed
-supporting value, and bind the protected resolved identity into the correction
-plan. Never update or create the related record in this phase.
-
-**Exit result:** the 37 `UNI` Products point to the exact standard Odoo Unit
-record; `PCE`, `Kg`, and `m` retain their governed meanings; connector calls do
-not grow one-for-one with Product rows.
-
-### Phase 7: finish the focused browser journey
+### Phase 4: finish the focused browser journey
 
 Add **Correct this Odoo load**, the focused rule editor, resumable progress,
 the compact correction review, **Apply N corrections**, and automatic outcome
 presentation. Redirect attempts to edit a completed workspace into an
-explanation and successor action.
+explanation and successor action. The application-level immutability guard from
+Phase 1 remains authoritative.
 
 Update current user and developer workflow pages, `docs/workflow.yml`, BPMN,
 screenshots, contracts, architecture, Python code map, and acceptance guidance
 only after each behavior is implemented.
 
-**Exit result:** a data manager completes the supported correction without
-thinking about evidence stages, while every safety gate remains provable.
+**Exit result:** a data manager completes the supported scalar correction
+without thinking about evidence stages, while every safety gate remains
+provable.
 
-### Phase 8: qualify scale and consider broader scopes
+### Phase 5: qualify exact-existing many-to-one corrections
+
+Reuse the relationship resolver in bounded groups, preserve case-sensitive
+matching, prefer one exact existing Odoo record over an identical proposed
+supporting value, and bind the protected resolved identity into the correction
+plan. Resolve each distinct key once and join it back to the candidate frame.
+Never update or create the related record in this phase.
+
+**Exit result:** the 37 `UNI` Products point to the exact standard Odoo Unit
+record; `PCE`, `Kg`, and `m` retain their governed meanings; connector calls do
+not grow one-for-one with Product rows.
+
+### Phase 6: qualify scale and consider broader scopes
 
 Run local and opt-in remote disposable Odoo 19 acceptance with measured calls,
 time, memory, restart, conflict, failure, and read-back evidence. Only after
@@ -613,24 +732,38 @@ write capability is inferred from the initial success.
 ### Domain and property tests
 
 - Every `A/B/C` combination has the expected classification.
+- Direct source, value-mapping, conditional Selection, constant, fallback, and
+  casing edits produce the same field-difference contract when their corrected
+  output changes.
+- Changing the editor control without changing its canonical output produces no
+  correction.
+- Moving a mapping to another target field fails the first-release scope check
+  instead of treating omission as a value to write.
 - Canonically equal HTML or normalized values do not create a false correction.
 - `A = C` excludes the field even when `B` differs.
 - Different row order and page size produce the same plan hash.
 - A corrected full prepared row emits only changed field differences.
 - Missing, duplicate, or cross-target protected identity fails closed.
 - Numeric Odoo identifiers cannot enter portable correction projections.
-- Correction state transitions reject confirmation after invalidation.
+- Confirmation reads the authoritative current job, plan, execution, and
+  reconciliation evidence and rejects an invalidated plan.
 
 ### Application and repository tests
 
-- Baseline publication joins unchanged, created, and updated rows without a
-  business-key fallback.
-- Partial publication, hash mismatch, missing pages, and incompatible schema
-  versions are rejected.
+- Correction-origin publication joins unchanged, created, and updated rows
+  without a business-key fallback.
+- Partial manifest or target-index publication, hash mismatch, missing index
+  entries, and incompatible schema versions are rejected.
 - Successor creation uses the same DataVersion and creates a new run,
   workspace, and mapping revision.
 - Changing source input requires a new DataVersion.
 - Mapping changes invalidate every downstream correction pointer.
+- The scalar fixture selects the native compiled columnar backend. A Python
+  fallback fails qualification instead of silently processing rows.
+- Each prepared artifact receives at most one integrity verification and one
+  logical Polars scan per review attempt. Progress, review rendering,
+  confirmation, and read-back add no scans.
+- Odoo reads contain only exact identifiers for changed-intent candidates.
 - The automated review resumes after interruption without duplicating a job or
   execution attempt.
 - Completed run and Recipe evidence remain immutable.
@@ -647,6 +780,7 @@ write capability is inferred from the initial success.
   progress state.
 - The review shows correct counts, bounded samples, zero creates, and only real
   conflicts.
+- Any conflict or blocker removes the apply action in the first scalar release.
 - A zero-change result has no write action.
 - Confirmation is explicit, stale confirmation is rejected, and automatic
   verification reaches one final outcome.
@@ -656,15 +790,18 @@ write capability is inferred from the initial success.
 
 - The Active fixture updates the exact 768 Products and a repeat review finds
   zero corrections.
-- The Unit fixture updates exactly 37 Product relationships without writing to
-  `uom.uom`.
-- A concurrent change to one affected field blocks that field before write.
+- After separate Phase 5 qualification, the Unit fixture updates exactly 37
+  Product relationships without writing to `uom.uom`.
+- A concurrent change to one affected field blocks the whole plan before the
+  first write.
 - A missing, archived, inaccessible, company-incompatible, or record-rule
   hidden Product produces a stable blocker.
 - A known rejection remains distinguishable from a lost response.
 - An unknown response stops all later correction writes and requires read-back.
 - Schema, permission, relationship, comparison, and reconciliation calls obey
   explicit upper bounds and do not scale one-for-one with rows.
+- Execution and reconciliation use the protected exact identifiers from the
+  confirmed plan and perform no business-key search.
 
 ### Security and lifecycle tests
 
@@ -673,23 +810,29 @@ write capability is inferred from the initial success.
 - Read access never grants correction write access.
 - Target and principal rechecks occur after confirmation and before transport.
 - The writer rejects a different target, model, record, field, or plan hash.
-- Project deletion and retention rules include correction baselines and plans.
+- Project deletion and retention rules include correction-origin evidence and
+  plans.
 - Integrated Test and Production cannot construct the first-release correction
   writer through browser or direct service calls.
 
 ## Completion criteria
 
-The first supported correction workflow is complete only when:
+The first supported scalar correction workflow is complete only when:
 
-- one immutable verified baseline covers every eligible row and field;
+- one immutable origin manifest references existing completed evidence and one
+  compact protected index covers every in-scope source row and exact target;
 - a successor run preserves the completed load unchanged;
 - the data manager changes one rule and uses one **Review correction** action;
 - corrected intent, current Odoo state, and previous intent are compared by
   field;
+- previous and corrected intent use the compiled Polars and Parquet path without
+  Python source-row processing;
 - the plan contains zero creates and only exact protected target identifiers;
-- scalar writes and exact-existing many-to-one writes pass separate Odoo 19
-  qualification;
-- no target read, relationship resolution, or read-back N+1 path remains;
+- scalar writes pass their Odoo 19 qualification independently of later
+  relationship support;
+- no target read or read-back N+1 path remains;
+- integrity verification, Parquet scanning, and plan hashing obey their stated
+  per-attempt bounds;
 - confirmation, journalling, unknown outcomes, and reconciliation preserve the
   existing guarded-write contract;
 - the motivating Products case passes with the exact expected counts; and

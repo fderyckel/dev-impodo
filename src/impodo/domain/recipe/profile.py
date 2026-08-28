@@ -18,6 +18,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from impodo.domain.relationship_dependencies import (
+    extract_dataset_dependency_edges,
+    required_cross_dataset_cycle,
+)
+
 
 ScalarType = Literal[
     "string",
@@ -360,6 +365,20 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
     if duplicates:
         raise ValueError(f"duplicate dataset names: {sorted(duplicates)}")
     known = set(by_name)
+    dependency_edges = extract_dataset_dependency_edges(datasets)
+    unknown_edge = next(
+        (
+            edge
+            for edge in dependency_edges
+            if edge.dependency_dataset not in known
+        ),
+        None,
+    )
+    if unknown_edge is not None:
+        raise ValueError(
+            f"dataset {unknown_edge.owner_dataset!r} resolves unknown dataset "
+            f"{unknown_edge.dependency_dataset!r}"
+        )
     for dataset in datasets:
         resolves = [
             component.resolve
@@ -371,11 +390,6 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
         ]
         resolves.extend(relation.resolve for relation in dataset.relations.values())
         for resolve in resolves:
-            if resolve.dataset is not None and resolve.dataset not in known:
-                raise ValueError(
-                    f"dataset {dataset.name!r} resolves unknown dataset "
-                    f"{resolve.dataset!r}"
-                )
             if resolve.dataset is not None and resolve.dataset in known:
                 target_dataset = by_name[resolve.dataset]
                 if (
@@ -388,48 +402,11 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
                         "target_source_fields that do not match the "
                         "referenced dataset source identity"
                     )
-    # Identity/scope dependencies and relationships explicitly required during
-    # create must already exist before the owner row can be created. Optional
-    # relationships may form cycles because execution can create first and
-    # apply those reviewed fields in a second ORM write pass.
-    graph: dict[str, set[str]] = {dataset.name: set() for dataset in datasets}
-    for dataset in datasets:
-        strict_specs = [
-            component.resolve
-            for component in (
-                *dataset.target_identity.components,
-                *dataset.target_identity.scope,
-            )
-            if component.resolve is not None
-        ]
-        strict_specs.extend(
-            relation.resolve
-            for relation in dataset.relations.values()
-            if relation.required_on_create
+    # Self-references require row evidence and are intentionally retained for
+    # Phase 2. Only hard cycles spanning distinct datasets are invalid here.
+    cycle = required_cross_dataset_cycle(dependency_edges, known)
+    if cycle is not None:
+        raise ValueError(
+            "required-at-create dataset reference cycle includes "
+            + " -> ".join(repr(name) for name in cycle)
         )
-        graph[dataset.name].update(
-            resolve.dataset
-            for resolve in strict_specs
-            if resolve.dataset is not None
-        )
-
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(name: str) -> None:
-        """Depth-first traversal with an active recursion-stack guard."""
-
-        if name in visiting:
-            raise ValueError(
-                f"required-at-create dataset reference cycle includes {name!r}"
-            )
-        if name in visited:
-            return
-        visiting.add(name)
-        for dependency in graph[name]:
-            visit(dependency)
-        visiting.remove(name)
-        visited.add(name)
-
-    for dataset_name in graph:
-        visit(dataset_name)

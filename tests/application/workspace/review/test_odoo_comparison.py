@@ -122,6 +122,25 @@ class PinnedOdooComparisonTests(unittest.TestCase):
         self.assertTrue(result.unrelated_current_change)
         self.assertEqual(result.fields[0].outcome, OdooFieldComparisonOutcome.UPDATE)
 
+    def test_does_not_rewrite_a_value_that_is_already_proposed(self) -> None:
+        result = self.compare(
+            proposed="ALICE",
+            current=TargetRecord(
+                "res.partner",
+                41,
+                {
+                    "name": "ALICE",
+                    "write_date": (NOW + timedelta(minutes=1)).isoformat(),
+                },
+            ),
+        )
+
+        self.assertEqual(result.outcome, OdooComparisonOutcome.UNCHANGED)
+        self.assertEqual(
+            result.fields[0].outcome,
+            OdooFieldComparisonOutcome.UNCHANGED,
+        )
+
     def test_records_external_approved_field_change_without_proposing_a_write(self) -> None:
         result = self.compare(
             current=TargetRecord(

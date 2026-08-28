@@ -277,6 +277,7 @@ stages:
       - src/impodo/domain/staging/transformation_impact.py::selection_rule_impact_definitions
       - src/impodo/domain/compiler/columnar_transformation.py::compile_columnar_transformation_program
       - src/impodo/domain/compiler/browser_mapping_compiler.py::compile_browser_mapping
+      - src/impodo/domain/relationship_dependencies.py::extract_dataset_dependency_edges
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
@@ -291,6 +292,7 @@ stages:
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/artifacts/test_mapping_review_workbook.py
       - tests/domain/preparation/test_target_first_relationships.py
+      - tests/domain/test_relationship_dependencies.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
 
@@ -378,6 +380,12 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/domain/execution_snapshot.py::dependency_ordered_execution_datasets
+      - src/impodo/domain/execution_snapshot.py::plan_execution_rows
+      - src/impodo/domain/execution/dependency_scheduler.py::schedule_dependencies
+      - src/impodo/domain/execution/dependency_scheduler.py::dependency_component_pages
+      - src/impodo/domain/execution/odoo_write.py::OdooWriteExecutor
+      - src/impodo/adapters/odoo/writer.py::Json2WriteExecutor.find_ids_many
+      - src/impodo/domain/relationship_dependencies.py::extract_dataset_dependency_edges
       - src/impodo/domain/mapping/validation/dependencies.py::_validate_dependencies
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.reconcile
@@ -387,7 +395,9 @@ stages:
       - tests/integration/duckdb/test_execution_repository.py
       - tests/application/workspace/execution/test_load_jobs.py
       - tests/domain/execution/test_snapshot.py
+      - tests/domain/execution/test_dependency_scheduler.py
       - tests/domain/recipe/test_profile_and_values.py
+      - tests/domain/test_relationship_dependencies.py
       - tests/application/workspace/execution/test_reconciliation.py
       - tests/integration/web/test_load_workflow.py
     contracts:

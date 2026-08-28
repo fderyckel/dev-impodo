@@ -27,7 +27,12 @@ from impodo.domain.execution_snapshot import (
     build_execution_snapshot,
 )
 from impodo.domain.preparation.preflight import PreflightEngine
-from impodo.domain.shared.models import BusinessReference, Classification, LogicalReference
+from impodo.domain.shared.models import (
+    BusinessReference,
+    Classification,
+    FieldDifference,
+    LogicalReference,
+)
 from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
 from impodo.adapters.artifacts.profile_loader import load_profile
 from impodo.application.data_version.source_files import prepare_sources
@@ -98,7 +103,14 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
         restored = ExecutionSnapshot.from_json(snapshot.to_json())
 
-        self.assertEqual(restored.contract_version, 4)
+        self.assertEqual(restored.contract_version, 6)
+        self.assertTrue(
+            all(
+                row.target_binding_hash.startswith("sha256:")
+                for row in restored.rows
+                if row.disposition in {"UPDATE", "UNCHANGED"}
+            )
+        )
         self.assertEqual(
             restored.read_credential_binding_hash,
             frozen.captured_schema.read_credential_binding_hash,
@@ -125,6 +137,17 @@ class ExecutionSnapshotTests(unittest.TestCase):
         self.assertEqual(len(snapshot.rows), len(result.decisions))
         self.assertEqual(snapshot.counts, result.counts)
         self.assertEqual(snapshot.write_count, 7)
+        self.assertEqual(snapshot.relationship_plan.edge_count, 1)
+        self.assertEqual(snapshot.relationship_plan.completion_count, 0)
+        self.assertEqual(snapshot.relationship_plan.blocker_count, 0)
+        self.assertEqual(
+            tuple(
+                row.schedule_ordinal
+                for row in snapshot.rows
+                if row.disposition in {"CREATE", "UPDATE"}
+            ),
+            tuple(range(snapshot.write_count)),
+        )
         for row in snapshot.rows:
             if row.disposition in {"CREATE", "UPDATE"}:
                 self.assertTrue(row.fields)
@@ -237,6 +260,74 @@ class ExecutionSnapshotTests(unittest.TestCase):
             BusinessReference("product.template", ("P-SAME",)),
         )
 
+    def test_update_restores_incoming_provenance_for_a_new_dependency(self) -> None:
+        frozen, result = _execution_fixture()
+        records = tuple(
+            replace(
+                record,
+                references={
+                    **record.references,
+                    "asset_id": LogicalReference(
+                        origin="incoming",
+                        key=("ASSET-2",),
+                        dataset="assets",
+                    ),
+                },
+            )
+            if record.dataset == "asset_lines" and record.source_row == 2
+            else record
+            for record in frozen.prepared.records
+        )
+        frozen.prepared = replace(frozen.prepared, records=records)
+        decisions = tuple(
+            replace(
+                decision,
+                differences=(
+                    *decision.differences,
+                    FieldDifference(
+                        dataset="asset_lines",
+                        business_identity=decision.business_identity,
+                        business_scope=decision.business_scope,
+                        field="asset_id",
+                        existing=BusinessReference("x_uc.asset", ("ASSET-1",)),
+                        proposed=BusinessReference("x_uc.asset", ("ASSET-2",)),
+                        comparison_rule="reference",
+                    ),
+                ),
+            )
+            if decision.dataset == "asset_lines" and decision.source_row == 2
+            else decision
+            for decision in result.decisions
+        )
+
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=replace(result, decisions=decisions),
+        )
+
+        owner = next(
+            row
+            for row in snapshot.rows
+            if row.dataset == "asset_lines" and row.source_row == 2
+        )
+        dependency = next(
+            row
+            for row in snapshot.rows
+            if row.dataset == "assets" and row.source_identity == ("ASSET-2",)
+        )
+        intent = next(item for item in owner.fields if item.field == "asset_id")
+        self.assertEqual(
+            intent.value,
+            LogicalReference(
+                origin="incoming",
+                key=("ASSET-2",),
+                dataset="assets",
+            ),
+        )
+        self.assertEqual(intent.dependency_row_ids, (dependency.row_id,))
+        self.assertLess(dependency.schedule_ordinal, owner.schedule_ordinal)
+
     def test_unresolved_target_reference_remains_fail_closed(self) -> None:
         frozen, result = _execution_fixture()
         decisions = tuple(
@@ -301,6 +392,38 @@ class ExecutionSnapshotTests(unittest.TestCase):
         payload["rows"][0]["disposition"] = "UPDATE"
         with self.assertRaisesRegex(ValueError, "row hash"):
             ExecutionSnapshot.from_json(json.dumps(payload))
+
+        payload = json.loads(snapshot.to_json())
+        payload["relationship_plan"]["root_hash"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(ValueError, "relationship plan hash"):
+            ExecutionSnapshot.from_json(json.dumps(payload))
+
+    def test_row_schedule_is_invariant_to_input_permutation(self) -> None:
+        frozen, result = _execution_fixture()
+        baseline = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=result,
+        )
+        frozen.prepared = replace(
+            frozen.prepared,
+            records=tuple(reversed(frozen.prepared.records)),
+        )
+
+        permuted = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=replace(result, decisions=tuple(reversed(result.decisions))),
+        )
+
+        self.assertEqual(
+            baseline.relationship_plan,
+            permuted.relationship_plan,
+        )
+        self.assertEqual(
+            tuple(row.row_id for row in baseline.rows),
+            tuple(row.row_id for row in permuted.rows),
+        )
 
     def test_result_from_other_source_bundle_is_rejected(self) -> None:
         frozen, result = _execution_fixture()

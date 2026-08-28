@@ -28,10 +28,11 @@ from impodo.domain.shared.models import (
     portable_value,
 )
 from impodo.domain.recipe.profile import DatasetSpec, ResolveSpec
+from impodo.domain.relationship_dependencies import DatasetDependencyEdge
 from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
 
 
-PREFLIGHT_REQUIREMENT_PLAN_VERSION = 2
+PREFLIGHT_REQUIREMENT_PLAN_VERSION = 3
 MAX_KEYS_PER_RECORD_REQUEST = 500
 
 
@@ -56,6 +57,7 @@ class PreflightRequirementPlan:
     record_requests: tuple[RecordRequest, ...]
     reference_requirements: tuple[ReferenceReadRequirement, ...]
     source_record_count: int
+    dependency_edges: tuple[DatasetDependencyEdge, ...] = ()
     reference_policy_hash: str = REFERENCE_POLICY_HASH
     contract_version: int = PREFLIGHT_REQUIREMENT_PLAN_VERSION
 
@@ -67,6 +69,9 @@ class PreflightRequirementPlan:
             "contract_version": self.contract_version,
             "source_record_count": self.source_record_count,
             "reference_policy_hash": self.reference_policy_hash,
+            "dependency_edges": [
+                edge.portable_dict() for edge in self.dependency_edges
+            ],
             "metadata": [
                 {
                     "model": item.model,
@@ -292,6 +297,7 @@ def plan_preflight_requirements(
         record_requests=tuple(requests),
         reference_requirements=plan_reference_read_requirements(plan),
         source_record_count=len(prepared_records),
+        dependency_edges=plan.dependency_edges,
     )
 
 

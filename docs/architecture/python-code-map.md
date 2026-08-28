@@ -45,7 +45,7 @@ services.
 | Code to find | Current path |
 | --- | --- |
 | Project, Data version, workspace, Recipe, run, and Cutover meaning | `domain/project`, `domain/data_version`, `domain/workspace`, `domain/recipe`, `domain/run`, and `domain/cutover` |
-| Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/preparation`, `domain/staging`, and `domain/execution` |
+| Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/relationship_dependencies.py`, `domain/preparation`, `domain/staging`, `domain/execution_snapshot.py`, and `domain/execution` |
 | Owner-qualified commands, queries, and ports | `application/project`, `application/data_version`, `application/recipe`, `application/run`, and `application/workspace` |
 | Cross-owner workflow coordinators and stable facades | Named modules directly below `application`, including Project authoring, Recipe compilation and publication, source projection, preflight, Cutover, and Production coordination. |
 | Shared application ports | `application/shared` |

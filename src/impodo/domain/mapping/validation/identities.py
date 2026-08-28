@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
-from ..contracts import DatasetMapping, IdentityComponentMapping, ResolverOrigin
+from ..contracts import DatasetMapping, IdentityComponentMapping
 from .common import (
     _VALUE_TYPES,
     _check_column,
@@ -54,8 +54,6 @@ def _validate_identity_component(
     component: IdentityComponentMapping,
     path: str,
     columns: Mapping[str, SourceColumnView],
-    dependencies: dict[str, set[str]],
-    required_on_create_dependencies: dict[str, set[str]],
     issues: list[MappingValidationIssue],
 ) -> None:
     fields = context.fields_by_model[dataset.target_model]
@@ -144,15 +142,6 @@ def _validate_identity_component(
         component.source_column_keys,
         metadata.relation,
         metadata,
-        dependencies,
         issues,
         require_governed_key=True,
     )
-    if (
-        component.resolver.origin
-        in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
-        and component.resolver.dataset_id
-    ):
-        required_on_create_dependencies.setdefault(
-            dataset.dataset_id, set()
-        ).add(component.resolver.dataset_id)

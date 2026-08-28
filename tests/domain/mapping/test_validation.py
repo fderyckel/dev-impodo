@@ -36,6 +36,8 @@ from impodo.domain.mapping.scalar_values import (
     evaluate_scalar_mapping_value,
 )
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
+from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
+from impodo.domain.relationship_dependencies import DependencyStrength
 from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
@@ -540,7 +542,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             {item.code for item in wrong_key.issues},
         )
 
-    def test_unsafe_relationships_and_dependency_cycles_are_blocking(
+    def test_unsafe_relationships_are_blocking_but_self_edges_are_retained(
         self,
     ) -> None:
         valid = _valid_definition(self.selection, self.governance)
@@ -587,13 +589,13 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         codes = {item.code for item in result.issues}
 
         self.assertEqual(result.status, MappingValidationStatus.INVALID)
-        self.assertIn("MAPPING_DEPENDENCY_CYCLE", codes)
+        self.assertNotIn("MAPPING_DEPENDENCY_CYCLE", codes)
         self.assertIn("MAPPING_ONE2MANY_OWNER_INVALID", codes)
         self.assertIn("MAPPING_RELATED_MODEL_INCORRECT", codes)
         self.assertIn("MAPPING_RELATION_POLICY_UNSAFE", codes)
         self.assertIn("MAPPING_BUSINESS_KEY_NOT_GOVERNED", codes)
 
-    def test_optional_relationship_cycle_is_deferred_but_required_cycle_blocks(
+    def test_self_relationships_are_left_for_row_level_cycle_analysis(
         self,
     ) -> None:
         valid = _valid_definition(self.selection, self.governance)
@@ -670,14 +672,112 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             "MAPPING_DEPENDENCY_CYCLE",
             {item.code for item in optional_result.issues},
         )
-        self.assertIn(
+        self.assertNotIn(
             "MAPPING_DEPENDENCY_CYCLE",
             {item.code for item in required_result.issues},
         )
-        self.assertIn(
+        self.assertNotIn(
             "MAPPING_DEPENDENCY_CYCLE",
             {item.code for item in schema_required_result.issues},
         )
+
+    def test_required_cross_dataset_cycle_still_blocks(self) -> None:
+        valid = _valid_definition(self.selection, self.governance)
+        company, partner = valid.datasets
+        relationship = RelationshipMapping(
+            target_field="x_partner_id",
+            kind="many2one",
+            source_column_keys=("company.code",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.DATASET,
+                dataset_id=partner.dataset_id,
+            ),
+            required_on_create=True,
+            categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+        )
+        definition = replace(
+            valid,
+            datasets=(
+                replace(company, relationships=(relationship,)),
+                partner,
+            ),
+        )
+        schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    model,
+                    fields=(
+                        *model.fields,
+                        _field(
+                            "x_partner_id",
+                            "many2one",
+                            relation="res.partner",
+                        ),
+                    ),
+                )
+                if model.name == "res.company"
+                else model
+                for model in self.schema.models
+            ),
+        )
+
+        result = self.validator.validate(
+            definition,
+            self.selection,
+            schema,
+            self.governance,
+        )
+
+        self.assertIn(
+            "MAPPING_DEPENDENCY_CYCLE",
+            {item.code for item in result.issues},
+        )
+
+    def test_browser_compiler_normalizes_captured_required_relationships(
+        self,
+    ) -> None:
+        selection = replace(
+            self.selection,
+            content_hash="sha256:" + "1" * 64,
+        )
+        valid = _valid_definition(selection, self.governance)
+        company, partner = valid.datasets
+        parent = RelationshipMapping(
+            target_field="parent_id",
+            kind="many2one",
+            source_column_keys=("partner.parent_ref",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.DATASET,
+                dataset_id=partner.dataset_id,
+            ),
+            categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+        )
+        definition = replace(
+            valid,
+            datasets=(
+                company,
+                replace(partner, relationships=(*partner.relationships, parent)),
+            ),
+        )
+
+        compiled = compile_browser_mapping(
+            definition,
+            selection,
+            required_relationship_fields={"res.partner": {"parent_id"}},
+        )
+        compiled_partner = next(
+            dataset for dataset in compiled.datasets if dataset.name == "partners"
+        )
+        edge = next(
+            item
+            for item in compiled.dependency_edges
+            if item.owner_dataset == "partners" and item.target_field == "parent_id"
+        )
+
+        self.assertTrue(compiled_partner.relations["parent_id"].required_on_create)
+        self.assertEqual(edge.strength, DependencyStrength.HARD)
+        self.assertTrue(edge.is_self_reference)
 
     def test_every_frozen_dataset_and_governed_key_are_required(self) -> None:
         valid = _valid_definition(self.selection, self.governance)

@@ -263,9 +263,9 @@ def _run_child(
         projects = WorkspaceStateRepository(database)
         repository = PreparationSessionRepository(database)
         project = _project(products, bom_lines)
-        projects.create(project, actor=LOCAL_ACTOR)
+        projects.initialize_workbench(project, actor=LOCAL_ACTOR)
         session = repository.begin_direct_session(
-            project.project_id,
+            project.workspace_id,
             _bindings(),
             actor=LOCAL_ACTOR,
         )
@@ -280,7 +280,7 @@ def _run_child(
             append_wall_started = perf_counter()
             _append_fixture(
                 repository,
-                project.project_id,
+                project.workspace_id,
                 session.session_id,
                 products=products,
                 bom_lines=bom_lines,
@@ -299,16 +299,16 @@ def _run_child(
                 ):
                     staging = _finalize(
                         repository,
-                        project.project_id,
+                        project.workspace_id,
                         session.session_id,
                         products,
                         bom_lines,
                     )
                 quality = evaluate_quality(
-                    project=project,
+                    workspace_state=project,
                     staging=materialize_staging_run(staging),
                     physical_rows=_physical_rows(products, bom_lines),
-                    ruleset=_ruleset(project.project_id),
+                    ruleset=_ruleset(project.workspace_id),
                     published_staging_content_hash=(
                         staging.validated_content_hash or ""
                     ),
@@ -333,16 +333,16 @@ def _run_child(
             else:
                 staging = _finalize(
                     repository,
-                    project.project_id,
+                    project.workspace_id,
                     session.session_id,
                     products,
                     bom_lines,
                 )
                 quality = build_bounded_quality_run(
-                    project=project,
+                    workspace_state=project,
                     staging=staging,
                     physical_rows=_physical_rows(products, bom_lines),
-                    ruleset=_ruleset(project.project_id),
+                    ruleset=_ruleset(project.workspace_id),
                     published_staging_content_hash=(
                         staging.validated_content_hash or ""
                     ),
@@ -360,7 +360,12 @@ def _run_child(
         cpu_seconds = process_time() - cpu_started
         cpu_times_finished = process.cpu_times()
         ending_rss = int(process.memory_info().rss)
-        storage = _storage(repository, root, project.project_id, session.session_id)
+        storage = _storage(
+            repository,
+            root,
+            project.workspace_id,
+            session.session_id,
+        )
         return {
             "baseline_rss_mib": baseline_rss / MIB,
             "cpu_seconds": cpu_seconds,
@@ -397,12 +402,9 @@ def _project(products: int, bom_lines: int) -> WorkspaceState:
         )
     )
     return WorkspaceState(
-        project_id=project_id,
+        workspace_id=project_id,
         name="Sanitized relationship benchmark",
         source_system="CSV",
-        data_manager="Data Manager",
-        functional_owner="Functional Owner",
-        business_unit="Operations",
         odoo_connection_mode=OdooConnectionMode.LOCAL,
         odoo_base_url="http://127.0.0.1:8069",
         odoo_database="odoo19_local",
@@ -580,7 +582,7 @@ def _finalize(
 
 def _ruleset(project_id: str):
     return default_quality_ruleset(
-        project_id=project_id,
+        workspace_id=project_id,
         mapping_hash=MAPPING_HASH,
         schema_hash=SCHEMA_HASH,
         datasets=("bom", "products"),

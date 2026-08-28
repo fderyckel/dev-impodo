@@ -10,6 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from impodo.domain.shared.models import canonical_json_bytes
 from impodo.domain.recipe.profile import DatasetSpec, validate_dataset_graph
+from impodo.domain.relationship_dependencies import (
+    DatasetDependencyEdge,
+    extract_dataset_dependency_edges,
+)
 
 
 COMPILED_MIGRATION_PLAN_VERSION = 1
@@ -87,6 +91,12 @@ class CompiledMigrationPlan(BaseModel):
             if dataset.name == name:
                 return dataset
         raise KeyError(name)
+
+    @property
+    def dependency_edges(self) -> tuple[DatasetDependencyEdge, ...]:
+        """Return canonical hard and deferrable incoming dependency evidence."""
+
+        return extract_dataset_dependency_edges(self.datasets)
 
     def to_portable_dict(self) -> dict[str, object]:
         """Return the deterministic contract payload used for evidence hashes."""

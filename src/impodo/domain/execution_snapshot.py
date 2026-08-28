@@ -2,19 +2,26 @@
 
 The snapshot is generated automatically from the exact frozen preparation
 input and its target comparison.  It is an internal reliability artifact,
-not another user approval.  Every compared row is accounted for, while only
-``CREATE`` and ``UPDATE`` rows carry field intentions for the practical writer.
+not another user approval. Every compared row is accounted for, while only
+``CREATE`` and ``UPDATE`` rows carry field intentions. The snapshot also owns
+the deterministic row schedule and exact optional relationship completions.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field as dataclass_field, replace
 from hashlib import sha256
 import json
 import re
 from typing import Any, Mapping
 
 from .compiler.contracts import CompiledMigrationPlan
+from .execution.dependency_scheduler import (
+    DependencyEdge,
+    DependencyNode,
+    ScheduleBlocker,
+    schedule_dependencies,
+)
 from .preflight.frozen_input import FrozenPreflightInput
 from impodo.domain.shared.models import (
     BusinessReference,
@@ -29,9 +36,13 @@ from impodo.domain.shared.models import (
     restore_portable_value,
 )
 from impodo.domain.recipe.profile import DatasetSpec, IdentityComponent, ResolveSpec
+from impodo.domain.relationship_dependencies import (
+    DependencyStrength,
+    dependency_sets_by_owner,
+)
 
 
-EXECUTION_SNAPSHOT_VERSION = 4
+EXECUTION_SNAPSHOT_VERSION = 6
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -60,6 +71,9 @@ class FieldIntent:
     related_model: str = ""
     related_identity_fields: tuple[str, ...] = ()
     related_scope_fields: tuple[str, ...] = ()
+    dependency_strength: str = ""
+    dependency_row_ids: tuple[str, ...] = ()
+    target_binding_hashes: tuple[str, ...] = ()
     defer_on_create: bool = False
 
     def portable_dict(self) -> dict[str, Any]:
@@ -77,6 +91,14 @@ class FieldIntent:
                 self.related_identity_fields
             )
             payload["related_scope_fields"] = list(self.related_scope_fields)
+            if self.dependency_strength:
+                payload["dependency_strength"] = self.dependency_strength
+            if self.dependency_row_ids:
+                payload["dependency_row_ids"] = list(self.dependency_row_ids)
+            if self.target_binding_hashes:
+                payload["target_binding_hashes"] = list(
+                    self.target_binding_hashes
+                )
             if self.defer_on_create:
                 payload["defer_on_create"] = True
         return payload
@@ -98,6 +120,9 @@ class ExecutionRow:
     target_match_count: int
     proposed_external_id: str
     fields: tuple[FieldIntent, ...]
+    target_binding_hash: str = ""
+    schedule_ordinal: int = -1
+    schedule_component: int = -1
     row_hash: str = ""
 
     def portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
@@ -112,11 +137,98 @@ class ExecutionRow:
             "business_scope": portable_value(self.business_scope),
             "disposition": self.disposition,
             "target_match_count": self.target_match_count,
+            "target_binding_hash": self.target_binding_hash,
             "proposed_external_id": self.proposed_external_id,
             "fields": [item.portable_dict() for item in self.fields],
+            "schedule_ordinal": self.schedule_ordinal,
+            "schedule_component": self.schedule_component,
         }
         if include_hash:
             payload["row_hash"] = self.row_hash
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipCompletion:
+    """One owner field omitted during create and written after receipts exist."""
+
+    row_id: str
+    field: str
+    dependency_row_ids: tuple[str, ...]
+
+    def portable_dict(self) -> dict[str, Any]:
+        return {
+            "row_id": self.row_id,
+            "field": self.field,
+            "dependency_row_ids": list(self.dependency_row_ids),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipBlocker:
+    """One snapshot-time reason a row cannot be safely scheduled."""
+
+    row_id: str
+    code: str
+    field: str = ""
+    dependency_row_id: str = ""
+
+    def portable_dict(self) -> dict[str, str]:
+        return {
+            "row_id": self.row_id,
+            "code": self.code,
+            "field": self.field,
+            "dependency_row_id": self.dependency_row_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipComponent:
+    """One dependency-independent topological layer safe to batch."""
+
+    sequence: int
+    row_ids: tuple[str, ...]
+
+    def portable_dict(self) -> dict[str, Any]:
+        return {"sequence": self.sequence, "row_ids": list(self.row_ids)}
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipPlan:
+    """Compact row graph outcome embedded in one execution snapshot."""
+
+    edge_count: int = 0
+    components: tuple[RelationshipComponent, ...] = ()
+    completions: tuple[RelationshipCompletion, ...] = ()
+    blockers: tuple[RelationshipBlocker, ...] = ()
+    root_hash: str = ""
+    contract_version: int = 1
+
+    @property
+    def component_count(self) -> int:
+        return len(self.components)
+
+    @property
+    def completion_count(self) -> int:
+        return len(self.completions)
+
+    @property
+    def blocker_count(self) -> int:
+        return len(self.blockers)
+
+    def portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "contract_version": self.contract_version,
+            "edge_count": self.edge_count,
+            "component_count": self.component_count,
+            "completion_count": self.completion_count,
+            "blocker_count": self.blocker_count,
+            "components": [item.portable_dict() for item in self.components],
+            "completions": [item.portable_dict() for item in self.completions],
+            "blockers": [item.portable_dict() for item in self.blockers],
+        }
+        if include_hash:
+            payload["root_hash"] = self.root_hash
         return payload
 
 
@@ -151,6 +263,9 @@ class ExecutionSnapshot:
     counts: Mapping[str, int]
     rows: tuple[ExecutionRow, ...]
     root_hash: str
+    relationship_plan: RelationshipPlan = dataclass_field(
+        default_factory=RelationshipPlan
+    )
     read_credential_binding_hash: str = ""
     read_principal_hash: str = ""
     read_permission_hash: str = ""
@@ -224,6 +339,7 @@ class ExecutionSnapshot:
             "counts": dict(sorted(self.counts.items())),
             "rows": [item.portable_dict() for item in self.rows],
             "root_hash": self.root_hash,
+            "relationship_plan": self.relationship_plan.portable_dict(),
         }
         if include_hash:
             payload["semantic_hash"] = self.semantic_hash
@@ -249,6 +365,9 @@ class ExecutionSnapshot:
         preflight = dict(payload["preflight"])
         target = dict(payload["target"])
         rows = tuple(_restore_row(item) for item in payload.get("rows", ()))
+        relationship_plan = _restore_relationship_plan(
+            dict(payload.get("relationship_plan", {}))
+        )
         snapshot = cls(
             workspace_id=str(payload["workspace_id"]),
             preflight_run_id=str(payload["preflight_run_id"]),
@@ -304,6 +423,7 @@ class ExecutionSnapshot:
             },
             rows=rows,
             root_hash=str(payload["root_hash"]),
+            relationship_plan=relationship_plan,
             read_credential_binding_hash=str(
                 target["read_credential_binding_hash"]
             ),
@@ -315,7 +435,12 @@ class ExecutionSnapshot:
             ),
         )
         _validate_read_evidence(snapshot)
-        _validate_rows(rows, snapshot.counts)
+        _validate_rows(
+            rows,
+            snapshot.counts,
+            relationship_plan,
+            snapshot.datasets,
+        )
         expected_root = _root_hash(rows)
         if snapshot.root_hash != expected_root:
             raise ValueError("Execution snapshot row root hash is invalid")
@@ -343,6 +468,13 @@ def build_execution_snapshot(
         for record in frozen.prepared.records
     }
     target_resolutions = _target_resolution_index(result)
+    target_bindings = _target_binding_index(frozen.plan, result)
+    incoming_resolutions = _incoming_update_resolution_index(
+        frozen.plan,
+        tuple(frozen.prepared.records),
+        result,
+        target_resolutions,
+    )
     rows = []
     for decision in result.decisions:
         record = records.get((decision.dataset, decision.source_row))
@@ -364,18 +496,23 @@ def build_execution_snapshot(
                 dataset,
                 execution_record,
                 decision,
+                target_bindings,
+                incoming_resolutions,
             )
         )
-    row_tuple = tuple(rows)
+    provisional_rows = tuple(rows)
     counts = result.counts
-    if len(row_tuple) != sum(counts.values()):
+    if len(provisional_rows) != sum(counts.values()):
         raise ValueError("Preflight decision accounting is incomplete")
+    dependencies_by_dataset = dependency_sets_by_owner(
+        frozen.plan.dependency_edges
+    )
     unordered_datasets = tuple(
         ExecutionDataset(
             dataset=dataset.name,
             target_model=dataset.target.model,
             sequence=sequence,
-            dependencies=_dataset_dependencies(dataset),
+            dependencies=dependencies_by_dataset.get(dataset.name, ()),
             existing_policy=_existing_policy(dataset),
             identity_fields=_identity_fields(
                 dataset.target_identity.components
@@ -389,6 +526,10 @@ def build_execution_snapshot(
         for sequence, dataset in enumerate(
             dependency_ordered_execution_datasets(unordered_datasets)
         )
+    )
+    row_tuple, relationship_plan = plan_execution_rows(
+        provisional_rows,
+        datasets,
     )
     schema = getattr(frozen, "captured_schema", None)
     snapshot = ExecutionSnapshot(
@@ -421,6 +562,7 @@ def build_execution_snapshot(
         counts=counts,
         rows=row_tuple,
         root_hash=_root_hash(row_tuple),
+        relationship_plan=relationship_plan,
         read_credential_binding_hash=(
             schema.read_credential_binding_hash if schema is not None else ""
         ),
@@ -439,7 +581,7 @@ def build_execution_snapshot(
             else ()
         ),
     )
-    _validate_rows(row_tuple, counts)
+    _validate_rows(row_tuple, counts, relationship_plan, datasets)
     _validate_read_evidence(snapshot)
     snapshot.portable_dict()
     return snapshot
@@ -488,6 +630,123 @@ def _target_resolution_index(
         if previous != outcome:
             raise ValueError("Target relationship resolution evidence conflicts")
     return outcomes
+
+
+def _target_binding_index(
+    plan: CompiledMigrationPlan,
+    result: PreflightResult,
+) -> dict[tuple[str, bytes, bytes], str]:
+    """Index opaque bindings by portable model, business key, and scope."""
+
+    bindings: dict[tuple[str, bytes, bytes], str] = {}
+
+    def add(model: str, key: tuple[Any, ...], scope: tuple[Any, ...], value: str) -> None:
+        if not value:
+            return
+        index_key = (
+            model,
+            canonical_json_bytes(portable_value(key)),
+            canonical_json_bytes(portable_value(scope)),
+        )
+        previous = bindings.setdefault(index_key, value)
+        if previous != value:
+            raise ValueError("Target record binding evidence conflicts")
+
+    for decision in result.decisions:
+        add(
+            plan.dataset(decision.dataset).target.model,
+            decision.business_identity,
+            decision.business_scope,
+            decision.target_binding_hash,
+        )
+    for evidence in result.reference_resolutions:
+        reference = evidence.reference
+        if reference.model:
+            add(
+                reference.model,
+                reference.key,
+                reference.scope,
+                evidence.target_binding_hash,
+            )
+    return bindings
+
+
+def _incoming_update_resolution_index(
+    plan: CompiledMigrationPlan,
+    records: tuple[PreparedRecord, ...],
+    result: PreflightResult,
+    target_resolutions: Mapping[tuple[str, bytes], tuple[str, int]],
+) -> dict[tuple[str, int, str, bytes], LogicalReference]:
+    """Restore incoming provenance erased by comparison business references."""
+
+    records_by_source: dict[tuple[str, bytes], PreparedRecord] = {}
+    for record in records:
+        key = (
+            record.dataset,
+            canonical_json_bytes(portable_value(record.source_identity)),
+        )
+        if key in records_by_source:
+            raise ValueError("Incoming execution identity is duplicated")
+        records_by_source[key] = record
+    decisions = {
+        (decision.dataset, decision.source_row): decision
+        for decision in result.decisions
+    }
+    index: dict[tuple[str, int, str, bytes], LogicalReference] = {}
+    for owner in records:
+        for field, raw_value in owner.references.items():
+            values = raw_value if isinstance(raw_value, tuple) else (raw_value,)
+            for value in values:
+                if not isinstance(value, LogicalReference):
+                    continue
+                source_key: tuple[Any, ...] | None = None
+                if value.origin == "incoming":
+                    source_key = value.key
+                elif value.origin == "target_then_incoming":
+                    outcome = target_resolutions.get(
+                        (
+                            owner.dataset,
+                            canonical_json_bytes(portable_value(value)),
+                        )
+                    )
+                    if outcome == ("RESOLVED_INCOMING", 1):
+                        source_key = value.incoming_key
+                if source_key is None or value.dataset is None:
+                    continue
+                referenced = records_by_source.get(
+                    (
+                        value.dataset,
+                        canonical_json_bytes(portable_value(source_key)),
+                    )
+                )
+                if referenced is None:
+                    continue
+                decision = decisions.get((referenced.dataset, referenced.source_row))
+                if decision is None or decision.classification in {
+                    Classification.BLOCKED,
+                    Classification.AMBIGUOUS,
+                }:
+                    continue
+                business_reference = BusinessReference(
+                    model=plan.dataset(referenced.dataset).target.model,
+                    key=decision.business_identity,
+                    scope=decision.business_scope,
+                )
+                incoming = LogicalReference(
+                    origin="incoming",
+                    key=source_key,
+                    dataset=value.dataset,
+                )
+                index_key = (
+                    owner.dataset,
+                    owner.source_row,
+                    field,
+                    canonical_json_bytes(portable_value(business_reference)),
+                )
+                previous = index.setdefault(index_key, incoming)
+                if previous != incoming:
+                    raise ValueError("Incoming update resolution evidence conflicts")
+    return index
 
 
 def _resolved_create_record(
@@ -561,13 +820,24 @@ def _execution_row(
     dataset: DatasetSpec,
     record: PreparedRecord,
     decision: Decision,
+    target_bindings: Mapping[tuple[str, bytes, bytes], str],
+    incoming_resolutions: Mapping[
+        tuple[str, int, str, bytes], LogicalReference
+    ],
 ) -> ExecutionRow:
     operation = decision.classification
     fields: tuple[FieldIntent, ...] = ()
     if operation is Classification.CREATE:
-        fields = _create_intents(plan, dataset, record)
+        fields = _create_intents(plan, dataset, record, target_bindings)
     elif operation is Classification.UPDATE:
-        fields = _update_intents(plan, dataset, decision)
+        fields = _update_intents(
+            plan,
+            dataset,
+            record,
+            decision,
+            target_bindings,
+            incoming_resolutions,
+        )
     row_id = _portable_row_id(workspace_id, record)
     external_id = (
         _proposed_external_id(
@@ -590,6 +860,7 @@ def _execution_row(
         business_scope=decision.business_scope,
         disposition=operation.value,
         target_match_count=decision.target_match_count,
+        target_binding_hash=decision.target_binding_hash,
         proposed_external_id=external_id,
         fields=fields,
     )
@@ -607,6 +878,7 @@ def _execution_row(
         business_scope=row.business_scope,
         disposition=row.disposition,
         target_match_count=row.target_match_count,
+        target_binding_hash=row.target_binding_hash,
         proposed_external_id=row.proposed_external_id,
         fields=row.fields,
         row_hash=digest,
@@ -617,6 +889,7 @@ def _create_intents(
     plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     record: PreparedRecord,
+    target_bindings: Mapping[tuple[str, bytes, bytes], str],
 ) -> tuple[FieldIntent, ...]:
     intentions: dict[str, FieldIntent] = {}
     identity_fields = {
@@ -632,12 +905,14 @@ def _create_intents(
         plan,
         dataset.target_identity.components,
         record.target_identity,
+        target_bindings,
     )
     _add_identity_intents(
         intentions,
         plan,
         dataset.target_identity.scope,
         record.target_scope,
+        target_bindings,
     )
     for field, spec in dataset.fields.items():
         if spec.validate_only:
@@ -656,10 +931,17 @@ def _create_intents(
             spec.null_policy,
             kind="relation",
             relation_operation=spec.operation,
-            defer_on_create=(
-                spec.resolve.dataset is not None
-                and not spec.required_on_create
-                and field not in identity_fields
+            dependency_strength=(
+                (
+                    DependencyStrength.HARD.value
+                    if spec.required_on_create or field in identity_fields
+                    else DependencyStrength.DEFERRABLE.value
+                )
+                if spec.resolve.dataset is not None
+                else ""
+            ),
+            target_binding_hashes=_value_target_bindings(
+                record.references.get(field), target_bindings
             ),
             **_relation_shape(plan, spec.resolve),
         )
@@ -669,15 +951,30 @@ def _create_intents(
 def _update_intents(
     plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
+    record: PreparedRecord,
     decision: Decision,
+    target_bindings: Mapping[tuple[str, bytes, bytes], str],
+    incoming_resolutions: Mapping[
+        tuple[str, int, str, bytes], LogicalReference
+    ],
 ) -> tuple[FieldIntent, ...]:
     intentions = []
     for difference in decision.differences:
         relation = dataset.relations.get(difference.field)
+        proposed = (
+            _restore_update_incoming_references(
+                difference.proposed,
+                record,
+                difference.field,
+                incoming_resolutions,
+            )
+            if relation is not None
+            else difference.proposed
+        )
         intentions.append(
             _intent(
                 difference.field,
-                difference.proposed,
+                proposed,
                 (
                     relation.null_policy
                     if relation is not None
@@ -691,8 +988,25 @@ def _update_intents(
                     # source operation a second time.
                     "replace" if relation is not None else ""
                 ),
+                target_binding_hashes=(
+                    _value_target_bindings(
+                        proposed,
+                        target_bindings,
+                    )
+                    if relation is not None
+                    else ()
+                ),
                 **(
-                    _relation_shape(plan, relation.resolve)
+                    {
+                        **_relation_shape(plan, relation.resolve),
+                        "dependency_strength": (
+                            DependencyStrength.HARD.value
+                            if relation.required_on_create
+                            else DependencyStrength.DEFERRABLE.value
+                        )
+                        if relation.resolve.dataset is not None
+                        else "",
+                    }
                     if relation is not None
                     else {}
                 ),
@@ -701,11 +1015,45 @@ def _update_intents(
     return tuple(sorted(intentions, key=lambda item: item.field))
 
 
+def _restore_update_incoming_references(
+    value: Any,
+    owner: PreparedRecord,
+    field: str,
+    incoming_resolutions: Mapping[
+        tuple[str, int, str, bytes], LogicalReference
+    ],
+) -> Any:
+    """Replace only reviewed incoming targets with their frozen source keys."""
+
+    if isinstance(value, tuple):
+        return tuple(
+            _restore_update_incoming_references(
+                item,
+                owner,
+                field,
+                incoming_resolutions,
+            )
+            for item in value
+        )
+    if not isinstance(value, BusinessReference):
+        return value
+    return incoming_resolutions.get(
+        (
+            owner.dataset,
+            owner.source_row,
+            field,
+            canonical_json_bytes(portable_value(value)),
+        ),
+        value,
+    )
+
+
 def _add_identity_intents(
     intentions: dict[str, FieldIntent],
     plan: CompiledMigrationPlan,
     components: tuple[IdentityComponent, ...],
     values: tuple[Any, ...],
+    target_bindings: Mapping[tuple[str, bytes, bytes], str],
 ) -> None:
     target_fields = tuple(
         field for component in components for field in component.target_fields
@@ -725,8 +1073,20 @@ def _add_identity_intents(
             "distinct",
             kind="relation" if component.resolve is not None else "scalar",
             relation_operation="replace" if component.resolve is not None else "",
+            target_binding_hashes=(
+                _value_target_bindings(value, target_bindings)
+                if component.resolve is not None
+                else ()
+            ),
             **(
-                _relation_shape(plan, component.resolve)
+                {
+                    **_relation_shape(plan, component.resolve),
+                    "dependency_strength": (
+                        DependencyStrength.HARD.value
+                        if component.resolve.dataset is not None
+                        else ""
+                    ),
+                }
                 if component.resolve is not None
                 else {}
             ),
@@ -743,6 +1103,8 @@ def _intent(
     related_model: str = "",
     related_identity_fields: tuple[str, ...] = (),
     related_scope_fields: tuple[str, ...] = (),
+    dependency_strength: str = "",
+    target_binding_hashes: tuple[str, ...] = (),
     defer_on_create: bool = False,
 ) -> FieldIntent:
     empty_relation = kind == "relation" and value == ()
@@ -761,8 +1123,35 @@ def _intent(
         related_model=related_model,
         related_identity_fields=related_identity_fields,
         related_scope_fields=related_scope_fields,
+        dependency_strength=dependency_strength,
+        target_binding_hashes=target_binding_hashes,
         defer_on_create=defer_on_create and action == "SET_VALUE",
     )
+
+
+def _value_target_bindings(
+    value: Any,
+    target_bindings: Mapping[tuple[str, bytes, bytes], str],
+) -> tuple[str, ...]:
+    """Align opaque existing-target bindings with relation values."""
+
+    values = value if isinstance(value, tuple) else (value,)
+    result = []
+    for item in values:
+        if not isinstance(item, BusinessReference):
+            result.append("")
+            continue
+        result.append(
+            target_bindings.get(
+                (
+                    item.model,
+                    canonical_json_bytes(portable_value(item.key)),
+                    canonical_json_bytes(portable_value(item.scope)),
+                ),
+                "",
+            )
+        )
+    return tuple(result) if any(result) else ()
 
 
 def _portable_row_id(workspace_id: str, record: PreparedRecord) -> str:
@@ -796,23 +1185,6 @@ def _proposed_external_id(
     ).hexdigest()[:24]
     model_token = re.sub(r"[^a-z0-9_]+", "_", target_model.casefold())
     return f"impodo_{namespace}.{model_token}_{identity_hash}"
-
-
-def _dataset_dependencies(dataset: DatasetSpec) -> tuple[str, ...]:
-    dependencies = {
-        spec.resolve.dataset
-        for spec in dataset.relations.values()
-        if spec.resolve.dataset is not None
-    }
-    dependencies.update(
-        component.resolve.dataset
-        for component in (
-            *dataset.target_identity.components,
-            *dataset.target_identity.scope,
-        )
-        if component.resolve is not None and component.resolve.dataset is not None
-    )
-    return tuple(sorted(str(item) for item in dependencies))
 
 
 def dependency_ordered_execution_datasets(
@@ -957,6 +1329,261 @@ def _existing_policy(dataset: DatasetSpec) -> str:
     return "reference"
 
 
+def plan_execution_rows(
+    rows: tuple[ExecutionRow, ...],
+    datasets: tuple[ExecutionDataset, ...],
+) -> tuple[tuple[ExecutionRow, ...], RelationshipPlan]:
+    """Resolve incoming row edges and freeze one deterministic write schedule."""
+
+    dataset_sequence = {item.dataset: item.sequence for item in datasets}
+    if len(dataset_sequence) != len(datasets):
+        raise ValueError("execution snapshot contains duplicate datasets")
+    missing_datasets = sorted(
+        {row.dataset for row in rows}.difference(dataset_sequence)
+    )
+    if missing_datasets:
+        raise ValueError("execution snapshot row dataset is missing")
+    stable_rows = tuple(
+        sorted(
+            rows,
+            key=lambda row: (
+                dataset_sequence[row.dataset],
+                canonical_json_bytes(portable_value(row.business_identity)),
+                canonical_json_bytes(portable_value(row.business_scope)),
+                canonical_json_bytes(portable_value(row.source_identity)),
+                row.row_id,
+            ),
+        )
+    )
+    rank = {row.row_id: index for index, row in enumerate(stable_rows)}
+    actionable = tuple(
+        row
+        for row in stable_rows
+        if row.disposition in {
+            Classification.CREATE.value,
+            Classification.UPDATE.value,
+        }
+    )
+    action_rank = {
+        row.row_id: index for index, row in enumerate(actionable)
+    }
+    source_index: dict[tuple[str, bytes], list[ExecutionRow]] = {}
+    for row in stable_rows:
+        source_index.setdefault(
+            (
+                row.dataset,
+                canonical_json_bytes(portable_value(row.source_identity)),
+            ),
+            [],
+        ).append(row)
+
+    graph_edges: list[DependencyEdge] = []
+    blockers: list[ScheduleBlocker] = []
+    edge_count = 0
+    fields_by_row: dict[str, tuple[FieldIntent, ...]] = {}
+    for row in actionable:
+        planned_fields: list[FieldIntent] = []
+        for intent in row.fields:
+            dependency_ids: list[str] = []
+            if intent.action == "SET_VALUE" and intent.kind == "relation":
+                values = intent.value if isinstance(intent.value, tuple) else (intent.value,)
+                incoming = tuple(
+                    value
+                    for value in values
+                    if isinstance(value, LogicalReference)
+                    and value.origin == "incoming"
+                )
+                for reference in incoming:
+                    if reference.dataset is None:
+                        blockers.append(
+                            ScheduleBlocker(
+                                row_id=row.row_id,
+                                code="INCOMPLETE_INCOMING_REFERENCE",
+                                field=intent.field,
+                            )
+                        )
+                        continue
+                    matches = source_index.get(
+                        (
+                            reference.dataset,
+                            canonical_json_bytes(portable_value(reference.key)),
+                        ),
+                        (),
+                    )
+                    if len(matches) != 1:
+                        blockers.append(
+                            ScheduleBlocker(
+                                row_id=row.row_id,
+                                code=(
+                                    "MISSING_INCOMING_ROW"
+                                    if not matches
+                                    else "DUPLICATE_INCOMING_ROW"
+                                ),
+                                field=intent.field,
+                            )
+                        )
+                        continue
+                    dependency = matches[0]
+                    if dependency.target_model != intent.related_model:
+                        blockers.append(
+                            ScheduleBlocker(
+                                row_id=row.row_id,
+                                code="INCOMING_MODEL_MISMATCH",
+                                field=intent.field,
+                                dependency_row_id=dependency.row_id,
+                            )
+                        )
+                        continue
+                    if dependency.row_id in dependency_ids:
+                        continue
+                    dependency_ids.append(dependency.row_id)
+                    edge_count += 1
+                    if dependency.disposition in {
+                        Classification.BLOCKED.value,
+                        Classification.AMBIGUOUS.value,
+                    }:
+                        blockers.append(
+                            ScheduleBlocker(
+                                row_id=row.row_id,
+                                code="UNUSABLE_INCOMING_ROW",
+                                field=intent.field,
+                                dependency_row_id=dependency.row_id,
+                            )
+                        )
+                    elif dependency.disposition == Classification.CREATE.value:
+                        strength = intent.dependency_strength
+                        if strength not in {
+                            DependencyStrength.HARD.value,
+                            DependencyStrength.DEFERRABLE.value,
+                        }:
+                            blockers.append(
+                                ScheduleBlocker(
+                                    row_id=row.row_id,
+                                    code="MISSING_DEPENDENCY_STRENGTH",
+                                    field=intent.field,
+                                    dependency_row_id=dependency.row_id,
+                                )
+                            )
+                        else:
+                            graph_edges.append(
+                                DependencyEdge(
+                                    dependency_row_id=dependency.row_id,
+                                    owner_row_id=row.row_id,
+                                    owner_field=intent.field,
+                                    strength=strength,
+                                )
+                            )
+            planned_fields.append(
+                replace(
+                    intent,
+                    dependency_row_ids=tuple(
+                        sorted(set(dependency_ids), key=rank.__getitem__)
+                    ),
+                    defer_on_create=False,
+                )
+            )
+        fields_by_row[row.row_id] = tuple(planned_fields)
+
+    schedule = schedule_dependencies(
+        (
+            DependencyNode(row_id=row.row_id, rank=action_rank[row.row_id])
+            for row in actionable
+        ),
+        graph_edges,
+        blockers,
+    )
+    deferred_fields = {
+        (edge.owner_row_id, edge.owner_field)
+        for edge in schedule.deferred_edges
+    }
+    completions: list[RelationshipCompletion] = []
+    for row in actionable:
+        updated: list[FieldIntent] = []
+        for intent in fields_by_row[row.row_id]:
+            deferred = (row.row_id, intent.field) in deferred_fields
+            updated_intent = replace(intent, defer_on_create=deferred)
+            updated.append(updated_intent)
+            if deferred:
+                completions.append(
+                    RelationshipCompletion(
+                        row_id=row.row_id,
+                        field=intent.field,
+                        dependency_row_ids=intent.dependency_row_ids,
+                    )
+                )
+        fields_by_row[row.row_id] = tuple(updated)
+
+    ordinal = {
+        row_id: index for index, row_id in enumerate(schedule.ordered_row_ids)
+    }
+    component = {
+        row_id: index
+        for index, row_ids in enumerate(schedule.components)
+        for row_id in row_ids
+    }
+    planned_rows = tuple(
+        _rehash_row(
+            replace(
+                row,
+                fields=fields_by_row.get(row.row_id, row.fields),
+                schedule_ordinal=ordinal.get(row.row_id, -1),
+                schedule_component=component.get(row.row_id, -1),
+                row_hash="",
+            )
+        )
+        for row in stable_rows
+    )
+    planned_rows = tuple(
+        sorted(
+            planned_rows,
+            key=lambda row: (
+                row.schedule_ordinal < 0,
+                row.schedule_ordinal if row.schedule_ordinal >= 0 else rank[row.row_id],
+            ),
+        )
+    )
+    plan = RelationshipPlan(
+        edge_count=edge_count,
+        components=tuple(
+            RelationshipComponent(sequence=index, row_ids=row_ids)
+            for index, row_ids in enumerate(schedule.components)
+        ),
+        completions=tuple(
+            sorted(
+                completions,
+                key=lambda item: (rank[item.row_id], item.field),
+            )
+        ),
+        blockers=tuple(
+            RelationshipBlocker(
+                row_id=item.row_id,
+                code=item.code,
+                field=item.field,
+                dependency_row_id=item.dependency_row_id,
+            )
+            for item in schedule.blockers
+        ),
+    )
+    plan = replace(plan, root_hash=_relationship_plan_hash(plan))
+    return planned_rows, plan
+
+
+def _rehash_row(row: ExecutionRow) -> ExecutionRow:
+    return replace(
+        row,
+        row_hash="sha256:"
+        + sha256(
+            canonical_json_bytes(row.portable_dict(include_hash=False))
+        ).hexdigest(),
+    )
+
+
+def _relationship_plan_hash(plan: RelationshipPlan) -> str:
+    return "sha256:" + sha256(
+        canonical_json_bytes(plan.portable_dict(include_hash=False))
+    ).hexdigest()
+
+
 def _root_hash(rows: tuple[ExecutionRow, ...]) -> str:
     return "sha256:" + sha256(
         canonical_json_bytes([row.row_hash for row in rows])
@@ -966,6 +1593,8 @@ def _root_hash(rows: tuple[ExecutionRow, ...]) -> str:
 def _validate_rows(
     rows: tuple[ExecutionRow, ...],
     counts: Mapping[str, int],
+    relationship_plan: RelationshipPlan,
+    datasets: tuple[ExecutionDataset, ...],
 ) -> None:
     """Reject incomplete accounting or writer-ambiguous row contracts."""
 
@@ -1033,6 +1662,9 @@ def _validate_rows(
                 intent.related_model
                 or intent.related_identity_fields
                 or intent.related_scope_fields
+                or intent.dependency_strength
+                or intent.dependency_row_ids
+                or intent.target_binding_hashes
                 or intent.defer_on_create
             ):
                 raise ValueError("Execution snapshot relation shape is invalid")
@@ -1051,6 +1683,154 @@ def _validate_rows(
                 or intent.action != "SET_VALUE"
             ):
                 raise ValueError("Execution snapshot deferred relation is invalid")
+            if intent.dependency_strength not in {
+                "",
+                DependencyStrength.HARD.value,
+                DependencyStrength.DEFERRABLE.value,
+            }:
+                raise ValueError("Execution snapshot dependency strength is invalid")
+            if len(set(intent.dependency_row_ids)) != len(
+                intent.dependency_row_ids
+            ):
+                raise ValueError("Execution snapshot dependency row is duplicated")
+            if any(
+                value and not _SHA256.fullmatch(value)
+                for value in intent.target_binding_hashes
+            ):
+                raise ValueError("Execution snapshot target binding is invalid")
+            if intent.target_binding_hashes:
+                relation_values = (
+                    intent.value
+                    if isinstance(intent.value, tuple)
+                    else (intent.value,)
+                )
+                if len(intent.target_binding_hashes) != len(relation_values):
+                    raise ValueError("Execution snapshot target binding is invalid")
+        if row.target_binding_hash and not _SHA256.fullmatch(
+            row.target_binding_hash
+        ):
+            raise ValueError("Execution snapshot target binding is invalid")
+        if row.disposition in {
+            Classification.UPDATE.value,
+            Classification.UNCHANGED.value,
+        } and not row.target_binding_hash:
+            raise ValueError("Execution snapshot target binding is incomplete")
+    if relationship_plan.contract_version != 1 or relationship_plan.root_hash != (
+        _relationship_plan_hash(relationship_plan)
+    ):
+        raise ValueError("Execution snapshot relationship plan hash is invalid")
+    _validate_relationship_plan(rows, relationship_plan, datasets)
+
+
+def _validate_relationship_plan(
+    rows: tuple[ExecutionRow, ...],
+    plan: RelationshipPlan,
+    datasets: tuple[ExecutionDataset, ...],
+) -> None:
+    """Validate frozen schedule structure without recalculating its graph."""
+
+    row_by_id = {row.row_id: row for row in rows}
+    dataset_names = {item.dataset for item in datasets}
+    if any(row.dataset not in dataset_names for row in rows):
+        raise ValueError("Execution snapshot relationship schedule is invalid")
+    if tuple(component.sequence for component in plan.components) != tuple(
+        range(plan.component_count)
+    ):
+        raise ValueError("Execution snapshot relationship schedule is invalid")
+    component_row_ids = tuple(
+        row_id
+        for component in plan.components
+        for row_id in component.row_ids
+    )
+    if (
+        len(set(component_row_ids)) != len(component_row_ids)
+        or any(row_id not in row_by_id for row_id in component_row_ids)
+    ):
+        raise ValueError("Execution snapshot relationship schedule is invalid")
+    scheduled = tuple(
+        sorted(
+            (row for row in rows if row.schedule_ordinal >= 0),
+            key=lambda row: row.schedule_ordinal,
+        )
+    )
+    blockers = {item.row_id: item for item in plan.blockers}
+    if len(blockers) != plan.blocker_count or any(
+        row_id not in row_by_id for row_id in blockers
+    ):
+        raise ValueError("Execution snapshot relationship blocker is invalid")
+    actionable = {
+        row.row_id
+        for row in rows
+        if row.disposition in {
+            Classification.CREATE.value,
+            Classification.UPDATE.value,
+        }
+    }
+    if (
+        not set(blockers).issubset(actionable)
+        or any(
+            item.dependency_row_id
+            and item.dependency_row_id not in row_by_id
+            for item in plan.blockers
+        )
+        or
+        tuple(row.row_id for row in scheduled) != component_row_ids
+        or tuple(row.schedule_ordinal for row in scheduled)
+        != tuple(range(len(scheduled)))
+        or set(component_row_ids) != actionable.difference(blockers)
+    ):
+        raise ValueError("Execution snapshot relationship schedule is invalid")
+    component_by_row = {
+        row_id: component.sequence
+        for component in plan.components
+        for row_id in component.row_ids
+    }
+    if any(
+        row.schedule_component != component_by_row.get(row.row_id, -1)
+        for row in rows
+    ):
+        raise ValueError("Execution snapshot relationship component is invalid")
+
+    completion_by_field = {
+        (item.row_id, item.field): item for item in plan.completions
+    }
+    if len(completion_by_field) != plan.completion_count:
+        raise ValueError("Execution snapshot relationship completion is invalid")
+    deferred_by_field = {
+        (row.row_id, intent.field): intent
+        for row in rows
+        for intent in row.fields
+        if intent.defer_on_create
+    }
+    if set(completion_by_field) != set(deferred_by_field):
+        raise ValueError("Execution snapshot relationship completion is invalid")
+    for key, completion in completion_by_field.items():
+        intent = deferred_by_field[key]
+        if (
+            intent.dependency_strength != DependencyStrength.DEFERRABLE.value
+            or completion.dependency_row_ids != intent.dependency_row_ids
+        ):
+            raise ValueError("Execution snapshot relationship completion is invalid")
+
+    edge_count = 0
+    for row in rows:
+        for intent in row.fields:
+            edge_count += len(intent.dependency_row_ids)
+            if any(row_id not in row_by_id for row_id in intent.dependency_row_ids):
+                raise ValueError("Execution snapshot dependency row is invalid")
+            if row.row_id not in component_by_row or intent.defer_on_create:
+                continue
+            for dependency_row_id in intent.dependency_row_ids:
+                dependency = row_by_id[dependency_row_id]
+                if (
+                    dependency.disposition == Classification.CREATE.value
+                    and dependency.schedule_ordinal >= row.schedule_ordinal
+                ):
+                    raise ValueError(
+                        "Execution snapshot relationship dependency order is invalid"
+                    )
+    if edge_count != plan.edge_count:
+        raise ValueError("Execution snapshot relationship edge count is invalid")
 
 
 def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
@@ -1068,6 +1848,13 @@ def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
             ),
             related_scope_fields=tuple(
                 str(value) for value in item.get("related_scope_fields", ())
+            ),
+            dependency_strength=str(item.get("dependency_strength", "")),
+            dependency_row_ids=tuple(
+                str(value) for value in item.get("dependency_row_ids", ())
+            ),
+            target_binding_hashes=tuple(
+                str(value) for value in item.get("target_binding_hashes", ())
             ),
             defer_on_create=bool(item.get("defer_on_create", False)),
         )
@@ -1093,8 +1880,11 @@ def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
         business_scope=scope,
         disposition=str(payload["disposition"]),
         target_match_count=int(payload["target_match_count"]),
+        target_binding_hash=str(payload.get("target_binding_hash", "")),
         proposed_external_id=str(payload.get("proposed_external_id", "")),
         fields=fields,
+        schedule_ordinal=int(payload.get("schedule_ordinal", -1)),
+        schedule_component=int(payload.get("schedule_component", -1)),
         row_hash=str(payload["row_hash"]),
     )
     expected = "sha256:" + sha256(
@@ -1103,3 +1893,45 @@ def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
     if row.row_hash != expected:
         raise ValueError("Execution snapshot row hash is invalid")
     return row
+
+
+def _restore_relationship_plan(payload: Mapping[str, Any]) -> RelationshipPlan:
+    plan = RelationshipPlan(
+        edge_count=int(payload.get("edge_count", 0)),
+        components=tuple(
+            RelationshipComponent(
+                sequence=int(item["sequence"]),
+                row_ids=tuple(str(value) for value in item.get("row_ids", ())),
+            )
+            for item in payload.get("components", ())
+        ),
+        completions=tuple(
+            RelationshipCompletion(
+                row_id=str(item["row_id"]),
+                field=str(item["field"]),
+                dependency_row_ids=tuple(
+                    str(value)
+                    for value in item.get("dependency_row_ids", ())
+                ),
+            )
+            for item in payload.get("completions", ())
+        ),
+        blockers=tuple(
+            RelationshipBlocker(
+                row_id=str(item["row_id"]),
+                code=str(item["code"]),
+                field=str(item.get("field", "")),
+                dependency_row_id=str(item.get("dependency_row_id", "")),
+            )
+            for item in payload.get("blockers", ())
+        ),
+        root_hash=str(payload.get("root_hash", "")),
+        contract_version=int(payload.get("contract_version", 0)),
+    )
+    if int(payload.get("component_count", -1)) != plan.component_count:
+        raise ValueError("Execution snapshot relationship component count is invalid")
+    if int(payload.get("completion_count", -1)) != plan.completion_count:
+        raise ValueError("Execution snapshot relationship completion count is invalid")
+    if int(payload.get("blocker_count", -1)) != plan.blocker_count:
+        raise ValueError("Execution snapshot relationship blocker count is invalid")
+    return plan

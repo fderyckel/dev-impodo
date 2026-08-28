@@ -8,6 +8,12 @@ from hashlib import sha256
 from typing import Callable, Iterable
 
 from impodo.domain.shared.access import Actor
+from impodo.domain.correction import (
+    CorrectionCandidate,
+    CorrectionFieldOutcome,
+    CorrectionValueKind,
+    classify_correction_field,
+)
 from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
@@ -521,15 +527,35 @@ def compare_pinned_odoo_row(
             raise ReadinessError(
                 f"Odoo returned an invalid value for {name}"
             ) from error
-        will_write = proposed != original
+        correction = classify_correction_field(
+            CorrectionCandidate(
+                dataset=str(getattr(prepared, "dataset", "pinned_odoo")),
+                source_row=prepared.source_row,
+                target_model=str(
+                    getattr(
+                        prepared,
+                        "target_model",
+                        current.model if current is not None else "pinned_odoo",
+                    )
+                ),
+                target_field=name,
+                value_kind=CorrectionValueKind.SCALAR,
+                previous=original,
+                corrected=proposed,
+            ),
+            live,
+        )
         live_changed = live != original
-        if will_write and live_changed:
+        if correction.outcome is CorrectionFieldOutcome.CONFLICT:
             outcome = OdooFieldComparisonOutcome.CONCURRENT_CHANGE
             concurrent = True
             current_intended_change = True
-        elif will_write:
+        elif correction.outcome is CorrectionFieldOutcome.READY:
             outcome = OdooFieldComparisonOutcome.UPDATE
             updates = True
+        elif correction.outcome is CorrectionFieldOutcome.ALREADY_CORRECTED:
+            outcome = OdooFieldComparisonOutcome.UNCHANGED
+            current_intended_change = True
         elif live_changed:
             outcome = OdooFieldComparisonOutcome.EXTERNAL_CHANGE_NOT_WRITTEN
             current_intended_change = True

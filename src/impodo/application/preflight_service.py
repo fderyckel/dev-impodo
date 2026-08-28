@@ -780,6 +780,16 @@ class PreflightService:
                 revision.definition,
                 selection,
                 derived_plan_hash=staging.derived_plan_hash,
+                required_relationship_fields={
+                    model.name: frozenset(
+                        field.name for field in model.fields if field.required
+                    )
+                    for model in (
+                        captured_schema.models
+                        if captured_schema is not None
+                        else ()
+                    )
+                },
             )
             dataset_labels, source_field_labels = browser_mapping_labels(
                 revision.definition,

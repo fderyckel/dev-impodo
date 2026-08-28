@@ -2,16 +2,17 @@
 
 ## Status and authority
 
-**Status:** Proposed implementation plan, written 2026-08-28. This plan is not
-current browser behavior and does not authorize a Production load.
+**Status:** Accepted implementation plan, revised 2026-08-28. Phases 0 through
+3 are complete, and Phase 4 is next. The remaining plan is not current
+browser behavior and does not authorize a Production load.
 
-The current implementation already orders related datasets before their
-consumers, rejects required-at-create dataset cycles, applies optional cyclic
-relationships in a second write pass, binds the dependency order to the
-execution snapshot, and stops when a reviewed target relationship is missing
-or ambiguous. The current implementation does not yet freeze a row-level
-schedule. It can therefore defer more relationship writes than necessary when
-records in one dataset depend on other records in that same dataset.
+The current implementation orders related datasets and rows before their
+consumers, rejects actual required-at-create row cycles, applies only the
+planned optional cyclic relationships in a second write pass, binds the row
+schedule to the execution snapshot, and stops before target I/O when a row
+dependency cannot be scheduled. Execution now revalidates existing targets in
+bounded crosswalk pages, consumes bounded component pages, and requires a
+journalled create receipt before a dependent write.
 
 This plan extends the current generic relationship contract. It does not add
 special executor branches for Products, units of measure, categories, bills of
@@ -66,7 +67,7 @@ This work does not:
 | Same-dataset order | The dataset graph cannot place one row before another row in the same dataset. | Freeze a deterministic row schedule and load parent rows before child rows. |
 | Relationship resolution | Prepared evidence keeps incoming logical references; target matches must be unique. | Convert every eligible incoming reference into one auditable row edge and every target match into one satisfied dependency token. |
 | Progress | Load progress distinguishes initial writes, relationship work, and verification. | Report scheduled components and relationship work without exposing graph internals in the normal user path. |
-| Scale | Preparation has set-based relationship evidence, but execution planning is not qualified for the 16,000-Product and 80,000-BOM-line shape. | Use compact graph arrays, bounded artifact I/O, bulk target resolution, and an explicit Windows qualification gate. |
+| Scale | Preparation has set-based relationship evidence, but execution planning is not qualified for the 16,000-Product and 80,000-BOM-line shape. | Use compact graph arrays, bounded snapshot publication, bulk target resolution, and an explicit Windows qualification gate. |
 
 ## Design principles
 
@@ -94,44 +95,52 @@ This work does not:
 8. **Recovery uses durable evidence.** A restart resumes only from journalled
    results and fresh target read-back. It never reconstructs success from a
    progress percentage.
+9. **The data manager keeps business choices.** The data manager chooses the
+   participating datasets and rows, the reviewed business keys, and whether an
+   optional field is mapped. Impodo calculates the safe order from those
+   choices instead of asking the data manager to maintain a graph.
+
+## Operator choices and safe automation
+
+The data manager remains free to revise the source selection, relationship
+mapping, business key, optional field coverage, or set-aside rows and then run
+**Check changes** again. Each revision produces a new reviewed snapshot. The
+planner does not silently carry an earlier approval into the revised work.
+
+Impodo owns the mechanics that should not depend on manual judgment. It orders
+dependencies, detects cycles, revalidates reviewed target matches, and chooses
+the safe point for an optional relationship. The browser does not ask the data
+manager to drag graph nodes into order or override a required Odoo dependency.
+
+When one blocked branch should not participate in the load, the data manager
+sets aside the affected source work before **Check changes**. The first delivery
+does not add an executor override that loads an unreviewed subset of a frozen
+snapshot. A future partial-load workflow would create and approve its own
+snapshot rather than weakening the current confirmation.
 
 ## Proposed ownership and evidence
 
 The relationship plan belongs to the current `ExecutionSnapshot`. It is not a
 new Project, Recipe, DataVersion, or MigrationRun aggregate.
 
-Add these domain concepts:
+Extend the existing `ExecutionSnapshot` contract instead of creating another
+aggregate or store in the first delivery. Each scheduled `ExecutionRow` records
+its deterministic ordinal and component. Each relational `FieldIntent` records
+the resolved dependency row identifiers and whether execution writes the field
+in the first pass or finishes it after a cycle has been broken. The snapshot
+also records the relationship-plan contract version, row and edge counts,
+target-crosswalk hash, and schedule root hash.
 
-- `RelationshipPlanManifest` binds the graph contract version, source and
-  target evidence hashes, row and edge counts, component order, schedule root
-  hash, and artifact hashes.
-- `RelationshipEdge` names one reviewed owner row and its unique target row.
-  For scheduling, the edge points from the target dependency to the owner
-  consumer.
-- `RelationshipComponent` describes one acyclic row or one strongly connected
-  group that requires an explicit cycle policy.
-- `RelationshipScheduleRow` assigns one existing `ExecutionRow.row_id` to a
-  component, execution pass, and deterministic ordinal.
-- `RelationshipPlanStore` is the application port that writes and reads the
-  immutable artifacts. The adapter uses the existing workspace-owned artifact
-  boundary.
+`RelationshipEdge` and `RelationshipComponent` remain pure domain concepts
+used while Impodo calculates the schedule. The snapshot persists the resolved
+dependencies and exact completion fields that execution needs. It does not
+duplicate scalar prepared values or create an alternate prepared-data store.
 
-Keep the manifest small and JSON-readable. Store the larger edge and schedule
-relations as immutable Parquet artifacts:
-
-```text
-ExecutionSnapshot
-|-- relationship plan version and manifest hash
-|-- relationship_edges.parquet
-|   `-- owner row, field, target row, edge class, and reviewed key hash
-`-- relationship_schedule.parquet
-    `-- row, component, pass, ordinal, and expected write disposition
-```
-
-The existing execution snapshot continues to own exact row intentions. The
-new artifacts add ordering evidence; they do not duplicate scalar values or
-become an alternate prepared-data store. Artifact contents and row counts must
-be verified before confirmation and again before execution.
+Phase 0 measures snapshot size, planning memory, and edge cardinality before
+this contract is implemented. If the current related-data limit cannot be
+served safely by the snapshot-owned representation, a later reviewed decision
+may move only the large row relations to hash-bound sidecar Parquet artifacts.
+The plan does not add that storage boundary speculatively.
 
 Do not update an older snapshot in place. Advancing the relationship-plan or
 execution-snapshot contract makes older pending previews stale and sends the
@@ -142,12 +151,10 @@ a compatibility rewrite or monkey patch.
 
 | Responsibility | Proposed owner |
 | --- | --- |
-| Immutable plan, edge, component, and schedule contracts | `src/impodo/domain/execution/dependency_plan.py` |
+| Snapshot-owned schedule, edge references, and component contracts | `src/impodo/domain/execution_snapshot.py` |
 | Pure dataset and compact row scheduling algorithms | `src/impodo/domain/execution/dependency_scheduler.py` |
-| Frozen-evidence orchestration and artifact publication | `src/impodo/application/workspace/execution/relationship_planning.py::RelationshipPlanningService` |
-| Workspace-owned atomic artifact methods | `src/impodo/application/shared/artifacts.py::WorkspaceArtifactStore` |
-| Contained, hash-verified local artifact implementation | `src/impodo/adapters/artifacts/local_store.py` |
-| Current manifest pointer and transactional publication record | `src/impodo/adapters/duckdb/execution_repository.py` |
+| Frozen-evidence orchestration and snapshot publication | `src/impodo/application/preflight_service.py::PreflightService` |
+| Current snapshot pointer and transactional publication record | `src/impodo/adapters/duckdb/preflight_repository.py` |
 | Frozen schedule consumption and journal transitions | `src/impodo/application/workspace/execution/service.py::ExecutionService` |
 | Bounded Odoo 19 write operations and receipt contracts | `src/impodo/domain/execution/odoo_write.py` and the matching adapter |
 | Component and relationship progress projection | `src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager` |
@@ -223,16 +230,24 @@ The scheduler performs these steps:
    business identity, canonical scope, and `row_id`.
 2. Store adjacency as compact integer arrays. The graph memory therefore grows
    with nodes and edges, not with the width of source rows.
-3. Use Kahn's algorithm with a stable ready queue to schedule every hard
-   acyclic edge.
-4. Calculate strongly connected components only for the unresolved graph.
+3. Use Kahn's algorithm with a stable ready queue to schedule all acyclic
+   dependency edges, including optional edges that do not participate in a
+   cycle.
+4. Calculate strongly connected components only for the unresolved full graph.
    Use an iterative traversal for the row graph so a deep hierarchy cannot
    exhaust the Python call stack.
-5. Classify each unresolved component using its edge contracts and current
-   dispositions.
-6. Emit the first-pass create or update schedule, followed by the minimum
-   required relationship-completion schedule.
-7. Hash the ordered schedule and its edge evidence into the manifest.
+5. Remove dependencies that existing target records already satisfy, then
+   reject an unresolved component only when its hard-edge subgraph is cyclic.
+6. Choose a deterministic order that respects every remaining hard edge. Defer
+   only optional owner fields whose dependencies point backwards in that
+   order, and group each owner's deferred values into one completion write
+   when their writable shape permits it.
+7. Hash the ordered schedule and its edge evidence into the snapshot.
+
+The planner promises a deterministic and exact completion list for the chosen
+order. It does not claim to solve the global minimum feedback-edge problem.
+Later optimization may reduce completion writes without changing which source
+relationships the data manager approved.
 
 The dataset graph may keep its current recursive strongly connected component
 implementation because its node count is bounded by the number of mapped
@@ -245,7 +260,7 @@ datasets. The row graph must not reuse that recursive implementation.
 | Acyclic hard or optional edges | Ready when every target is unique and eligible. | Write once in dependency order. |
 | Optional cycle among new rows | Ready with a visible relationship-completion count. | Create rows without only the cyclic fields, journal receipts, then patch those fields. |
 | Cycle among rows that all already exist | Ready when every existing identity is unique. | Write reviewed relationships directly because all target identifiers already exist. |
-| Required-at-create cycle containing a new row | Blocked. | No Odoo write occurs. The data manager must change the source, mapping, or supported operation. |
+| Cycle whose hard-edge subgraph remains cyclic and contains a new row | Blocked. | No Odoo write occurs. The data manager must change the source, mapping, or supported operation. |
 | Missing, ambiguous, quarantined, or excluded target | Blocked with the root cause and affected count. | No dependent write occurs. |
 | Unsupported relation operation | Blocked. | No generic fallback or incremental command is sent. |
 
@@ -317,7 +332,10 @@ The planner requires:
 Final review resolves existing-target keys in bounded model-and-key groups.
 The protected, target-bound plan may retain the exact reviewed Odoo identifiers
 needed for execution. Those identifiers never enter a Recipe or another
-target's plan.
+target's plan. Immediately before a write run starts, Impodo resolves the same
+keys again in bounded groups and requires the resulting unique identifiers to
+match the frozen crosswalk. This check detects a missing, duplicated, or
+retargeted business key without recalculating the approved schedule.
 
 ### Exit conditions
 
@@ -344,14 +362,15 @@ confirmation.
 ## Execution contract
 
 The executor consumes the frozen schedule. It must not recalculate a different
-order after confirmation.
+order after confirmation. Before it creates the write journal, a read-only
+crosswalk verifier rechecks the frozen existing-target identities in bounded
+model-and-key groups. A mismatch sends the data manager back to **Check
+changes** before the first Odoo write.
 
 For each component it:
 
-1. Commits planned row attempts before transport.
-2. Loads the frozen target-bound identity crosswalk and rejects any missing or
-   mismatched resolution receipt. It does not perform a new business-key match
-   after confirmation.
+1. Loads the successfully revalidated frozen target-bound identity crosswalk.
+2. Commits planned row attempts before write transport.
 3. Creates compatible new rows in bounded groups. It omits only the exact
    fields named by the component's accepted optional-cycle plan.
 4. Journals each returned Odoo identifier or External ID receipt before a
@@ -378,9 +397,10 @@ for that reference shape.
   delivery because the reviewed whole-run outcome has changed.
 - An unknown outcome records the component and transport batch, stops all
   later calls, and requires target read-back before any retry.
-- A restart reads the journal and immutable relationship manifest. It may
+- A restart reads the journal and immutable relationship schedule from the
+  `ExecutionSnapshot`. It may
   resume only after reconciliation proves every earlier component's state.
-- A changed target or stale manifest cannot resume. The data manager returns
+- A changed target or stale snapshot cannot resume. The data manager returns
   to **Check changes** and creates new evidence.
 - Relationship completion remains `PARTIALLY_APPLIED` until the exact deferred
   fields are verified. The UI must not report a created row as complete while
@@ -395,7 +415,8 @@ for that reference shape.
 - Keep only integer node identifiers and edge metadata in graph memory. Do not
   retain complete `PreparedRecord` or `ExecutionRow` objects in adjacency
   structures.
-- Sort and write edge artifacts in bounded pages.
+- Sort and publish snapshot-owned schedule evidence in bounded pages when the
+  current storage boundary supports streamed publication.
 - Measure node count, edge count, maximum fan-out, maximum depth, strongly
   connected component sizes, planning wall time, and peak worker memory.
 - Fail closed at the configured graph limit. Do not silently switch to an
@@ -473,13 +494,18 @@ first pass does not display 100 percent while relationship work is pending.
 
 ### Phase 0: freeze the contract and baseline
 
-Document representative dependency shapes and capture current call counts,
-planning time, load time, relationship patches, and peak memory. Include a
-small Product/unit case, a same-dataset parent hierarchy, an optional cycle,
-and the existing Product/BOM fixtures.
+Repair the existing relationship benchmark against the current workspace
+contract. Document representative dependency shapes and capture current call
+counts, dataset-planning time, load time, relationship patches, snapshot size,
+and peak memory. Include a small Product/unit case, a same-dataset parent
+hierarchy, an optional cycle, and the existing Product/BOM fixtures.
 
 **Exit result:** accepted fixtures and current measurements make regressions
 visible. No runtime behavior changes.
+
+**Completed 2026-08-28:** The accepted fixtures, exact call-count assertions,
+fresh-process measurements, and limitations are recorded in the
+[Phase 0 dependency baseline](../reports/scalable-relationship-phase-0-baseline-2026-08-28.md).
 
 ### Phase 1: complete compiler dependency evidence
 
@@ -495,39 +521,59 @@ not keep old and new planners selected by workspace version.
 dependency meaning, and permutation tests prove that source dataset order
 cannot change it.
 
-### Phase 2: publish immutable relationship-plan evidence
+**Completed 2026-08-28:** Browser mapping validation, compiled profiles,
+preflight evidence, and execution-snapshot construction now use one immutable
+edge extractor. The extractor classifies hard and deferrable edges, retains
+self-references, and rejects only hard cycles that cross datasets. The
+[Phase 1 dependency-contract report](../reports/scalable-relationship-phase-1-dependency-contract-2026-08-28.md)
+records the implementation and parity evidence.
 
-Add the manifest, edge and schedule artifacts, store port, hashes, codecs, and
-forward schema support. Bind the manifest to `ExecutionSnapshot` and preview
-invalidation. Older pending snapshots fail closed and require a fresh
-comparison.
-
-**Exit result:** **Check changes** and execution read the same immutable plan;
-tampering, missing artifacts, stale evidence, and partial publication are
-rejected before transport.
-
-### Phase 3: add row-level scheduling and cycle classification
+### Phase 2: add snapshot-owned row scheduling and cycle classification
 
 Build the compact row graph, deterministic Kahn schedule, iterative unresolved
-component calculation, blocker propagation, and minimum second-pass plan.
-Allow acyclic same-dataset hierarchies and reject actual required row cycles.
+component calculation, blocker propagation, and deterministic completion plan.
+Store the resulting ordinals, resolved dependency row identifiers, components,
+completion fields, counts, and root hash in `ExecutionSnapshot`. Allow acyclic
+same-dataset hierarchies and reject actual hard-edge row cycles.
 
 **Exit result:** parent rows precede child rows, acyclic fixtures use zero
 relationship patches, optional cycles have an exact completion list, and
-required cycles stop before Odoo.
+required cycles stop before Odoo. **Check changes** and execution read the same
+immutable, tamper-evident snapshot.
 
-### Phase 4: integrate execution and bounded crosswalks
+**Completed 2026-08-28:** `ExecutionSnapshot` contract version 5 now stores
+row ordinals, component numbers, resolved dependency row identifiers, edge and
+component counts, exact completion fields, blocker evidence, and a schedule
+root hash. The iterative scheduler orders acyclic same-dataset hierarchies,
+cuts only the optional fields needed to break a cycle, propagates blockers,
+and rejects hard row cycles. Execution consumes the frozen component layers,
+so the hierarchy fixture now uses zero relationship patches. The
+[Phase 2 row-scheduling report](../reports/scalable-relationship-phase-2-row-scheduling-2026-08-28.md)
+records the implementation and verification evidence.
 
-Make `ExecutionService` consume component pages from the frozen schedule.
-Journal receipts between components, bulk-resolve target identities, preserve
-bounded compatible creates, and run only planned completion fields. Keep the
-existing stop-on-unknown behavior.
+### Phase 3: integrate execution and bounded crosswalks
+
+Extend `ExecutionService`'s current in-memory component consumption to bounded
+component pages. Journal receipts between components, bulk-resolve target
+identities, preserve bounded compatible creates, and keep running only planned
+completion fields. Preserve the existing stop-on-unknown behavior.
 
 **Exit result:** the execution call sequence equals the approved schedule, no
 dependent write precedes its receipt, and the executor performs no per-row
 target lookup.
 
-### Phase 5: implement recovery and reconciliation by component
+**Completed 2026-08-28:** `ExecutionSnapshot` contract version 6 carries
+opaque existing-record bindings without portable numeric Odoo IDs. Before it
+opens the execution journal, `ExecutionService` collects every existing row
+and target relationship key, resolves those keys in model-grouped pages of at
+most 100, and requires each key to resolve uniquely to the record reviewed in
+preflight. It then consumes topological components in pages of at most 500
+rows. Every retained incoming create edge passes an explicit journalled-receipt
+barrier before the dependent call; only frozen optional completion fields run
+later. The [Phase 3 execution report](../reports/scalable-relationship-phase-3-bounded-execution-2026-08-28.md)
+records the implementation and verification evidence.
+
+### Phase 4: implement recovery and reconciliation by component
 
 Persist the active component and transport batch, classify partially applied
 relationship components, and require read-back before resume. Reconciliation
@@ -537,7 +583,7 @@ values.
 **Exit result:** process restart, known rejection, unknown outcome, and partial
 relationship completion each have deterministic evidence-backed recovery.
 
-### Phase 6: expose progressive user guidance
+### Phase 5: expose progressive user guidance
 
 Add the compact dependency summary, grouped blocker messages, accurate
 relationship progress, and bounded support details. Update the paired current
@@ -547,7 +593,7 @@ implemented.
 **Exit result:** a data manager can explain what loads first, why the plan is
 blocked, and what to do next without reading graph terminology.
 
-### Phase 7: qualify representative scale and Odoo 19 behavior
+### Phase 6: qualify representative scale and Odoo 19 behavior
 
 Run the exact worker and disposable Odoo 19 paths with clean revisions. Test a
 16,000-Product and 80,000-BOM-line relationship shape plus representative
@@ -568,7 +614,8 @@ decision raise the current related-data limit.
   dependants once.
 - Acyclic chains, diamonds, fan-out, fan-in, and deep hierarchies load in
   dependency order with no deferred write.
-- Optional two-node and multi-node cycles produce the minimum second pass.
+- Optional two-node and multi-node cycles produce the deterministic exact
+  completion list for the chosen order.
 - Required cycles, including a self-cycle, fail before execution.
 - Existing-target rows remove false create cycles.
 - Many-to-many duplicate members create one edge and one final member.
@@ -576,11 +623,13 @@ decision raise the current related-data limit.
 
 ### Application and repository tests
 
-- The planner publishes manifest and artifacts atomically.
-- A missing, changed, or partially written artifact invalidates the preview.
+- The planner publishes the schedule with the readiness snapshot atomically.
+- A missing or changed schedule invalidates the preview.
 - A new plan contract version does not rewrite an older snapshot.
 - Journal records exist before every transport call.
 - The executor never observes an order other than the frozen schedule.
+- Bounded pre-write revalidation rejects a crosswalk whose unique Odoo
+  identifiers changed after **Check changes**.
 - Known rejection, unknown outcome, cancellation, restart, and reconciliation
   preserve the last durable component.
 - The preview and job status use bounded repository reads.
@@ -628,7 +677,7 @@ The plan is complete only when:
 - one dependency extractor serves browser and profile authoring;
 - dataset and row schedules are deterministic and immutable;
 - acyclic work performs no relationship-completion write;
-- optional cycles show and execute the exact minimum second pass;
+- optional cycles show and execute the exact deterministic completion list;
 - required cycles and unresolved targets stop before Odoo;
 - target resolution and read-back have no per-row connector loop, and every
   remaining per-row write path is either removed or excluded by an explicit
@@ -646,4 +695,5 @@ The plan is complete only when:
 - [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
 - [Match data developer workflow](../developer/workflow/03-match-data.md)
 - [Acceptance and test strategy](../testing/acceptance.md)
+- [Phase 0 dependency baseline](../reports/scalable-relationship-phase-0-baseline-2026-08-28.md)
 - [Impodo remaining work](remaining-work.md)

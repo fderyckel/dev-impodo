@@ -1,6 +1,8 @@
 """Compile browser mapping definitions into shared runtime semantics."""
 
 from __future__ import annotations
+from typing import Collection, Mapping
+
 from ..mapping.contracts import (
     MappingDefinition,
     RelationshipResolver,
@@ -29,11 +31,17 @@ def compile_browser_mapping(
     selection: SourceSelection,
     *,
     derived_plan_hash: str | None = None,
+    required_relationship_fields: Mapping[str, Collection[str]] | None = None,
 ) -> CompiledMigrationPlan:
-    """Compile browser authoring semantics into the shared runtime contract."""
+    """Compile browser authoring semantics into the shared runtime contract.
+
+    Captured Odoo-required relationship fields are normalized into the same
+    ``required_on_create`` meaning used by authored profiles.
+    """
 
     datasets = {item.dataset_id: item for item in selection.datasets}
     mappings = {item.dataset_id: item for item in definition.datasets}
+    captured_required = required_relationship_fields or {}
 
     def resolver(value: RelationshipResolver) -> ResolveSpec:
         if value.origin is ResolverOrigin.DATASET:
@@ -106,7 +114,11 @@ def compile_browser_mapping(
                 compare=item.compare,
                 validate_only=item.validate_only,
                 required=item.required,
-                required_on_create=item.required_on_create,
+                required_on_create=(
+                    item.required_on_create
+                    or item.target_field
+                    in captured_required.get(mapping.target_model, ())
+                ),
                 on_missing=item.on_missing,
                 on_ambiguous=item.on_ambiguous,
                 operation=item.operation,

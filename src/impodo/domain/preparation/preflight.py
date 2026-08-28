@@ -38,6 +38,7 @@ from impodo.domain.shared.models import (
     ReferenceResolution,
     Severity,
     TargetRecord,
+    target_record_binding_hash,
     canonical_json_text,
     portable_value,
 )
@@ -412,6 +413,7 @@ def _resolve_records(
         if not isinstance(value, LogicalReference):
             return value
         matches: tuple[Any, ...]
+        target_binding_hash = ""
         if value.origin == "target_then_incoming":
             target_matches = catalog.find_by_fields(
                 str(value.model),
@@ -420,6 +422,10 @@ def _resolve_records(
             )
             if len(target_matches) == 1:
                 status = "RESOLVED_TARGET"
+                target_binding_hash = target_record_binding_hash(
+                    target_matches[0].model,
+                    target_matches[0].odoo_id,
+                )
                 result = BusinessReference(
                     model=str(value.model),
                     key=value.key,
@@ -545,6 +551,7 @@ def _resolve_records(
                     reference=value,
                     status=status,
                     match_count=len(matches),
+                    target_binding_hash=target_binding_hash,
                 )
             )
             return result
@@ -619,6 +626,10 @@ def _resolve_records(
                 )
         else:
             status = "RESOLVED"
+            target_binding_hash = target_record_binding_hash(
+                matches[0].model,
+                matches[0].odoo_id,
+            )
             result = BusinessReference(
                 model=str(value.model),
                 key=value.key,
@@ -631,6 +642,7 @@ def _resolve_records(
                 reference=value,
                 status=status,
                 match_count=len(matches),
+                target_binding_hash=target_binding_hash,
             )
         )
         return result
@@ -912,6 +924,10 @@ def _classify_record(
             business_scope=business_scope,
             classification=Classification.UNCHANGED,
             target_match_count=1,
+            target_binding_hash=target_record_binding_hash(
+                matches[0].model,
+                matches[0].odoo_id,
+            ),
             issues=tuple(record_issues),
         )
 
@@ -931,6 +947,10 @@ def _classify_record(
                 business_scope=business_scope,
                 classification=Classification.BLOCKED,
                 target_match_count=1,
+                target_binding_hash=target_record_binding_hash(
+                    matches[0].model,
+                    matches[0].odoo_id,
+                ),
                 issues=(issue,),
             )
         return Decision(
@@ -941,6 +961,10 @@ def _classify_record(
             business_scope=business_scope,
             classification=Classification.UNCHANGED,
             target_match_count=1,
+            target_binding_hash=target_record_binding_hash(
+                matches[0].model,
+                matches[0].odoo_id,
+            ),
         )
 
     differences, comparison_issues = _compare_record(
@@ -962,6 +986,10 @@ def _classify_record(
         business_scope=business_scope,
         classification=classification,
         target_match_count=1,
+        target_binding_hash=target_record_binding_hash(
+            matches[0].model,
+            matches[0].odoo_id,
+        ),
         differences=tuple(differences),
         issues=tuple(record_issues),
     )
@@ -1233,6 +1261,7 @@ def _group_resolutions(
                 canonical_json_text(portable_value(item.reference)),
                 item.status,
                 item.match_count,
+                item.target_binding_hash,
             )
         ].append(item)
     result = []

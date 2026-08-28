@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from ...odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...relationship_dependencies import extract_dataset_dependency_edges
 from ...source_binding import OdooSourceBinding, SourceOriginKind
 from ...schema.governance import SchemaGovernance
 from ..canonicalization import canonicalize_mapping_definition
@@ -159,13 +160,8 @@ class MappingSemanticValidator:
             )
 
         seen_dataset_ids: set[str] = set()
-        dependencies: dict[str, set[str]] = {}
-        required_on_create_dependencies: dict[str, set[str]] = {}
-
         for dataset_index, dataset in enumerate(definition.datasets):
             base = f"/datasets/{dataset_index}"
-            dependencies.setdefault(dataset.dataset_id, set())
-            required_on_create_dependencies.setdefault(dataset.dataset_id, set())
             if dataset.dataset_id in seen_dataset_ids:
                 issues.append(
                     _issue(
@@ -322,8 +318,6 @@ class MappingSemanticValidator:
                         component,
                         component_path,
                         columns,
-                        dependencies,
-                        required_on_create_dependencies,
                         issues,
                     )
                     provided.update(component.target_fields)
@@ -462,8 +456,6 @@ class MappingSemanticValidator:
                     relation,
                     path,
                     columns,
-                    dependencies,
-                    required_on_create_dependencies,
                     issues,
                 )
                 _claim_target(
@@ -776,9 +768,19 @@ class MappingSemanticValidator:
                 )
             )
 
+        required_relationship_fields = {
+            model: frozenset(
+                field
+                for field, metadata in model_fields.items()
+                if metadata.required
+            )
+            for model, model_fields in context.fields_by_model.items()
+        }
         _validate_dependencies(
-            dependencies,
-            required_on_create_dependencies,
+            extract_dataset_dependency_edges(
+                definition.datasets,
+                required_relationship_fields=required_relationship_fields,
+            ),
             context.datasets_by_id,
             issues,
         )

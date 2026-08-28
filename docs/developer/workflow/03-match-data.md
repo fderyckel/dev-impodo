@@ -168,6 +168,15 @@ portable `BusinessReference`. A `RESOLVED_INCOMING` outcome becomes an
 incoming `LogicalReference`, which keeps the dataset dependency needed to
 create and link the missing related record.
 
+`extract_dataset_dependency_edges` gives browser mappings and compiled
+profiles one incoming-dependency meaning. Target identity and scope edges are
+hard. A relationship edge is hard when the compiled contract or captured Odoo
+schema requires it during create; other incoming relationship edges are
+deferrable. Validation retains self-references for row-level analysis and
+rejects hard cycles that cross datasets. A required Odoo field is a target
+constraint, so the browser form and final browser compiler preserve it even
+when an older mapping did not set `required_on_create` explicitly.
+
 The relationship validator and Recipe compiler share the reviewed Odoo 19
 standard-reference registry. A resolver that exactly uses a registered key may
 compile its narrow field contract without widening the primary schema scope.
@@ -211,6 +220,7 @@ claim those results.
 | Optional Recipe compilation | [`RecipeCompiler`](../../../src/impodo/application/recipe_compilation_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
 | Browser-to-runtime mapping compiler | [`browser_mapping_compiler.py`](../../../src/impodo/domain/compiler/browser_mapping_compiler.py) |
+| Canonical relationship dependencies | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Batched Odoo read planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Target-first resolution and classification | [`preflight.py`](../../../src/impodo/domain/preparation/preflight.py) |
 | Reviewed execution hand-off | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
@@ -279,6 +289,7 @@ protected-evidence read authority.
 - [`tests/integration/artifacts/test_mapping_review_workbook.py`](../../../tests/integration/artifacts/test_mapping_review_workbook.py)
 - [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
 - [`tests/domain/preparation/test_target_first_relationships.py`](../../../tests/domain/preparation/test_target_first_relationships.py)
+- [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,

@@ -71,11 +71,23 @@ exist. If a required supporting record is missing, ambiguous, or cannot exist
 first, **Check changes** must stop the load. Resolve that warning before you
 select **Confirm and load**.
 
-The current implementation orders dependencies between datasets. A
-[planned extension](../../plans/scalable-relationship-dependency-planning.md)
-will freeze dependencies between rows in the same dataset and qualify larger,
-multi-level BOM migrations. This planned extension is not current browser
-behavior.
+Impodo also freezes dependencies between rows in the same dataset. A parent
+row therefore loads before its child when their reviewed business keys make
+that order clear. Impodo uses the second relationship step only for an actual
+optional cycle; it does not require you to rearrange an acyclic hierarchy.
+
+Immediately before loading, Impodo checks existing Odoo records and related
+records in bounded groups. A reviewed key must still point to the same unique
+record. If it was removed, became ambiguous, or now points somewhere else,
+Impodo creates no load journal and writes nothing; return to **Check changes**
+for a fresh comparison. You still control the mappings, included rows, and
+optional relationships. This check derives safety from those choices rather
+than imposing a Product- or BOM-specific workflow.
+
+Qualification of larger, multi-level BOM migrations remains part of the
+[scalable relationship dependency plan](../../plans/scalable-relationship-dependency-planning.md).
+The current related-data limit does not increase until that qualification is
+complete.
 
 ## What Complete means
 

@@ -701,7 +701,7 @@ def _mapping_datasets_from_form(
                             f"relation_required_create_{dataset_index}_"
                             f"{relation_index}"
                         ),
-                    ),
+                    ) or metadata.required,
                     on_missing=(
                         _text(
                             form,

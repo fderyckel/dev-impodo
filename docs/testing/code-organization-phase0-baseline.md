@@ -36,7 +36,7 @@ Run the inventory check from the repository root:
 .venv/bin/python -m unittest tests.architecture.test_inventory -v
 ```
 
-The reviewed snapshot contains 363 production modules and 1,996 runtime
+The reviewed snapshot contains 366 production modules and 2,019 runtime
 internal import edges. It records one type-only edge. Phase 1 removed the three
 application-to-adapter edges and the former inspection-worker runtime cycle.
 Phase 2 added named
@@ -65,6 +65,11 @@ normalization, stored-run reading, and cleanup components while preserving one
 publication transaction. Run planning and Test setup retain stable facades over
 focused use cases. Tests that patch adapter internals now patch the focused
 owner module rather than the facade module.
+
+The 2026-08-28 review incorporated the current mapping-review artifact adapter
+and the canonical relationship-dependency domain module. The resulting graph
+still has no runtime cycle, forbidden application-to-adapter edge, or
+unclassified production module.
 
 When a structural change modifies production modules or imports, inspect the
 JSON diff. Update the fixture only when the change is intended and the result

@@ -1575,6 +1575,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
                 del model, domain
                 return (42,)
 
+            def find_ids_many(self, model, domains):
+                del model
+                return tuple((42,) for _domain in domains)
+
             def create_rows(self, model, values):
                 rows = tuple(dict(item) for item in values)
                 self.created.append((model, rows))
