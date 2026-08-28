@@ -693,7 +693,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 model="res.partner",
                 field_names=("display_name",),
                 include_archived=False,
-                max_rows=100,
+                page_size=10,
                 actor=LOCAL_ACTOR,
             )
 
@@ -703,7 +703,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             model="res.partner",
             field_names=("name", "active", "name"),
             include_archived=False,
-            max_rows="1000",
+            page_size="100",
             actor=LOCAL_ACTOR,
         )
         second = self.sources.define_odoo_capture_selection(
@@ -712,7 +712,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             model="res.partner",
             field_names=("name",),
             include_archived=True,
-            max_rows=100,
+            page_size=500,
             actor=LOCAL_ACTOR,
         )
 

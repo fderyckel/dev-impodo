@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Protocol
 
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot
 from ..domain.odoo_capture import OdooCaptureSelection
+from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..domain.odoo_source_capture import (
     CancellationProbe,
+    OdooCaptureAssessment,
     OdooCaptureAccounting,
     OdooCapturePage,
     OdooCaptureSample,
@@ -48,6 +51,9 @@ class OdooSourceCaptureSession(Protocol):
     def pages(self): ...
 
     @property
+    def matching_rows(self) -> int: ...
+
+    @property
     def accounting(self) -> OdooCaptureAccounting: ...
 
 
@@ -77,6 +83,15 @@ class OdooSourceCapturePort(Protocol):
         cancellation: CancellationProbe | None = None,
     ) -> OdooSourceCaptureSession: ...
 
+    def count_matching(
+        self,
+        request: OdooSourceCaptureRequest,
+        context: ProtectedOdooReadContext,
+        *,
+        limit: int,
+        cancellation: CancellationProbe | None = None,
+    ) -> int: ...
+
     def sample(
         self,
         request: OdooSourceCaptureRequest,
@@ -94,6 +109,7 @@ class OdooSourceCaptureResult:
     request: OdooSourceCaptureRequest
     selection: OdooCaptureSelection
     accounting: OdooCaptureAccounting
+    matching_rows: int
 
 
 class OdooSourceCaptureService:
@@ -122,6 +138,7 @@ class OdooSourceCaptureService:
         ],
         actor: Actor,
         cancellation: CancellationProbe | None = None,
+        observe_matching_rows: Callable[[int], None] | None = None,
     ) -> OdooSourceCaptureResult:
         """Validate at both ends and pass each bounded typed page to one sink."""
 
@@ -147,6 +164,8 @@ class OdooSourceCaptureService:
             protected_context,
             cancellation=cancellation,
         )
+        if observe_matching_rows is not None:
+            observe_matching_rows(session.matching_rows)
         for page in session.pages():
             require_not_cancelled(cancellation)
             consume_page(page)
@@ -191,6 +210,48 @@ class OdooSourceCaptureService:
             request=request,
             selection=selection,
             accounting=accounting,
+            matching_rows=session.matching_rows,
+        )
+
+    def assess(
+        self,
+        workspace_id: str,
+        gateway: OdooSourceCapturePort,
+        *,
+        actor: Actor,
+        cancellation: CancellationProbe | None = None,
+    ) -> OdooCaptureAssessment:
+        """Count matching rows once without reading business-field values."""
+
+        request, schema, _ = self._context(workspace_id, actor=actor)
+        require_not_cancelled(cancellation)
+        identity, protected_context = gateway.probe_identity(
+            request,
+            cancellation=cancellation,
+        )
+        _require_identity(request, identity)
+        _require_live_schema(
+            request,
+            schema,
+            gateway.probe_schema(
+                request,
+                protected_context,
+                cancellation=cancellation,
+            ),
+        )
+        matching_rows = gateway.count_matching(
+            request,
+            protected_context,
+            limit=request.maximum_rows + 1,
+            cancellation=cancellation,
+        )
+        require_not_cancelled(cancellation)
+        return OdooCaptureAssessment(
+            selection_hash=request.selection_hash,
+            matching_rows=matching_rows,
+            maximum_rows=request.maximum_rows,
+            page_size=request.page_size,
+            observed_at=datetime.now(timezone.utc),
         )
 
     def sample(
@@ -263,6 +324,10 @@ class OdooSourceCaptureService:
         if selection.data_version_id != context.data_version_id:
             raise WorkspaceError(
                 "The Odoo capture selection belongs to another DataVersion"
+            )
+        if selection.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows:
+            raise WorkspaceError(
+                "Review and save the Odoo capture plan before reading records"
             )
         if schema.origin is not SchemaOrigin.LIVE_API:
             raise WorkspaceError(

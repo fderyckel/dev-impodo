@@ -118,6 +118,8 @@ class OdooCaptureContractTests(unittest.TestCase):
             replace(selection, field_names=("id", "name"))
         with self.assertRaises(OdooCaptureContractError):
             replace(selection, max_rows=10_001)
+        with self.assertRaisesRegex(OdooCaptureContractError, "batch size"):
+            replace(selection, page_size=11)
         with self.assertRaises(OdooCaptureContractError):
             replace(selection, content_hash="sha256:" + "f" * 64)
         payload = json.loads(selection.to_json())
@@ -126,6 +128,12 @@ class OdooCaptureContractTests(unittest.TestCase):
             OdooCaptureSelection.from_json(json.dumps(payload))
         with self.assertRaisesRegex(OdooCaptureContractError, "current source policy"):
             replace(selection, policy_hash="sha256:" + "9" * 64)
+
+    def test_odoo_selection_accepts_the_three_bounded_batch_sizes(self) -> None:
+        for page_size in (10, 100, 500):
+            with self.subTest(page_size=page_size):
+                selection = self._selection(page_size=page_size)
+                self.assertEqual(selection.page_size, page_size)
 
     def test_current_policy_fails_closed_for_production_writes(self) -> None:
         policy = CURRENT_ODOO_SOURCE_POLICY
@@ -157,7 +165,7 @@ class OdooCaptureContractTests(unittest.TestCase):
         self.assertEqual(hash_manifest.call_count, 1)
 
     @staticmethod
-    def _selection() -> OdooCaptureSelection:
+    def _selection(*, page_size: int = 500) -> OdooCaptureSelection:
         return OdooCaptureSelection.create(
             selection_id=str(uuid4()),
             version=1,
@@ -167,6 +175,7 @@ class OdooCaptureContractTests(unittest.TestCase):
             field_names=("active", "name"),
             filter_policy=OdooCaptureFilterPolicy.ACTIVE_RECORDS,
             max_rows=1_000,
+            page_size=page_size,
             connection_target_hash=HASH,
             schema_scope_hash="sha256:" + "2" * 64,
             read_principal_hash="sha256:" + "3" * 64,

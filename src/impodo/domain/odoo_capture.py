@@ -27,6 +27,7 @@ ODOO_CAPTURE_CONTRACT_VERSION = 4
 MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
 MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
 ODOO_CAPTURE_PAGE_SIZE = CURRENT_ODOO_SOURCE_POLICY.page_size
+ODOO_CAPTURE_PAGE_SIZES = (10, 100, ODOO_CAPTURE_PAGE_SIZE)
 ODOO_CAPTURE_FIELD_TYPES = frozenset(
     CURRENT_ODOO_SOURCE_POLICY.capture_field_types
 )
@@ -208,9 +209,9 @@ class OdooCaptureSelection:
                 f"Odoo capture row limit must be between 1 and "
                 f"{MAX_ODOO_CAPTURE_ROWS}"
             )
-        if self.page_size != ODOO_CAPTURE_PAGE_SIZE:
+        if self.page_size not in ODOO_CAPTURE_PAGE_SIZES:
             raise OdooCaptureContractError(
-                "Odoo capture page size is not the fixed bounded value"
+                "Odoo capture batch size must be 10, 100, or 500 records"
             )
         for value, label in (
             (self.policy_hash, "policy hash"),
@@ -258,6 +259,7 @@ class OdooCaptureSelection:
         filter_clauses: tuple[OdooCaptureFilterClause, ...] = (),
         filter_policy: OdooCaptureFilterPolicy,
         max_rows: int,
+        page_size: int = ODOO_CAPTURE_PAGE_SIZE,
         connection_target_hash: str,
         schema_scope_hash: str,
         read_principal_hash: str,
@@ -276,7 +278,7 @@ class OdooCaptureSelection:
             filter_clauses=filter_clauses,
             filter_policy=filter_policy,
             max_rows=max_rows,
-            page_size=ODOO_CAPTURE_PAGE_SIZE,
+            page_size=page_size,
             consistency=OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             connection_target_hash=connection_target_hash,

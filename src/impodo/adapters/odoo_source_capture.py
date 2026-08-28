@@ -56,6 +56,9 @@ class OdooSourceCaptureSession(Protocol):
     def pages(self) -> Iterator[OdooCapturePage]: ...
 
     @property
+    def matching_rows(self) -> int: ...
+
+    @property
     def accounting(self) -> OdooCaptureAccounting: ...
 
 
@@ -70,9 +73,9 @@ class Json2OdooSourceCapture:
         now: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
-        if config.context or config.page_size != 500:
+        if config.context:
             raise OdooSourceCaptureConfigurationError(
-                "Odoo source capture requires the fixed empty base context and page size"
+                "Odoo source capture requires an empty base context"
             )
         self._config = config
         self._transport = transport or _bounded_urllib_transport
@@ -157,15 +160,51 @@ class Json2OdooSourceCapture:
                     "Odoo high-water response projection is invalid"
                 )
             high_water_id = _require_id(rows[0]["id"])
+        matching_rows = 0
+        count_response_bytes = 0
+        if high_water_id:
+            matching_rows, count_response_bytes = self._search_count(
+                request,
+                context,
+                domain=[*_base_domain(request), ["id", "<=", high_water_id]],
+                limit=request.maximum_rows + 1,
+                cancellation=cancellation,
+            )
+            if matching_rows > request.maximum_rows:
+                raise OdooSourceCaptureLimitError(
+                    f"More than {request.maximum_rows:,} records match this "
+                    "capture plan. Narrow the selection before freezing records."
+                )
         return _Json2CaptureSession(
             adapter=self,
             request=request,
             context=context,
             high_water_id=high_water_id,
             started_at=started_at,
-            initial_response_bytes=response_bytes,
+            matching_rows=matching_rows,
+            initial_response_bytes=response_bytes + count_response_bytes,
+            initial_request_count=(2 if high_water_id else 1),
             cancellation=cancellation,
         )
+
+    def count_matching(
+        self,
+        request: OdooSourceCaptureRequest,
+        context: ProtectedOdooReadContext,
+        *,
+        limit: int,
+        cancellation: CancellationProbe | None = None,
+    ) -> int:
+        """Return one bounded Odoo count without fetching record identifiers."""
+
+        count, _ = self._search_count(
+            request,
+            context,
+            domain=_base_domain(request),
+            limit=limit,
+            cancellation=cancellation,
+        )
+        return count
 
     def sample(
         self,
@@ -337,6 +376,63 @@ class Json2OdooSourceCapture:
                 "Odoo capture returned malformed JSON"
             ) from error
 
+    def _search_count(
+        self,
+        request: OdooSourceCaptureRequest,
+        context: ProtectedOdooReadContext,
+        *,
+        domain: list[list[object]],
+        limit: int,
+        cancellation: CancellationProbe | None,
+    ) -> tuple[int, int]:
+        if not 1 <= limit <= request.maximum_rows + 1:
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture count limit is invalid"
+            )
+        body = canonical_json(
+            {
+                "context": _capture_context(context, request.filter_policy),
+                "domain": domain,
+                "limit": limit,
+            }
+        ).encode("utf-8")
+        url = (
+            f"{self._config.base_url}/json/2/"
+            f"{quote(request.model, safe='.')}/search_count"
+        )
+        status, raw = self._request(
+            request,
+            url=url,
+            headers=_headers(self._config),
+            body=body,
+            timeout=self._config.timeout_seconds,
+            method="POST",
+            cancellation=cancellation,
+        )
+        if status in {401, 403}:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture authorization failed"
+            )
+        if status != 200:
+            raise OdooSourceCaptureConsistencyError(
+                f"Odoo capture count failed with HTTP {status}"
+            )
+        try:
+            count = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture count returned malformed JSON"
+            ) from error
+        if (
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or not 0 <= count <= limit
+        ):
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture count response is invalid"
+            )
+        return count, len(raw)
+
     def _request(
         self,
         request: OdooSourceCaptureRequest,
@@ -392,7 +488,9 @@ class _Json2CaptureSession:
         context: ProtectedOdooReadContext,
         high_water_id: int,
         started_at: datetime,
+        matching_rows: int,
         initial_response_bytes: int,
+        initial_request_count: int,
         cancellation: CancellationProbe | None,
     ) -> None:
         self._adapter = adapter
@@ -400,11 +498,12 @@ class _Json2CaptureSession:
         self._context = context
         self._high_water_id = high_water_id
         self._started_at = started_at
+        self._matching_rows = matching_rows
         self._response_bytes = initial_response_bytes
         self._normalized_bytes = 0
         self._row_count = 0
         self._page_count = 0
-        self._record_request_count = 1
+        self._record_request_count = initial_request_count
         self._cancellation = cancellation
         self._started = False
         self._finished = False
@@ -443,6 +542,7 @@ class _Json2CaptureSession:
             if not rows:
                 self._finish()
                 return
+
             page = _decode_page(
                 self._request,
                 rows,
@@ -470,6 +570,10 @@ class _Json2CaptureSession:
             if len(rows) < limit or last_id == self._high_water_id:
                 self._finish()
                 return
+
+    @property
+    def matching_rows(self) -> int:
+        return self._matching_rows
 
     @property
     def accounting(self) -> OdooCaptureAccounting:

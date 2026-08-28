@@ -620,6 +620,9 @@ class _Gateway:
         self.calls.append("open")
         return _Session(request, self.now, self.values)
 
+    def count_matching(self, request, context, *, limit, cancellation=None):
+        return 2
+
     def sample(self, request, context, *, limit, cancellation=None):
         raise AssertionError("Publication never samples live records")
 
@@ -661,6 +664,10 @@ class _Session:
 
     def pages(self):
         return iter((self.page,))
+
+    @property
+    def matching_rows(self):
+        return 2
 
     @property
     def accounting(self):
@@ -755,7 +762,7 @@ def _selection(
         model="res.partner",
         field_names=("name",),
         filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
-        max_rows=1_000,
+        max_rows=10_000,
         connection_target_hash=schema.connection_target_hash,
         schema_scope_hash=schema.content_hash,
         read_principal_hash=schema.read_principal_hash,

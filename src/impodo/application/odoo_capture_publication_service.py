@@ -215,12 +215,17 @@ class OdooCapturePublicationService:
                         normalized_bytes=normalized_bytes,
                     )
 
+                def observe_matching_rows(matching_rows: int) -> None:
+                    nonlocal maximum_rows
+                    maximum_rows = matching_rows
+
                 result = self._captures.capture(
                     workspace_id,
                     gateway,
                     consume_page_factory=prepare_consumer,
                     actor=actor,
                     cancellation=cancellation,
+                    observe_matching_rows=observe_matching_rows,
                 )
                 require_not_cancelled(cancellation)
                 capture_selection = result.selection
@@ -236,7 +241,7 @@ class OdooCapturePublicationService:
                     progress,
                     OdooCapturePhase.FINALIZING,
                     completed_rows=accounting.row_count,
-                    total_rows=result.request.maximum_rows,
+                    total_rows=result.matching_rows,
                     page_count=accounting.page_count,
                     response_bytes=accounting.response_bytes,
                     normalized_bytes=accounting.normalized_bytes,
@@ -300,7 +305,7 @@ class OdooCapturePublicationService:
                     progress,
                     OdooCapturePhase.PUBLISHING,
                     completed_rows=accounting.row_count,
-                    total_rows=result.request.maximum_rows,
+                    total_rows=result.matching_rows,
                     page_count=accounting.page_count,
                     response_bytes=accounting.response_bytes,
                     normalized_bytes=accounting.normalized_bytes,

@@ -1,6 +1,22 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  const odooCaptureAssessmentDialog = document.querySelector(
+    "[data-odoo-capture-assessment-dialog]"
+  );
+  if (
+    odooCaptureAssessmentDialog &&
+    typeof odooCaptureAssessmentDialog.showModal === "function"
+  ) {
+    if (odooCaptureAssessmentDialog.open) {
+      odooCaptureAssessmentDialog.close();
+    }
+    odooCaptureAssessmentDialog.showModal();
+  }
+  document
+    .querySelector("[data-close-odoo-capture-assessment]")
+    ?.addEventListener("click", () => odooCaptureAssessmentDialog?.close());
+
   const sourceFileRemoveDialog = document.querySelector(
     "[data-source-file-remove-dialog]"
   );

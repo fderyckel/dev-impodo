@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Odoo source selection · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/source-workflow.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Stage 2 of 6 · Odoo source data</p>
       <h1>Define a bounded Odoo capture</h1>
-      <p>Choose one record type, a small field surface, and a strict row limit.</p>
+      <p>Choose one record type, a small field surface, and how many records Odoo should return per request.</p>
     </div>
     {% if current %}<span class="status registered">Plan v{{ current.version }} saved</span>{% endif %}
   </div>
@@ -94,13 +97,13 @@
               <small>A stable technical name used by later mapping evidence.</small>
             </label>
             <label>
-              Maximum records
-              <select name="max_rows">
-                {% for limit in [100, 1000, 5000, 10000] %}
-                  <option value="{{ limit }}" {% if current and current.model == selected_model.name and current.max_rows == limit %}selected{% elif not current and limit == 1000 %}selected{% endif %}>{{ limit }}</option>
+              Records per Odoo request
+              <select name="page_size">
+                {% for limit in capture_page_sizes %}
+                  <option value="{{ limit }}" {% if current and current.model == selected_model.name and current.page_size == limit %}selected{% elif not current and limit == 100 %}selected{% endif %}>{{ limit }}</option>
                 {% endfor %}
               </select>
-              <small>The hard contract limit is 10,000 records.</small>
+              <small>Choose 10 for a constrained demo server, 100 for a cautious default, or 500 for a stronger server. This changes batch size, not the records included.</small>
             </label>
           </div>
 
@@ -139,27 +142,19 @@
         </div>
         <span class="status registered">Plan saved</span>
       </div>
-      <p><strong>{{ current.dataset_name }}</strong> will read at most {{ current.max_rows }} {{ current.model }} record(s), using {{ current.field_names|length }} selected field(s).</p>
+      <p><strong>{{ current.dataset_name }}</strong> will read all matching {{ current.model }} records in batches of up to {{ current.page_size }}, using {{ current.field_names|length }} selected field(s). Impodo stops before downloading values if more than {{ "{:,}".format(capture_policy.max_rows) }} records match.</p>
       {% if current_plan_error %}
         <div class="notice warning" role="alert">
           <strong>This capture plan needs review.</strong>
-          The saved fields no longer match the bounded Odoo fields Impodo can capture. Review and save the plan before freezing records.
+          The saved plan uses an earlier capture workflow or no longer matches the bounded Odoo fields Impodo can capture. Review and save the plan before freezing records.
         </div>
         <p><a class="button primary" href="#capture-plan">Review and save capture plan</a></p>
       {% elif schema and not schema.pending_refresh and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
-        <div class="notice warning">
-          <strong>{% if current_manifest %}This creates a replacement version.{% else %}This creates the first frozen version.{% endif %}</strong>
-          The current version changes only after all target checks, value data, and protected origins are complete. A stop or failure leaves the existing current version unchanged.
-        </div>
-        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-capture" class="capture-confirmation">
+        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="selection_id" value="{{ current.selection_id }}">
           <input type="hidden" name="selection_hash" value="{{ current.content_hash }}">
-          <label class="checkbox">
-            <input type="checkbox" name="confirm_capture" value="1" required>
-            I confirm that Impodo may make bounded read-only requests to this Odoo target
-          </label>
-          <button class="button primary" type="submit">Freeze these Odoo records</button>
+          <button class="button primary" type="submit">Check matching records</button>
         </form>
       {% else %}
         <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">{% if schema and schema.pending_refresh %}Review Odoo changes{% else %}Refresh credential-bound Odoo details{% endif %}</a></p>
@@ -168,12 +163,56 @@
         <summary>Support details</summary>
         <p>Selection hash: <code>{{ current.content_hash }}</code></p>
         <p>Source-binding hash: <code>{{ current.source_binding.source_evidence_hash }}</code></p>
-        <p>Consistency contract: <code>{{ current.consistency.value }}</code> with fixed pages of {{ current.page_size }}.</p>
+        <p>Consistency contract: <code>{{ current.consistency.value }}</code> with batches of up to {{ current.page_size }}.</p>
         <p>Source policy: <code>{{ current.policy_hash }}</code>.</p>
         <p>Target identity assurance: <code>{{ capture_policy.target_instance_assurance.value }}</code>.</p>
         <p>Production write disposition: <code>{{ capture_policy.production_write_disposition.value }}</code>.</p>
       </details>
     </section>
+
+    {% if assessment %}
+      <dialog class="confirmation-dialog" open aria-labelledby="odoo-capture-assessment-title" data-odoo-capture-assessment-dialog>
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Current Odoo count</p>
+            <h2 id="odoo-capture-assessment-title">
+              {% if assessment.exceeds_maximum %}Too many records to freeze safely{% else %}Freeze {{ "{:,}".format(assessment.matching_rows) }} matching record{% if assessment.matching_rows != 1 %}s{% endif %}?{% endif %}
+            </h2>
+          </div>
+          <form method="dialog">
+            <button class="dialog-close" type="submit" aria-label="Close dialog">&times;</button>
+          </form>
+        </div>
+        {% if assessment.exceeds_maximum %}
+          <div class="notice warning" role="alert">
+            More than {{ "{:,}".format(assessment.maximum_rows) }} records currently match. Impodo did not download their business values. Narrow the selection before freezing records.
+          </div>
+          <div class="dialog-actions">
+            <form method="dialog"><button class="button secondary" type="submit">Close</button></form>
+          </div>
+        {% else %}
+          <p>Impodo will make {{ assessment.batch_count }} data request{% if assessment.batch_count != 1 %}s{% endif %}, each containing up to {{ assessment.page_size }} records.</p>
+          <p>The count is a current estimate. Impodo will fix the capture boundary and check the safety ceiling again before downloading business values.</p>
+          <div class="notice warning">
+            <strong>{% if current_manifest %}This creates a replacement frozen version.{% else %}This creates the first frozen version.{% endif %}</strong>
+            A stop or failure leaves the existing current version unchanged.
+          </div>
+          <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-capture" class="capture-confirmation">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="selection_id" value="{{ current.selection_id }}">
+            <input type="hidden" name="selection_hash" value="{{ current.content_hash }}">
+            <label class="checkbox">
+              <input type="checkbox" name="confirm_capture" value="1" required>
+              I confirm that Impodo may make these bounded read-only requests to this Odoo target
+            </label>
+            <div class="dialog-actions">
+              <button class="button primary" type="submit">Freeze these Odoo records</button>
+              <button class="button secondary" type="button" data-close-odoo-capture-assessment>Cancel</button>
+            </div>
+          </form>
+        {% endif %}
+      </dialog>
+    {% endif %}
   {% endif %}
 
   {% if current_manifest %}

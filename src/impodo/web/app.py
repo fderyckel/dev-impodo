@@ -142,9 +142,9 @@ from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
     WorkspaceStateCompatibilityError,
+    WorkspaceStateError,
     WorkspaceStateNotFoundError,
     WorkspaceStateService,
-    SourceMode,
 )
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.application.data_version.source_packages import (
@@ -384,13 +384,14 @@ def create_local_app(
         ProtectedOdooProvenanceCodec(),
         ProtectedOdooComparisonCodec(),
     )
+    odoo_source_capture = OdooSourceCaptureService(
+        workspace_state_repository,
+        source_repository,
+        schema_repository,
+        workspace_access,
+    )
     odoo_capture_publication = OdooCapturePublicationService(
-        OdooSourceCaptureService(
-            workspace_state_repository,
-            source_repository,
-            schema_repository,
-            workspace_access,
-        ),
+        odoo_source_capture,
         source_repository,
         odoo_provenance_service,
         odoo_provenance_repository,
@@ -730,6 +731,7 @@ def create_local_app(
             artifacts,
             workspace_access,
         ),
+        odoo_source_capture=odoo_source_capture,
         odoo_capture_publication=odoo_capture_publication,
         odoo_capture_jobs=odoo_capture_jobs,
         odoo_provenance=odoo_provenance_service,

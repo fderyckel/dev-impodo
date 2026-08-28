@@ -69,6 +69,9 @@ class DatasetTransport:
     def __call__(self, url, headers, body, timeout, method, maximum_bytes):
         payload = json.loads(body)
         self.calls.append(payload)
+        if url.endswith("/search_count"):
+            matching = self._matching(payload["domain"])
+            return 200, str(min(len(matching), payload["limit"])).encode()
         if payload["order"] == "id desc":
             matching = self._matching(payload["domain"])
             response = [{"id": max(row["id"] for row in matching)}] if matching else []
@@ -117,7 +120,7 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
                 self.assertEqual(sum(page.row_count for page in pages), count)
                 self.assertEqual(
                     session.accounting.record_request_count,
-                    1 + math.ceil(count / 500),
+                    1 + (1 if count else 0) + math.ceil(count / 500),
                 )
                 self.assertEqual(
                     [page.first_row_ordinal for page in pages],
@@ -126,13 +129,31 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
                 self.assertTrue(all(len(page.odoo_ids) <= 500 for page in pages))
 
     def test_maximum_plus_one_fails_closed(self) -> None:
-        session = self._adapter(DatasetTransport(_rows(501))).open_capture(
-            _request(maximum_rows=500),
-            _context(),
-        )
+        with self.assertRaisesRegex(OdooSourceCaptureLimitError, "More than 500"):
+            self._adapter(DatasetTransport(_rows(501))).open_capture(
+                _request(maximum_rows=500),
+                _context(),
+            )
 
-        with self.assertRaisesRegex(OdooSourceCaptureLimitError, "row limit"):
-            list(session.pages())
+    def test_count_and_capture_use_the_selected_batch_size(self) -> None:
+        for page_size in (10, 100, 500):
+            with self.subTest(page_size=page_size):
+                transport = DatasetTransport(_rows(205))
+                request = _request(maximum_rows=1_000, page_size=page_size)
+                adapter = self._adapter(transport)
+
+                self.assertEqual(
+                    adapter.count_matching(request, _context(), limit=1_001),
+                    205,
+                )
+                session = adapter.open_capture(request, _context())
+                pages = list(session.pages())
+
+                self.assertEqual(session.matching_rows, 205)
+                self.assertEqual(len(pages), math.ceil(205 / page_size))
+                self.assertTrue(
+                    all(page.row_count <= page_size for page in pages)
+                )
 
     def test_high_water_excludes_later_insert_and_keyset_survives_delete(self) -> None:
         transport = DatasetTransport(_rows(501))
@@ -308,7 +329,13 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
         self.assertFalse({"domain", "method", "context"} & request_fields)
         self.assertEqual(
             public,
-            {"open_capture", "probe_identity", "probe_schema", "sample"},
+            {
+                "count_matching",
+                "open_capture",
+                "probe_identity",
+                "probe_schema",
+                "sample",
+            },
         )
         with self.assertRaises(ValueError):
             OdooCaptureFilterClause(
@@ -337,13 +364,12 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
             checks += 1
             return checks >= 3
 
-        session = self._adapter(DatasetTransport(_rows(501))).open_capture(
-            _request(),
-            _context(),
-            cancellation=cancellation,
-        )
         with self.assertRaises(OdooSourceCaptureCancelled):
-            list(session.pages())
+            self._adapter(DatasetTransport(_rows(501))).open_capture(
+                _request(),
+                _context(),
+                cancellation=cancellation,
+            )
 
     @staticmethod
     def _adapter(transport) -> Json2OdooSourceCapture:
@@ -562,6 +588,9 @@ class _Gateway:
     def open_capture(self, request, context, *, cancellation=None):
         return _EmptySession(request)
 
+    def count_matching(self, request, context, *, limit, cancellation=None):
+        return 0
+
     def sample(self, request, context, *, limit, cancellation=None):
         raise AssertionError("sample is not used by capture")
 
@@ -585,6 +614,10 @@ class _EmptySession:
 
     def pages(self):
         return iter(())
+
+    @property
+    def matching_rows(self):
+        return 0
 
     @property
     def accounting(self):
@@ -660,7 +693,7 @@ def _selection(
         model="res.partner",
         field_names=("name",),
         filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
-        max_rows=1_000,
+        max_rows=10_000,
         connection_target_hash=schema.connection_target_hash,
         schema_scope_hash=schema.content_hash,
         read_principal_hash=schema.read_principal_hash,

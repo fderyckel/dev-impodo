@@ -306,7 +306,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "model": "res.partner",
                 "field_names": "name",
                 "include_archived": "",
-                "max_rows": "1000",
+                "page_size": "100",
             },
         )
         self.assertEqual(selected.status_code, 303)
@@ -319,7 +319,8 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(selection.field_names, ("name",))
         saved_page = self.client.get(selected.headers["location"])
         self.assertIn("Capture plan version 1", saved_page.text)
-        self.assertIn("Freeze these Odoo records", saved_page.text)
+        self.assertIn("Check matching records", saved_page.text)
+        self.assertNotIn("Freeze these Odoo records", saved_page.text)
         self.assertIn("Ready to freeze", saved_page.text)
 
         context = self.app.state.context
@@ -420,12 +421,39 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(stale.status_code, 422)
         self.assertIn("out of date", stale.text)
 
+        unchecked = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-capture",
+            {
+                "csrf_token": self.csrf,
+                "selection_id": selection.selection_id,
+                "selection_hash": selection.content_hash,
+                "confirm_capture": "1",
+            },
+        )
+        self.assertEqual(unchecked.status_code, 422)
+        self.assertIn(
+            "Check the current number of matching records",
+            unchecked.text,
+        )
+
         schema = self.app.state.context.queries.get_odoo_schema_catalog(workspace_id)
         self.assertIsNotNone(schema)
         gateway = _BrowserOdooCaptureGateway(workspace_state, schema)
         self.app.state.context.source_capture_factory = (
             lambda selected_workspace_state, _secret: gateway
         )
+        assessed = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-assessment",
+            {
+                "csrf_token": self.csrf,
+                "selection_id": selection.selection_id,
+                "selection_hash": selection.content_hash,
+            },
+        )
+        self.assertEqual(assessed.status_code, 200)
+        self.assertIn("Freeze 2 matching records?", assessed.text)
+        self.assertIn("1 data request", assessed.text)
+        self.assertIn("up to 100 records", assessed.text)
         started = self._post(
             f"/workspaces/{workspace_id}/sources/odoo-capture",
             {

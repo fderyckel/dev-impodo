@@ -29,7 +29,10 @@ from ..application.workspace.preparation.normalization_service import Normalizat
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_provenance_service import OdooProvenanceService
-from ..application.odoo_source_capture_service import OdooSourceCapturePort
+from ..application.odoo_source_capture_service import (
+    OdooSourceCapturePort,
+    OdooSourceCaptureService,
+)
 from ..application.preflight_service import PreflightService
 from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.execution.load_jobs import LoadJobManager
@@ -191,6 +194,7 @@ class WebContext:
     load_jobs: LoadJobManager | None
     reconciliation: ReconciliationService
     transformation_impacts: TransformationImpactService
+    odoo_source_capture: OdooSourceCaptureService
     odoo_capture_publication: OdooCapturePublicationService
     odoo_capture_jobs: OdooCaptureJobManager | None
     odoo_provenance: OdooProvenanceService

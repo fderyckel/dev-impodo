@@ -518,6 +518,10 @@ class _BrowserOdooCaptureGateway:
         self.calls.append("open")
         return _BrowserOdooCaptureSession(request, self.now)
 
+    def count_matching(self, request, context, *, limit, cancellation=None):
+        self.calls.append("count")
+        return 2
+
     def sample(self, request, context, *, limit, cancellation=None):
         raise AssertionError("Freeze action does not run a sample")
 
@@ -555,6 +559,10 @@ class _BrowserOdooCaptureSession:
 
     def pages(self):
         return iter((self._page,))
+
+    @property
+    def matching_rows(self):
+        return 2
 
     @property
     def accounting(self):

@@ -29,6 +29,7 @@ from ..domain.source_snapshot import (
 )
 from ..domain.odoo_capture import (
     MAX_ODOO_CAPTURE_ROWS,
+    ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureContractError,
     OdooCaptureFilterPolicy,
     OdooCaptureSelection,
@@ -203,7 +204,7 @@ class SourceWorkspaceService:
         model: str,
         field_names: Iterable[str],
         include_archived: bool,
-        max_rows: int | str,
+        page_size: int | str,
         actor: Actor,
     ) -> OdooCaptureSelection:
         """Save a closed, bounded capture plan without contacting Odoo."""
@@ -270,15 +271,16 @@ class SourceWorkspaceService:
                 f"Odoo field {unsupported} is not eligible for bounded source capture"
             )
         try:
-            parsed_max_rows = int(max_rows)
+            parsed_page_size = int(page_size)
         except (TypeError, ValueError) as error:
-            raise WorkspaceError("Odoo capture row limit must be a whole number") from error
-        if str(max_rows).strip() != str(parsed_max_rows):
-            raise WorkspaceError("Odoo capture row limit must be a whole number")
-        if not 1 <= parsed_max_rows <= MAX_ODOO_CAPTURE_ROWS:
             raise WorkspaceError(
-                f"Odoo capture row limit must be between 1 and "
-                f"{MAX_ODOO_CAPTURE_ROWS}"
+                "Odoo capture batch size must be a whole number"
+            ) from error
+        if str(page_size).strip() != str(parsed_page_size):
+            raise WorkspaceError("Odoo capture batch size must be a whole number")
+        if parsed_page_size not in ODOO_CAPTURE_PAGE_SIZES:
+            raise WorkspaceError(
+                "Odoo capture batch size must be 10, 100, or 500 records"
             )
         current = self.sources.get_current_odoo_capture_selection(workspace_id)
         try:
@@ -303,7 +305,8 @@ class SourceWorkspaceService:
                     )
                     else OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS
                 ),
-                max_rows=parsed_max_rows,
+                max_rows=MAX_ODOO_CAPTURE_ROWS,
+                page_size=parsed_page_size,
                 connection_target_hash=schema.connection_target_hash,
                 schema_scope_hash=schema.content_hash,
                 read_principal_hash=schema.read_principal_hash,

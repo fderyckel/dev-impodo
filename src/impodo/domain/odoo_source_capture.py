@@ -16,6 +16,7 @@ from uuid import UUID
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField
 from .odoo_capture import (
     ODOO_CAPTURE_FIELD_TYPES,
+    ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureConsistency,
     OdooCaptureFilterClause,
     OdooCaptureFilterOperator,
@@ -57,6 +58,41 @@ class OdooSourceCaptureConsistencyError(OdooSourceCaptureError):
 
 class OdooSourceCaptureCancelled(OdooSourceCaptureError):
     """Capture stopped at a bounded cancellation checkpoint."""
+
+
+@dataclass(frozen=True, slots=True)
+class OdooCaptureAssessment:
+    """A current, bounded count used for explicit capture confirmation."""
+
+    selection_hash: str
+    matching_rows: int
+    maximum_rows: int
+    page_size: int
+    observed_at: datetime
+
+    def __post_init__(self) -> None:
+        if (
+            _HASH.fullmatch(self.selection_hash) is None
+            or isinstance(self.matching_rows, bool)
+            or not isinstance(self.matching_rows, int)
+            or not 0 <= self.matching_rows <= self.maximum_rows + 1
+            or self.maximum_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows
+            or self.page_size not in ODOO_CAPTURE_PAGE_SIZES
+            or self.observed_at.tzinfo is None
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture assessment is invalid"
+            )
+
+    @property
+    def exceeds_maximum(self) -> bool:
+        return self.matching_rows > self.maximum_rows
+
+    @property
+    def batch_count(self) -> int | None:
+        if self.exceeds_maximum:
+            return None
+        return (self.matching_rows + self.page_size - 1) // self.page_size
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +196,7 @@ class OdooSourceCaptureRequest:
             or not isinstance(self.filter_policy, OdooCaptureFilterPolicy)
             or self.consistency
             is not OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL
-            or self.page_size != policy.page_size
+            or self.page_size not in ODOO_CAPTURE_PAGE_SIZES
             or self.maximum_rows < 1
             or self.maximum_rows > policy.max_rows
             or not 1 <= self.max_sample_rows <= policy.max_sample_rows
@@ -324,7 +360,10 @@ class OdooCaptureAccounting:
             or self.row_count > CURRENT_ODOO_SOURCE_POLICY.max_rows
             or self.page_count < 0
             or self.page_count > self.row_count
-            or self.record_request_count != self.page_count + 1
+            # Older saved accounting has high-water + page calls. Current
+            # accounting also includes the one bounded pre-value count call.
+            or self.record_request_count
+            not in {self.page_count + 1, self.page_count + 2}
             or self.response_bytes < 1
             or self.normalized_bytes < 0
             or self.capture_started_at.tzinfo is None

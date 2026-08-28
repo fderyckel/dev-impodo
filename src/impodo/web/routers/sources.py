@@ -39,12 +39,14 @@ from ...application.odoo_capture_job_service import (
 )
 from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.odoo_source_capture import (
+    OdooSourceCaptureError,
     OdooSourceCaptureConfigurationError,
     is_odoo_capture_value_field,
     plan_odoo_source_capture,
 )
 from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...domain.odoo_capture import ODOO_CAPTURE_PAGE_SIZES
 from ...domain.data_version.models import DataVersionState
 from impodo.application.data_version.inspection import SourceInspectionError, SourceInspectionOptions
 from impodo.domain.project.foundation import MigrationFoundationError
@@ -73,6 +75,9 @@ from ..target_credentials import (
     store_target_credential,
 )
 from ..source_file_commands import accept_source_uploads, remove_source_file
+
+
+_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY = "odoo_capture_assessment"
 
 
 def build_sources_router(context: WebContext) -> APIRouter:
@@ -241,7 +246,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 "model",
                 "field_names",
                 "include_archived",
-                "max_rows",
+                "page_size",
             },
         )
         workspace_state = context.queries.get(workspace_id)
@@ -253,7 +258,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 model=_text(form, "model"),
                 field_names=tuple(form.getlist("field_names")),
                 include_archived=bool(_text(form, "include_archived")),
-                max_rows=_text(form, "max_rows"),
+                page_size=_text(form, "page_size"),
                 actor=context.actor,
             )
         except WorkspaceError as error:
@@ -264,6 +269,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
+        request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
         _flash(
             request,
             f"Saved Odoo capture plan version {selection.version}. No rows were read.",
@@ -271,6 +277,94 @@ def build_sources_router(context: WebContext) -> APIRouter:
         return RedirectResponse(
             f"/workspaces/{workspace_id}/sources#selection-saved",
             status_code=303,
+        )
+
+    @router.post("/workspaces/{workspace_id}/sources/odoo-assessment")
+    async def assess_odoo_capture(request: Request, workspace_id: str):
+        """Count matching records before asking for capture confirmation."""
+
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "selection_id", "selection_hash"},
+        )
+        workspace_state = context.queries.get(workspace_id)
+        try:
+            selection = context.queries.get_current_odoo_capture_selection(
+                workspace_id
+            )
+            if (
+                selection is None
+                or selection.selection_id != _text(form, "selection_id")
+                or selection.content_hash != _text(form, "selection_hash")
+            ):
+                raise WorkspaceError(
+                    "This page is out of date. Reload and check the current "
+                    "Odoo capture plan."
+                )
+            if selection.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows:
+                raise WorkspaceError(
+                    "Review and save this capture plan before checking "
+                    "matching records."
+                )
+            credential = get_target_credential(
+                context.secret_store,
+                workspace_state,
+                TargetCredentialRole.READ,
+            )
+            if credential is None:
+                raise WorkspaceError(
+                    "Save a read-only Odoo API key before checking matching records."
+                )
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            if (
+                schema is None
+                or schema.read_credential_binding_hash != credential.binding_hash
+            ):
+                raise WorkspaceError(
+                    "The Odoo read credential changed. Refresh the record "
+                    "types and fields first."
+                )
+            if schema.pending_refresh is not None:
+                raise WorkspaceError(
+                    "Odoo fields changed. Review the checked Odoo changes first."
+                )
+            gateway = context.source_capture_factory(
+                workspace_state,
+                credential.secret,
+            )
+            assessment = await run_in_threadpool(
+                context.odoo_source_capture.assess,
+                workspace_id,
+                gateway,
+                actor=context.actor,
+            )
+            request.session[_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY] = {
+                "workspace_id": workspace_id,
+                "selection_hash": assessment.selection_hash,
+                "matching_rows": assessment.matching_rows,
+                "page_size": assessment.page_size,
+            }
+        except (
+            ConnectorError,
+            OdooSourceCaptureError,
+            WorkspaceStateError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            return _render_odoo_capture_selection(
+                request,
+                context,
+                workspace_state,
+                error=str(error),
+                status_code=422,
+            )
+        return _render_odoo_capture_selection(
+            request,
+            context,
+            workspace_state,
+            assessment=assessment,
         )
 
     @router.post("/workspaces/{workspace_id}/sources/odoo-read-credential")
@@ -398,6 +492,24 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "freezing another source version."
                 )
             plan_odoo_source_capture(selection, schema)
+            assessment_evidence = request.session.get(
+                _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY
+            )
+            if (
+                not isinstance(assessment_evidence, dict)
+                or assessment_evidence.get("workspace_id") != workspace_id
+                or assessment_evidence.get("selection_hash")
+                != selection.content_hash
+                or assessment_evidence.get("page_size") != selection.page_size
+                or isinstance(assessment_evidence.get("matching_rows"), bool)
+                or not isinstance(assessment_evidence.get("matching_rows"), int)
+                or not 0
+                <= assessment_evidence["matching_rows"]
+                <= selection.max_rows
+            ):
+                raise WorkspaceError(
+                    "Check the current number of matching records before freezing them."
+                )
             gateway = context.source_capture_factory(workspace_state, credential.secret)
             manager = _odoo_capture_manager(context)
             workspace = context.migration_workspaces.get(
@@ -411,16 +523,18 @@ def build_sources_router(context: WebContext) -> APIRouter:
             job = manager.enqueue(
                 workspace_id,
                 migration_project.display_name,
-                selection.max_rows,
+                assessment_evidence["matching_rows"],
                 gateway,
                 access_context=access_context,
                 actor=context.actor,
             )
+            request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
         except (
             ConnectorError,
             MigrationFoundationError,
             OdooCaptureJobStateError,
             OdooSourceCaptureConfigurationError,
+            OdooSourceCaptureError,
             WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
@@ -810,6 +924,7 @@ def _render_odoo_capture_selection(
     *,
     error: str | None = None,
     status_code: int = 200,
+    assessment=None,
 ):
     """Render current Odoo capture choices, credential state, and history.
 
@@ -867,6 +982,13 @@ def _render_odoo_capture_selection(
     if current is not None and schema is not None:
         try:
             plan_odoo_source_capture(current, schema)
+            if (
+                current.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows
+                or current.page_size not in ODOO_CAPTURE_PAGE_SIZES
+            ):
+                raise OdooSourceCaptureConfigurationError(
+                    "The saved capture plan uses the earlier row-limit workflow"
+                )
         except OdooSourceCaptureConfigurationError as plan_error:
             current_plan_error = str(plan_error)
     try:
@@ -915,6 +1037,8 @@ def _render_odoo_capture_selection(
             and schema.read_credential_binding_hash == read_credential.binding_hash
         ),
         capture_policy=CURRENT_ODOO_SOURCE_POLICY,
+        capture_page_sizes=ODOO_CAPTURE_PAGE_SIZES,
+        assessment=assessment,
         error=error,
         status_code=status_code,
     )
