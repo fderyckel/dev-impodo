@@ -363,7 +363,7 @@ class CorrectionReviewService:
                         decision = classify_correction_field(
                             candidate,
                             current,
-                            equal=_odoo_scalar_values_equal,
+                            equal=odoo_scalar_values_equal,
                         )
                         reviewed.append(
                             CorrectionReviewedField(target=target, decision=decision)
@@ -499,7 +499,7 @@ def _blocker(
     )
 
 
-def _odoo_scalar_values_equal(expected: object, actual: object) -> bool:
+def odoo_scalar_values_equal(expected: object, actual: object) -> bool:
     """Compare canonical prepared values with Odoo's documented wire shapes."""
 
     if expected is None:
@@ -549,4 +549,5 @@ __all__ = [
     "CorrectionReviewedField",
     "CorrectionTargetIndexEntry",
     "build_completed_load_target_index",
+    "odoo_scalar_values_equal",
 ]

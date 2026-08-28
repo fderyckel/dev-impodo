@@ -2625,6 +2625,18 @@ class Json2WriteExecutorTests(unittest.TestCase):
         self.assertTrue(self.calls[1][0].endswith("/json/2/res.partner/create"))
         self.assertNotIn(b"secret", self.calls[1][2])
 
+    def test_bounded_exact_ids_share_one_update_call(self):
+        self.executor.update_rows(
+            "res.partner",
+            (41, 42, 43),
+            {"customer_rank": 1},
+        )
+
+        self.assertEqual(len(self.calls), 1)
+        payload = json.loads(self.calls[0][2])
+        self.assertEqual(payload["ids"], [41, 42, 43])
+        self.assertEqual(payload["vals"], {"customer_rank": 1})
+
     def test_bulk_lookup_uses_one_bounded_or_query_and_returns_positional_matches(self):
         calls = []
 

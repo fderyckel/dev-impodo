@@ -249,6 +249,17 @@ class CorrectionRepositoryTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(current.current_plan, plan)
+        confirmation = self._reference(IDS[4], HASHES[5], "confirmation")
+        current = self.corrections.publish_confirmation(
+            workspace.workspace_id,
+            successor_workspace_id=successor_workspace.workspace_id,
+            plan_id=plan.artifact_id,
+            plan_hash=plan.logical_hash,
+            confirmation=confirmation,
+            expected_revision=current.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(current.current_confirmation, confirmation)
 
         self.corrections.invalidate_successor_mapping(
             successor_workspace.workspace_id,
@@ -261,12 +272,98 @@ class CorrectionRepositoryTests(unittest.TestCase):
         assert invalidated is not None
 
         self.assertIsNone(invalidated.current_plan)
+        self.assertIsNone(invalidated.current_confirmation)
         self.assertEqual(invalidated.current_mapping_hash, HASHES[5])
         self.assertIsNone(invalidated.current_prepared_hash)
         self.assertEqual(
             self.runs.get(successor_run.migration_run_id, actor=LOCAL_ACTOR).state,
             MigrationRunState.DRAFT,
         )
+
+    def test_verified_result_closes_successor_run_and_workspace(self) -> None:
+        project, data_version, run, workspace = self._roots()
+        current = self.corrections.seal_completed_origin(
+            self._binding(project, data_version, run, workspace),
+            expected_run_revision=run.optimistic_revision,
+            expected_workspace_revision=workspace.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+        project = self.projects.get(project.project_id, actor=LOCAL_ACTOR)
+        successor_run = self.runs.create(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_workspace_revision=project.optimistic_revision,
+            data_version_id=data_version.data_version_id,
+            purpose="AUTHORING",
+            label="Correction successor",
+        )
+        project = self.projects.get(project.project_id, actor=LOCAL_ACTOR)
+        successor_workspace = self.workspaces.create(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_workspace_revision=project.optimistic_revision,
+            data_version_id=data_version.data_version_id,
+            migration_run_id=successor_run.migration_run_id,
+            display_name="Correction mapping",
+        )
+        current = self.corrections.attach_successor(
+            workspace.workspace_id,
+            successor_migration_run_id=successor_run.migration_run_id,
+            successor_workspace_id=successor_workspace.workspace_id,
+            expected_revision=current.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+        plan = self._reference(IDS[3], HASHES[2], "plan")
+        current = self.corrections.publish_plan(
+            workspace.workspace_id,
+            successor_workspace_id=successor_workspace.workspace_id,
+            mapping_hash=HASHES[3],
+            prepared_hash=HASHES[4],
+            plan=plan,
+            expected_revision=current.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+        current = self.corrections.publish_confirmation(
+            workspace.workspace_id,
+            successor_workspace_id=successor_workspace.workspace_id,
+            plan_id=plan.artifact_id,
+            plan_hash=plan.logical_hash,
+            confirmation=self._reference(IDS[4], HASHES[5], "confirmation"),
+            expected_revision=current.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+
+        completed = self.corrections.complete_verified_successor(
+            workspace.workspace_id,
+            successor_migration_run_id=successor_run.migration_run_id,
+            successor_workspace_id=successor_workspace.workspace_id,
+            execution_run_id=IDS[5],
+            reconciliation_id=IDS[6],
+            reconciliation_hash=HASHES[6],
+            expected_revision=current.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(completed.optimistic_revision, current.optimistic_revision + 1)
+        self.assertEqual(
+            self.runs.get(successor_run.migration_run_id, actor=LOCAL_ACTOR).state,
+            MigrationRunState.COMPLETED,
+        )
+        self.assertEqual(
+            self.workspaces.get(successor_workspace.workspace_id, actor=LOCAL_ACTOR).state,
+            MigrationWorkspaceState.CLOSED,
+        )
+        repeated = self.corrections.complete_verified_successor(
+            workspace.workspace_id,
+            successor_migration_run_id=successor_run.migration_run_id,
+            successor_workspace_id=successor_workspace.workspace_id,
+            execution_run_id=IDS[5],
+            reconciliation_id=IDS[6],
+            reconciliation_hash=HASHES[6],
+            expected_revision=current.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(repeated, completed)
 
 
 if __name__ == "__main__":

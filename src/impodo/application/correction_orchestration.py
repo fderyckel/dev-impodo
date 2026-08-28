@@ -19,7 +19,11 @@ from impodo.application.correction_service import (
     CorrectionReviewService,
     build_completed_load_target_index,
 )
-from impodo.domain.correction import CorrectionCandidate, CorrectionPlan
+from impodo.domain.correction import (
+    CorrectionCandidate,
+    CorrectionConfirmation,
+    CorrectionPlan,
+)
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarTransformationProgram,
 )
@@ -172,6 +176,31 @@ class CorrectionBindingRepository(Protocol):
         actor: Actor,
     ) -> CorrectionBinding: ...
 
+    def publish_confirmation(
+        self,
+        completed_workspace_id: str,
+        *,
+        successor_workspace_id: str,
+        plan_id: str,
+        plan_hash: str,
+        confirmation: ProtectedCorrectionArtifactReference,
+        expected_revision: int,
+        actor: Actor,
+    ) -> CorrectionBinding: ...
+
+    def complete_verified_successor(
+        self,
+        completed_workspace_id: str,
+        *,
+        successor_migration_run_id: str,
+        successor_workspace_id: str,
+        execution_run_id: str,
+        reconciliation_id: str,
+        reconciliation_hash: str,
+        expected_revision: int,
+        actor: Actor,
+    ) -> CorrectionBinding: ...
+
 
 class StoredTargetIndex(Protocol):
     project_id: str
@@ -197,12 +226,26 @@ class StoredPlan(Protocol):
     artifact_hash: str
 
 
+class StoredConfirmation(Protocol):
+    project_id: str
+    confirmation_id: str
+    confirmation_hash: str
+    storage_key: str
+    artifact_hash: str
+
+
 class CorrectionProtectedStore(Protocol):
     def put_target_index(self, index: CorrectionTargetIndex) -> StoredTargetIndex: ...
 
     def put_origin(self, manifest: CorrectionOriginManifest) -> StoredOrigin: ...
 
     def put_plan(self, plan: CorrectionPlan) -> StoredPlan: ...
+
+    def put_confirmation(
+        self,
+        plan: CorrectionPlan,
+        confirmation: CorrectionConfirmation,
+    ) -> StoredConfirmation: ...
 
 
 @dataclass(frozen=True, slots=True)

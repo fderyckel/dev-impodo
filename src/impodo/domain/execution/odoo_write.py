@@ -62,6 +62,13 @@ class OdooWriteExecutor(Protocol):
         values: Mapping[str, Any],
     ) -> None: ...
 
+    def update_rows(
+        self,
+        model: str,
+        record_ids: Sequence[int],
+        values: Mapping[str, Any],
+    ) -> None: ...
+
     def read_projected_ids(
         self,
         model: str,

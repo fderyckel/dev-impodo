@@ -36,6 +36,7 @@ class ExecutionRepository(DuckDbRepository):
         run: ExecutionRun,
         *,
         actor: Actor,
+        correction_plan_hash: str = "",
     ) -> None:
         self._assert_workspace_mutable(workspace_id)
         try:
@@ -54,6 +55,17 @@ class ExecutionRepository(DuckDbRepository):
             or any(item.status is not ExecutionRowStatus.PLANNED for item in run.rows)
         ):
             raise WorkspaceError("Execution run is invalid")
+        correction = bool(correction_plan_hash)
+        if correction and (
+            _SHA256.fullmatch(correction_plan_hash) is None
+            or any(
+                item.operation != "UPDATE"
+                or item.odoo_id is None
+                or item.odoo_id <= 0
+                for item in run.rows
+            )
+        ):
+            raise WorkspaceError("Correction execution run is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -61,22 +73,24 @@ class ExecutionRepository(DuckDbRepository):
             self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
-                current = connection.execute(
-                    """
-                    SELECT readiness.run_id, readiness.target_hash
-                      FROM preflight_current AS current
-                      JOIN readiness_run AS readiness
-                        ON readiness.run_id = current.run_id
-                     WHERE current.singleton_id = 1
-                    """
-                ).fetchone()
-                if current is None or (
-                    str(current[0]) != canonical_preflight_id
-                    or str(current[1]) != run.target_hash
-                ):
-                    raise WorkspaceError(
-                        "The load preview is no longer current. Compare with Odoo again."
-                    )
+                if not correction:
+                    current = connection.execute(
+                        """
+                        SELECT readiness.run_id, readiness.target_hash
+                          FROM preflight_current AS current
+                          JOIN readiness_run AS readiness
+                            ON readiness.run_id = current.run_id
+                         WHERE current.singleton_id = 1
+                        """
+                    ).fetchone()
+                    if current is None or (
+                        str(current[0]) != canonical_preflight_id
+                        or str(current[1]) != run.target_hash
+                    ):
+                        raise WorkspaceError(
+                            "The load preview is no longer current. "
+                            "Compare with Odoo again."
+                        )
                 previous = connection.execute(
                     """
                     SELECT run.status
@@ -145,7 +159,11 @@ class ExecutionRepository(DuckDbRepository):
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
-                    event_type="ODOO_LOAD_STARTED",
+                    event_type=(
+                        "ODOO_CORRECTION_STARTED"
+                        if correction
+                        else "ODOO_LOAD_STARTED"
+                    ),
                     detail=(
                         f"run {canonical_run_id}: {len(run.rows)} planned row(s), "
                         f"{run.batch_rows} row(s) per Odoo batch; "

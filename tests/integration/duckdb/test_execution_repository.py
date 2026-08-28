@@ -201,6 +201,40 @@ class ExecutionRepositoryTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(events, [("ODOO_LOAD_STARTED",), ("ODOO_LOAD_FINISHED",)])
 
+    def test_correction_run_uses_exact_update_ids_without_preflight_pointer(self):
+        run = self._run()
+        correction = replace(
+            run,
+            preflight_run_id=str(uuid4()),
+            rows=tuple(
+                replace(
+                    row,
+                    operation="UPDATE",
+                    odoo_id=100 + index,
+                    proposed_external_id="",
+                )
+                for index, row in enumerate(run.rows)
+            ),
+        )
+
+        self.repository.start_run(
+            self.workspace_state.workspace_id,
+            correction,
+            actor=LOCAL_ACTOR,
+            correction_plan_hash=HASH,
+        )
+
+        stored = self.repository.get_current_run(self.workspace_state.workspace_id)
+        self.assertEqual(stored, correction)
+        path = self.workspace_states.workspace_directory(
+            self.workspace_state.workspace_id
+        ) / "workspace-engine.duckdb"
+        with self.workspace_states._connect(path) as connection:
+            events = connection.execute(
+                "SELECT event_type FROM audit_event ORDER BY event_id"
+            ).fetchall()
+        self.assertEqual(events[-1], ("ODOO_CORRECTION_STARTED",))
+
     def test_created_row_can_progress_from_partial_to_committed(self) -> None:
         run = self._run()
         self.repository.start_run(

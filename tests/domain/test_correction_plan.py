@@ -58,7 +58,11 @@ def _read_identity() -> OdooReadIdentity:
     )
 
 
-def _write_identity(*, principal_hash: str = HASHES[8]) -> OdooWriteIdentity:
+def _write_identity(
+    *,
+    principal_hash: str = HASHES[8],
+    observed_at: str = "2026-08-28T04:01:00Z",
+) -> OdooWriteIdentity:
     return OdooWriteIdentity(
         target_hash=HASHES[0],
         principal_hash=principal_hash,
@@ -66,7 +70,7 @@ def _write_identity(*, principal_hash: str = HASHES[8]) -> OdooWriteIdentity:
         context_hash=HASHES[10],
         readable_models=("product.template",),
         writable_models=("product.template",),
-        observed_at="2026-08-28T04:01:00Z",
+        observed_at=observed_at,
     )
 
 
@@ -159,13 +163,21 @@ class CorrectionPlanTests(unittest.TestCase):
         confirmation.assert_current(
             plan,
             write_credential_binding_hash=HASHES[11],
-            write_identity=_write_identity(),
+            write_identity=_write_identity(observed_at="2026-08-28T04:02:00Z"),
         )
         with self.assertRaisesRegex(CorrectionPlanError, "stale"):
             confirmation.assert_current(
                 plan,
                 write_credential_binding_hash=HASHES[11],
                 write_identity=_write_identity(principal_hash=HASHES[1]),
+            )
+        with self.assertRaisesRegex(CorrectionPlanError, "stale"):
+            confirmation.assert_current(
+                plan,
+                write_credential_binding_hash=HASHES[11],
+                write_identity=_write_identity(
+                    observed_at="2026-08-28T04:00:00Z"
+                ),
             )
 
     def test_confirmation_round_trip_verifies_its_whole_hash(self) -> None:

@@ -32,6 +32,14 @@ in bounded model pages. Every key must still be unique and must produce the
 same opaque binding. A missing, ambiguous, or retargeted key sends the data
 manager back to **Check changes** before the first Odoo write.
 
+Completed-load correction is the deliberate protected exception. Its lean
+correction execution snapshot is rebuilt from the encrypted plan and explicit
+confirmation, so it carries the exact numeric IDs already proved by the
+completed run. It exposes no lookup fields and performs no business-key search.
+Immediately before journaling, it rereads those IDs in bounded pages and
+requires every affected value to equal the confirmed current value. Any
+difference invalidates the current plan and sends zero writes.
+
 ## Journal-before-transport
 
 The durable run and planned row attempts are committed after the read-only
@@ -110,6 +118,11 @@ recovery report authorized a same-run resume.
 A run is complete only when it has no unknown outcome and reconciliation proves
 the expected target state. Otherwise navigation remains in a verify or
 needs-attention state.
+
+For scalar correction, reconciliation starts automatically after the journal
+finishes. It rereads only exact protected IDs and affected fields. Verified
+rows close the successor run and workspace; rejected, missing, different, or
+still-unknown rows remain actionable reconciliation evidence.
 
 ## Browser projection boundary
 

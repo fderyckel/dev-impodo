@@ -259,15 +259,31 @@ class Json2WriteExecutor:
     ) -> None:
         """Update one uniquely re-matched record without retrying the write."""
 
-        if type(record_id) is not int or record_id <= 0:
-            raise OdooWriteRejected("Odoo update identity is invalid")
+        self.update_rows(model, (record_id,), values)
+
+    def update_rows(
+        self,
+        model: str,
+        record_ids: Sequence[int],
+        values: Mapping[str, Any],
+    ) -> None:
+        """Update a bounded set of exact IDs sharing one reviewed payload."""
+
+        identifiers = tuple(record_ids)
+        if (
+            not identifiers
+            or len(identifiers) > MAX_CREATE_BATCH_ROWS
+            or len(set(identifiers)) != len(identifiers)
+            or any(type(item) is not int or item <= 0 for item in identifiers)
+        ):
+            raise OdooWriteRejected("Odoo update identities are invalid")
         payload = dict(values)
         self._validate_values(model, payload)
         response = self._post(
             model,
             "write",
             {
-                "ids": [record_id],
+                "ids": list(identifiers),
                 "vals": payload,
                 "context": dict(self.config.context),
             },

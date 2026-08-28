@@ -207,10 +207,11 @@ Remote writes use the Odoo 19 JSON-2 boundary with named, scoped operations.
 Creates are grouped by compatible field shape and sent in bounded batches.
 Existing-row and target-relationship identities are resolved in bounded bulk
 queries; relationship count therefore does not create per-row lookup traffic.
-Impodo still calls `update_row` once per changed record so each write has an
-exact journal outcome. Production-scale qualification must measure that write
-path. Any future write batching change must preserve per-row journaling and
-unknown-outcome semantics.
+Ordinary load updates still call `update_row` once per changed record. The
+completed-load scalar correction path may group up to 50 exact IDs only when
+their sparse field payload is identical. Every affected row is journalled
+`IN_FLIGHT` before that shared call, and an unknown batch outcome remains
+unknown for every included row until automatic exact-ID reconciliation.
 
 Read-back reconciliation batches by model and exact requested field scope.
 Different field sets for the same model do not force one broad union read.

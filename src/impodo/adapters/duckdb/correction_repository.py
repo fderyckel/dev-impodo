@@ -484,6 +484,181 @@ class CorrectionRepository:
             )
         return self._require_result(completed_workspace_id)
 
+    def publish_confirmation(
+        self,
+        completed_workspace_id: str,
+        *,
+        successor_workspace_id: str,
+        plan_id: str,
+        plan_hash: str,
+        confirmation: ProtectedCorrectionArtifactReference,
+        expected_revision: int,
+        actor: Actor,
+    ) -> CorrectionBinding:
+        """Publish explicit confirmation only for the current protected plan."""
+
+        completed_workspace_id = require_uuid(
+            completed_workspace_id, "completed_workspace_id"
+        )
+        require_uuid(successor_workspace_id, "successor_workspace_id")
+        require_uuid(plan_id, "plan_id")
+        require_hash(plan_hash, "plan_hash")
+        with self.foundation._registry_transactions.transaction() as connection:
+            current = self._require_current(connection, completed_workspace_id)
+            if current.current_confirmation == confirmation:
+                return current
+            if (
+                current.optimistic_revision != require_revision(expected_revision)
+                or current.successor_workspace_id != successor_workspace_id
+                or current.current_plan is None
+                or current.current_plan.artifact_id != plan_id
+                or current.current_plan.logical_hash != plan_hash
+            ):
+                raise MigrationConflictError("Correction confirmation is stale")
+            now = datetime.now(timezone.utc)
+            connection.execute(
+                """
+                UPDATE correction_run_binding
+                   SET current_confirmation_id = ?,
+                       current_confirmation_hash = ?,
+                       current_confirmation_storage_key = ?,
+                       current_confirmation_artifact_hash = ?,
+                       optimistic_revision = ?, updated_at = ?
+                 WHERE completed_workspace_id = ? AND optimistic_revision = ?
+                """,
+                [
+                    confirmation.artifact_id,
+                    confirmation.logical_hash,
+                    confirmation.storage_key,
+                    confirmation.artifact_hash,
+                    expected_revision + 1,
+                    now.isoformat(),
+                    completed_workspace_id,
+                    expected_revision,
+                ],
+            )
+            self._event(
+                connection,
+                current,
+                aggregate_kind="CORRECTION_BINDING",
+                aggregate_id=current.correction_binding_id,
+                revision=expected_revision + 1,
+                event_type="CORRECTION_CONFIRMED",
+                actor=actor,
+                occurred_at=now,
+            )
+        return self._require_result(completed_workspace_id)
+
+    def complete_verified_successor(
+        self,
+        completed_workspace_id: str,
+        *,
+        successor_migration_run_id: str,
+        successor_workspace_id: str,
+        execution_run_id: str,
+        reconciliation_id: str,
+        reconciliation_hash: str,
+        expected_revision: int,
+        actor: Actor,
+    ) -> CorrectionBinding:
+        """Close the successor owners after a current VERIFIED reconciliation."""
+
+        completed_workspace_id = require_uuid(
+            completed_workspace_id, "completed_workspace_id"
+        )
+        successor_migration_run_id = require_uuid(
+            successor_migration_run_id, "successor_migration_run_id"
+        )
+        successor_workspace_id = require_uuid(
+            successor_workspace_id, "successor_workspace_id"
+        )
+        require_uuid(execution_run_id, "execution_run_id")
+        require_uuid(reconciliation_id, "reconciliation_id")
+        require_hash(reconciliation_hash, "reconciliation_hash")
+        with self.foundation._registry_transactions.transaction() as connection:
+            current = self._require_current(connection, completed_workspace_id)
+            lineage = connection.execute(
+                """
+                SELECT r.state, r.optimistic_revision,
+                       w.state, w.optimistic_revision
+                  FROM migration_run r
+                  JOIN migration_workspace w ON w.workspace_id = ?
+                 WHERE r.migration_run_id = ?
+                   AND w.migration_run_id = r.migration_run_id
+                """,
+                [successor_workspace_id, successor_migration_run_id],
+            ).fetchone()
+            binding_matches = (
+                current.successor_migration_run_id == successor_migration_run_id
+                and current.successor_workspace_id == successor_workspace_id
+                and current.current_plan is not None
+                and current.current_confirmation is not None
+            )
+            if (
+                binding_matches
+                and lineage is not None
+                and tuple(str(item) for item in lineage[::2])
+                == ("COMPLETED", "CLOSED")
+            ):
+                return current
+            if (
+                current.optimistic_revision != require_revision(expected_revision)
+                or not binding_matches
+                or lineage is None
+                or str(lineage[0]) in {"COMPLETED", "CLOSED"}
+                or str(lineage[2]) != "OPEN"
+            ):
+                raise MigrationConflictError("Correction completion is stale")
+            now = datetime.now(timezone.utc)
+            run_revision = int(lineage[1])
+            workspace_revision = int(lineage[3])
+            connection.execute(
+                """UPDATE migration_run
+                      SET state = 'COMPLETED', optimistic_revision = ?, updated_at = ?
+                    WHERE migration_run_id = ? AND optimistic_revision = ?""",
+                [
+                    run_revision + 1,
+                    now.isoformat(),
+                    successor_migration_run_id,
+                    run_revision,
+                ],
+            )
+            connection.execute(
+                """UPDATE migration_workspace
+                      SET state = 'CLOSED', optimistic_revision = ?,
+                          updated_at = ?, closed_at = ?
+                    WHERE workspace_id = ? AND optimistic_revision = ?""",
+                [
+                    workspace_revision + 1,
+                    now.isoformat(),
+                    now.isoformat(),
+                    successor_workspace_id,
+                    workspace_revision,
+                ],
+            )
+            connection.execute(
+                """UPDATE correction_run_binding
+                      SET optimistic_revision = ?, updated_at = ?
+                    WHERE completed_workspace_id = ? AND optimistic_revision = ?""",
+                [
+                    expected_revision + 1,
+                    now.isoformat(),
+                    completed_workspace_id,
+                    expected_revision,
+                ],
+            )
+            self._event(
+                connection,
+                current,
+                aggregate_kind="CORRECTION_BINDING",
+                aggregate_id=current.correction_binding_id,
+                revision=expected_revision + 1,
+                event_type="CORRECTION_VERIFIED",
+                actor=actor,
+                occurred_at=now,
+            )
+        return self._require_result(completed_workspace_id)
+
     def _require_result(self, completed_workspace_id: str) -> CorrectionBinding:
         result = self.get_for_completed_workspace(completed_workspace_id)
         if result is None:

@@ -575,6 +575,12 @@ class CorrectionConfirmation:
         """Reject stale plan, target, credential, principal, or count evidence."""
 
         summary = plan.public_summary()
+        try:
+            original_observation = _timestamp_from_text(self.write_observed_at)
+            current_observation = _timestamp_from_text(write_identity.observed_at)
+            observation_is_current = current_observation >= original_observation
+        except (TypeError, ValueError):
+            observation_is_current = False
         if (
             self.plan_id != plan.plan_id
             or self.plan_hash != plan.plan_hash
@@ -585,7 +591,7 @@ class CorrectionConfirmation:
             or self.write_principal_hash != write_identity.principal_hash
             or self.write_permission_hash != write_identity.permission_hash
             or self.write_context_hash != write_identity.context_hash
-            or self.write_observed_at != write_identity.observed_at
+            or not observation_is_current
             or self.writable_models
             != tuple(sorted(set(write_identity.writable_models)))
             or write_identity.target_hash != plan.target_hash

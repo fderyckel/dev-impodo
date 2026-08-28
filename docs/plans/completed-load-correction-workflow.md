@@ -2,8 +2,9 @@
 
 ## Status and proposed decision
 
-**Status:** In progress. Phases 1 and 2 are implemented at the domain,
-application, protected-evidence, and registry boundaries. A verified completed
+**Status:** In progress. Phases 1, 2, and 3 are implemented at the domain,
+application, protected-evidence, registry, execution, and reconciliation
+boundaries. A verified completed
 Authoring load can now publish one encrypted lean origin manifest and compact
 exact-target index while atomically closing its historical run and workspace.
 The restart-safe successor coordinator creates a new Authoring run and
@@ -12,13 +13,16 @@ setup, seeds the prior rules as an explicitly unverified draft, orders mapping,
 native preparation, quality, and fresh target-read owners, reduces `A/C` with
 Polars, reads `B` only for sparse candidates, and publishes one current
 protected scalar plan. Mapping or prepared-evidence changes clear that pointer.
-Correction writes, automatic verification, and the browser journey remain
-unimplemented Phases 3 and 4.
+Confirmed scalar corrections now use exact protected identifiers, a bounded
+just-in-time reread, the existing durable journal, compatible update batches,
+and automatic exact-ID reconciliation. The browser journey remains
+unimplemented Phase 4.
 
-The implemented workflow deliberately has no correction write entry point. A
-blocker-free scalar review can be sealed into one protected plan and one
-separately bound write confirmation, but neither is an execution authority
-until the run-owned current pointer and just-in-time reread are implemented.
+The implemented application workflow deliberately has no browser write entry
+point yet. A blocker-free scalar review is sealed into one protected plan and
+one separately bound write confirmation. Apply re-probes the write identity,
+checks the run-owned current pointers, and performs a just-in-time exact-ID
+reread before the execution journal or any Odoo write is created.
 Plan hashing is one whole-artifact operation; it does not add per-row or
 per-value hashes. The review supports scalar output differences from direct
 fields, value mappings, Selection outcomes, constants, fallbacks, and native
@@ -720,7 +724,7 @@ or connector call inside a source-row loop. Saving semantically changed mapping
 intent in the successor clears its prepared, plan, and confirmation pointers
 before the draft write; a canonically unchanged save keeps current evidence.
 
-### Phase 3: execute and automatically verify scalar corrections
+### Phase 3: execute and automatically verify scalar corrections — complete
 
 Construct a correction-scoped `ExecutionSnapshot` that carries protected exact
 Odoo identifiers. Add a bounded just-in-time reread, require explicit
@@ -732,6 +736,19 @@ known-failure and `OUTCOME_UNKNOWN` semantics.
 **Exit result:** only reviewed scalar fields are written to exact prior Odoo
 records, and the service reports a verified or actionable final result without
 a manual verification action.
+
+Implemented by `domain/correction_execution.py` and
+`application/correction_execution.py`, reusing `ExecutionRun`,
+`ExecutionRowAttempt`, `ReconciliationRun`, and their existing DuckDB
+repositories. The correction scope has no lookup fields. Exact IDs are read in
+pages of at most 50; compatible identical sparse payloads are written in pages
+of at most 50 after their rows are journalled `IN_FLIGHT`. A known rejection or
+unknown response stops later batches, and exact-ID reconciliation starts
+automatically. A verified result closes the successor run and workspace
+through the registry-owned correction binding. Tests prove that 768 compatible
+updates use 16 write calls and 32 total read calls: 16 for the just-in-time
+gate and 16 for final verification. No per-row or per-value hash tree was
+added.
 
 ### Phase 4: finish the focused browser journey
 
