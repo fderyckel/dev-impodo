@@ -406,7 +406,21 @@ and threat review, fault injection, backup and rollback evidence, and measured
 batch and call counts. Until those guarantees exist,
 `PRODUCTION_WRITE_UNSUPPORTED` remains unchanged.
 
-### 5. Conditional target-side gateway
+### 5. Add governed corrections to a completed load
+
+**Status:** Proposed and deferred. The workflow is not implemented.
+
+The [completed-load correction plan](completed-load-correction-workflow.md)
+defines a successor Authoring run that reuses one unchanged file-source
+DataVersion, preserves the completed load, recalculates evidence automatically,
+compares previous intent with current Odoo state and corrected intent, and
+writes only confirmed field differences to exact protected target records.
+
+Product ownership must activate this track and its disposable-target boundary
+before implementation. Integrated Test and Production correction remain
+outside the first delivery.
+
+### 6. Conditional target-side gateway
 
 **Status:** Deferred.
 
@@ -416,7 +430,7 @@ requirement cannot be met safely through the existing bounded connector and
 executor contracts. No generic RPC, SQL, `sudo`, or caller-selected method
 surface is permitted.
 
-### 6. Conditional hosted composition
+### 7. Conditional hosted composition
 
 **Status:** Deferred.
 
