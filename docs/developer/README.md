@@ -67,6 +67,7 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Acceptance and test strategy](../testing/acceptance.md)
 - [Code-organization regression baseline](../testing/code-organization-phase0-baseline.md)
 - [Examples and edge cases](reference/examples-and-edge-cases.md)
+- [Proposed scalable relationship dependency planning](../plans/scalable-relationship-dependency-planning.md)
 - [Documentation style guide](../style-guide.md)
 
 Before changing an Odoo-backed loop, verify that record access is bounded and

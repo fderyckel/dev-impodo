@@ -76,6 +76,10 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
+- [Scalable relationship dependency planning and execution](plans/scalable-relationship-dependency-planning.md)
+  — the proposed generic dataset and row dependency planner for hierarchies,
+  Product relationships, BOM-shaped migrations, cycle handling, bounded Odoo
+  calls, recovery, and scale qualification.
 - [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
   delivery roadmap.
 - [Combine source columns into one Odoo field](plans/concatenate-source-columns-matching-rule.md)

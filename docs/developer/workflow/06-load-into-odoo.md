@@ -41,6 +41,33 @@ and records row-level results. If an outcome becomes unknown, the service stops
 before sending later writes. `ReconciliationService` then reads back the
 affected scope and publishes a separate reconciliation run.
 
+## Current relationship ordering
+
+`build_execution_snapshot` derives every dataset dependency from compiled
+identity, scope, and relationship resolvers.
+`dependency_ordered_execution_datasets` calculates strongly connected dataset
+components, places every acyclic dependency component before its consumers,
+and retains reviewed order only inside a component. The resulting order and
+dependency list contribute to the `ExecutionSnapshot` semantic hash.
+
+Required-at-create cross-dataset cycles fail during mapping or compiled-profile
+validation. Optional cycles remain valid because `ExecutionService` can omit
+the exact unresolved optional fields from first-pass creates and apply those
+fields after the required records have durable Odoo identifiers. The journal
+keeps those rows `PARTIALLY_APPLIED` until relationship completion succeeds.
+
+This is a dataset-level planner. It does not freeze a topological order between
+rows in the same dataset. An optional same-dataset reference can complete in
+the current second pass, but the executor may perform more relationship update
+calls than an exact row plan would require. A required same-dataset hierarchy
+is currently rejected conservatively at the dataset-cycle boundary.
+
+The proposed [scalable relationship dependency
+plan](../../plans/scalable-relationship-dependency-planning.md) adds immutable
+row-edge and schedule evidence, exact cycle classification, bounded crosswalks,
+component recovery, and Product/BOM scale qualification. These additions are
+planned, not current behavior.
+
 ## Code references
 
 | Role | Code |
@@ -48,6 +75,8 @@ affected scope and publishes a separate reconciliation run.
 | Execution orchestration | [`ExecutionService`](../../../src/impodo/application/workspace/execution/service.py) |
 | Background load jobs | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
+| Dataset dependency order | [`dependency_ordered_execution_datasets`](../../../src/impodo/domain/execution_snapshot.py) |
+| Required dependency validation | [`dependencies.py`](../../../src/impodo/domain/mapping/validation/dependencies.py) |
 | Journal states | [`execution/models.py`](../../../src/impodo/domain/execution/models.py) |
 | Reconciliation | [`ReconciliationService`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
@@ -106,6 +135,8 @@ authorization.
 - [`tests/integration/web/test_execution.py`](../../../tests/integration/web/test_execution.py)
 - [`tests/integration/duckdb/test_execution_repository.py`](../../../tests/integration/duckdb/test_execution_repository.py)
 - [`tests/application/workspace/execution/test_load_jobs.py`](../../../tests/application/workspace/execution/test_load_jobs.py)
+- [`tests/domain/execution/test_snapshot.py`](../../../tests/domain/execution/test_snapshot.py)
+- [`tests/domain/recipe/test_profile_and_values.py`](../../../tests/domain/recipe/test_profile_and_values.py)
 - [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
 - [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)
 
@@ -122,3 +153,4 @@ Odoo 19 target.
 - [Acceptance and test strategy](../../testing/acceptance.md)
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
+- [Proposed scalable relationship dependency plan](../../plans/scalable-relationship-dependency-planning.md)

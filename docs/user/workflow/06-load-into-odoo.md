@@ -57,6 +57,26 @@ approval, execution, or read-back evidence.
 - The journal records every attempted row.
 - Read-back verification accounts for the final outcome.
 
+## How Impodo handles related records
+
+Impodo reads the relationships that you confirmed in **Match data** and places
+supporting record types before the records that use them. For example, it
+loads reviewed units and categories before new Products, and reviewed Products
+and bill of materials (BOM) headers before their component lines. You do not
+need to arrange the source files in that order.
+
+If two new records have an optional relationship to each other, Impodo creates
+what it safely can and then finishes that relationship after both records
+exist. If a required supporting record is missing, ambiguous, or cannot exist
+first, **Check changes** must stop the load. Resolve that warning before you
+select **Confirm and load**.
+
+The current implementation orders dependencies between datasets. A
+[planned extension](../../plans/scalable-relationship-dependency-planning.md)
+will freeze dependencies between rows in the same dataset and qualify larger,
+multi-level BOM migrations. This planned extension is not current browser
+behavior.
+
 ## What Complete means
 
 Either the reviewed snapshot required no writes, or execution finished and

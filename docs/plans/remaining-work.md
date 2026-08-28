@@ -6,7 +6,9 @@
 
 This is the broad forward-looking roadmap. An approved detailed delivery plan
 may live beside it while that work remains unfinished. The current detailed
-plan is [Recipe runs in three pages](recipe-run-three-page-ui-refactor.md).
+plans are [Recipe runs in three pages](recipe-run-three-page-ui-refactor.md)
+and the proposed [scalable relationship dependency
+planner](scalable-relationship-dependency-planning.md).
 Completed behavior belongs in architecture, contracts, user and developer
 documentation. Point-in-time implementation evidence belongs in
 `docs/reports/`, `docs/testing/`, and Git history.
@@ -55,6 +57,12 @@ The unfinished outcome is a bounded Product/BOM workflow for approximately
 100,000-row fixture. The work must complete set-based derived and grouped
 production, logical projection, relationship accounting, and dependency
 propagation without whole-run Python collections.
+
+The [scalable relationship dependency
+plan](scalable-relationship-dependency-planning.md) defines the proposed
+execution-planning, cycle, recovery, request-count, and BOM qualification work.
+Its proposed status does not activate this deferred track or raise a current
+row limit.
 
 Before raising any limit, the release evidence must prove:
 

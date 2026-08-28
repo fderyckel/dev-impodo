@@ -377,6 +377,8 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
+      - src/impodo/domain/execution_snapshot.py::dependency_ordered_execution_datasets
+      - src/impodo/domain/mapping/validation/dependencies.py::_validate_dependencies
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.reconcile
     tests:
@@ -384,6 +386,8 @@ stages:
       - tests/integration/web/test_execution.py
       - tests/integration/duckdb/test_execution_repository.py
       - tests/application/workspace/execution/test_load_jobs.py
+      - tests/domain/execution/test_snapshot.py
+      - tests/domain/recipe/test_profile_and_values.py
       - tests/application/workspace/execution/test_reconciliation.py
       - tests/integration/web/test_load_workflow.py
     contracts:
@@ -391,3 +395,4 @@ stages:
     references:
       - docs/architecture/security-and-infrastructure.md
       - docs/testing/acceptance.md
+      - docs/plans/scalable-relationship-dependency-planning.md

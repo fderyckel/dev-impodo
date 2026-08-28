@@ -92,6 +92,45 @@ stores the rule; your registered file stays unchanged.
 🔴 Never round money, quantities, or percentages merely to make a total look
 right. Confirm the source format, unit, and allowed precision first.
 
+## How do I make a product active only when its status code is 10?
+
+Use this rule when a product-status column has an agreed business meaning: a
+code of `10` means the product is active, and every other code means it is not
+active. For example, a products table can use `Code Statut Produit` to fill
+the Odoo **Active** field.
+
+![Current field-value screen showing where you choose the source column and set the result to Yes or no before opening the advanced formula.](../../images/user/11-mapping-fields.png)
+
+🔵 In the screen, first use **Use value from** to choose the status column,
+then set **Value type** to **Yes or no**. The advanced calculation is lower in
+the same field's preparation controls.
+
+1. Find the product's **Active** field in **Match data**.
+2. Under **Use value from**, choose **Source value** and select `Code Statut
+   Produit`.
+3. Set **Value type** to **Yes or no**.
+4. Open **Advanced: formula or custom calculation**.
+5. Enter `value == 10` in **Formula**.
+6. Select **Save progress**, then select **Check matches**.
+7. Select **Review rule effects** and confirm that code `10` produces Yes and
+   each other status produces No before you confirm the field matches.
+
+The word `value` means the source value you selected for this field. This
+formula produces Yes when `Code Statut Produit` is `10`; it produces No for
+`30`, a blank value, or any other status code.
+
+![Current rule-effects screen showing where you review original and prepared values before confirming the mapping.](../../images/user/13-rule-effects.png)
+
+🟡 The rule-effects screen lets you check the prepared result before you
+confirm it. Review a small sample of active and inactive products, including
+blank or unfamiliar status codes.
+
+🔴 In Odoo, setting **Active** to No archives or deactivates the product. Do
+not use this rule until the product owner confirms that every status other than
+`10`, including blanks, should make the product inactive. If another status
+needs a different outcome, stop and agree that decision before confirming the
+mapping.
+
 ## How do I clean or check text?
 
 Open **Prepare and check values** for a Text field. Add cleanup steps in the
