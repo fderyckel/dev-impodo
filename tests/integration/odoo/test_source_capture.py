@@ -476,6 +476,22 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
         self.assertEqual(gateway.identity_calls, 2)
         self.assertEqual(gateway.schema_calls, 2)
 
+    def test_assessment_counts_once_without_opening_the_value_stream(self) -> None:
+        gateway = _Gateway(self.schema, matching_rows=205)
+
+        assessment = self.service.assess(
+            self.workspace_id,
+            gateway,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(assessment.matching_rows, 205)
+        self.assertEqual(assessment.batch_count, 1)
+        self.assertEqual(gateway.identity_calls, 1)
+        self.assertEqual(gateway.schema_calls, 1)
+        self.assertEqual(gateway.count_calls, 1)
+        self.assertEqual(gateway.open_calls, 0)
+
     def test_service_rejects_end_identity_drift(self) -> None:
         gateway = _Gateway(self.schema, drift_identity=True)
 
@@ -516,11 +532,14 @@ class _SchemaReader:
 
 
 class _Gateway:
-    def __init__(self, schema, *, drift_identity=False):
+    def __init__(self, schema, *, drift_identity=False, matching_rows=0):
         self.schema = schema
         self.drift_identity = drift_identity
+        self.matching_rows = matching_rows
         self.identity_calls = 0
         self.schema_calls = 0
+        self.count_calls = 0
+        self.open_calls = 0
         self.context = _context()
 
     def probe_identity(self, request, *, cancellation=None):
@@ -586,10 +605,12 @@ class _Gateway:
         )
 
     def open_capture(self, request, context, *, cancellation=None):
+        self.open_calls += 1
         return _EmptySession(request)
 
     def count_matching(self, request, context, *, limit, cancellation=None):
-        return 0
+        self.count_calls += 1
+        return min(self.matching_rows, limit)
 
     def sample(self, request, context, *, limit, cancellation=None):
         raise AssertionError("sample is not used by capture")

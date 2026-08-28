@@ -291,6 +291,19 @@ def build_sources_router(context: WebContext) -> APIRouter:
         )
         workspace_state = context.queries.get(workspace_id)
         try:
+            workspace = context.migration_workspaces.get(
+                workspace_id,
+                actor=context.actor,
+            )
+            data_version = context.data_versions.get(
+                workspace.data_version_id,
+                actor=context.actor,
+            )
+            if data_version.state is not DataVersionState.DRAFT:
+                raise WorkspaceError(
+                    "This DataVersion already has accepted source evidence. "
+                    "Start a new run with a new DataVersion for another capture."
+                )
             selection = context.queries.get_current_odoo_capture_selection(
                 workspace_id
             )

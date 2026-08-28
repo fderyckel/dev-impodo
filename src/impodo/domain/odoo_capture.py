@@ -26,6 +26,8 @@ from .source_binding import OdooSourceBinding, SourceOriginKind
 ODOO_CAPTURE_CONTRACT_VERSION = 4
 MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
 MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
+# The policy value remains the maximum request size for saved-policy
+# compatibility. Each selection binds its exact approved size in its own hash.
 ODOO_CAPTURE_PAGE_SIZE = CURRENT_ODOO_SOURCE_POLICY.page_size
 ODOO_CAPTURE_PAGE_SIZES = (10, 100, ODOO_CAPTURE_PAGE_SIZE)
 ODOO_CAPTURE_FIELD_TYPES = frozenset(
