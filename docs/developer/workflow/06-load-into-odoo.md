@@ -38,9 +38,11 @@ writable model scope before writer construction.
 `ExecutionService` validates the workspace evidence and API scope, bulk-checks
 the frozen existing-target crosswalk, starts a durable run, records planned
 rows before write transport, executes datasets in dependency order, and
-records row-level results. If an outcome becomes unknown, the service stops
-before sending later writes. `ReconciliationService` then reads back the
-affected scope and publishes a separate reconciliation run.
+records row-level results. Before every Odoo call, it also persists the exact
+component, component page, transport batch, and operation phase as
+`IN_FLIGHT`. If an outcome becomes unknown, the service stops before sending
+later writes. `ReconciliationService` then reads back the affected scope and
+publishes a separate reconciliation run.
 
 ## Current relationship ordering
 
@@ -83,12 +85,12 @@ hash proves that a still-unique key did not silently retarget to a different
 Odoo record. Numeric Odoo IDs remain runtime-only. Failure returns to **Check
 changes** without creating a run or sending an Odoo write.
 
-The proposed [scalable relationship dependency
+The accepted [scalable relationship dependency
 plan](../../plans/scalable-relationship-dependency-planning.md) now provides
 immutable row-edge and schedule evidence, exact cycle classification, bounded
-crosswalk revalidation, and receipt-gated component execution. Component
-recovery, progressive browser guidance, and Product/BOM scale qualification
-remain planned work.
+crosswalk revalidation, receipt-gated component execution, and read-back-gated
+component recovery. Progressive browser guidance and Product/BOM scale
+qualification remain planned work.
 
 ## Code references
 
@@ -107,14 +109,20 @@ remain planned work.
 | Required dependency validation | [`dependencies.py`](../../../src/impodo/domain/mapping/validation/dependencies.py) |
 | Journal states | [`execution/models.py`](../../../src/impodo/domain/execution/models.py) |
 | Reconciliation | [`ReconciliationService`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
+| Recovery read-back | [`ReconciliationService.assess_recovery`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
+| Read-back-gated resume | [`ExecutionService.resume`](../../../src/impodo/application/workspace/execution/service.py) |
+| Durable batch and recovery transitions | [`ExecutionRepository`](../../../src/impodo/adapters/duckdb/execution_repository.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
 
 ## Evidence and state
 
 The execution snapshot is semantic-hash bound. `ExecutionRun` and
-`ExecutionRowAttempt` distinguish planned, committed, partially applied,
-failed, blocked, and outcome-unknown states. Reconciliation is new evidence; it
-does not rewrite the execution journal.
+`ExecutionRowAttempt` distinguish planned, in-flight, retry-ready, committed,
+partially applied, failed, blocked, and outcome-unknown states. The attempt
+record retains the active component and batch after a process restart without
+adding a parallel recovery store. Final reconciliation is new evidence and
+does not rewrite the journal. A recovery assessment remains unpublished;
+execution atomically records its semantic hash on every row before resume.
 
 ## Completion and navigation
 
@@ -133,8 +141,17 @@ belongs to the integrated Test workflow.
 
 Fail closed when any snapshot or scope hash differs. On
 `OdooWriteOutcomeUnknown`, journal the affected batch, stop later writes, and
-require reconciliation before any retry. Do not convert a connection reset or
-wrapped HTTP 422 into a safe-to-retry failure.
+require reconciliation before any new action. Do not convert a connection
+reset or wrapped HTTP 422 into a safe-to-retry failure.
+
+After a process interruption, `ReconciliationService.assess_recovery` checks
+all committed, in-flight, partially applied, and not-yet-started rows against
+the immutable schedule. `ExecutionService.resume` reuses an already recorded
+recovery report after another restart or records a new report atomically. It
+retries only a create proven absent, an exact update whose reviewed fields
+still differ, or the frozen deferred fields of a created row. It verifies all
+earlier committed components first and revalidates the target crosswalk before
+transport resumes.
 
 Deferred relationships are applied only after their dependencies exist. A
 partial relationship outcome remains explicit and recoverable through the
@@ -151,9 +168,10 @@ exact journal outcome. Production-scale qualification must measure that write
 path. Any future write batching change must preserve per-row journaling and
 unknown-outcome semantics.
 
-Read-back reconciliation must batch by model and requested field scope. Keep
-write and read interfaces separate so a nominally read-only component cannot
-invoke a write method.
+Read-back reconciliation batches by model and exact requested field scope.
+Different field sets for the same model do not force one broad union read.
+Keep write and read interfaces separate so a nominally read-only component
+cannot invoke a write method.
 
 The `PRODUCTION` DataVersion purpose does not bypass the current
 disposable-target acceptance boundary. Recipe lineage is not Odoo write

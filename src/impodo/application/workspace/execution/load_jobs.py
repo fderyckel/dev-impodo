@@ -341,12 +341,19 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
         row.status
         not in {
             ExecutionRowStatus.PLANNED,
+            ExecutionRowStatus.IN_FLIGHT,
+            ExecutionRowStatus.RETRY_READY,
             ExecutionRowStatus.PARTIALLY_APPLIED,
         }
         for row in run.rows
     )
     if run.status is not ExecutionRunStatus.RUNNING:
-        completed_rows = run.total_count - run.planned_count
+        completed_rows = (
+            run.total_count
+            - run.planned_count
+            - run.in_flight_count
+            - run.retry_ready_count
+        )
     created_count = sum(
         row.operation == "CREATE" and row.status in committed for row in run.rows
     )

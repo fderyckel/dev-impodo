@@ -378,6 +378,7 @@ stages:
     code_references:
       - src/impodo/application/workspace/execution/service.py::ExecutionService
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/domain/execution_snapshot.py::dependency_ordered_execution_datasets
       - src/impodo/domain/execution_snapshot.py::plan_execution_rows
@@ -389,6 +390,9 @@ stages:
       - src/impodo/domain/mapping/validation/dependencies.py::_validate_dependencies
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.reconcile
+      - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.assess_recovery
+      - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_batch_started
+      - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_recovery
     tests:
       - tests/application/workspace/execution/test_service.py
       - tests/integration/web/test_execution.py

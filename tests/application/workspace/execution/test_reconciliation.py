@@ -358,6 +358,150 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(report.rows[0].odoo_id, 10)
         self.assertEqual(report.rows[0].differing_fields, ("second_id",))
 
+    def test_recovery_assessment_keeps_an_interrupted_create_ephemeral(self):
+        snapshot = _snapshot()
+        run = _run(
+            snapshot,
+            (
+                ExecutionRowStatus.IN_FLIGHT,
+                ExecutionRowStatus.PLANNED,
+                ExecutionRowStatus.PLANNED,
+            ),
+        )
+        run = replace(
+            run,
+            status=ExecutionRunStatus.RUNNING,
+            completed_at=None,
+            rows=(
+                replace(
+                    run.rows[0],
+                    attempt=1,
+                    schedule_component=0,
+                    transport_page=0,
+                    transport_batch=4,
+                    transport_phase="CREATE",
+                ),
+                replace(run.rows[1], attempt=0),
+                replace(run.rows[2], attempt=0),
+            ),
+        )
+        service, results = self._service(snapshot, run)
+
+        report = service.assess_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=_Reader(execution_api_scope(snapshot).semantic_hash),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(
+            tuple(item.status for item in report.rows),
+            (
+                ReconciliationRowStatus.NOT_APPLIED,
+                ReconciliationRowStatus.NOT_WRITTEN,
+                ReconciliationRowStatus.NOT_WRITTEN,
+            ),
+        )
+        self.assertTrue(report.rows[0].retry_safe)
+        self.assertIsNone(results.report)
+
+    def test_recovery_assessment_classifies_partial_cycle_fields_exactly(self):
+        snapshot = _remote_cycle_snapshot()
+        run = _run(
+            snapshot,
+            (
+                ExecutionRowStatus.PARTIALLY_APPLIED,
+                ExecutionRowStatus.COMMITTED,
+            ),
+        )
+        run = replace(
+            run,
+            status=ExecutionRunStatus.RUNNING,
+            completed_at=None,
+            rows=(replace(run.rows[0], odoo_id=10), run.rows[1]),
+        )
+        service, results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records.update(
+            {
+                ("x.first.node", 10): {
+                    "code": "FIRST",
+                    "second_id": False,
+                },
+                ("x.second.node", 11): {
+                    "code": "SECOND",
+                    "first_id": [10, "First"],
+                },
+            }
+        )
+        reader.external_ids.update(
+            {
+                "impodo_test.first_nodes_20": ExternalIdBinding(
+                    "impodo_test.first_nodes_20", "x.first.node", 10
+                ),
+                "impodo_test.second_nodes_21": ExternalIdBinding(
+                    "impodo_test.second_nodes_21", "x.second.node", 11
+                ),
+            }
+        )
+
+        report = service.assess_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.rows[0].status, ReconciliationRowStatus.DIFFERENT)
+        self.assertEqual(report.rows[0].differing_fields, ("second_id",))
+        self.assertIsNone(results.report)
+
+    def test_committed_readback_groups_same_model_by_exact_field_scope(self):
+        snapshot = _snapshot()
+        contact = snapshot.rows[-1]
+        second = replace(
+            contact,
+            row_id="contact-name",
+            source_row=51,
+            source_trace_id="trace-name",
+            source_identity=("C51",),
+            business_identity=("C51",),
+            fields=(replace(contact.fields[0], field="name", value="Other"),),
+        )
+        scoped = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 2,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+            rows=(contact, second),
+        )
+        run = _run(scoped)
+        run = replace(
+            run,
+            rows=(
+                replace(run.rows[0], odoo_id=50),
+                replace(run.rows[1], odoo_id=51),
+            ),
+        )
+        service, _results = self._service(scoped, run)
+        reader = _Reader(execution_api_scope(scoped).semantic_hash)
+        reader.records[("res.partner", 51)] = {"name": "Other"}
+
+        service.reconcile(
+            scoped.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertIn(("res.partner", (50,), ("email",)), reader.reads)
+        self.assertIn(("res.partner", (51,), ("name",)), reader.reads)
+
     def test_unknown_create_is_rematched_without_retrying_the_write(self):
         snapshot = _snapshot()
         run = _run(

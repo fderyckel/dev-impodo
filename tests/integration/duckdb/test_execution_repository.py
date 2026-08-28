@@ -4,7 +4,6 @@ from tests.support.paths import REPOSITORY_ROOT
 
 from dataclasses import replace
 from datetime import datetime, timezone
-from pathlib import Path
 import tempfile
 import unittest
 from uuid import uuid4
@@ -26,6 +25,7 @@ from impodo.domain.reconciliation import (
     ReconciliationRun,
     ReconciliationRunStatus,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
 
 
@@ -93,6 +93,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
                 operation="CREATE" if index == 1 else "UPDATE",
                 field_names=("name",),
                 proposed_external_id=f"impodo_test.contact_{index}",
+                schedule_component=0,
             )
             for index in (1, 2)
         )
@@ -112,6 +113,34 @@ class ExecutionRepositoryTests(unittest.TestCase):
             rows=rows,
         )
 
+    def _start_batch(
+        self,
+        run: ExecutionRun,
+        rows: tuple[ExecutionRowAttempt, ...],
+        *,
+        phase: str,
+        batch: int,
+    ) -> tuple[ExecutionRowAttempt, ...]:
+        started = tuple(
+            replace(
+                row,
+                status=ExecutionRowStatus.IN_FLIGHT,
+                attempt=row.attempt + 1,
+                transport_page=0,
+                transport_batch=batch,
+                transport_phase=phase,
+                odoo_id=(row.odoo_id or (42 if phase == "UPDATE" else None)),
+                safe_error="",
+            )
+            for row in rows
+        )
+        self.repository.record_batch_started(
+            self.workspace_state.workspace_id,
+            run.run_id,
+            started,
+        )
+        return started
+
     def test_journals_every_row_and_reloads_terminal_result(self) -> None:
         run = self._run()
         self.repository.start_run(
@@ -119,12 +148,18 @@ class ExecutionRepositoryTests(unittest.TestCase):
             run,
             actor=LOCAL_ACTOR,
         )
+        create = self._start_batch(
+            run,
+            (run.rows[0],),
+            phase="CREATE",
+            batch=0,
+        )[0]
         self.repository.record_outcomes(
             self.workspace_state.workspace_id,
             run.run_id,
             (
                 replace(
-                    run.rows[0],
+                    create,
                     status=ExecutionRowStatus.COMMITTED,
                     attempt=1,
                     odoo_id=42,
@@ -172,8 +207,14 @@ class ExecutionRepositoryTests(unittest.TestCase):
             run,
             actor=LOCAL_ACTOR,
         )
+        create = self._start_batch(
+            run,
+            (run.rows[0],),
+            phase="CREATE",
+            batch=0,
+        )[0]
         partial = replace(
-            run.rows[0],
+            create,
             status=ExecutionRowStatus.PARTIALLY_APPLIED,
             attempt=1,
             odoo_id=42,
@@ -184,12 +225,18 @@ class ExecutionRepositoryTests(unittest.TestCase):
             run.run_id,
             (partial,),
         )
+        completion = self._start_batch(
+            run,
+            (partial,),
+            phase="COMPLETION",
+            batch=1,
+        )[0]
         self.repository.record_outcomes(
             self.workspace_state.workspace_id,
             run.run_id,
             (
                 replace(
-                    partial,
+                    completion,
                     status=ExecutionRowStatus.COMMITTED,
                     safe_error="",
                 ),
@@ -211,19 +258,107 @@ class ExecutionRepositoryTests(unittest.TestCase):
         self.assertEqual(finished.rows[0].status, ExecutionRowStatus.COMMITTED)
         self.assertEqual(finished.rows[0].odoo_id, 42)
 
+    def test_process_restart_reloads_the_exact_in_flight_batch(self) -> None:
+        run = self._run()
+        self.repository.start_run(
+            self.workspace_state.workspace_id,
+            run,
+            actor=LOCAL_ACTOR,
+        )
+        started = self._start_batch(
+            run,
+            (run.rows[0],),
+            phase="CREATE",
+            batch=7,
+        )[0]
+
+        restarted_repository = ExecutionRepository(self.database)
+        reloaded = restarted_repository.get_current_run(
+            self.workspace_state.workspace_id,
+            run.snapshot_hash,
+        )
+
+        self.assertIsNotNone(reloaded)
+        self.assertEqual(reloaded.status, ExecutionRunStatus.RUNNING)
+        self.assertEqual(reloaded.in_flight_count, 1)
+        self.assertEqual(reloaded.active_component, 0)
+        self.assertEqual(reloaded.active_batch, (7,))
+        self.assertEqual(reloaded.rows[0], started)
+        with self.assertRaisesRegex(WorkspaceError, "unattempted rows"):
+            restarted_repository.finish_run(
+                self.workspace_state.workspace_id,
+                run.run_id,
+                ExecutionRunStatus.COMPLETED,
+                actor=LOCAL_ACTOR,
+            )
+
+    def test_recovery_evidence_atomically_marks_a_safe_create_retry(self) -> None:
+        run = self._run()
+        self.repository.start_run(
+            self.workspace_state.workspace_id,
+            run,
+            actor=LOCAL_ACTOR,
+        )
+        started = self._start_batch(
+            run,
+            (run.rows[0],),
+            phase="CREATE",
+            batch=3,
+        )[0]
+        recovery_hash = "sha256:" + "9" * 64
+        recovered = (
+            replace(
+                started,
+                status=ExecutionRowStatus.RETRY_READY,
+                safe_error="Read-back proved no create was applied",
+                recovery_hash=recovery_hash,
+            ),
+            replace(run.rows[1], recovery_hash=recovery_hash),
+        )
+
+        self.repository.record_recovery(
+            self.workspace_state.workspace_id,
+            run.run_id,
+            recovered,
+            actor=LOCAL_ACTOR,
+        )
+        reloaded = self.repository.get_run(
+            self.workspace_state.workspace_id,
+            run.run_id,
+        )
+
+        self.assertEqual(reloaded.retry_ready_count, 1)
+        self.assertEqual(
+            {item.recovery_hash for item in reloaded.rows},
+            {recovery_hash},
+        )
+
 
 
     def test_publishes_one_hash_bound_readback_result(self) -> None:
         run = self._run()
         self.repository.start_run(self.workspace_state.workspace_id, run, actor=LOCAL_ACTOR)
+        started = (
+            *self._start_batch(
+                run,
+                (run.rows[0],),
+                phase="CREATE",
+                batch=0,
+            ),
+            *self._start_batch(
+                run,
+                (run.rows[1],),
+                phase="UPDATE",
+                batch=1,
+            ),
+        )
         committed = tuple(
             replace(
                 row,
                 status=ExecutionRowStatus.COMMITTED,
-                attempt=1,
-                odoo_id=40 + index,
+                odoo_id=row.odoo_id or 40 + index,
             )
-            for index, row in enumerate(run.rows)
+            for index, row in enumerate(started)
         )
         self.repository.record_outcomes(
             self.workspace_state.workspace_id,
@@ -280,4 +415,3 @@ class ExecutionRepositoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

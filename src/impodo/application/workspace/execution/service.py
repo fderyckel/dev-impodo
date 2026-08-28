@@ -41,6 +41,10 @@ from impodo.domain.execution.odoo_write import (
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
+from impodo.domain.reconciliation import (
+    ReconciliationRowStatus,
+    ReconciliationRun,
+)
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.preflight_service import PreflightService
@@ -68,6 +72,22 @@ class ExecutionJournalRepository(Protocol):
         rows: Sequence[ExecutionRowAttempt],
     ) -> None: ...
 
+    def record_batch_started(
+        self,
+        workspace_id: str,
+        run_id: str,
+        rows: Sequence[ExecutionRowAttempt],
+    ) -> None: ...
+
+    def record_recovery(
+        self,
+        workspace_id: str,
+        run_id: str,
+        rows: Sequence[ExecutionRowAttempt],
+        *,
+        actor: Actor,
+    ) -> None: ...
+
     def finish_run(
         self,
         workspace_id: str,
@@ -82,6 +102,8 @@ class ExecutionJournalRepository(Protocol):
         workspace_id: str,
         snapshot_hash: str | None = None,
     ) -> ExecutionRun | None: ...
+
+    def get_run(self, workspace_id: str, run_id: str) -> ExecutionRun | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +312,7 @@ class ExecutionService:
                 operation=row.disposition,
                 field_names=tuple(intent.field for intent in row.fields),
                 proposed_external_id=row.proposed_external_id,
+                schedule_component=row.schedule_component,
             )
             for row in write_rows
         )
@@ -320,15 +343,173 @@ class ExecutionService:
             ),
         )
         self.journal.start_run(workspace_id, run, actor=actor)
+        return self._continue_run(
+            workspace_state,
+            snapshot,
+            run,
+            executor,
+            actor,
+            identity_cache=identity_cache,
+            progress=progress,
+        )
+
+    def resume(
+        self,
+        workspace_id: str,
+        *,
+        expected_execution_run_id: str,
+        recovery: ReconciliationRun,
+        executor: OdooWriteExecutor,
+        actor: Actor,
+        write_identity: OdooWriteIdentity | None = None,
+        write_credential_binding_hash: str = "",
+        progress: Callable[[ExecutionRun], None] | None = None,
+    ) -> ExecutionRun:
+        """Resume an interrupted journal only from exact read-back evidence."""
+
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_EXECUTE,
+            workspace_id=workspace_id,
+        )
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.source_mode is SourceMode.ODOO:
+            raise WorkspaceError(
+                "Pinned Odoo loading is not available yet. No Odoo record was changed."
+            )
+        snapshot = self.preflight.current_execution_snapshot(workspace_id)
+        if snapshot is None:
+            raise WorkspaceError("The interrupted load preview is no longer current")
+        run = self.journal.get_run(workspace_id, expected_execution_run_id)
+        current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
+        if (
+            run is None
+            or current is None
+            or current.run_id != expected_execution_run_id
+            or run.status is not ExecutionRunStatus.RUNNING
+            or run.snapshot_hash != snapshot.semantic_hash
+            or run.snapshot_root_hash != snapshot.root_hash
+            or run.preflight_run_id != snapshot.preflight_run_id
+            or run.target_hash != snapshot.target_hash
+            or run.target_database != snapshot.target_database
+        ):
+            raise WorkspaceError("The interrupted load or preview is no longer current")
+        if executor.target_hash != snapshot.target_hash:
+            raise WorkspaceError(
+                "The recovery writer points to a different Odoo target"
+            )
+        if executor.scope_hash != execution_api_scope(snapshot).semantic_hash:
+            raise WorkspaceError(
+                "The recovery writer is not bound to this reviewed load preview"
+            )
+        _require_resume_write_identity(
+            run,
+            write_identity,
+            write_credential_binding_hash,
+            required=(
+                self.require_remote_write_identity
+                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+            ),
+        )
+        recovery = ReconciliationRun.from_json(recovery.to_json())
+        already_applied = (
+            not run.in_flight_count
+            and all(
+                item.recovery_hash == recovery.semantic_hash
+                for item in run.rows
+            )
+        )
+        if not already_applied:
+            recovered = self._classify_recovery(snapshot, run, recovery)
+            self.journal.record_recovery(
+                workspace_id,
+                run.run_id,
+                recovered,
+                actor=actor,
+            )
+            run = self.journal.get_run(workspace_id, run.run_id)
+            if run is None:
+                raise WorkspaceError("The recovered load journal could not be reloaded")
+
+        write_rows = tuple(
+            row
+            for row in snapshot.rows
+            if row.disposition in {"CREATE", "UPDATE"}
+        )
+        metadata = {item.dataset: item for item in snapshot.datasets}
+        by_source = {
+            (row.dataset, _portable_key(row.source_identity)): row
+            for row in snapshot.rows
+        }
+        identity_cache = self._resolve_identity_crosswalk(
+            write_rows,
+            metadata,
+            by_source,
+            executor,
+        )
+        return self._continue_run(
+            workspace_state,
+            snapshot,
+            run,
+            executor,
+            actor,
+            identity_cache=identity_cache,
+            progress=progress,
+        )
+
+    def _continue_run(
+        self,
+        workspace_state: WorkspaceState,
+        snapshot: ExecutionSnapshot,
+        run: ExecutionRun,
+        executor: OdooWriteExecutor,
+        actor: Actor,
+        *,
+        identity_cache: dict[str, int],
+        progress: Callable[[ExecutionRun], None] | None,
+    ) -> ExecutionRun:
+        """Consume unfinished rows from one durable schedule."""
+
+        workspace_id = workspace_state.workspace_id
+        write_rows = tuple(
+            row
+            for row in snapshot.rows
+            if row.disposition in {"CREATE", "UPDATE"}
+        )
+        metadata = {item.dataset: item for item in snapshot.datasets}
+        by_source = {
+            (row.dataset, _portable_key(row.source_identity)): row
+            for row in snapshot.rows
+        }
+        create_batch_rows = validated_create_batch_rows(run.batch_rows or 0)
         report_progress = progress or (lambda _run: None)
         report_progress(run)
 
-        source_cache: dict[tuple[str, str], int] = {}
         recorded: dict[str, ExecutionRowAttempt] = {
-            item.row_id: item for item in attempts
+            item.row_id: item for item in run.rows
         }
-        deferred_by_row: dict[str, tuple[FieldIntent, ...]] = {}
+        source_cache: dict[tuple[str, str], int] = {
+            (row.dataset, _portable_key(row.source_identity)): attempt.odoo_id
+            for row in write_rows
+            if row.disposition == "CREATE"
+            and (attempt := recorded[row.row_id]).odoo_id is not None
+        }
+        for row in write_rows:
+            attempt = recorded[row.row_id]
+            if attempt.odoo_id is not None:
+                identity_cache[_identity_cache_key(row)] = attempt.odoo_id
+        deferred_by_row: dict[str, tuple[FieldIntent, ...]] = {
+            row.row_id: deferred
+            for row in write_rows
+            if recorded[row.row_id].status is ExecutionRowStatus.PARTIALLY_APPLIED
+            and (deferred := self._deferred_create_intents(row))
+        }
         stop_after_unknown = False
+        stop_after_rejection = False
+        next_transport_batch = 1 + max(
+            (item.transport_batch for item in run.rows),
+            default=-1,
+        )
         row_by_id = {row.row_id: row for row in snapshot.rows}
         component_pages = dependency_component_pages(
             (
@@ -337,7 +518,7 @@ class ExecutionService:
             )
         )
         scheduled_groups = (
-            (dataset, dataset_rows)
+            (page, dataset, dataset_rows)
             for page in component_pages
             for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence)
             if (
@@ -348,19 +529,41 @@ class ExecutionService:
                 )
             )
         )
-        for dataset, dataset_rows in scheduled_groups:
-            if stop_after_unknown:
+        for page, dataset, dataset_rows in scheduled_groups:
+            if stop_after_unknown or stop_after_rejection:
                 self._record_blocked(
                     workspace_id,
                     run.run_id,
                     dataset_rows,
                     recorded,
-                    "Not attempted after an uncertain Odoo response",
+                    (
+                        "Not attempted after an uncertain Odoo response"
+                        if stop_after_unknown
+                        else "Not attempted after an Odoo rejection"
+                    ),
                 )
                 report_progress(replace(run, rows=tuple(recorded.values())))
                 continue
-            creates = tuple(row for row in dataset_rows if row.disposition == "CREATE")
-            updates = tuple(row for row in dataset_rows if row.disposition == "UPDATE")
+            creates = tuple(
+                row
+                for row in dataset_rows
+                if row.disposition == "CREATE"
+                and recorded[row.row_id].status
+                in {
+                    ExecutionRowStatus.PLANNED,
+                    ExecutionRowStatus.RETRY_READY,
+                }
+            )
+            updates = tuple(
+                row
+                for row in dataset_rows
+                if row.disposition == "UPDATE"
+                and recorded[row.row_id].status
+                in {
+                    ExecutionRowStatus.PLANNED,
+                    ExecutionRowStatus.RETRY_READY,
+                }
+            )
             for start in range(0, len(creates), create_batch_rows):
                 batch = creates[start : start + create_batch_rows]
                 prepared_rows: list[
@@ -417,6 +620,21 @@ class ExecutionService:
                 for prepared in prepared_rows:
                     groups.setdefault(tuple(sorted(prepared[1])), []).append(prepared)
                 for prepared_group in groups.values():
+                    batch_rows_for_transport = tuple(
+                        item[0] for item in prepared_group
+                    )
+                    self._start_transport_batch(
+                        workspace_id,
+                        run.run_id,
+                        batch_rows_for_transport,
+                        recorded,
+                        phase="CREATE",
+                        component=page.component_sequence,
+                        page=page.page_sequence,
+                        batch=next_transport_batch,
+                    )
+                    next_transport_batch += 1
+                    report_progress(replace(run, rows=tuple(recorded.values())))
                     try:
                         values = tuple(item[1] for item in prepared_group)
                         if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
@@ -435,7 +653,6 @@ class ExecutionService:
                             replace(
                                 recorded[row.row_id],
                                 status=ExecutionRowStatus.OUTCOME_UNKNOWN,
-                                attempt=1,
                                 safe_error=str(error),
                             )
                             for row, _values, _deferred in prepared_group
@@ -452,7 +669,6 @@ class ExecutionService:
                             replace(
                                 recorded[row.row_id],
                                 status=ExecutionRowStatus.FAILED,
-                                attempt=1,
                                 safe_error=str(error),
                             )
                             for row, _values, _deferred in prepared_group
@@ -462,7 +678,8 @@ class ExecutionService:
                         )
                         recorded.update({item.row_id: item for item in outcomes})
                         report_progress(replace(run, rows=tuple(recorded.values())))
-                        continue
+                        stop_after_rejection = True
+                        break
                     outcomes = []
                     for (row, _values, deferred), identifier in zip(
                         prepared_group, identifiers, strict=True
@@ -474,7 +691,6 @@ class ExecutionService:
                                 if deferred
                                 else ExecutionRowStatus.COMMITTED
                             ),
-                            attempt=1,
                             odoo_id=identifier,
                             safe_error=(
                                 "Created; deferred relationship update pending"
@@ -494,17 +710,21 @@ class ExecutionService:
                     )
                     recorded.update({item.row_id: item for item in outcomes})
                     report_progress(replace(run, rows=tuple(recorded.values())))
-                if stop_after_unknown:
+                if stop_after_unknown or stop_after_rejection:
                     break
 
             for row in updates:
-                if stop_after_unknown:
+                if stop_after_unknown or stop_after_rejection:
                     self._record_blocked(
                         workspace_id,
                         run.run_id,
                         (row,),
                         recorded,
-                        "Not attempted after an uncertain Odoo response",
+                        (
+                            "Not attempted after an uncertain Odoo response"
+                            if stop_after_unknown
+                            else "Not attempted after an Odoo rejection"
+                        ),
                     )
                     report_progress(replace(run, rows=tuple(recorded.values())))
                     continue
@@ -535,13 +755,25 @@ class ExecutionService:
                         safe_error=str(error),
                     )
                 else:
+                    self._start_transport_batch(
+                        workspace_id,
+                        run.run_id,
+                        (row,),
+                        recorded,
+                        phase="UPDATE",
+                        component=page.component_sequence,
+                        page=page.page_sequence,
+                        batch=next_transport_batch,
+                        known_ids={row.row_id: record_id},
+                    )
+                    next_transport_batch += 1
+                    report_progress(replace(run, rows=tuple(recorded.values())))
                     try:
                         executor.update_row(row.target_model, record_id, values)
                     except OdooWriteOutcomeUnknown as error:
                         outcome = replace(
                             recorded[row.row_id],
                             status=ExecutionRowStatus.OUTCOME_UNKNOWN,
-                            attempt=1,
                             safe_error=str(error),
                         )
                         stop_after_unknown = True
@@ -549,22 +781,21 @@ class ExecutionService:
                         outcome = replace(
                             recorded[row.row_id],
                             status=ExecutionRowStatus.FAILED,
-                            attempt=1,
                             safe_error=str(error),
                         )
+                        stop_after_rejection = True
                     else:
                         outcome = replace(
                             recorded[row.row_id],
                             status=ExecutionRowStatus.COMMITTED,
-                            attempt=1,
                             odoo_id=record_id,
                         )
                 self.journal.record_outcomes(workspace_id, run.run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 report_progress(replace(run, rows=tuple(recorded.values())))
 
-        if not stop_after_unknown:
-            stop_after_unknown = self._apply_deferred_relationships(
+        if not stop_after_unknown and not stop_after_rejection:
+            completion_stopped, next_transport_batch = self._apply_deferred_relationships(
                 workspace_id,
                 run.run_id,
                 write_rows,
@@ -575,16 +806,22 @@ class ExecutionService:
                 source_cache,
                 identity_cache,
                 executor,
+                next_transport_batch=next_transport_batch,
                 progress=lambda: report_progress(
                     replace(run, rows=tuple(recorded.values()))
                 ),
             )
+            stop_after_unknown = completion_stopped
             report_progress(replace(run, rows=tuple(recorded.values())))
 
         remaining = tuple(
             row
             for row in write_rows
-            if recorded[row.row_id].status is ExecutionRowStatus.PLANNED
+            if recorded[row.row_id].status
+            in {
+                ExecutionRowStatus.PLANNED,
+                ExecutionRowStatus.RETRY_READY,
+            }
         )
         if remaining:
             self._record_blocked(
@@ -619,6 +856,158 @@ class ExecutionService:
         )
         report_progress(completed_run)
         return completed_run
+
+    @staticmethod
+    def _classify_recovery(
+        snapshot: ExecutionSnapshot,
+        run: ExecutionRun,
+        recovery: ReconciliationRun,
+    ) -> tuple[ExecutionRowAttempt, ...]:
+        """Turn one exact read-back into resumable journal states."""
+
+        if (
+            recovery.workspace_id != run.workspace_id
+            or recovery.execution_run_id != run.run_id
+            or recovery.snapshot_hash != run.snapshot_hash
+            or recovery.target_hash != run.target_hash
+            or recovery.target_database != run.target_database
+        ):
+            raise WorkspaceError("The recovery report belongs to another load")
+        expected_identity = (
+            run.write_principal_hash,
+            run.write_permission_hash,
+            run.write_context_hash,
+        )
+        recovered_identity = (
+            recovery.verification_principal_hash,
+            recovery.verification_permission_hash,
+            recovery.verification_context_hash,
+        )
+        if any(expected_identity) and (
+            recovered_identity != expected_identity
+            or not _SHA256.fullmatch(
+                recovery.verification_credential_binding_hash
+            )
+        ):
+            raise WorkspaceError(
+                "The recovery report used another Odoo principal or context"
+            )
+        rows = {
+            row.row_id: row
+            for row in snapshot.rows
+            if row.disposition in {"CREATE", "UPDATE"}
+        }
+        outcomes = {item.row_id: item for item in recovery.rows}
+        attempts = {item.row_id: item for item in run.rows}
+        if set(rows) != set(outcomes) or set(rows) != set(attempts):
+            raise WorkspaceError("The recovery report does not cover every load row")
+
+        recovered = []
+        for row_id, attempt in attempts.items():
+            row = rows[row_id]
+            outcome = outcomes[row_id]
+            if outcome.execution_status != attempt.status.value:
+                raise WorkspaceError("The recovery report is stale")
+            if outcome.target_model != attempt.target_model:
+                raise WorkspaceError("The recovery report changed a target model")
+            if outcome.operation != attempt.operation:
+                raise WorkspaceError("The recovery report changed a write operation")
+
+            status = attempt.status
+            odoo_id = attempt.odoo_id
+            safe_error = attempt.safe_error
+            deferred_fields = {
+                intent.field
+                for intent in row.fields
+                if intent.defer_on_create and intent.action == "SET_VALUE"
+            }
+            differing_fields = set(outcome.differing_fields)
+            deferred_difference = bool(differing_fields) and differing_fields.issubset(
+                deferred_fields
+            )
+
+            if status is ExecutionRowStatus.COMMITTED:
+                if (
+                    outcome.status is not ReconciliationRowStatus.VERIFIED
+                    or outcome.odoo_id != odoo_id
+                ):
+                    raise WorkspaceError(
+                        "A completed earlier component no longer matches Odoo"
+                    )
+            elif status in {
+                ExecutionRowStatus.PLANNED,
+                ExecutionRowStatus.RETRY_READY,
+            }:
+                if outcome.status is not ReconciliationRowStatus.NOT_WRITTEN:
+                    raise WorkspaceError("An unstarted row has conflicting recovery evidence")
+            elif status is ExecutionRowStatus.IN_FLIGHT:
+                if outcome.status is ReconciliationRowStatus.VERIFIED:
+                    if outcome.odoo_id is None:
+                        raise WorkspaceError("Recovery found no durable Odoo receipt")
+                    status = ExecutionRowStatus.COMMITTED
+                    odoo_id = outcome.odoo_id
+                    safe_error = ""
+                elif (
+                    attempt.transport_phase == "CREATE"
+                    and outcome.status is ReconciliationRowStatus.NOT_APPLIED
+                    and outcome.retry_safe
+                ):
+                    status = ExecutionRowStatus.RETRY_READY
+                    odoo_id = None
+                    safe_error = "Read-back proved that the interrupted create was not applied"
+                elif (
+                    attempt.transport_phase in {"CREATE", "COMPLETION"}
+                    and outcome.status is ReconciliationRowStatus.DIFFERENT
+                    and outcome.odoo_id is not None
+                    and deferred_difference
+                ):
+                    status = ExecutionRowStatus.PARTIALLY_APPLIED
+                    odoo_id = outcome.odoo_id
+                    safe_error = "Created record is waiting for its reviewed relationships"
+                elif (
+                    attempt.transport_phase == "UPDATE"
+                    and outcome.status is ReconciliationRowStatus.DIFFERENT
+                    and outcome.odoo_id == odoo_id
+                    and differing_fields
+                    and differing_fields.issubset(set(attempt.field_names))
+                ):
+                    status = ExecutionRowStatus.RETRY_READY
+                    safe_error = "Read-back proved that reviewed update fields still differ"
+                else:
+                    raise WorkspaceError(
+                        "The interrupted Odoo outcome is not safe to resume"
+                    )
+            elif status is ExecutionRowStatus.PARTIALLY_APPLIED:
+                if (
+                    outcome.status is ReconciliationRowStatus.VERIFIED
+                    and outcome.odoo_id == odoo_id
+                ):
+                    status = ExecutionRowStatus.COMMITTED
+                    safe_error = ""
+                elif (
+                    outcome.status is ReconciliationRowStatus.DIFFERENT
+                    and outcome.odoo_id == odoo_id
+                    and deferred_difference
+                ):
+                    safe_error = "Created record is waiting for its reviewed relationships"
+                else:
+                    raise WorkspaceError(
+                        "The partial relationship result is not safe to resume"
+                    )
+            else:
+                raise WorkspaceError(
+                    "This stopped load cannot resume; run Check changes again"
+                )
+            recovered.append(
+                replace(
+                    attempt,
+                    status=status,
+                    odoo_id=odoo_id,
+                    safe_error=safe_error,
+                    recovery_hash=recovery.semantic_hash,
+                )
+            )
+        return tuple(recovered)
 
     def complete_no_changes(
         self,
@@ -873,6 +1262,44 @@ class ExecutionService:
                         "A required Odoo create receipt was not journalled"
                     )
 
+    def _start_transport_batch(
+        self,
+        workspace_id: str,
+        run_id: str,
+        rows: Sequence[ExecutionRow],
+        recorded: dict[str, ExecutionRowAttempt],
+        *,
+        phase: str,
+        component: int,
+        page: int,
+        batch: int,
+        known_ids: Mapping[str, int | None] | None = None,
+    ) -> None:
+        """Persist one exact in-flight transport batch before sending it."""
+
+        if phase not in {"CREATE", "UPDATE", "COMPLETION"}:
+            raise WorkspaceError("Execution transport phase is invalid")
+        attempts = tuple(
+            replace(
+                recorded[row.row_id],
+                status=ExecutionRowStatus.IN_FLIGHT,
+                attempt=recorded[row.row_id].attempt + 1,
+                odoo_id=(known_ids or {}).get(row.row_id),
+                safe_error="",
+                schedule_component=component,
+                transport_page=page,
+                transport_batch=batch,
+                transport_phase=phase,
+            )
+            for row in rows
+        )
+        self.journal.record_batch_started(
+            workspace_id,
+            run_id,
+            attempts,
+        )
+        recorded.update({item.row_id: item for item in attempts})
+
     @staticmethod
     def _validate_execution_scope(
         workspace_state: WorkspaceState,
@@ -928,8 +1355,9 @@ class ExecutionService:
         source_cache: dict[tuple[str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
+        next_transport_batch: int,
         progress: Callable[[], None],
-    ) -> bool:
+    ) -> tuple[bool, int]:
         """Patch deferred create relationships after all first-pass creates."""
 
         for row in rows:
@@ -954,6 +1382,33 @@ class ExecutionService:
                     )
                     for intent in intents
                 }
+            except (WorkspaceError, OdooWriteRejected) as error:
+                outcome = replace(
+                    attempt,
+                    safe_error=(
+                        "Record was created, but its deferred relationship "
+                        f"update failed: {error}"
+                    ),
+                )
+                self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+                recorded[row.row_id] = outcome
+                progress()
+                continue
+            self._start_transport_batch(
+                workspace_id,
+                run_id,
+                (row,),
+                recorded,
+                phase="COMPLETION",
+                component=row.schedule_component,
+                page=0,
+                batch=next_transport_batch,
+                known_ids={row.row_id: attempt.odoo_id},
+            )
+            next_transport_batch += 1
+            attempt = recorded[row.row_id]
+            progress()
+            try:
                 executor.update_row(row.target_model, attempt.odoo_id, values)
             except OdooWriteOutcomeUnknown as error:
                 outcome = replace(
@@ -964,10 +1419,11 @@ class ExecutionService:
                 self.journal.record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 progress()
-                return True
-            except (WorkspaceError, OdooWriteRejected) as error:
+                return True, next_transport_batch
+            except OdooWriteRejected as error:
                 outcome = replace(
                     attempt,
+                    status=ExecutionRowStatus.PARTIALLY_APPLIED,
                     safe_error=(
                         "Record was created, but its deferred relationship "
                         f"update failed: {error}"
@@ -982,7 +1438,9 @@ class ExecutionService:
             self.journal.record_outcomes(workspace_id, run_id, (outcome,))
             recorded[row.row_id] = outcome
             progress()
-        return False
+            if outcome.status is ExecutionRowStatus.PARTIALLY_APPLIED:
+                return True, next_transport_batch
+        return False, next_transport_batch
 
     def _row_values(
         self,
@@ -1298,7 +1756,11 @@ class ExecutionService:
                 safe_error=reason,
             )
             for row in rows
-            if recorded[row.row_id].status is ExecutionRowStatus.PLANNED
+            if recorded[row.row_id].status
+            in {
+                ExecutionRowStatus.PLANNED,
+                ExecutionRowStatus.RETRY_READY,
+            }
         )
         self.journal.record_outcomes(workspace_id, run_id, outcomes)
         recorded.update({item.row_id: item for item in outcomes})
@@ -1397,6 +1859,49 @@ def _validate_write_identity(
     )
     if not all(_SHA256.fullmatch(value) for value in hashes):
         raise WorkspaceError("Execution write-identity evidence is invalid")
+
+
+def _require_resume_write_identity(
+    run: ExecutionRun,
+    identity: OdooWriteIdentity | None,
+    credential_binding_hash: str,
+    *,
+    required: bool,
+) -> None:
+    """Require the original target principal before resumed writes."""
+
+    expected = (
+        run.write_principal_hash,
+        run.write_permission_hash,
+        run.write_context_hash,
+    )
+    if not any(expected):
+        if required:
+            raise WorkspaceError(
+                "The interrupted load has no approved remote write identity"
+            )
+        if identity is not None or credential_binding_hash:
+            raise WorkspaceError(
+                "The local load cannot acquire a remote write identity during recovery"
+            )
+        return
+    if identity is None:
+        raise WorkspaceError(
+            "Re-probe the approved write principal before resuming"
+        )
+    actual = (
+        identity.principal_hash,
+        identity.permission_hash,
+        identity.context_hash,
+    )
+    if (
+        actual != expected
+        or identity.target_hash != run.target_hash
+        or not _SHA256.fullmatch(credential_binding_hash)
+    ):
+        raise WorkspaceError(
+            "The write principal, permission, or context changed after interruption"
+        )
 
 
 def _validate_read_identity(

@@ -24,6 +24,8 @@ class ExecutionRunStatus(StrEnum):
 
 class ExecutionRowStatus(StrEnum):
     PLANNED = "PLANNED"
+    IN_FLIGHT = "IN_FLIGHT"
+    RETRY_READY = "RETRY_READY"
     COMMITTED = "COMMITTED"
     PARTIALLY_APPLIED = "PARTIALLY_APPLIED"
     FAILED = "FAILED"
@@ -46,6 +48,34 @@ class ExecutionRowAttempt:
     attempt: int = 0
     odoo_id: int | None = None
     safe_error: str = ""
+    schedule_component: int = -1
+    transport_page: int = -1
+    transport_batch: int = -1
+    transport_phase: str = ""
+    recovery_hash: str = ""
+
+    def __post_init__(self) -> None:
+        if (
+            self.source_row < 1
+            or self.attempt < 0
+            or self.schedule_component < -1
+            or self.transport_page < -1
+            or self.transport_batch < -1
+            or self.transport_phase not in {"", "CREATE", "UPDATE", "COMPLETION"}
+            or (
+                self.transport_phase
+                and (
+                    self.schedule_component < 0
+                    or self.transport_page < 0
+                    or self.transport_batch < 0
+                )
+            )
+            or (
+                self.recovery_hash
+                and not _SHA256.fullmatch(self.recovery_hash)
+            )
+        ):
+            raise ValueError("Execution row attempt is invalid")
 
     def to_json(self) -> str:
         payload = asdict(self)
@@ -71,6 +101,11 @@ class ExecutionRowAttempt:
                 else None
             ),
             safe_error=str(payload.get("safe_error", "")),
+            schedule_component=int(payload.get("schedule_component", -1)),
+            transport_page=int(payload.get("transport_page", -1)),
+            transport_batch=int(payload.get("transport_batch", -1)),
+            transport_phase=str(payload.get("transport_phase", "")),
+            recovery_hash=str(payload.get("recovery_hash", "")),
         )
 
 
@@ -136,6 +171,42 @@ class ExecutionRun:
     @property
     def planned_count(self) -> int:
         return sum(item.status is ExecutionRowStatus.PLANNED for item in self.rows)
+
+    @property
+    def in_flight_count(self) -> int:
+        return sum(item.status is ExecutionRowStatus.IN_FLIGHT for item in self.rows)
+
+    @property
+    def retry_ready_count(self) -> int:
+        return sum(item.status is ExecutionRowStatus.RETRY_READY for item in self.rows)
+
+    @property
+    def active_component(self) -> int | None:
+        active = {
+            item.schedule_component
+            for item in self.rows
+            if item.status
+            in {
+                ExecutionRowStatus.PLANNED,
+                ExecutionRowStatus.IN_FLIGHT,
+                ExecutionRowStatus.RETRY_READY,
+                ExecutionRowStatus.PARTIALLY_APPLIED,
+            }
+            and item.schedule_component >= 0
+        }
+        return min(active) if active else None
+
+    @property
+    def active_batch(self) -> tuple[int, ...] | None:
+        batches = {
+            item.transport_batch
+            for item in self.rows
+            if item.status is ExecutionRowStatus.IN_FLIGHT
+            and item.transport_batch >= 0
+        }
+        if not batches:
+            return None
+        return tuple(sorted(batches))
 
     @property
     def total_count(self) -> int:

@@ -24,6 +24,12 @@ from impodo.domain.execution_snapshot import (
     FieldIntent,
     plan_execution_rows,
 )
+from impodo.domain.reconciliation import (
+    ReconciliationRow,
+    ReconciliationRowStatus,
+    ReconciliationRun,
+    ReconciliationRunStatus,
+)
 from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
@@ -405,7 +411,11 @@ class _Journal:
 
     def get_current_run(self, project_id, snapshot_hash=None):
         del project_id, snapshot_hash
-        return self.run if self.run and self.run.status is not ExecutionRunStatus.RUNNING else None
+        return self.run
+
+    def get_run(self, project_id, run_id):
+        del project_id
+        return self.run if self.run and self.run.run_id == run_id else None
 
     def start_run(self, project_id, run, *, actor):
         del project_id, actor
@@ -415,6 +425,26 @@ class _Journal:
     def record_outcomes(self, project_id, run_id, rows):
         del project_id, run_id
         self.rows.update({item.row_id: item for item in rows})
+        self.run = replace(
+            self.run,
+            rows=tuple(self.rows[item.row_id] for item in self.run.rows),
+        )
+
+    def record_batch_started(self, project_id, run_id, rows):
+        del project_id, run_id
+        self.rows.update({item.row_id: item for item in rows})
+        self.run = replace(
+            self.run,
+            rows=tuple(self.rows[item.row_id] for item in self.run.rows),
+        )
+
+    def record_recovery(self, project_id, run_id, rows, *, actor):
+        del project_id, run_id, actor
+        self.rows.update({item.row_id: item for item in rows})
+        self.run = replace(
+            self.run,
+            rows=tuple(self.rows[item.row_id] for item in self.run.rows),
+        )
 
     def finish_run(self, project_id, run_id, status, *, actor):
         del project_id, run_id, actor
@@ -490,6 +520,28 @@ class _Executor:
         if self.update_error is not None:
             raise self.update_error
         self.updates.append((model, record_id, dict(values)))
+
+
+class _CrashAfterCheckpoint(_Executor):
+    def create_rows(self, model, values):
+        del model, values
+        raise RuntimeError("simulated process interruption")
+
+
+class _RejectFirstCreate(_Executor):
+    def __init__(self, scope_hash: str) -> None:
+        super().__init__(scope_hash)
+        self.create_attempts = []
+
+    def create_rows(self, model, values):
+        self.create_attempts.append((model, tuple(values)))
+        raise OdooWriteRejected("known validation rejection")
+
+
+class _CrashDuringCompletion(_Executor):
+    def update_row(self, model, record_id, values):
+        del model, record_id, values
+        raise RuntimeError("simulated completion interruption")
 
 
 class ExecutionServiceTests(unittest.TestCase):
@@ -836,6 +888,164 @@ class ExecutionServiceTests(unittest.TestCase):
                 ExecutionRowStatus.BLOCKED,
                 ExecutionRowStatus.BLOCKED,
             ],
+        )
+
+    def test_interrupted_create_resumes_only_after_exact_readback(self):
+        snapshot = _snapshot()
+        service, journal = self._service(snapshot)
+        scope_hash = execution_api_scope(snapshot).semantic_hash
+
+        with self.assertRaisesRegex(RuntimeError, "process interruption"):
+            service.execute(
+                snapshot.workspace_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=_CrashAfterCheckpoint(scope_hash),
+                actor=LOCAL_ACTOR,
+            )
+
+        interrupted = journal.run
+        self.assertEqual(interrupted.status, ExecutionRunStatus.RUNNING)
+        self.assertEqual(interrupted.rows[0].status, ExecutionRowStatus.IN_FLIGHT)
+        self.assertEqual(interrupted.rows[0].transport_batch, 0)
+        recovery = ReconciliationRun(
+            reconciliation_id=str(uuid4()),
+            workspace_id=snapshot.workspace_id,
+            execution_run_id=interrupted.run_id,
+            snapshot_hash=snapshot.semantic_hash,
+            target_hash=snapshot.target_hash,
+            target_database=snapshot.target_database,
+            status=ReconciliationRunStatus.FALLOUT,
+            verified_at=datetime.now(timezone.utc),
+            verified_by="Local operator",
+            unchanged_count=0,
+            rows=tuple(
+                ReconciliationRow(
+                    row_id=row.row_id,
+                    dataset=row.dataset,
+                    source_row=row.source_row,
+                    target_model=row.target_model,
+                    operation=row.disposition,
+                    execution_status=interrupted.rows[index].status.value,
+                    status=(
+                        ReconciliationRowStatus.NOT_APPLIED
+                        if index == 0
+                        else ReconciliationRowStatus.NOT_WRITTEN
+                    ),
+                    message="Recovery test evidence",
+                    retry_safe=index == 0,
+                )
+                for index, row in enumerate(snapshot.rows)
+            ),
+        )
+        executor = _Executor(scope_hash)
+
+        completed = service.resume(
+            snapshot.workspace_id,
+            expected_execution_run_id=interrupted.run_id,
+            recovery=recovery,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(completed.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(completed.committed_count, 3)
+        self.assertTrue(all(item.recovery_hash for item in completed.rows))
+        self.assertEqual(completed.rows[0].attempt, 2)
+        self.assertEqual(len(executor.creates), 2)
+        self.assertEqual(len(executor.updates), 1)
+
+    def test_known_rejection_stops_independent_later_components(self):
+        snapshot = _snapshot()
+        service, _journal = self._service(snapshot)
+        executor = _RejectFirstCreate(
+            execution_api_scope(snapshot).semantic_hash
+        )
+
+        run = service.execute(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+        self.assertEqual(len(executor.create_attempts), 1)
+        self.assertEqual(executor.updates, [])
+        self.assertEqual(run.failed_count, 1)
+        self.assertEqual(run.blocked_count, 2)
+
+    def test_partial_cycle_resumes_only_the_exact_completion_fields(self):
+        snapshot = _remote_cycle_snapshot()
+        service, journal = self._service(snapshot)
+        scope_hash = execution_api_scope(snapshot).semantic_hash
+
+        with self.assertRaisesRegex(RuntimeError, "completion interruption"):
+            service.execute(
+                snapshot.workspace_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=_CrashDuringCompletion(scope_hash),
+                actor=LOCAL_ACTOR,
+            )
+
+        interrupted = journal.run
+        self.assertEqual(
+            tuple(item.status for item in interrupted.rows),
+            (
+                ExecutionRowStatus.IN_FLIGHT,
+                ExecutionRowStatus.COMMITTED,
+            ),
+        )
+        self.assertEqual(interrupted.rows[0].transport_phase, "COMPLETION")
+        recovery = ReconciliationRun(
+            reconciliation_id=str(uuid4()),
+            workspace_id=snapshot.workspace_id,
+            execution_run_id=interrupted.run_id,
+            snapshot_hash=snapshot.semantic_hash,
+            target_hash=snapshot.target_hash,
+            target_database=snapshot.target_database,
+            status=ReconciliationRunStatus.FALLOUT,
+            verified_at=datetime.now(timezone.utc),
+            verified_by="Local operator",
+            unchanged_count=0,
+            rows=tuple(
+                ReconciliationRow(
+                    row_id=row.row_id,
+                    dataset=row.dataset,
+                    source_row=row.source_row,
+                    target_model=row.target_model,
+                    operation=row.disposition,
+                    execution_status=interrupted.rows[index].status.value,
+                    status=(
+                        ReconciliationRowStatus.DIFFERENT
+                        if index == 0
+                        else ReconciliationRowStatus.VERIFIED
+                    ),
+                    odoo_id=interrupted.rows[index].odoo_id,
+                    differing_fields=(("second_id",) if index == 0 else ()),
+                    message="Only the deferred relationship still differs",
+                )
+                for index, row in enumerate(snapshot.rows)
+            ),
+        )
+        executor = _Executor(scope_hash)
+
+        completed = service.resume(
+            snapshot.workspace_id,
+            expected_execution_run_id=interrupted.run_id,
+            recovery=recovery,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(completed.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(completed.committed_count, 2)
+        self.assertEqual(len(executor.creates), 0)
+        self.assertEqual(
+            tuple(
+                tuple(sorted(values))
+                for _model, _record_id, values in executor.updates
+            ),
+            (("second_id",),),
         )
 
     def test_scope_comes_from_reviewed_standard_extension_and_custom_fields(self):

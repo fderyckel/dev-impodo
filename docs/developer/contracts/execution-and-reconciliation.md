@@ -35,10 +35,16 @@ manager back to **Check changes** before the first Odoo write.
 ## Journal-before-transport
 
 The durable run and planned row attempts are committed after the read-only
-crosswalk check and before the first write.
-Every result distinguishes planned, committed, partially applied, failed,
-blocked, and outcome unknown. Transport responses never overwrite earlier
-journal evidence.
+crosswalk check and before the first write. Immediately before each Odoo call,
+the journal marks the exact rows `IN_FLIGHT` and stores their component, page,
+transport-batch number, and create, update, or relationship-completion phase.
+The returned outcome then replaces that checkpoint in a second short
+transaction. A process exit between those transactions therefore leaves
+durable evidence of the exact call whose response was not recorded.
+
+Every result distinguishes planned, in flight, safe to retry after read-back,
+committed, partially applied, failed, blocked, and outcome unknown. Transport
+responses never overwrite earlier journal evidence.
 
 The execution snapshot stores one deterministic row schedule derived from the
 reviewed incoming business keys. Execution consumes each topological component
@@ -51,22 +57,41 @@ created identifier before the dependent write. A required row cycle or
 unusable dependency stops before the journal and target transport. A deferred
 row remains explicit if it is only partially applied.
 
-## Unknown outcomes and retry
+## Unknown outcomes, interruption, and retry
 
 A connection reset, timeout, or wrapped upstream error may leave target state
 unknown. The service records the affected batch, stops all later writes, and
-requires reconciliation. It must not classify an unknown outcome as safely
-retryable.
+requires reconciliation. A caught unknown response remains
+`OUTCOME_UNKNOWN`; the service does not retry it inside that execution.
 
-No retry is permitted until read-back establishes the exact target state and a
-fresh comparison proves the intended next action. A repeat preview with any
-unexpected create is a hard stop against duplicates.
+An unexpected process exit can instead leave a `RUNNING` execution with one
+`IN_FLIGHT` batch. `ReconciliationService.assess_recovery` reads that immutable
+snapshot's exact model and field scopes without publishing a final
+reconciliation result. `ExecutionService.resume` accepts only that hash-bound
+report, the original target and write identity, and a still-current snapshot.
+It atomically binds every row to the recovery-report hash before another Odoo
+call can begin.
+
+Recovery may mark an interrupted create `RETRY_READY` only when business-key
+read-back found no matching record. It may accept a write as committed only
+when read-back proves every intended final field. It may retain a created row
+as `PARTIALLY_APPLIED` only when all non-deferred fields match and the differing
+fields are contained by that row's frozen relationship-completion fields. A
+completed earlier component that changed, an ambiguous match, a missing
+receipt, another target, or another principal stops resume. Known rejections
+and terminal `OUTCOME_UNKNOWN` runs require a new **Check changes** result.
 
 ## Reconciliation
 
-Reconciliation uses a separate read capability and only the affected model,
-identity, and field scope. It publishes new immutable evidence and never edits
-the execution journal.
+Final reconciliation uses a separate read capability and only the affected
+model, identity, and exact requested field scope. Rows for the same model but
+different field sets are read in separate bounded groups. It proves final
+scalar and relationship values, publishes new immutable evidence, and never
+edits the execution journal.
+
+Recovery assessment uses the same read-back logic but remains ephemeral.
+Execution owns the distinct, atomic journal transition that records which
+recovery report authorized a same-run resume.
 
 A run is complete only when it has no unknown outcome and reconciliation proves
 the expected target state. Otherwise navigation remains in a verify or

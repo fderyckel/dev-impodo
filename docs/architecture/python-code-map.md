@@ -32,6 +32,8 @@ belongs or which dependencies it may introduce.
 | Plan an integrated Test run | focused use cases under `application/run`; `MigrationRunPlanningService` is the stable facade | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
 | Coordinate Review and load progress | `web/run_review.py` | bounded registry status plus latest preparation and load job snapshots |
+| Recover an interrupted Odoo batch | `application/workspace/execution/reconciliation.py` assesses exact read-back; `ExecutionService.resume` classifies the same frozen schedule | `ExecutionRepository.record_batch_started` and `record_recovery` persist the checkpoint and report binding inside the existing row journal |
+| Compare and seal completed-load correction intent | `domain/correction.py`, `application/correction_service.py` | `adapters/polars_correction.py` reuses native prepared Parquet columns; `adapters/protected_correction_store.py` encrypts whole plans and confirmations without row hashes |
 | Version and qualify an integrated plan | `domain/cutover/models.py`, `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
 | Run selected meaning with latest data | `ProductionCutoverService` | `ProductionRunRepository`, Production run routes, shared workspace engine |
 
@@ -76,7 +78,8 @@ owner module.
 | Final review evidence | `domain/preflight` defines portable report and prepared-cell meaning; `application/preflight_service.py` binds current workspace evidence | `adapters/artifacts/reporting.py` renders the manifest-authoritative workbook; browser routes only request and serve the artifact |
 | Matching review evidence | `domain/mapping` defines the checked revision, validation issues, coverage, and deferred checks | `adapters/artifacts/mapping_review.py` renders the Stage 3 workbook without preparing rows or contacting Odoo; `web/routers/mapping.py` creates and serves the exact-revision artifact |
 | Execution state and decisions | `domain/run`, `domain/execution`, `application/run`, and `application/workspace/execution` | `adapters/odoo` implements the target ports; `web/composition/target_readers.py` and `target_writers.py` select implementations |
-| Artifact and secret storage | `application/shared/artifacts.py` and `application/shared/secrets.py` | concrete filesystem and credential implementations live below `adapters/artifacts` and `adapters/protected_evidence` |
+| Completed-load correction decisions | `domain/correction.py` and `application/correction_service.py` | `adapters/polars_correction.py` emits sparse typed A/C differences from the two immutable prepared Parquet artifacts; `adapters/protected_correction_store.py` stores the deterministic scalar plan and separately bound confirmation; relationship candidates remain separately write-qualified |
+| Artifact and secret storage | `application/shared/artifacts.py` and `application/shared/secrets.py` | concrete filesystem and credential implementations live below `adapters/artifacts`, `adapters/protected_evidence`, and `adapters/protected_project_evidence_store.py`; typed Project artifacts reuse that encrypted store through focused adapter facades |
 
 Do not add a DuckDB connection parameter to an application use case. Add a
 named atomic command to the consumer-owned port, implement it behind the

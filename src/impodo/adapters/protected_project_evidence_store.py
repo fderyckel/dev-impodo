@@ -1,4 +1,4 @@
-"""Encrypt immutable Project-level qualification evidence."""
+"""Encrypt immutable, bounded Project-level evidence artifacts."""
 
 from __future__ import annotations
 
@@ -21,6 +21,9 @@ from impodo.application.shared.secrets import SecretStore, SecretStoreError
 _MAGIC = b"IPPRJ001"
 _NONCE_BYTES = 12
 MAX_PROJECT_EVIDENCE_BYTES = 16 * 1024 * 1024
+_ARTIFACT_KINDS = frozenset(
+    {"qualifications", "correction-plans", "correction-confirmations"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +34,7 @@ class StoredProjectEvidence:
 
 
 class ProtectedProjectEvidenceStore:
-    """Authenticate Project qualification payloads on every write and read."""
+    """Authenticate Project evidence payloads on every write and read."""
 
     def __init__(self, root: str | Path, secrets: SecretStore) -> None:
         self._root = Path(root).resolve() / ".project-evidence-protected"
@@ -47,14 +50,36 @@ class ProtectedProjectEvidenceStore:
         logical_hash: str,
         payload: bytes,
     ) -> StoredProjectEvidence:
+        """Keep the original qualification API as a compatibility facade."""
+
+        return self.put_artifact(
+            project_id,
+            artifact_kind="qualifications",
+            artifact_id=qualification_id,
+            logical_hash=logical_hash,
+            payload=payload,
+        )
+
+    def put_artifact(
+        self,
+        project_id: str,
+        *,
+        artifact_kind: str,
+        artifact_id: str,
+        logical_hash: str,
+        payload: bytes,
+    ) -> StoredProjectEvidence:
         project_id = require_uuid(project_id, "project_id")
-        qualification_id = require_uuid(qualification_id, "qualification_id")
+        artifact_id = require_uuid(artifact_id, "artifact_id")
+        if artifact_kind not in _ARTIFACT_KINDS:
+            raise MigrationCutoverError("Project evidence artifact kind is invalid")
         require_hash(logical_hash, "logical_hash")
         if not payload or len(payload) > MAX_PROJECT_EVIDENCE_BYTES:
-            raise MigrationCutoverError("Project qualification payload size is invalid")
-        storage_key = self.storage_key(
+            raise MigrationCutoverError("Project evidence payload size is invalid")
+        storage_key = self.artifact_storage_key(
             project_id,
-            qualification_id=qualification_id,
+            artifact_kind=artifact_kind,
+            artifact_id=artifact_id,
             logical_hash=logical_hash,
         )
         path = self._path(storage_key)
@@ -71,7 +96,7 @@ class ProtectedProjectEvidenceStore:
                 expected_artifact_hash=existing.artifact_hash,
             ) != payload:
                 raise MigrationCutoverError(
-                    "Stored Project qualification evidence is inconsistent"
+                    "Stored Project evidence is inconsistent"
                 )
             return existing
 
@@ -114,11 +139,30 @@ class ProtectedProjectEvidenceStore:
         qualification_id: str,
         logical_hash: str,
     ) -> str:
+        """Return the historical qualification storage-key shape."""
+
+        return self.artifact_storage_key(
+            project_id,
+            artifact_kind="qualifications",
+            artifact_id=qualification_id,
+            logical_hash=logical_hash,
+        )
+
+    def artifact_storage_key(
+        self,
+        project_id: str,
+        *,
+        artifact_kind: str,
+        artifact_id: str,
+        logical_hash: str,
+    ) -> str:
         project_id = require_uuid(project_id, "project_id")
-        qualification_id = require_uuid(qualification_id, "qualification_id")
+        artifact_id = require_uuid(artifact_id, "artifact_id")
+        if artifact_kind not in _ARTIFACT_KINDS:
+            raise MigrationCutoverError("Project evidence artifact kind is invalid")
         require_hash(logical_hash, "logical_hash")
         return (
-            f"{project_id}/qualifications/{qualification_id}-"
+            f"{project_id}/{artifact_kind}/{artifact_id}-"
             f"{logical_hash.removeprefix('sha256:')[:16]}.ipe"
         )
 
@@ -210,7 +254,7 @@ class ProtectedProjectEvidenceStore:
         if (
             pure.is_absolute()
             or len(pure.parts) != 3
-            or pure.parts[1] != "qualifications"
+            or pure.parts[1] not in _ARTIFACT_KINDS
             or ".." in pure.parts
             or not pure.parts[2].endswith(".ipe")
         ):

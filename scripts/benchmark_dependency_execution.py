@@ -126,6 +126,10 @@ class _Journal:
         self.outcome_calls += 1
         self.rows.update({item.row_id: item for item in rows})
 
+    def record_batch_started(self, _workspace_id, _run_id, rows) -> None:
+        self.outcome_calls += 1
+        self.rows.update({item.row_id: item for item in rows})
+
     def finish_run(self, _workspace_id, _run_id, status, *, actor):
         del actor
         self.finish_calls += 1

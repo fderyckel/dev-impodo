@@ -247,8 +247,13 @@ certification remain pending.
   journal, still resolves uniquely, and retains its opaque reviewed binding;
 - dependency-ordered creates journal their receipts before dependants resolve
   incoming many2one or many2many fields;
-- every proposed write is journaled before write transport and receives a terminal
-  row outcome;
+- every proposed write is journaled before write transport and receives a
+  terminal row outcome;
+- immediately before each Odoo call, the exact component, component page,
+  transport batch, operation phase, and affected rows are durably
+  `IN_FLIGHT`;
+- a restarted repository reloads that exact in-flight batch and refuses to
+  finish the run while any row remains planned, in flight, or retry ready;
 - a lost write response is recorded as `OUTCOME_UNKNOWN`, is not retried, and
   blocks the remaining work;
 - new project databases include durable execution and reconciliation tables;
@@ -256,9 +261,18 @@ certification remain pending.
   checked against their expected model and record, and uncertain creates are
   re-matched by the governed business key before retry safety is classified;
 - the browser end-to-end test previews, confirms, journals, reads back, and
-  renders a verified load without exposing the submitted API key; and
+  renders a verified load without exposing the submitted API key;
 - reconciliation reports retain status, field names, and recovery guidance,
-  but not source or target business values.
+  but not source or target business values;
+- recovery assessment reads a running journal without publishing final
+  reconciliation, proves every earlier committed component, and atomically
+  binds all resumable rows to one report hash before transport continues;
+- an interrupted create is retried only after read-back proves it absent, and
+  a partially applied optional cycle resumes only its frozen deferred fields;
+- a known Odoo rejection stops independent later components in the first
+  delivery; and
+- committed read-back rows are grouped by model and exact requested field
+  scope rather than by one broad per-model field union.
 
 The protected P3 adapter, service, persistence, and browser path are covered
 automatically. The live representative P4 acceptance is recorded separately
@@ -306,11 +320,16 @@ fields, hard-cycle blockers, same-dataset hierarchy order, and schedule hash
 validation. Phase 3 adds bounded component paging, a 101-key crosswalk fixture
 that requires pages of 100 and 1 with no single-key service lookup, exact
 retarget rejection before the journal, and receipt-before-dependent-write
-event ordering.
+event ordering. Phase 4 adds exact in-flight checkpoints, restart reload,
+ephemeral recovery assessment, hash-bound recovery transitions, safe absent-
+create retry, exact optional-cycle completion resume, stop-on-known-rejection,
+and field-scope-grouped read-back.
 
 The implementation evidence is recorded in the
 [Phase 2 row-scheduling report](../reports/scalable-relationship-phase-2-row-scheduling-2026-08-28.md)
 and [Phase 3 bounded-execution report](../reports/scalable-relationship-phase-3-bounded-execution-2026-08-28.md).
+The [Phase 4 recovery report](../reports/scalable-relationship-phase-4-recovery-and-reconciliation-2026-08-28.md)
+records the interruption and resume evidence.
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by

@@ -2,7 +2,25 @@
 
 ## Status and proposed decision
 
-**Status:** Proposed. This workflow is not implemented.
+**Status:** In progress. The generalized output-difference engine, sparse
+native Polars/Parquet comparison, completed-load exact-target consolidation,
+bounded exact-ID read review, immutable whole-plan hashing, explicit
+write-identity confirmation, and encrypted correction-plan storage are
+implemented. Successor-workspace provisioning, correction-origin publication,
+run-owned current pointers and invalidation, correction writes, automatic
+verification, and the browser journey are not implemented yet.
+
+The implemented foundation deliberately has no write entry point. A
+blocker-free scalar review can be sealed into one protected plan and one
+separately bound write confirmation, but neither is an execution authority
+until the run-owned current pointer and just-in-time reread are implemented.
+Plan hashing is one whole-artifact operation; it does not add per-row or
+per-value hashes. The review supports scalar output differences from direct
+fields, value mappings, Selection outcomes, constants, fallbacks, and native
+transformations such as casing. It emits the same candidate contract for
+many-to-one keys, but the review returns a stable
+`RELATIONSHIP_NOT_QUALIFIED` blocker until the separate relationship
+qualification is complete.
 
 Add **Correct this Odoo load** as a governed successor workflow for a data
 manager who discovers a matching or transformation mistake after Impodo has

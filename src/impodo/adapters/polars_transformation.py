@@ -28,6 +28,7 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarSelectionRuleProgram,
     ColumnarTransformationProgram,
 )
+from ..domain.correction import CorrectionValueKind
 from ..domain.prepared_snapshot import PreparedSnapshot
 from ..domain.serialization import content_hash
 from ..domain.source_snapshot import (
@@ -67,6 +68,7 @@ POLARS_TRANSFORMATION_BATCH_ROWS = 1_000
 PREPARED_PARQUET_ROW_GROUP_ROWS = 5_000
 PREPARED_PARQUET_COMPRESSION = "zstd"
 _ISSUE_COLUMN = "__impodo_columnar_issues"
+PREPARED_ISSUE_COLUMN = _ISSUE_COLUMN
 PREPARED_ORDINAL_COLUMN = "__impodo_prepared_ordinal"
 _ERROR_REQUIRED = "__required__"
 _ERROR_PREPARED_REQUIRED = "__prepared_required__"
@@ -163,6 +165,22 @@ class _ExecutionLayout:
     target_scope: tuple[_IdentityComponentLayout, ...]
     relationships: tuple[_IdentityComponentLayout, ...]
     output_columns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedIntentColumn:
+    """Locate one writable typed intent in a native prepared artifact.
+
+    The physical aliases are an adapter detail exposed only so other Polars
+    adapters can reuse the already prepared values. Mapping-editor controls
+    are deliberately absent: a direct mapping, Selection rule, constant, or
+    casing transform all produce the same scalar intent contract.
+    """
+
+    target_field: str
+    value_kind: CorrectionValueKind
+    value_type: str
+    value_aliases: tuple[str, ...]
 
 
 def write_polars_prepared_snapshot(
@@ -526,6 +544,63 @@ def _execution_layout(
         relationships=relationships,
         output_columns=tuple(output_columns),
     )
+
+
+def prepared_intent_columns(
+    program: ColumnarTransformationProgram,
+) -> tuple[PreparedIntentColumn, ...]:
+    """Return writable field intents backed by native prepared columns."""
+
+    layout = _execution_layout(program)
+    intents = [
+        PreparedIntentColumn(
+            target_field=item.field.target_field,
+            value_kind=CorrectionValueKind.SCALAR,
+            value_type=item.field.value_type,
+            value_aliases=(item.value_alias,),
+        )
+        for item in layout.scalars
+        if item.field.compare and not item.field.validate_only
+    ]
+    intents.extend(
+        PreparedIntentColumn(
+            target_field=relationship.target_field,
+            value_kind=CorrectionValueKind.MANY2ONE,
+            value_type=relationship.key.value_type,
+            value_aliases=tuple(
+                value.value_alias for value in component.values
+            ),
+        )
+        for relationship, component in zip(
+            program.relationships,
+            layout.relationships,
+            strict=True,
+        )
+        if relationship.compare and not relationship.validate_only
+    )
+    return tuple(intents)
+
+
+def validate_prepared_intent_path(
+    path: str | Path,
+    prepared_snapshot: PreparedSnapshot,
+    program: ColumnarTransformationProgram,
+) -> Path:
+    """Validate bindings and cheap Parquet metadata for intent reuse.
+
+    Artifact byte verification remains the artifact store's responsibility;
+    this boundary intentionally does not re-hash a large prepared file.
+    """
+
+    _validate_prepared_bindings(prepared_snapshot, None, program)
+    prepared_path = Path(path).resolve()
+    physical_schema_hash = _read_prepared_schema_hash(
+        prepared_path,
+        expected_columns=_execution_layout(program).output_columns,
+    )
+    if physical_schema_hash != prepared_snapshot.physical_schema_hash:
+        raise SourceLoadError("Prepared snapshot physical schema changed")
+    return prepared_path
 
 
 def _validate_prepared_bindings(
@@ -2045,9 +2120,13 @@ __all__ = [
     "POLARS_TRANSFORMATION_BATCH_ROWS",
     "PREPARED_PARQUET_ROW_GROUP_ROWS",
     "PREPARED_ORDINAL_COLUMN",
+    "PREPARED_ISSUE_COLUMN",
+    "PreparedIntentColumn",
     "ColumnarPreparedSnapshotCandidate",
     "ColumnarTransformationBatch",
     "iter_polars_prepared_batches",
+    "prepared_intent_columns",
     "summarize_polars_rule_impacts",
+    "validate_prepared_intent_path",
     "write_polars_prepared_snapshot",
 ]

@@ -109,6 +109,13 @@ class _Journal:
             raise RuntimeError("P4 journal received an invalid outcome")
         self.rows.update({item.row_id: item for item in rows})
 
+    def record_batch_started(self, project_id, run_id, rows):
+        self.record_outcomes(project_id, run_id, rows)
+
+    def record_recovery(self, project_id, run_id, rows, *, actor):
+        del actor
+        self.record_outcomes(project_id, run_id, rows)
+
     def finish_run(self, project_id, run_id, status, *, actor):
         del actor
         if self.run is None or (project_id, run_id) != (

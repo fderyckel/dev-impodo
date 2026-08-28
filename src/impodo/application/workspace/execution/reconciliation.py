@@ -142,6 +142,61 @@ class ReconciliationService:
         report = ReconciliationRun.from_json(report.to_json())
         self.results.publish(workspace_id, report, actor=actor)
         return report
+
+    def assess_recovery(
+        self,
+        workspace_id: str,
+        *,
+        expected_execution_run_id: str,
+        reader: OdooReadbackReader,
+        actor: Actor,
+        write_identity: OdooWriteIdentity | None = None,
+        write_credential_binding_hash: str = "",
+    ) -> ReconciliationRun:
+        """Read an interrupted run without publishing final reconciliation."""
+
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_EXECUTE,
+            workspace_id=workspace_id,
+        )
+        run = self.execution.get_run(workspace_id, expected_execution_run_id)
+        current = self.execution.get_current_run(workspace_id)
+        if (
+            run is None
+            or current is None
+            or current.run_id != expected_execution_run_id
+            or run.status is not ExecutionRunStatus.RUNNING
+        ):
+            raise WorkspaceError("The interrupted Odoo load is no longer current")
+        _require_matching_write_identity(
+            run,
+            write_identity,
+            write_credential_binding_hash,
+        )
+        snapshot = self.preflight.execution_snapshot(
+            workspace_id,
+            run.preflight_run_id,
+        )
+        if (
+            snapshot.semantic_hash != run.snapshot_hash
+            or snapshot.root_hash != run.snapshot_root_hash
+            or snapshot.target_hash != run.target_hash
+            or snapshot.target_database != run.target_database
+            or reader.target_hash != run.target_hash
+            or reader.scope_hash != execution_api_scope(snapshot).semantic_hash
+        ):
+            raise WorkspaceError("The recovery connection or preview changed")
+        report = self._read_back(
+            run,
+            snapshot,
+            reader,
+            actor,
+            write_identity=write_identity,
+            write_credential_binding_hash=write_credential_binding_hash,
+        )
+        return ReconciliationRun.from_json(report.to_json())
+
     def _read_back(
         self,
         run: ExecutionRun,
@@ -283,7 +338,8 @@ class ReconciliationService:
         actual_by_row: dict[str, ReadbackRecord],
         reader: OdooReadbackReader,
     ) -> None:
-        by_model: dict[str, list[ExecutionRow]] = {}
+        by_scope: dict[tuple[str, tuple[str, ...]], list[ExecutionRow]] = {}
+        seen_ids: dict[str, set[int]] = {}
         for row_id, attempt in attempts.items():
             if (
                 attempt.status is ExecutionRowStatus.COMMITTED
@@ -291,23 +347,23 @@ class ReconciliationService:
             ):
                 raise WorkspaceError("A committed load row has no Odoo record")
             if attempt.odoo_id is not None:
-                by_model.setdefault(attempt.target_model, []).append(rows[row_id])
-        for model, model_rows in by_model.items():
+                model_ids = seen_ids.setdefault(attempt.target_model, set())
+                if attempt.odoo_id in model_ids:
+                    raise WorkspaceError("Load rows refer to the same Odoo record")
+                model_ids.add(attempt.odoo_id)
+                row = rows[row_id]
+                fields = tuple(
+                    sorted(
+                        intent.field
+                        for intent in row.fields
+                        if intent.action != "OMIT"
+                    )
+                )
+                by_scope.setdefault((attempt.target_model, fields), []).append(row)
+        for (model, fields), model_rows in by_scope.items():
             identifiers = {
                 attempts[row.row_id].odoo_id: row.row_id for row in model_rows
             }
-            if len(identifiers) != len(model_rows):
-                raise WorkspaceError("Load rows refer to the same Odoo record")
-            fields = tuple(
-                sorted(
-                    {
-                        intent.field
-                        for row in model_rows
-                        for intent in row.fields
-                        if intent.action != "OMIT"
-                    }
-                )
-            )
             ids = tuple(identifier for identifier in identifiers if identifier)
             for start in range(0, len(ids), MAX_READBACK_IDS):
                 records = reader.read_ids(
@@ -330,7 +386,11 @@ class ReconciliationService:
         by_model: dict[str, list[tuple[str, ReadbackLookup]]] = {}
         for row_id, attempt in attempts.items():
             if (
-                attempt.status is not ExecutionRowStatus.OUTCOME_UNKNOWN
+                attempt.status
+                not in {
+                    ExecutionRowStatus.OUTCOME_UNKNOWN,
+                    ExecutionRowStatus.IN_FLIGHT,
+                }
                 or attempt.odoo_id is not None
             ):
                 continue
@@ -498,6 +558,7 @@ class ReconciliationService:
                     ExecutionRowStatus.COMMITTED,
                     ExecutionRowStatus.PARTIALLY_APPLIED,
                     ExecutionRowStatus.OUTCOME_UNKNOWN,
+                    ExecutionRowStatus.IN_FLIGHT,
                 }
                 and resolved_id is not None
             ):
@@ -553,6 +614,15 @@ class ReconciliationService:
             execution_status=attempt.status.value,
             odoo_id=actual.odoo_id if actual is not None else attempt.odoo_id,
         )
+        if attempt.status in {
+            ExecutionRowStatus.PLANNED,
+            ExecutionRowStatus.RETRY_READY,
+        }:
+            return ReconciliationRow(
+                **common,
+                status=ReconciliationRowStatus.NOT_WRITTEN,
+                message="This row was not reached before the load stopped",
+            )
         if (
             attempt.status in {ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED}
             and attempt.odoo_id is None
@@ -563,7 +633,11 @@ class ReconciliationService:
                 message=attempt.safe_error or "Odoo did not receive this row",
             )
         if (
-            attempt.status is ExecutionRowStatus.OUTCOME_UNKNOWN
+            attempt.status
+            in {
+                ExecutionRowStatus.OUTCOME_UNKNOWN,
+                ExecutionRowStatus.IN_FLIGHT,
+            }
             and actual is None
             and attempt.odoo_id is None
         ):
@@ -631,8 +705,12 @@ class ReconciliationService:
             **common,
             status=ReconciliationRowStatus.VERIFIED,
             message=(
-                "The uncertain response was resolved by its business key"
-                if attempt.status is ExecutionRowStatus.OUTCOME_UNKNOWN
+                "The interrupted response was resolved by read-back"
+                if attempt.status
+                in {
+                    ExecutionRowStatus.OUTCOME_UNKNOWN,
+                    ExecutionRowStatus.IN_FLIGHT,
+                }
                 else "Odoo matches the confirmed load preview"
             ),
         )

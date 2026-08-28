@@ -105,8 +105,13 @@ into another run. Unchanged and blocked rows are not written.
 
 Do not blindly retry a timeout, connection reset, HTTP 422, or other unknown
 write outcome. First inspect the execution journal and reconcile the target.
-Retry only through the recorded recovery path after determining which rows, if
-any, were applied.
+Retry only through the recorded recovery path. Impodo first reads the exact
+affected fields back from Odoo and verifies every earlier group of records. It
+can retry an interrupted create only when no matching record exists. If a
+created record is waiting for an optional relationship, recovery writes only
+the relationship fields that were already part of **Check changes**. A changed
+target, ambiguous record, missing receipt, or changed loading identity stops
+recovery and requires **Check changes** again.
 
 ## What makes this work stale
 

@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted implementation plan, revised 2026-08-28. Phases 0 through
-3 are complete, and Phase 4 is next. The remaining plan is not current
+4 are complete, and Phase 5 is next. The remaining plan is not current
 browser behavior and does not authorize a Production load.
 
 The current implementation orders related datasets and rows before their
@@ -13,6 +13,9 @@ schedule to the execution snapshot, and stops before target I/O when a row
 dependency cannot be scheduled. Execution now revalidates existing targets in
 bounded crosswalk pages, consumes bounded component pages, and requires a
 journalled create receipt before a dependent write.
+Every Odoo transport batch is now journalled as in flight before the call.
+After a process interruption, exact read-back must prove earlier components
+and classify the interrupted rows before the same run can resume.
 
 This plan extends the current generic relationship contract. It does not add
 special executor branches for Products, units of measure, categories, bills of
@@ -582,6 +585,20 @@ values.
 
 **Exit result:** process restart, known rejection, unknown outcome, and partial
 relationship completion each have deterministic evidence-backed recovery.
+
+**Completed 2026-08-28:** Each attempt stores its schedule component,
+component page, global transport batch, and create, update, or completion
+phase inside the existing durable row journal. A process restart reloads an
+exact `IN_FLIGHT` batch. `ReconciliationService.assess_recovery` reads a
+running execution without publishing a final result, groups exact requested
+field scopes, and proves the schedule's final scalar and relationship values.
+`ExecutionService.resume` atomically records the recovery-report hash across
+the run, revalidates the target crosswalk, and retries only an absent create,
+an exact update whose reviewed fields still differ, or the frozen deferred
+fields of a partially applied create. A known rejection stops independent
+later components. The [Phase 4 recovery
+report](../reports/scalable-relationship-phase-4-recovery-and-reconciliation-2026-08-28.md)
+records the implementation and verification evidence.
 
 ### Phase 5: expose progressive user guidance
 
