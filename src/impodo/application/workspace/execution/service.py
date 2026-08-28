@@ -22,6 +22,7 @@ from impodo.domain.execution_snapshot import (
     ExecutionRow,
     ExecutionSnapshot,
     FieldIntent,
+    dependency_ordered_execution_datasets,
 )
 from impodo.domain.shared.models import (
     BusinessReference,
@@ -551,6 +552,9 @@ class ExecutionService:
                 source_cache,
                 identity_cache,
                 executor,
+                progress=lambda: report_progress(
+                    replace(run, rows=tuple(recorded.values()))
+                ),
             )
             report_progress(replace(run, rows=tuple(recorded.values())))
 
@@ -736,6 +740,7 @@ class ExecutionService:
         source_cache: dict[tuple[str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
+        progress: Callable[[], None],
     ) -> bool:
         """Patch deferred create relationships after all first-pass creates."""
 
@@ -770,6 +775,7 @@ class ExecutionService:
                 )
                 self.journal.record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
+                progress()
                 return True
             except (WorkspaceError, OdooWriteRejected) as error:
                 outcome = replace(
@@ -787,6 +793,7 @@ class ExecutionService:
                 )
             self.journal.record_outcomes(workspace_id, run_id, (outcome,))
             recorded[row.row_id] = outcome
+            progress()
         return False
 
     def _row_values(
@@ -1329,6 +1336,25 @@ def _execution_snapshot_error(
         return "Configure the exact Odoo load target first"
     if not snapshot.target_odoo_version.startswith("19."):
         return "The schema-bound load path requires Odoo 19"
+    sequenced_datasets = tuple(
+        sorted(snapshot.datasets, key=lambda item: item.sequence)
+    )
+    try:
+        dependency_ordered = dependency_ordered_execution_datasets(
+            sequenced_datasets
+        )
+    except ValueError:
+        return (
+            "The reviewed dataset dependency order is invalid. Compare with "
+            "Odoo again before loading."
+        )
+    if tuple(dataset.dataset for dataset in sequenced_datasets) != tuple(
+        dataset.dataset for dataset in dependency_ordered
+    ):
+        return (
+            "The reviewed dataset order is stale. Compare with Odoo again so "
+            "dependencies are loaded first."
+        )
     write_rows = tuple(row for row in snapshot.rows if row.fields)
     if not write_rows:
         return NO_WRITE_ROWS_MESSAGE

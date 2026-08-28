@@ -90,9 +90,9 @@
         </div>
       </div>
       <p class="muted" data-load-guidance>
-        {% if job.phase.value == 'VERIFYING' %}Impodo is now checking the saved results against Odoo.{% else %}Accepted totals are not called verified until Impodo reads the completed records back from Odoo.{% endif %}
+        {% if job.phase.value == 'VERIFYING' %}Impodo is now checking the saved results against Odoo.{% elif job.phase.value == 'RELATIONSHIPS' %}The records exist in Odoo. Impodo is finishing their reviewed relationships before verification.{% else %}Accepted totals are not called verified until Impodo reads the completed records back from Odoo.{% endif %}
       </p>
-      <p class="muted" data-load-relationships {% if not job.relationship_pending_count %}hidden{% endif %}>Some new records are waiting for their relationship step.</p>
+      <p class="muted" data-load-relationships {% if not job.relationship_pending_count %}hidden{% endif %}>{{ job.relationship_pending_count }} new record{{ 's' if job.relationship_pending_count != 1 else '' }} still need their reviewed relationships.</p>
     </section>
 
     <section class="next-action-card blocked" data-load-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>

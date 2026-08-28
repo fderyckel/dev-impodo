@@ -238,13 +238,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (relationships) {
         relationships.hidden = !job.relationship_pending_count;
         relationships.textContent = job.relationship_pending_count
-          ? `${Number(job.relationship_pending_count).toLocaleString()} new record(s) are waiting for their relationship step.`
+          ? `${Number(job.relationship_pending_count).toLocaleString()} new record(s) still need their reviewed relationships.`
           : "";
       }
       if (guidance) {
         guidance.textContent = job.phase === "VERIFYING"
           ? "Impodo is now checking the saved results against Odoo."
-          : "Accepted totals are not called verified until Impodo reads the completed records back from Odoo.";
+          : job.phase === "RELATIONSHIPS"
+            ? "The records exist in Odoo. Impodo is finishing their reviewed relationships before verification."
+            : "Accepted totals are not called verified until Impodo reads the completed records back from Odoo.";
       }
       if (spinner) spinner.hidden = !active;
       if (activeActions) activeActions.hidden = !active;

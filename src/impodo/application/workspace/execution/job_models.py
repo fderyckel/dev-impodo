@@ -24,6 +24,7 @@ class LoadPhase(StrEnum):
     QUEUED = "QUEUED"
     CHECKING_TARGET = "CHECKING_TARGET"
     WRITING = "WRITING"
+    RELATIONSHIPS = "RELATIONSHIPS"
     VERIFYING = "VERIFYING"
     COMPLETE = "COMPLETE"
 
@@ -32,6 +33,7 @@ LOAD_PHASE_LABELS: dict[LoadPhase, str] = {
     LoadPhase.QUEUED: "Waiting to start",
     LoadPhase.CHECKING_TARGET: "Checking the Odoo connection",
     LoadPhase.WRITING: "Sending records to Odoo",
+    LoadPhase.RELATIONSHIPS: "Finishing record relationships in Odoo",
     LoadPhase.VERIFYING: "Verifying the completed records in Odoo",
     LoadPhase.COMPLETE: "Odoo load finished",
 }

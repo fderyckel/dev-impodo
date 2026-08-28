@@ -17,7 +17,7 @@ from impodo.domain.execution.models import (
     ExecutionRunStatus,
 )
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
-from impodo.application.workspace.execution.job_models import LoadJobStatus
+from impodo.application.workspace.execution.job_models import LoadJobStatus, LoadPhase
 from impodo.application.workspace.access import WorkspaceAccessContext
 
 
@@ -171,6 +171,45 @@ class LoadJobManagerTests(unittest.TestCase):
             manager.latest_many((WORKSPACE_ID,))[WORKSPACE_ID],
             finished,
         )
+
+    def test_reports_relationship_work_after_first_pass_writes(self) -> None:
+        manager = LoadJobManager()
+        relationship_phase = Event()
+        release = Event()
+
+        def work(_access_context, report_writing, report_verifying):
+            report_writing(_run(terminal=False))
+            relationship_phase.set()
+            release.wait(1)
+            report_verifying(_run(terminal=True))
+            return LoadJobResult(
+                execution_run_id="11111111-1111-4111-8111-111111111111",
+                verification_complete=False,
+            )
+
+        queued = manager.enqueue(
+            WORKSPACE_ID,
+            "Customer migration",
+            target_database="migration",
+            target_server="odoo.example.test",
+            target_environment="Test",
+            total_rows=3,
+            access_context=_access_context(),
+            work=work,
+        )
+        self.assertTrue(relationship_phase.wait(1))
+
+        active = manager.get(WORKSPACE_ID, queued.job_id)
+
+        self.assertEqual(active.phase, LoadPhase.RELATIONSHIPS)
+        self.assertEqual(active.completed_rows, 2)
+        self.assertEqual(active.created_count, 2)
+        self.assertEqual(active.relationship_pending_count, 1)
+        self.assertGreaterEqual(active.progress_percent, 82)
+        self.assertLess(active.progress_percent, 90)
+        release.set()
+        _wait_for_terminal(manager, queued.job_id)
+        manager.shutdown()
 
     def test_duplicate_submission_reuses_the_active_job(self) -> None:
         manager = LoadJobManager()

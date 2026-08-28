@@ -334,7 +334,19 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
         ExecutionRowStatus.COMMITTED,
         ExecutionRowStatus.PARTIALLY_APPLIED,
     }
-    completed_rows = run.total_count - run.planned_count
+    relationship_pending_count = sum(
+        row.status is ExecutionRowStatus.PARTIALLY_APPLIED for row in run.rows
+    )
+    completed_rows = sum(
+        row.status
+        not in {
+            ExecutionRowStatus.PLANNED,
+            ExecutionRowStatus.PARTIALLY_APPLIED,
+        }
+        for row in run.rows
+    )
+    if run.status is not ExecutionRunStatus.RUNNING:
+        completed_rows = run.total_count - run.planned_count
     created_count = sum(
         row.operation == "CREATE" and row.status in committed for row in run.rows
     )
@@ -342,9 +354,6 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
         row.operation == "UPDATE"
         and row.status is ExecutionRowStatus.COMMITTED
         for row in run.rows
-    )
-    relationship_pending_count = sum(
-        row.status is ExecutionRowStatus.PARTIALLY_APPLIED for row in run.rows
     )
     attention_statuses = {
         ExecutionRowStatus.FAILED,
@@ -354,12 +363,36 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
     attention_count = sum(row.status in attention_statuses for row in run.rows)
     if run.status is not ExecutionRunStatus.RUNNING:
         attention_count += relationship_pending_count
-    fraction = completed_rows / run.total_count if run.total_count else 0.0
-    percent = min(82, 8 + round(74 * max(0.0, min(1.0, fraction))))
+    effective_phase = (
+        LoadPhase.RELATIONSHIPS
+        if phase is LoadPhase.WRITING
+        and run.planned_count == 0
+        and (
+            relationship_pending_count
+            or job.phase is LoadPhase.RELATIONSHIPS
+        )
+        else phase
+    )
+    attempted_rows = run.total_count - run.planned_count
+    attempted_fraction = (
+        attempted_rows / run.total_count if run.total_count else 0.0
+    )
+    percent = min(
+        82,
+        8 + round(74 * max(0.0, min(1.0, attempted_fraction))),
+    )
+    if effective_phase is LoadPhase.RELATIONSHIPS:
+        settled_fraction = (
+            completed_rows / run.total_count if run.total_count else 0.0
+        )
+        percent = min(
+            89,
+            82 + round(7 * max(0.0, min(1.0, settled_fraction))),
+        )
     return replace(
         job,
-        phase=phase,
-        message=LOAD_PHASE_LABELS[phase],
+        phase=effective_phase,
+        message=LOAD_PHASE_LABELS[effective_phase],
         total_rows=run.total_count,
         completed_rows=completed_rows,
         created_count=created_count,

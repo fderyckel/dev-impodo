@@ -138,6 +138,24 @@ class ExecutionSnapshotTests(unittest.TestCase):
             if row.disposition not in {"CREATE", "UPDATE"}:
                 self.assertEqual(row.fields, ())
 
+    def test_snapshot_orders_incoming_dependencies_before_their_consumers(self) -> None:
+        frozen, result = _execution_fixture()
+        frozen.plan = frozen.plan.model_copy(
+            update={"datasets": tuple(reversed(frozen.plan.datasets))}
+        )
+
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=result,
+        )
+
+        sequence = {dataset.dataset: dataset.sequence for dataset in snapshot.datasets}
+        self.assertLess(sequence["assets"], sequence["asset_lines"])
+        for dataset in snapshot.datasets:
+            for dependency in dataset.dependencies:
+                self.assertLessEqual(sequence[dependency], sequence[dataset.dataset])
+
     def test_create_and_update_intentions_are_explicit_and_portable(self) -> None:
         frozen, result = _execution_fixture()
         snapshot = build_execution_snapshot(

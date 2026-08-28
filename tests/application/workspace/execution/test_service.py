@@ -638,6 +638,25 @@ class ExecutionServiceTests(unittest.TestCase):
             sorted(item.total_count - item.planned_count for item in progress),
         )
 
+    def test_stale_dependency_order_is_blocked_before_any_odoo_write(self):
+        snapshot = _snapshot()
+        stale = replace(
+            snapshot,
+            datasets=(
+                replace(snapshot.datasets[1], sequence=0),
+                replace(snapshot.datasets[0], sequence=1),
+                snapshot.datasets[2],
+            ),
+        )
+        service, _journal = self._service(stale)
+
+        preview = service.current_preview(stale.workspace_id)
+
+        self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertFalse(preview.can_load)
+        self.assertIn("dependencies are loaded first", preview.scope_error)
+
     def test_remote_load_journals_exact_write_principal_evidence(self):
         snapshot = _snapshot()
         service, journal = self._service(
@@ -1674,6 +1693,47 @@ class ExecutionServiceTests(unittest.TestCase):
             executor.updates,
             [("x.first.node", 10, {"second_id": 11})],
         )
+
+    def test_deferred_relationship_progress_advances_after_each_odoo_call(self):
+        snapshot = _remote_cycle_snapshot()
+        first = snapshot.rows[0]
+        another_first = replace(
+            first,
+            row_id="sha256:" + f"{22:064x}",
+            source_row=22,
+            source_trace_id="sha256:" + f"{122:064x}",
+            source_identity=("FIRST-2",),
+            business_identity=("FIRST-2",),
+            proposed_external_id="impodo_test.first_nodes_22",
+            fields=(replace(first.fields[0], value="FIRST-2"), first.fields[1]),
+        )
+        snapshot = replace(
+            snapshot,
+            rows=(first, another_first, snapshot.rows[1]),
+            counts={
+                "CREATE": 3,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        progress = []
+
+        run = service.execute(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=_Executor(execution_api_scope(snapshot).semantic_hash),
+            actor=LOCAL_ACTOR,
+            progress=progress.append,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertIn(1, [item.partially_applied_count for item in progress])
 
     def test_required_at_create_cycle_is_blocked_before_write(self):
         snapshot = _remote_cycle_snapshot(required_at_create=True)

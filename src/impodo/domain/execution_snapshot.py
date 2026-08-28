@@ -370,7 +370,7 @@ def build_execution_snapshot(
     counts = result.counts
     if len(row_tuple) != sum(counts.values()):
         raise ValueError("Preflight decision accounting is incomplete")
-    datasets = tuple(
+    unordered_datasets = tuple(
         ExecutionDataset(
             dataset=dataset.name,
             target_model=dataset.target.model,
@@ -383,6 +383,12 @@ def build_execution_snapshot(
             scope_fields=_identity_fields(dataset.target_identity.scope),
         )
         for sequence, dataset in enumerate(frozen.plan.datasets)
+    )
+    datasets = tuple(
+        replace(dataset, sequence=sequence)
+        for sequence, dataset in enumerate(
+            dependency_ordered_execution_datasets(unordered_datasets)
+        )
     )
     schema = getattr(frozen, "captured_schema", None)
     snapshot = ExecutionSnapshot(
@@ -807,6 +813,108 @@ def _dataset_dependencies(dataset: DatasetSpec) -> tuple[str, ...]:
         if component.resolve is not None and component.resolve.dataset is not None
     )
     return tuple(sorted(str(item) for item in dependencies))
+
+
+def dependency_ordered_execution_datasets(
+    datasets: tuple[ExecutionDataset, ...],
+) -> tuple[ExecutionDataset, ...]:
+    """Place dependency components before their consumers deterministically.
+
+    Optional incoming relationships may contain cycles because execution can
+    finish those fields in a second write pass.  Strongly connected datasets
+    therefore stay together in their reviewed order, while every acyclic
+    dependency component moves before the datasets that consume it.
+    """
+
+    if not datasets:
+        return ()
+    by_name = {dataset.dataset: dataset for dataset in datasets}
+    if len(by_name) != len(datasets):
+        raise ValueError("execution snapshot contains duplicate datasets")
+    rank = {dataset.dataset: index for index, dataset in enumerate(datasets)}
+    dependencies: dict[str, tuple[str, ...]] = {}
+    for dataset in datasets:
+        dependencies[dataset.dataset] = tuple(
+            sorted(
+                set(dataset.dependencies).intersection(by_name),
+                key=rank.__getitem__,
+            )
+        )
+
+    next_index = 0
+    indices: dict[str, int] = {}
+    low_links: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    components: list[tuple[str, ...]] = []
+
+    def collect_component(name: str) -> None:
+        nonlocal next_index
+        indices[name] = next_index
+        low_links[name] = next_index
+        next_index += 1
+        stack.append(name)
+        on_stack.add(name)
+        for dependency in dependencies[name]:
+            if dependency not in indices:
+                collect_component(dependency)
+                low_links[name] = min(low_links[name], low_links[dependency])
+            elif dependency in on_stack:
+                low_links[name] = min(low_links[name], indices[dependency])
+        if low_links[name] != indices[name]:
+            return
+        members: list[str] = []
+        while True:
+            member = stack.pop()
+            on_stack.remove(member)
+            members.append(member)
+            if member == name:
+                break
+        components.append(tuple(sorted(members, key=rank.__getitem__)))
+
+    for dataset in datasets:
+        if dataset.dataset not in indices:
+            collect_component(dataset.dataset)
+
+    component_by_name = {
+        name: component_index
+        for component_index, component in enumerate(components)
+        for name in component
+    }
+    following = {index: set() for index in range(len(components))}
+    indegree = {index: 0 for index in range(len(components))}
+    for owner, owner_dependencies in dependencies.items():
+        owner_component = component_by_name[owner]
+        for dependency in owner_dependencies:
+            dependency_component = component_by_name[dependency]
+            if dependency_component == owner_component:
+                continue
+            if owner_component not in following[dependency_component]:
+                following[dependency_component].add(owner_component)
+                indegree[owner_component] += 1
+
+    component_rank = {
+        index: min(rank[name] for name in component)
+        for index, component in enumerate(components)
+    }
+    ready = sorted(
+        (index for index, count in indegree.items() if count == 0),
+        key=component_rank.__getitem__,
+    )
+    ordered_names: list[str] = []
+    while ready:
+        component_index = ready.pop(0)
+        ordered_names.extend(components[component_index])
+        for follower in sorted(
+            following[component_index], key=component_rank.__getitem__
+        ):
+            indegree[follower] -= 1
+            if indegree[follower] == 0:
+                ready.append(follower)
+                ready.sort(key=component_rank.__getitem__)
+    if len(ordered_names) != len(datasets):
+        raise ValueError("execution snapshot dependency order is incomplete")
+    return tuple(by_name[name] for name in ordered_names)
 
 
 def _identity_fields(
