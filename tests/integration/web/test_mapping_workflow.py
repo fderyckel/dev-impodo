@@ -27,7 +27,6 @@ from tests.support.browser_scenarios import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
-    ScalarValueSource,
     TargetFieldHandling,
     TargetRecord,
     ValueMapping,
