@@ -1,4 +1,4 @@
-"""Coordinate completed-load origin publication and scalar correction review.
+"""Coordinate completed-load origin publication and focused correction review.
 
 The coordinator composes existing run, workspace, mapping, preparation,
 columnar, target-read, and protected-evidence owners.  It persists only one
@@ -858,7 +858,7 @@ class CorrectionReviewPipeline(Protocol):
 
 
 class CorrectionReviewOrchestrator:
-    """Resume existing stages and publish one deterministic current scalar plan."""
+    """Resume existing stages and publish one deterministic current plan."""
 
     def __init__(
         self,

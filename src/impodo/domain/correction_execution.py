@@ -1,4 +1,4 @@
-"""Bind a confirmed scalar correction to one lean execution snapshot.
+"""Bind a confirmed completed-load correction to one lean execution snapshot.
 
 The protected correction plan remains the authority for exact Odoo IDs and
 values.  This snapshot groups that plan into update records while hashing only

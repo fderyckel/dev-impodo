@@ -71,11 +71,20 @@ from Odoo only by protected exact identifiers. Browser projections receive
 only counts and blocker messages; numeric identifiers, field values,
 credentials, and evidence hashes remain protected.
 
-The first write boundary is scalar only. Formula-like transformations,
-Selection choices, constants, fallbacks, source-field choices, and casing all
-produce the same corrected-intent comparison when their scalar output changes.
-Relationship candidates and target-field moves fail closed pending separate
-qualification.
+Formula-like transformations, Selection choices, constants, fallbacks,
+source-field choices, and casing all produce the same corrected-intent
+comparison when their scalar output changes. Exact-existing many-to-one
+changes use the same three-way decision after `CorrectionReviewService`
+resolves each distinct previous and corrected business key once. It submits at
+most 20 exact keys in one `find_records_many` call, requires one case-sensitive
+match, and caches that protected identity for every affected candidate row.
+Missing, duplicate, unsupported, and changed-field matches block the whole
+plan.
+
+The protected plan stores only the resolved relationship IDs needed by the
+parent field. Apply does not search again. Its scoped writer can update the
+parent model and field only; the related model receives no create or update
+capability.
 
 **Apply N corrections** requires an explicit checkbox and a separately resolved
 write credential. The route probes the narrow write scope, publishes a
@@ -192,6 +201,7 @@ recorded outcome.
 | Correction browser orchestration | [`CorrectionWorkflowService`](../../../src/impodo/application/correction_workflow.py) |
 | Resumable correction jobs | [`CorrectionJobManager`](../../../src/impodo/application/correction_jobs.py) |
 | Correction origin and review owners | [`correction_orchestration.py`](../../../src/impodo/application/correction_orchestration.py) |
+| Exact-target and relationship correction review | [`CorrectionReviewService`](../../../src/impodo/application/correction_service.py) |
 | Protected exact-ID correction execution | [`CorrectionExecutionService`](../../../src/impodo/application/correction_execution.py) |
 | Native sparse review pipeline | [`NativeCorrectionReviewPipeline`](../../../src/impodo/adapters/correction_review_pipeline.py) |
 | Polars and Parquet sparse reduction | [`write_polars_correction_candidates`](../../../src/impodo/adapters/polars_correction.py) |
@@ -254,7 +264,7 @@ Creates are grouped by compatible field shape and sent in bounded batches.
 Existing-row and target-relationship identities are resolved in bounded bulk
 queries; relationship count therefore does not create per-row lookup traffic.
 Ordinary load updates still call `update_row` once per changed record. The
-completed-load scalar correction path may group up to 50 exact IDs only when
+completed-load correction path may group up to 50 exact IDs only when
 their sparse field payload is identical. Every affected row is journalled
 `IN_FLIGHT` before that shared call, and an unknown batch outcome remains
 unknown for every included row until automatic exact-ID reconciliation.
@@ -284,6 +294,7 @@ authorization.
 - [`tests/application/test_correction_jobs.py`](../../../tests/application/test_correction_jobs.py)
 - [`tests/application/test_correction_orchestration.py`](../../../tests/application/test_correction_orchestration.py)
 - [`tests/application/test_correction_execution.py`](../../../tests/application/test_correction_execution.py)
+- [`tests/integration/columnar/test_polars_correction.py`](../../../tests/integration/columnar/test_polars_correction.py)
 
 Verify scope enforcement, dependency order, create batching, update behavior,
 journal-before-transport, unknown outcomes, deferred relationships,

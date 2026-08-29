@@ -390,6 +390,7 @@ stages:
       - src/impodo/application/correction_orchestration.py::CorrectionOriginPublisher
       - src/impodo/application/correction_orchestration.py::CorrectionSuccessorService
       - src/impodo/application/correction_orchestration.py::CorrectionReviewOrchestrator
+      - src/impodo/application/correction_service.py::CorrectionReviewService
       - src/impodo/application/correction_execution.py::CorrectionExecutionService
       - src/impodo/adapters/correction_review_pipeline.py::NativeCorrectionReviewPipeline
       - src/impodo/adapters/polars_correction.py::write_polars_correction_candidates
@@ -421,6 +422,7 @@ stages:
       - tests/application/test_correction_jobs.py
       - tests/application/test_correction_orchestration.py
       - tests/application/test_correction_execution.py
+      - tests/integration/columnar/test_polars_correction.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md
     references:

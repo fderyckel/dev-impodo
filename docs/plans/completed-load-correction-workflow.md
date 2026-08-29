@@ -2,7 +2,7 @@
 
 ## Status and proposed decision
 
-**Status:** In progress. Phases 1, 2, 3, and 4 are implemented at the domain,
+**Status:** In progress. Phases 1 through 5 are implemented at the domain,
 application, protected-evidence, registry, execution, reconciliation, and
 focused browser boundaries. A verified completed
 Authoring load can now publish one encrypted lean origin manifest and compact
@@ -12,25 +12,26 @@ workspace over the same frozen DataVersion, copies only credential-free target
 setup, seeds the prior rules as an explicitly unverified draft, orders mapping,
 native preparation, quality, and fresh target-read owners, reduces `A/C` with
 Polars, reads `B` only for sparse candidates, and publishes one current
-protected scalar plan. Mapping or prepared-evidence changes clear that pointer.
-Confirmed scalar corrections now use exact protected identifiers, a bounded
+protected correction plan. Mapping or prepared-evidence changes clear that pointer.
+Confirmed corrections now use exact protected identifiers, a bounded
 just-in-time reread, the existing durable journal, compatible update batches,
 and automatic exact-ID reconciliation. The browser now provides one safe
 successor journey with resumable review/apply progress and compact public
 counts.
 
 The implemented browser has no generic correction write entry point. A
-blocker-free scalar review is sealed into one protected plan and one separately
+blocker-free review is sealed into one protected plan and one separately
 bound write confirmation. Apply re-probes the write identity,
 checks the run-owned current pointers, and performs a just-in-time exact-ID
 reread before the execution journal or any Odoo write is created.
 Plan hashing is one whole-artifact operation; it does not add per-row or
 per-value hashes. The review supports scalar output differences from direct
 fields, value mappings, Selection outcomes, constants, fallbacks, and native
-transformations such as casing. It emits the same candidate contract for
-many-to-one keys, but the review returns a stable
-`RELATIONSHIP_NOT_QUALIFIED` blocker until the separate relationship
-qualification is complete.
+transformations such as casing. Exact-existing many-to-one changes resolve
+each distinct case-sensitive key in bounded groups, require exactly one Odoo
+match, and bind only the resolved relationship identity into the protected
+plan. Apply can update only the parent field and cannot create or update the
+related record.
 
 Add **Correct this Odoo load** as a governed successor workflow for a data
 manager who discovers a matching or transformation mistake after Impodo has
@@ -42,10 +43,10 @@ data manager only for the corrected rule, recalculates every dependent result,
 and proposes only the fields that genuinely need correction.
 
 This plan covers the product workflow, lean evidence model, implementation
-slices, Odoo 19 boundary, performance controls, and acceptance gates. The first
-delivery supports scalar corrections. Exact-existing many-to-one corrections
-follow only after the scalar path qualifies independently. This plan does not
-make the proposed buttons or write capability current behavior.
+slices, Odoo 19 boundary, performance controls, and acceptance gates. Scalar
+and exact-existing many-to-one corrections are current Authoring behavior.
+Phase 6 still owns measured local and remote Odoo 19 scale qualification and
+any decision about broader correction scopes.
 
 ## Reader and intended outcome
 
@@ -780,7 +781,7 @@ probe. Zero-change review has no write action; blockers remove it. Current user
 and developer workflow pages, workflow ownership, BPMN, code map, and browser
 tests now describe and verify the implemented boundary.
 
-### Phase 5: qualify exact-existing many-to-one corrections
+### Phase 5: qualify exact-existing many-to-one corrections — complete
 
 Reuse the relationship resolver in bounded groups, preserve case-sensitive
 matching, prefer one exact existing Odoo record over an identical proposed
@@ -791,6 +792,20 @@ Never update or create the related record in this phase.
 **Exit result:** the 37 `UNI` Products point to the exact standard Odoo Unit
 record; `PCE`, `Kg`, and `m` retain their governed meanings; connector calls do
 not grow one-for-one with Product rows.
+
+Implemented by the relationship metadata in the native columnar program,
+`adapters/polars_correction.py`, `application/correction_service.py`, and the
+existing exact-ID correction executor. Polars applies reviewed relationship
+value matches while reducing the previous and corrected Parquet intents.
+`CorrectionReviewService` caches distinct lookups across candidate batches and
+submits at most 20 keys per connector call. It accepts only one exact existing
+record for both the previous and corrected intent, converts the current Odoo
+many-to-one value to its protected ID, and uses the same three-way decision.
+The confirmed plan and journal carry only the exact Product target and resolved
+relationship IDs. The execution scope contains no related-model writes and
+performs no business-key search. The 37-Product acceptance fixture uses two
+relationship keys, one bounded lookup call, one exact Product read page, and
+zero writes to `uom.uom`.
 
 ### Phase 6: qualify scale and consider broader scopes
 
@@ -893,7 +908,7 @@ write capability is inferred from the initial success.
 
 ## Completion criteria
 
-The first supported scalar correction workflow is complete only when:
+The implemented correction workflow is complete only when:
 
 - one immutable origin manifest references existing completed evidence and one
   compact protected index covers every in-scope source row and exact target;
@@ -904,8 +919,9 @@ The first supported scalar correction workflow is complete only when:
 - previous and corrected intent use the compiled Polars and Parquet path without
   Python source-row processing;
 - the plan contains zero creates and only exact protected target identifiers;
-- scalar writes pass their Odoo 19 qualification independently of later
-  relationship support;
+- scalar writes pass their Odoo 19 qualification independently;
+- exact-existing many-to-one review resolves each distinct key once, writes
+  only the parent field, and grants no related-model write capability;
 - no target read or read-back N+1 path remains;
 - integrity verification, Parquet scanning, and plan hashing obey their stated
   per-attempt bounds;

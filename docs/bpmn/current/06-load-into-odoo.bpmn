@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_LoadOdoo" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
   <bpmn:process id="Process_LoadOdoo" name="Load into Odoo" isExecutable="false">
-    <bpmn:documentation>Current disposable-target execution, read-back reconciliation, and scalar completed-load correction workflow.</bpmn:documentation>
+    <bpmn:documentation>Current disposable-target execution, read-back reconciliation, and completed-load correction workflow.</bpmn:documentation>
     <bpmn:laneSet id="LaneSet_Process_LoadOdoo">
       <bpmn:lane id="Lane_DataManager" name="Data manager">
         <bpmn:flowNodeRef>Start_Load</bpmn:flowNodeRef>
@@ -149,7 +149,7 @@
       <bpmn:incoming>Flow_LOAD_28</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_29</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:serviceTask id="Task_ReviewCorrection" name="Prepare with Polars and compare changed scalar intent by exact ID">
+    <bpmn:serviceTask id="Task_ReviewCorrection" name="Prepare with Polars and compare changed field intent by exact ID">
       <bpmn:incoming>Flow_LOAD_29</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_30</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -215,7 +215,7 @@
     <bpmn:messageFlow id="Message_LOAD_ReadBack" name="Read exact affected scope" sourceRef="Task_ReadBack" targetRef="Participant_Odoo" />
     <bpmn:messageFlow id="Message_LOAD_ReadBackResponse" name="Current record state" sourceRef="Participant_Odoo" targetRef="Task_ReadBack" />
     <bpmn:messageFlow id="Message_LOAD_CorrectionRead" name="Read changed-intent fields by exact ID" sourceRef="Task_ReviewCorrection" targetRef="Participant_Odoo" />
-    <bpmn:messageFlow id="Message_LOAD_CorrectionWrite" name="Bounded exact-ID scalar updates and read-back" sourceRef="Task_ExecuteCorrection" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_LOAD_CorrectionWrite" name="Bounded exact-ID field updates and read-back" sourceRef="Task_ExecuteCorrection" targetRef="Participant_Odoo" />
   </bpmn:collaboration>
   <bpmndi:BPMNDiagram id="Diagram_Process_LoadOdoo">
     <bpmndi:BPMNPlane id="Plane_Process_LoadOdoo" bpmnElement="Collaboration_Process_LoadOdoo">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import polars as pl
+import duckdb
 
 from impodo.application.correction_service import (
     CorrectionReviewService,
@@ -25,6 +27,9 @@ from impodo.adapters.correction_review_pipeline import (
     NativeCorrectionReviewPipeline,
 )
 from impodo.adapters.polars_transformation import write_polars_prepared_snapshot
+from impodo.adapters.duckdb.native_prepared_projection import (
+    projected_encoded_rows_sql,
+)
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarSupport,
     compile_columnar_transformation_program,
@@ -60,6 +65,7 @@ from impodo.domain.reconciliation import (
     ReconciliationRowStatus,
     ReconciliationRunStatus,
 )
+from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
 from impodo.domain.shared.models import target_record_binding_hash
 from impodo.domain.shared.access import Actor, ActorIdentity
 from impodo.domain.shared.models import OdooReadIdentity
@@ -679,6 +685,28 @@ class PolarsCorrectionTests(unittest.TestCase):
             corrected_program,
             self.root / "target-relationship-candidates.parquet",
         )
+        projection = PreparedCanonicalProjection(
+            dataset_id=DATASET_ID,
+            dataset="products",
+            ordinal_start=0,
+            row_count=1,
+            mode=corrected_program.target_mode,
+            source_hash=self.source_snapshot.content_hash,
+            physical_dataset_id=DATASET_ID,
+            field_sources={},
+            program=corrected_program,
+            set_based_projection=True,
+        )
+        with duckdb.connect() as connection:
+            projected = connection.execute(
+                projected_encoded_rows_sql(projection),
+                [str(corrected_path), 0, 1],
+            ).fetchone()
+        assert projected is not None
+        reference = json.loads(projected[-1])["references"]["categ_id"]
+        self.assertEqual(reference["origin"], "target")
+        self.assertEqual(reference["model"], "product.category")
+        self.assertEqual(reference["key"], ["Consumer"])
         reader = _FakeReadbackReader(
             {71: {"categ_id": [90, "Retail"]}},
             relationship_ids={

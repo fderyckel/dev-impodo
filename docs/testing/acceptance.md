@@ -276,6 +276,9 @@ certification remain pending.
   verified outcome, never target IDs, business values, hashes, or credentials;
 - the correction page proposes zero creates and requires explicit confirmation
   of the current record count before the exact-ID journalled update path;
+- 37 Products can move from `UNI` to the one existing standard Unit through
+  two distinct case-sensitive relationship lookups, while the write scope
+  contains no `uom.uom` field and sends no related-record write;
 - **Check changes** shows at most five snapshot-derived load groups and five
   grouped actionable blocker categories without source values or row IDs;
 - browser progress does not count planned, in-flight, retry-ready, or

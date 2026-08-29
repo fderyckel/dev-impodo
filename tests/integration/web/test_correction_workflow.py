@@ -138,6 +138,10 @@ class CorrectionBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("2 exact records, 3 field corrections", page.text)
         self.assertIn("Zero creates", page.text)
         self.assertIn("Apply 2 record corrections", page.text)
+        self.assertIn(
+            "both choices match one existing Odoo record",
+            page.text,
+        )
         self.assertNotIn("987654", page.text)
         self.assertNotIn("read-secret", page.text)
         self.assertNotIn("write-secret", page.text)

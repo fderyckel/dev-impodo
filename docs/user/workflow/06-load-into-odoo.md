@@ -55,7 +55,7 @@ evidence; Impodo creates a separate correction workspace over the same data.
 6. If there are no blockers, explicitly confirm and select **Apply N
    corrections**.
 7. Leave the progress page open or return to it later. Impodo rereads the exact
-   affected records, applies only the reviewed scalar fields, and verifies the
+   affected records, applies only the reviewed fields, and verifies the
    outcome automatically.
 
 Impodo compares the previous prepared intent, the current Odoo value, and the
@@ -63,11 +63,16 @@ corrected prepared intent. It does not rerun the whole migration and does not
 search for another target by business key. If the corrected result is already
 present in Odoo, the page shows that no write is needed.
 
-The first supported correction boundary writes scalar fields only. A changed
-many-to-one relationship, a move to another target field, a missing exact
-record, or a concurrent Odoo change stops the correction without writing.
-Correct the rule where possible; relationship correction remains a separately
-qualified capability.
+Impodo can also correct a many-to-one choice when both the previous choice and
+the corrected choice each match exactly one existing Odoo record. For example,
+you can correct 37 Products from a mistaken `UNI` Unit choice to the existing
+standard `Unit` record. Impodo changes only each Product's Unit field. It does
+not create, rename, merge, or otherwise change a Unit of Measure record.
+
+Matching remains case-sensitive. `Kg`, `kg`, and `KG` stay different unless
+you explicitly confirm another rule in **Match data**. A missing or duplicate
+relationship match, a move to another target field, a missing Product, or a
+concurrent Odoo change stops the whole correction before writing.
 
 ## How saving a Recipe relates to the verified outcome
 

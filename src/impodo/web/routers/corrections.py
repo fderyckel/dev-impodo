@@ -283,7 +283,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                     credential.secret,
                     scope,
                 )
-                progress(55, "Applying the reviewed scalar corrections")
+                progress(55, "Applying the reviewed corrections")
                 result = context.corrections.execute(
                     completed_workspace_id,
                     target_database=successor_state.odoo_database,
