@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from io import StringIO
+import json
 from typing import Any, Mapping, Protocol, Sequence
 
 from impodo.domain.shared.models import (
@@ -203,6 +204,64 @@ def record_snapshot_json(snapshot: RecordSnapshot) -> str:
     )
     stream.write("}")
     return stream.getvalue()
+
+
+def record_snapshot_from_json(value: str) -> RecordSnapshot:
+    """Restore one protected target snapshot and verify its stored hash.
+
+    This parser is intentionally paired with :func:`record_snapshot_json` so
+    application services do not need to know the protected JSON layout.
+    Numeric Odoo identifiers remain inside the protected snapshot contract.
+    """
+
+    try:
+        payload = json.loads(value)
+        fingerprint_payload = payload["fingerprint"]
+        fingerprint = TargetFingerprint(
+            target_hash=str(fingerprint_payload["target_hash"]),
+            connection_mode=str(fingerprint_payload["connection_mode"]),
+            database=str(fingerprint_payload["database"]),
+            odoo_version=str(fingerprint_payload["odoo_version"]),
+            snapshot_timestamp=str(fingerprint_payload["snapshot_timestamp"]),
+            module_versions={
+                str(name): str(version)
+                for name, version in fingerprint_payload.get(
+                    "module_versions", {}
+                ).items()
+            },
+        )
+        records = {
+            str(model): tuple(
+                TargetRecord(
+                    model=str(model),
+                    odoo_id=int(item["id"]),
+                    values=dict(item["values"]),
+                )
+                for item in items
+            )
+            for model, items in payload["models"].items()
+        }
+        requested_fields = {
+            str(model): tuple(str(field) for field in fields)
+            for model, fields in payload["requested_fields"].items()
+        }
+        snapshot = RecordSnapshot(
+            fingerprint=fingerprint,
+            records=records,
+            requested_fields=requested_fields,
+            complete=bool(payload["complete"]),
+        )
+        _metadata, bound = bind_snapshot_hashes(
+            MetadataSnapshot(fingerprint=fingerprint, models={}),
+            snapshot,
+        )
+        return bound
+    except ConnectorIncompleteResultError:
+        raise
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ConnectorIncompleteResultError(
+            "Stored Odoo record snapshot is invalid"
+        ) from error
 
 
 class OdooReadConnector(Protocol):

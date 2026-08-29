@@ -32,7 +32,7 @@
       <bpmn:outgoing>Flow_SRC_02</bpmn:outgoing>
       <bpmn:outgoing>Flow_SRC_11</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:userTask id="Task_CheckFiles" name="Select Use these files or Check files again">
+    <bpmn:userTask id="Task_CheckFiles" name="Select Check source files">
       <bpmn:incoming>Flow_SRC_02</bpmn:incoming>
       <bpmn:outgoing>Flow_SRC_03</bpmn:outgoing>
       <bpmn:incoming>Flow_SRC_07</bpmn:incoming>

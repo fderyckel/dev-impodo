@@ -18,11 +18,12 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 import secrets
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -34,6 +35,23 @@ from impodo.domain.shared.access import (
     LOCAL_ACTOR,
 )
 from ..application.browser_queries import BrowserQueryService
+from ..application.correction_execution import CorrectionExecutionService
+from ..application.correction_jobs import CorrectionJobManager
+from ..application.correction_orchestration import (
+    CorrectionAuthoringStageCoordinator,
+    CorrectionMappingSeedService,
+    CorrectionOriginPublisher,
+    CorrectionReviewOrchestrator,
+    CorrectionSuccessorService,
+    CorrectionTargetReviewEvidence,
+)
+from ..application.correction_stages import (
+    CallbackCorrectionTargetReviewStage,
+    CurrentCorrectionMappingReviewStage,
+    CurrentCorrectionPreparationReviewStage,
+    CurrentCorrectionQualityReviewStage,
+)
+from ..application.correction_workflow import CorrectionWorkflowService
 from ..application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
@@ -136,9 +154,14 @@ from ..adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
 from ..adapters.polars_transformation import PolarsTransformationAdapter
+from ..adapters.correction_review_pipeline import NativeCorrectionReviewPipeline
 from ..adapters.odoo_source_capture import Json2OdooSourceCapture
 from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
+from ..adapters.protected_correction_store import ProtectedCorrectionStore
+from ..adapters.protected_project_evidence_store import (
+    ProtectedProjectEvidenceStore,
+)
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
@@ -147,6 +170,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateNotFoundError,
     WorkspaceStateService,
 )
+from impodo.domain.workspace.models import MigrationWorkspaceState
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackageService,
@@ -164,6 +188,9 @@ from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
     MigrationNotFoundError,
 )
+from impodo.domain.correction_origin import CorrectionOriginError
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.domain.serialization import content_hash
 from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     WorkspaceAccessService,
@@ -206,6 +233,7 @@ from .routers.mapping import build_mapping_router
 from .routers.normalization import build_normalization_router
 from .routers.preflight import build_preflight_router
 from .routers.execution import build_execution_router
+from .routers.corrections import build_corrections_router
 from .routers.preparation import build_preparation_router
 from .routers.integrated_runs import build_integrated_runs_router
 from .routers.cutover_plans import build_cutover_plans_router
@@ -654,6 +682,162 @@ def create_local_app(
     load_jobs = LoadJobManager() if load_jobs_enabled else None
     resolved_connection_tester = connection_tester or _test_connection
     resolved_read_identity_probe = read_identity_probe or _probe_read_identity
+    resolved_readback_reader_factory = (
+        readback_reader_factory or _readback_reader
+    )
+    protected_correction_store = ProtectedCorrectionStore(
+        ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
+    )
+
+    def correction_target_capability(
+        manifest,
+        mapping,
+        _datasets,
+        successor_workspace_id,
+        _actor,
+    ) -> CorrectionTargetReviewEvidence:
+        """Bind one fresh exact-target reader to scalar correction fields."""
+
+        successor_state = workspace_state_repository.get(
+            successor_workspace_id
+        )
+        completed_state = workspace_state_repository.get(
+            manifest.completed_workspace_id
+        )
+        credential = get_target_credential(
+            resolved_secret_store,
+            successor_state,
+            TargetCredentialRole.READ,
+        ) or get_target_credential(
+            resolved_secret_store,
+            completed_state,
+            TargetCredentialRole.READ,
+        )
+        if credential is None:
+            raise SecretStoreError(
+                "Enter an Odoo read API key before reviewing the correction"
+            )
+        previous = mapping_repository.get_mapping_revision(
+            manifest.completed_workspace_id
+        )
+        if previous is None:
+            raise CorrectionOriginError("Completed correction rules are missing")
+        fields_by_model: dict[str, set[str]] = {}
+        for definition in (previous.definition, mapping.definition):
+            for dataset in definition.datasets:
+                fields_by_model.setdefault(dataset.target_model, set()).update(
+                    field.target_field for field in dataset.fields
+                )
+        scope = OdooApiScope(
+            preview_hash=content_hash(
+                {
+                    "correction_origin": manifest.manifest_hash,
+                    "corrected_mapping": mapping.definition.content_hash,
+                }
+            ),
+            models=tuple(
+                OdooModelScope(
+                    model=model,
+                    read_fields=tuple(sorted(fields)),
+                )
+                for model, fields in sorted(fields_by_model.items())
+                if fields
+            ),
+        )
+        models = tuple(item.model for item in scope.models)
+        identity = resolved_read_identity_probe(
+            successor_state,
+            credential.secret,
+            models,
+        )
+        if (
+            identity.target_hash != manifest.target_hash
+            or not set(models).issubset(identity.readable_models)
+        ):
+            raise CorrectionOriginError(
+                "Current Odoo read access does not match the completed load"
+            )
+        try:
+            reviewed_at = datetime.fromisoformat(
+                identity.observed_at.replace("Z", "+00:00")
+            )
+        except ValueError as error:
+            raise CorrectionOriginError(
+                "Current Odoo read evidence has an invalid time"
+            ) from error
+        reader = resolved_readback_reader_factory(
+            successor_state,
+            credential.secret,
+            scope,
+        )
+        return CorrectionTargetReviewEvidence(
+            reader=reader,
+            reader_scope_hash=scope.semantic_hash,
+            read_credential_binding_hash=credential.binding_hash,
+            read_identity=identity,
+            reviewed_at=reviewed_at,
+        )
+
+    correction_stages = CorrectionAuthoringStageCoordinator(
+        mapping=CurrentCorrectionMappingReviewStage(mapping_workspace),
+        preparation=CurrentCorrectionPreparationReviewStage(
+            preparation=preparation,
+            sessions=preparation_session_repository,
+            mappings=mapping_repository,
+            sources=source_repository,
+            artifacts=artifacts,
+        ),
+        quality=CurrentCorrectionQualityReviewStage(
+            quality=quality,
+            normalization=normalization,
+        ),
+        target=CallbackCorrectionTargetReviewStage(
+            correction_target_capability
+        ),
+    )
+    correction_origin_publisher = CorrectionOriginPublisher(
+        correction_repository,
+        protected_correction_store,
+    )
+    correction_successors = CorrectionSuccessorService(
+        bindings=correction_repository,
+        runs=migration_runs,
+        workspaces=migration_workspaces,
+        workspace_states=workspace_states,
+        source_projections=data_version_source_projection.projections,
+        target_setups=migration_run_target_setup,
+        mapping_seeder=CorrectionMappingSeedService(
+            schemas=schema_workspace,
+            mappings=mapping_workspace,
+        ),
+    )
+    corrections = CorrectionWorkflowService(
+        bindings=correction_repository,
+        protected=protected_correction_store,
+        origin_publisher=correction_origin_publisher,
+        successors=correction_successors,
+        reviewer=CorrectionReviewOrchestrator(
+            bindings=correction_repository,
+            protected=protected_correction_store,
+            pipeline=NativeCorrectionReviewPipeline(correction_stages),
+        ),
+        executor=CorrectionExecutionService(
+            bindings=correction_repository,
+            protected_store=protected_correction_store,
+            execution=execution_repository,
+            reconciliations=reconciliation_repository,
+            authorization=resolved_authorization,
+        ),
+        runs=migration_runs,
+        workspaces=migration_workspaces,
+        mappings=mapping_repository,
+        preparations=preparation_session_repository,
+        preflight=preflight,
+        preflight_repository=preflight_repository,
+        executions=execution_repository,
+        reconciliations=reconciliation_repository,
+    )
+    correction_jobs = CorrectionJobManager()
     context = WebContext(
         queries=BrowserQueryService(
             workspace_state_repository,
@@ -725,6 +909,8 @@ def create_local_app(
         execution=execution,
         load_jobs=load_jobs,
         reconciliation=reconciliation,
+        corrections=corrections,
+        correction_jobs=correction_jobs,
         transformation_impacts=TransformationImpactService(
             workspace_state_repository,
             mapping_repository,
@@ -752,7 +938,7 @@ def create_local_app(
         readiness_reader=readiness_reader,
         source_capture_factory=source_capture_factory or local_source_capture_factory,
         write_executor_factory=write_executor_factory or _write_executor,
-        readback_reader_factory=readback_reader_factory or _readback_reader,
+        readback_reader_factory=resolved_readback_reader_factory,
         local_stack=local_stack_service or LocalStackService(),
         local_odoo_reader=local_odoo_reader or LocalOdooMetadataReader(),
         odoo_connection_tests=OdooConnectionTestService(
@@ -784,6 +970,7 @@ def create_local_app(
                 context.odoo_capture_jobs.shutdown()
             if context.load_jobs is not None:
                 context.load_jobs.shutdown()
+            context.correction_jobs.shutdown()
 
     app = FastAPI(
         title="Impodo",
@@ -846,6 +1033,32 @@ def create_local_app(
 
     def workspace_route_policy(request, access_context):
         """Keep Recipe-run workspaces inside their owning run journey."""
+
+        workspace = context.migration_workspaces.repository.get_migration_workspace(
+            access_context.workspace_id
+        )
+        parts = request.url.path.strip("/").split("/")
+        area = parts[2] if len(parts) >= 3 else ""
+        if (
+            workspace.state is MigrationWorkspaceState.CLOSED
+            and area not in {"correction", "load"}
+        ):
+            binding = context.corrections.get(
+                access_context.workspace_id,
+                actor=context.actor,
+            )
+            request.session["flash"] = (
+                "This completed workspace is historical evidence. Continue in "
+                "its separate correction workspace."
+            )
+            return RedirectResponse(
+                (
+                    f"/workspaces/{access_context.workspace_id}/correction"
+                    if binding is not None
+                    else f"/projects/{access_context.project_id}"
+                ),
+                status_code=303,
+            )
 
         if (
             access_context.recipe_application_id is not None
@@ -950,6 +1163,7 @@ def create_local_app(
         build_summary_router(context),
         build_preflight_router(context),
         build_execution_router(context),
+        build_corrections_router(context),
     ):
         app.include_router(router)
 

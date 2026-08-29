@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Correct completed Odoo load · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Completed Odoo load</p>
+      <h1>Correct this Odoo load</h1>
+      <p>The completed load stays unchanged. Impodo will use a separate workspace and update only reviewed scalar fields on the exact records loaded before.</p>
+    </div>
+    {% if correction.completed %}
+      <span class="status registered">Verified</span>
+    {% elif correction.has_current_plan %}
+      <span class="status ready">Ready to apply</span>
+    {% elif correction.successor_workspace_id %}
+      <span class="status review">Rules in progress</span>
+    {% else %}
+      <span class="status">Ready to start</span>
+    {% endif %}
+  </div>
+
+  {% if correction.completed %}
+    <section class="notice success" aria-labelledby="correction-complete-title">
+      <strong id="correction-complete-title">Correction verified against Odoo</strong>
+      <p>The correction workspace is now historical evidence. No further action is required.</p>
+    </section>
+  {% elif not correction.successor_workspace_id %}
+    <section class="form-card">
+      <h2>Keep the completed load safe</h2>
+      <p>Impodo will create a new workspace over the same source data and copy the previous matching rules as a starting point.</p>
+      <form method="post" action="/workspaces/{{ correction.completed_workspace_id }}/correction/start">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="request_id" value="{{ request_id }}">
+        <button class="button primary" type="submit">Start correction</button>
+      </form>
+    </section>
+  {% else %}
+    <section class="overview-stage-list" aria-labelledby="correction-steps-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Focused workflow</p><h2 id="correction-steps-title">Correct the rules, then review the result</h2></div>
+      </div>
+      <ol class="overview-stages">
+        <li class="overview-stage {% if correction.has_current_plan %}complete{% else %}current{% endif %}">
+          <div class="overview-stage-number">1</div>
+          <div class="overview-stage-copy">
+            <h3>Edit only the rules that were wrong</h3>
+            <p>Formula logic, field matching, value choices, and casing rules all use the same Match data editor.</p>
+            <a class="button secondary" href="/workspaces/{{ correction.successor_workspace_id }}/mapping?correction=1">Edit correction rules</a>
+          </div>
+        </li>
+        <li class="overview-stage {% if correction.has_current_plan %}complete{% else %}current{% endif %}">
+          <div class="overview-stage-number">2</div>
+          <div class="overview-stage-copy">
+            <h3>Review the correction</h3>
+            <p>Impodo prepares the corrected intent with Polars, compares only real changes with current Odoo values, and stops if any target is unsafe.</p>
+            <form method="post" action="/workspaces/{{ correction.completed_workspace_id }}/correction/review">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="review_request_id" value="{{ review_request_id }}">
+              <label>Odoo read API key <input type="password" name="read_api_key" autocomplete="off"><small>Leave blank to use the key already available for this correction workspace.</small></label>
+              <label class="checkbox-label"><input type="checkbox" name="remember_read_api_key"> Save this read key on this computer</label>
+              <button class="button {% if correction.has_current_plan %}secondary{% else %}primary{% endif %}" type="submit">Review correction</button>
+            </form>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    {% if latest_job and latest_job.status.value == 'FAILED' %}
+      <section class="notice warning">
+        <strong>The correction stopped safely.</strong>
+        <p>{{ latest_job.failure_message }}</p>
+      </section>
+    {% elif latest_job and latest_job.result and latest_job.result.blocker_messages %}
+      <section class="notice warning">
+        <strong>The correction cannot be applied yet.</strong>
+        <ul>{% for message in latest_job.result.blocker_messages %}<li>{{ message }}</li>{% endfor %}</ul>
+      </section>
+    {% elif latest_job and latest_job.result and not correction.has_current_plan and latest_job.kind.value == 'REVIEW' %}
+      <section class="notice">
+        <strong>No correction write is needed.</strong>
+        <p>{{ latest_job.result.already_corrected_count }} field{{ "s" if latest_job.result.already_corrected_count != 1 else "" }} already match{{ "es" if latest_job.result.already_corrected_count == 1 else "" }} the corrected intent.</p>
+      </section>
+    {% endif %}
+
+    {% if correction.plan_summary %}
+      <section class="form-card" aria-labelledby="correction-review-title">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Compact review</p>
+            <h2 id="correction-review-title">{{ correction.plan_summary.record_count }} exact record{{ "s" if correction.plan_summary.record_count != 1 else "" }}, {{ correction.plan_summary.field_count }} field correction{{ "s" if correction.plan_summary.field_count != 1 else "" }}</h2>
+          </div>
+          <span class="status ready">Zero creates</span>
+        </div>
+        <p>Only the fields listed below will be updated. Impodo will not search for another record or create a replacement record.</p>
+        <table class="data-table">
+          <thead><tr><th>Dataset</th><th>Odoo model</th><th>Field</th><th>Corrections</th></tr></thead>
+          <tbody>
+            {% for group in correction.plan_summary.groups %}
+              <tr><td>{{ group.dataset }}</td><td><code>{{ group.target_model }}</code></td><td><code>{{ group.target_field }}</code></td><td>{{ group.changed_field_count }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <form method="post" action="/workspaces/{{ correction.completed_workspace_id }}/correction/apply">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="confirmation_id" value="{{ confirmation_id }}">
+          <label>Odoo write API key <input type="password" name="write_api_key" autocomplete="off"><small>Leave blank to use the separately saved write key.</small></label>
+          <label class="checkbox-label"><input type="checkbox" name="remember_write_api_key"> Save this write key on this computer</label>
+          <label class="checkbox-label"><input type="checkbox" name="confirm_apply" value="yes" required> I confirm that Impodo may update these {{ correction.plan_summary.record_count }} exact records and reviewed fields.</label>
+          <button class="button primary" type="submit">Apply {{ correction.plan_summary.record_count }} record corrections</button>
+        </form>
+      </section>
+    {% endif %}
+  {% endif %}
+
+  <div class="actions"><a class="button secondary" href="/projects/{{ correction.project_id }}">Back to data project</a></div>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Correction progress · Impodo{% endblock %}
+{% block page_meta %}
+  {% if not job.terminal %}<meta http-equiv="refresh" content="1">{% endif %}
+{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Completed-load correction</p>
+      <h1>{% if job.kind.value == 'REVIEW' %}Reviewing the correction{% else %}Applying the correction{% endif %}</h1>
+      <p>{{ job.message }}</p>
+    </div>
+    <span class="status {% if job.status.value == 'SUCCEEDED' %}ready{% elif job.status.value == 'FAILED' %}review{% endif %}">{{ job.status.value|title }}</span>
+  </div>
+  <section class="form-card">
+    <progress max="100" value="{{ job.progress_percent }}">{{ job.progress_percent }}%</progress>
+    <p>{{ job.progress_percent }}%</p>
+    {% if job.status.value == 'FAILED' %}
+      <div class="notice warning"><strong>The correction stopped safely.</strong><p>{{ job.failure_message }}</p></div>
+    {% elif job.result and job.kind.value == 'REVIEW' %}
+      <div class="notice success"><strong>Review complete.</strong><p>{{ job.result.record_count }} record{{ "s" if job.result.record_count != 1 else "" }} and {{ job.result.field_count }} field correction{{ "s" if job.result.field_count != 1 else "" }} are ready for the compact review.</p></div>
+    {% elif job.result and job.result.verified %}
+      <div class="notice success"><strong>Correction verified.</strong><p>Odoo now matches the reviewed correction.</p></div>
+    {% endif %}
+    {% if job.terminal %}
+      <a class="button primary" href="/workspaces/{{ completed_workspace_id }}/correction">Continue</a>
+    {% else %}
+      <p class="muted">You can reload or return to this page; the current job will continue.</p>
+    {% endif %}
+  </section>
+{% endblock %}

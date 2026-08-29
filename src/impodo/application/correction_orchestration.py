@@ -134,6 +134,13 @@ class CorrectionBindingRepository(Protocol):
         completed_workspace_id: str,
     ) -> CorrectionBinding | None: ...
 
+    def get_for_successor_workspace(
+        self,
+        successor_workspace_id: str,
+    ) -> CorrectionBinding | None: ...
+
+    def list_for_project(self, project_id: str) -> tuple[CorrectionBinding, ...]: ...
+
     def seal_completed_origin(
         self,
         binding: CorrectionBinding,
@@ -246,6 +253,23 @@ class CorrectionProtectedStore(Protocol):
         plan: CorrectionPlan,
         confirmation: CorrectionConfirmation,
     ) -> StoredConfirmation: ...
+
+    def read_target_index(
+        self,
+        reference: StoredTargetIndex,
+    ) -> CorrectionTargetIndex: ...
+
+    def read_origin(
+        self,
+        reference: StoredOrigin,
+    ) -> CorrectionOriginManifest: ...
+
+    def read_plan(self, reference: StoredPlan) -> CorrectionPlan: ...
+
+    def read_confirmation(
+        self,
+        reference: StoredConfirmation,
+    ) -> CorrectionConfirmation: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -550,6 +574,14 @@ class CorrectionTargetReviewStage(Protocol):
     ) -> CorrectionTargetReviewEvidence: ...
 
 
+class CorrectionNoChangedIntent(CorrectionOriginError):
+    """Signal that submitted rules still match the completed-load origin."""
+
+    def __init__(self, mapping_hash: str) -> None:
+        self.mapping_hash = require_hash(mapping_hash, "mapping_hash")
+        super().__init__("No correction rule changes were found")
+
+
 class CorrectionAuthoringStageCoordinator:
     """Run existing mapping, preparation, quality, then target-read owners."""
 
@@ -578,6 +610,9 @@ class CorrectionAuthoringStageCoordinator:
             successor_workspace_id,
             actor=actor,
         )
+        if mapping.definition.content_hash == manifest.mapping_content_hash:
+            # Exit before Parquet materialization, quality work, or Odoo reads.
+            raise CorrectionNoChangedIntent(mapping.definition.content_hash)
         datasets = self.preparation.prepare_native(
             manifest,
             mapping,
@@ -697,6 +732,57 @@ class CorrectionSuccessorService:
                 data_classification=project_root.data_classification.value,
                 retention_days=project_root.retention_days,
             )
+        prior_target = self.target_setups.get(
+            binding.completed_migration_run_id,
+            actor=actor,
+        )
+        if prior_target is None:
+            raise CorrectionOriginError("Completed load target setup is missing")
+        try:
+            prior_workspace_state = self.workspace_states.repository.get(
+                binding.completed_workspace_id
+            )
+            successor_state = self.workspace_states.repository.get(
+                workspace.workspace_id
+            )
+        except WorkspaceStateNotFoundError:
+            # Narrow application fakes may model only canonical registry roots.
+            # The concrete composition always persists both workbench states.
+            pass
+        else:
+            target_mode = getattr(
+                prior_target.connection_mode,
+                "value",
+                prior_target.connection_mode,
+            )
+            if successor_state.odoo_connection_mode is None:
+                successor_state = self.workspace_states.update_target(
+                    workspace.workspace_id,
+                    actor=actor,
+                    expected_revision=successor_state.revision,
+                    odoo_connection_mode=target_mode,
+                    odoo_base_url=prior_target.base_url,
+                    odoo_database=prior_target.database,
+                    intended_applications=prior_target.intended_applications,
+                    intended_models=prior_workspace_state.intended_models,
+                )
+            elif (
+                getattr(
+                    successor_state.odoo_connection_mode,
+                    "value",
+                    successor_state.odoo_connection_mode,
+                )
+                != target_mode
+                or successor_state.odoo_base_url != prior_target.base_url
+                or successor_state.odoo_database != prior_target.database
+                or successor_state.intended_applications
+                != prior_target.intended_applications
+                or successor_state.intended_models
+                != prior_workspace_state.intended_models
+            ):
+                raise CorrectionOriginError(
+                    "Correction workspace target no longer matches the completed load"
+                )
         workspace = self.workspaces.get(workspace.workspace_id, actor=actor)
         self.source_projections.materialize(
             workspace.workspace_id,
@@ -708,12 +794,6 @@ class CorrectionSuccessorService:
                 f"correction-source-projection:{binding.correction_binding_id}",
             ),
         )
-        prior_target = self.target_setups.get(
-            binding.completed_migration_run_id,
-            actor=actor,
-        )
-        if prior_target is None:
-            raise CorrectionOriginError("Completed load target setup is missing")
         self.target_setups.replace(
             run.migration_run_id,
             actor=actor,
@@ -815,13 +895,58 @@ class CorrectionReviewOrchestrator:
             or binding.successor_migration_run_id is None
         ):
             raise CorrectionOriginError("Correction review origin is not current")
-        evidence = self.pipeline.run(
-            manifest,
-            binding.successor_workspace_id,
-            actor=actor,
-        )
+        try:
+            evidence = self.pipeline.run(
+                manifest,
+                binding.successor_workspace_id,
+                actor=actor,
+            )
+        except CorrectionNoChangedIntent as unchanged_intent:
+            current = self.bindings.get_for_completed_workspace(
+                manifest.completed_workspace_id
+            )
+            if current is None:
+                raise CorrectionOriginError("Correction binding disappeared")
+            unchanged = self.bindings.invalidate_plan(
+                manifest.completed_workspace_id,
+                current_mapping_hash=unchanged_intent.mapping_hash,
+                current_prepared_hash=None,
+                expected_revision=current.optimistic_revision,
+                actor=actor,
+            )
+            return (
+                CorrectionReview(
+                    target_hash=manifest.target_hash,
+                    fields=(),
+                    blockers=(),
+                ),
+                None,
+                unchanged,
+            )
         if evidence.mapping.definition.content_hash == manifest.mapping_content_hash:
-            raise CorrectionOriginError("Corrected mapping has no changed intent")
+            # Defensive fallback for pipeline implementations that do not use the
+            # current stage coordinator.
+            current = self.bindings.get_for_completed_workspace(
+                manifest.completed_workspace_id
+            )
+            if current is None:
+                raise CorrectionOriginError("Correction binding disappeared")
+            unchanged = self.bindings.invalidate_plan(
+                manifest.completed_workspace_id,
+                current_mapping_hash=evidence.mapping.definition.content_hash,
+                current_prepared_hash=evidence.corrected_prepared_hash,
+                expected_revision=current.optimistic_revision,
+                actor=actor,
+            )
+            return (
+                CorrectionReview(
+                    target_hash=manifest.target_hash,
+                    fields=(),
+                    blockers=(),
+                ),
+                None,
+                unchanged,
+            )
         review = self.review_service.review(
             evidence.candidate_batches,
             target_index.entries,
@@ -946,6 +1071,7 @@ __all__ = [
     "CorrectionOriginPublisher",
     "CorrectionOriginRequest",
     "CorrectionMappingSeedService",
+    "CorrectionNoChangedIntent",
     "CorrectionReviewEvidence",
     "CorrectionReviewOrchestrator",
     "CorrectionReviewPipeline",

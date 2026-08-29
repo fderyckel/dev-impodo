@@ -372,9 +372,12 @@ stages:
     developer_doc: docs/developer/workflow/06-load-into-odoo.md
     router_modules:
       - src/impodo/web/routers/execution.py
+      - src/impodo/web/routers/corrections.py
     templates:
       - src/impodo/web/templates/workspace_load.html
       - src/impodo/web/templates/workspace_load_progress.html
+      - src/impodo/web/templates/workspace_correction.html
+      - src/impodo/web/templates/workspace_correction_progress.html
     code_references:
       - src/impodo/application/workspace/execution/service.py::ExecutionService
       - src/impodo/application/workspace/execution/service.py::ExecutionPreview
@@ -382,6 +385,14 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/application/workspace/execution/job_models.py::LoadJob
+      - src/impodo/application/correction_workflow.py::CorrectionWorkflowService
+      - src/impodo/application/correction_jobs.py::CorrectionJobManager
+      - src/impodo/application/correction_orchestration.py::CorrectionOriginPublisher
+      - src/impodo/application/correction_orchestration.py::CorrectionSuccessorService
+      - src/impodo/application/correction_orchestration.py::CorrectionReviewOrchestrator
+      - src/impodo/application/correction_execution.py::CorrectionExecutionService
+      - src/impodo/adapters/correction_review_pipeline.py::NativeCorrectionReviewPipeline
+      - src/impodo/adapters/polars_correction.py::write_polars_correction_candidates
       - src/impodo/domain/execution_snapshot.py::dependency_ordered_execution_datasets
       - src/impodo/domain/execution_snapshot.py::plan_execution_rows
       - src/impodo/domain/execution/dependency_scheduler.py::schedule_dependencies
@@ -406,9 +417,14 @@ stages:
       - tests/domain/test_relationship_dependencies.py
       - tests/application/workspace/execution/test_reconciliation.py
       - tests/integration/web/test_load_workflow.py
+      - tests/integration/web/test_correction_workflow.py
+      - tests/application/test_correction_jobs.py
+      - tests/application/test_correction_orchestration.py
+      - tests/application/test_correction_execution.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md
     references:
       - docs/architecture/security-and-infrastructure.md
       - docs/testing/acceptance.md
       - docs/plans/scalable-relationship-dependency-planning.md
+      - docs/plans/completed-load-correction-workflow.md

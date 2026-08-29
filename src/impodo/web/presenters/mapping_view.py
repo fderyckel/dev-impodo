@@ -282,6 +282,7 @@ def _render_mapping(
             active_dataset_index,
             context.queries.get_current_quality_ruleset(workspace_id),
         )
+    correction_binding = context.corrections.binding_for_successor(workspace_id)
     return _render(
         request,
         "mapping/page.html",
@@ -310,6 +311,7 @@ def _render_mapping(
         next_step=next_step,
         quality_view=quality_view,
         recipe_application=None,
+        correction_binding=correction_binding,
         error=error,
         status_code=status_code,
     )

@@ -23,6 +23,7 @@ from impodo.domain.odoo.contracts import (
     RecordRequest,
     RecordSnapshot,
     bind_snapshot_hashes,
+    record_snapshot_from_json,
     record_snapshot_json,
     record_snapshot_payload,
 )
@@ -472,6 +473,29 @@ class SnapshotProjectionTests(unittest.TestCase):
             record_snapshot_json(records),
             canonical_json_text(record_snapshot_payload(records)),
         )
+
+    def test_protected_record_snapshot_round_trip_restores_exact_hash(self) -> None:
+        _metadata, records = bind_snapshot_hashes(
+            MetadataSnapshot(fingerprint=self.fingerprint, models={}),
+            RecordSnapshot(
+                fingerprint=self.fingerprint,
+                records={
+                    "res.partner": (
+                        TargetRecord(
+                            model="res.partner",
+                            odoo_id=7,
+                            values={"ref": "C001", "name": "Contact"},
+                        ),
+                    )
+                },
+                requested_fields={"res.partner": ("name", "ref")},
+            ),
+        )
+
+        restored = record_snapshot_from_json(record_snapshot_json(records))
+
+        self.assertEqual(restored, records)
+        self.assertEqual(restored.content_hash, records.content_hash)
 
 
 if __name__ == "__main__":

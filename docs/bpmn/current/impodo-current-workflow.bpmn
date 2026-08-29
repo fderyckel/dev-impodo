@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_ImpodoCurrentWorkflow" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
   <bpmn:process id="Process_ImpodoCurrentWorkflow" name="Impodo current browser workflow" isExecutable="false">
-    <bpmn:documentation>High-level current workflow. File-source projects continue through mapping, preparation, final review, disposable-target loading, and reconciliation. Odoo-source projects currently stop after bounded source capture. Project-level integrated Test planning and exact qualification are modelled separately because they consume published Recipes and a new accepted Test DataVersion rather than extending one authoring workspace.</bpmn:documentation>
+    <bpmn:documentation>High-level current workflow. File-source projects continue through mapping, preparation, final review, disposable-target loading, reconciliation, and an optional scalar completed-load correction. Odoo-source projects currently stop after bounded source capture. Project-level integrated Test planning and exact qualification are modelled separately because they consume published Recipes and a new accepted Test DataVersion rather than extending one authoring workspace.</bpmn:documentation>
     <bpmn:startEvent id="Start_Current" name="Migration project needed">
       <bpmn:outgoing>Flow_M_01</bpmn:outgoing>
     </bpmn:startEvent>
@@ -38,7 +38,7 @@
       <bpmn:incoming>Flow_M_08</bpmn:incoming>
       <bpmn:outgoing>Flow_M_09</bpmn:outgoing>
     </bpmn:callActivity>
-    <bpmn:endEvent id="End_File" name="Reconciled or needs attention">
+    <bpmn:endEvent id="End_File" name="Reconciled, corrected, or needs attention">
       <bpmn:incoming>Flow_M_09</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:callActivity id="Call_OdooDataSource" name="Odoo source data" calledElement="Process_OdooData">

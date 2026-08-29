@@ -10,6 +10,7 @@ import unittest
 from impodo.application.correction_orchestration import (
     CorrectionBinding,
     CorrectionAuthoringStageCoordinator,
+    CorrectionNoChangedIntent,
     CorrectionReviewEvidence,
     CorrectionReviewOrchestrator,
     CorrectionSuccessorService,
@@ -258,6 +259,44 @@ class CorrectionReviewOrchestratorTests(unittest.TestCase):
         self.assertIsNone(current.current_plan)
         self.assertEqual(bindings.invalidations, 1)
 
+    def test_unchanged_rules_return_zero_change_review_without_a_plan(self) -> None:
+        index = _index()
+        manifest = _manifest(index)
+        bindings = _Bindings(_binding(manifest, index))
+        pipeline = _Pipeline(manifest)
+        original_run = pipeline.run
+
+        def unchanged_run(*args, **kwargs):
+            evidence = original_run(*args, **kwargs)
+            return replace(
+                evidence,
+                mapping=SimpleNamespace(
+                    definition=SimpleNamespace(
+                        content_hash=manifest.mapping_content_hash
+                    )
+                ),
+            )
+
+        pipeline.run = unchanged_run
+        service = CorrectionReviewOrchestrator(
+            bindings=bindings,
+            protected=_Protected(),
+            pipeline=pipeline,
+        )
+
+        review, plan, current = service.review(
+            manifest,
+            index,
+            actor=ACTOR,
+            review_request_id=REVIEW_REQUEST_ID,
+        )
+
+        self.assertIsNone(plan)
+        self.assertFalse(review.can_apply)
+        self.assertEqual(review.fields, ())
+        self.assertEqual(review.blockers, ())
+        self.assertIsNone(current.current_plan)
+
 
 class CorrectionSuccessorServiceTests(unittest.TestCase):
     def test_successor_reuses_data_version_and_replays_without_duplicate_roots(self) -> None:
@@ -429,7 +468,10 @@ class CorrectionSuccessorServiceTests(unittest.TestCase):
     def test_authoring_review_stages_run_in_safe_owner_order(self) -> None:
         manifest = _manifest(_index())
         calls = []
-        mapping = SimpleNamespace(mapping_id="mapping")
+        mapping = SimpleNamespace(
+            mapping_id="mapping",
+            definition=SimpleNamespace(content_hash=HASHES[0]),
+        )
 
         class Mapping:
             def validate_and_submit(self, *args, **kwargs):
@@ -478,6 +520,44 @@ class CorrectionSuccessorServiceTests(unittest.TestCase):
 
         self.assertEqual(calls, ["mapping", "preparation", "quality", "target"])
         self.assertIs(result.mapping, mapping)
+
+    def test_unchanged_rules_stop_before_preparation_and_odoo_read(self) -> None:
+        manifest = _manifest(_index())
+        calls = []
+        mapping = SimpleNamespace(
+            definition=SimpleNamespace(
+                content_hash=manifest.mapping_content_hash
+            )
+        )
+
+        class Mapping:
+            def validate_and_submit(self, *args, **kwargs):
+                calls.append("mapping")
+                return mapping
+
+        class UnexpectedStage:
+            def __getattr__(self, name):
+                def unexpected(*args, **kwargs):
+                    calls.append(name)
+                    self.fail("No later review stage should run")
+
+                return unexpected
+
+        coordinator = CorrectionAuthoringStageCoordinator(
+            mapping=Mapping(),
+            preparation=UnexpectedStage(),
+            quality=UnexpectedStage(),
+            target=UnexpectedStage(),
+        )
+
+        with self.assertRaises(CorrectionNoChangedIntent):
+            coordinator.prepare_review(
+                manifest,
+                SUCCESSOR_WORKSPACE_ID,
+                actor=ACTOR,
+            )
+
+        self.assertEqual(calls, ["mapping"])
 
 
 if __name__ == "__main__":

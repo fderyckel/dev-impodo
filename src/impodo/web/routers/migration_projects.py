@@ -16,6 +16,7 @@ from impodo.domain.project.foundation import (
 )
 from impodo.domain.shared.access import AuthorizationError
 from impodo.domain.workspace.workbench import SourceMode
+from impodo.domain.workspace.models import MigrationWorkspaceState
 
 from ...domain.data_version.models import DataVersionPurpose
 from ...domain.recipe.models import RecipeError
@@ -297,14 +298,25 @@ def _render_project_overview(
     }
     run_by_id = {item.migration_run_id: item for item in runs}
     authoring_workspace = next(
-        (
-            item
-            for item in workspaces
-            if item.recipe_application_id is None
-            and data_version_by_id[item.data_version_id].purpose
-            is DataVersionPurpose.AUTHORING
+        iter(
+            sorted(
+                (
+                    item
+                    for item in workspaces
+                    if item.recipe_application_id is None
+                    and item.state is MigrationWorkspaceState.OPEN
+                    and data_version_by_id[item.data_version_id].purpose
+                    is DataVersionPurpose.AUTHORING
+                ),
+                key=lambda item: item.created_at,
+                reverse=True,
+            )
         ),
         None,
+    )
+    correction_journeys = context.corrections.list_for_project(
+        project_id,
+        actor=context.actor,
     )
     authoring_data_version = (
         next(
@@ -342,6 +354,7 @@ def _render_project_overview(
         authoring_workspace=authoring_workspace,
         authoring_data_version=authoring_data_version,
         recipe_draft=recipe_draft,
+        correction_journeys=correction_journeys,
         publication_operation_id=str(uuid4()),
         error=error,
         status_code=status_code,

@@ -44,6 +44,46 @@ component, component page, transport batch, and operation phase as
 later writes. `ReconciliationService` then reads back the affected scope and
 publishes a separate reconciliation run.
 
+For a verified Authoring load, the execution route also asks
+`CorrectionWorkflowService.publish_completed_load` to join the current mapping,
+prepared snapshots, execution snapshot, execution journal, reconciliation, and
+protected target snapshot. `CorrectionOriginPublisher` then publishes one
+whole-artifact origin and exact-target index and atomically closes the original
+run and workspace. Failure to publish this optional successor evidence never
+changes a verified Odoo outcome into a failed load; no correction action is
+shown until the protected binding exists.
+
+## Focused completed-load correction
+
+`corrections.py` presents one run-owned successor journey. A stale mapping URL
+for the closed original workspace redirects to this explanation; repository
+immutability remains the authoritative guard. `CorrectionSuccessorService`
+creates one restart-safe Authoring run and workspace over the same DataVersion,
+copies the exact target setup, and seeds the prior mapping as a working draft.
+
+**Review correction** runs in `CorrectionJobManager`, so page reloads reuse the
+one active attempt. `CorrectionAuthoringStageCoordinator` checks and submits
+the current mapping, invokes the existing preparation and quality owners,
+freezes the prepared review, and resolves one current read capability.
+`NativeCorrectionReviewPipeline` scans the previous and corrected prepared
+Parquet artifacts through Polars, emits only sparse A/C candidates, and reads B
+from Odoo only by protected exact identifiers. Browser projections receive
+only counts and blocker messages; numeric identifiers, field values,
+credentials, and evidence hashes remain protected.
+
+The first write boundary is scalar only. Formula-like transformations,
+Selection choices, constants, fallbacks, source-field choices, and casing all
+produce the same corrected-intent comparison when their scalar output changes.
+Relationship candidates and target-field moves fail closed pending separate
+qualification.
+
+**Apply N corrections** requires an explicit checkbox and a separately resolved
+write credential. The route probes the narrow write scope, publishes a
+confirmation, probes again immediately before transport, and delegates to
+`CorrectionExecutionService`. That service rereads current values, journals
+before bounded exact-ID updates, and starts exact-ID reconciliation
+automatically. A verified result closes the successor run and workspace.
+
 ## Current relationship ordering
 
 `extract_dataset_dependency_edges` derives every dataset dependency from
@@ -149,6 +189,12 @@ recorded outcome.
 | Read-back-gated resume | [`ExecutionService.resume`](../../../src/impodo/application/workspace/execution/service.py) |
 | Durable batch and recovery transitions | [`ExecutionRepository`](../../../src/impodo/adapters/duckdb/execution_repository.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
+| Correction browser orchestration | [`CorrectionWorkflowService`](../../../src/impodo/application/correction_workflow.py) |
+| Resumable correction jobs | [`CorrectionJobManager`](../../../src/impodo/application/correction_jobs.py) |
+| Correction origin and review owners | [`correction_orchestration.py`](../../../src/impodo/application/correction_orchestration.py) |
+| Protected exact-ID correction execution | [`CorrectionExecutionService`](../../../src/impodo/application/correction_execution.py) |
+| Native sparse review pipeline | [`NativeCorrectionReviewPipeline`](../../../src/impodo/adapters/correction_review_pipeline.py) |
+| Polars and Parquet sparse reduction | [`write_polars_correction_candidates`](../../../src/impodo/adapters/polars_correction.py) |
 
 ## Evidence and state
 
@@ -234,6 +280,10 @@ authorization.
 - [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
 - [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
 - [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)
+- [`tests/integration/web/test_correction_workflow.py`](../../../tests/integration/web/test_correction_workflow.py)
+- [`tests/application/test_correction_jobs.py`](../../../tests/application/test_correction_jobs.py)
+- [`tests/application/test_correction_orchestration.py`](../../../tests/application/test_correction_orchestration.py)
+- [`tests/application/test_correction_execution.py`](../../../tests/application/test_correction_execution.py)
 
 Verify scope enforcement, dependency order, create batching, update behavior,
 journal-before-transport, unknown outcomes, deferred relationships,
@@ -249,3 +299,4 @@ Odoo 19 target.
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
 - [Proposed scalable relationship dependency plan](../../plans/scalable-relationship-dependency-planning.md)
+- [Completed-load correction plan](../../plans/completed-load-correction-workflow.md)

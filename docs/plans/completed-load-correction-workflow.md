@@ -2,9 +2,9 @@
 
 ## Status and proposed decision
 
-**Status:** In progress. Phases 1, 2, and 3 are implemented at the domain,
-application, protected-evidence, registry, execution, and reconciliation
-boundaries. A verified completed
+**Status:** In progress. Phases 1, 2, 3, and 4 are implemented at the domain,
+application, protected-evidence, registry, execution, reconciliation, and
+focused browser boundaries. A verified completed
 Authoring load can now publish one encrypted lean origin manifest and compact
 exact-target index while atomically closing its historical run and workspace.
 The restart-safe successor coordinator creates a new Authoring run and
@@ -15,12 +15,13 @@ Polars, reads `B` only for sparse candidates, and publishes one current
 protected scalar plan. Mapping or prepared-evidence changes clear that pointer.
 Confirmed scalar corrections now use exact protected identifiers, a bounded
 just-in-time reread, the existing durable journal, compatible update batches,
-and automatic exact-ID reconciliation. The browser journey remains
-unimplemented Phase 4.
+and automatic exact-ID reconciliation. The browser now provides one safe
+successor journey with resumable review/apply progress and compact public
+counts.
 
-The implemented application workflow deliberately has no browser write entry
-point yet. A blocker-free scalar review is sealed into one protected plan and
-one separately bound write confirmation. Apply re-probes the write identity,
+The implemented browser has no generic correction write entry point. A
+blocker-free scalar review is sealed into one protected plan and one separately
+bound write confirmation. Apply re-probes the write identity,
 checks the run-owned current pointers, and performs a just-in-time exact-ID
 reread before the execution journal or any Odoo write is created.
 Plan hashing is one whole-artifact operation; it does not add per-row or
@@ -750,7 +751,7 @@ updates use 16 write calls and 32 total read calls: 16 for the just-in-time
 gate and 16 for final verification. No per-row or per-value hash tree was
 added.
 
-### Phase 4: finish the focused browser journey
+### Phase 4: finish the focused browser journey — complete
 
 Add **Correct this Odoo load**, the focused rule editor, resumable progress,
 the compact correction review, **Apply N corrections**, and automatic outcome
@@ -765,6 +766,19 @@ only after each behavior is implemented.
 **Exit result:** a data manager completes the supported scalar correction
 without thinking about evidence stages, while every safety gate remains
 provable.
+
+Implemented by `application/correction_workflow.py`,
+`application/correction_stages.py`, `application/correction_jobs.py`,
+`web/routers/corrections.py`, and the correction templates. The Project page
+shows the action only for a published eligible binding. A closed historical
+mapping URL redirects to the correction explanation. The existing Match data
+editor presents correction-specific guidance, while **Review correction**
+resumes current mapping, Polars preparation, quality, and exact-ID target-read
+owners in one background attempt. The compact review contains counts only and
+**Apply N corrections** requires explicit confirmation plus a fresh write
+probe. Zero-change review has no write action; blockers remove it. Current user
+and developer workflow pages, workflow ownership, BPMN, code map, and browser
+tests now describe and verify the implemented boundary.
 
 ### Phase 5: qualify exact-existing many-to-one corrections
 

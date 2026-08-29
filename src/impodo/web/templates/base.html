@@ -12,6 +12,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% block page_meta %}{% endblock %}
     <title>{% block title %}Impodo{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/tokens.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', path='/layout.css') }}">
@@ -40,7 +41,7 @@
         </div>
       </div>
       <span class="boundary">
-        {% if "/load" in current_path %}Local test load · explicit action only{% else %}Safe preview · Odoo stays unchanged{% endif %}
+        {% if "/load" in current_path or "/correction" in current_path %}Odoo change · explicit action only{% else %}Safe preview · Odoo stays unchanged{% endif %}
         {{ app_icon("shield-check") }}
       </span>
     </header>

@@ -25,6 +25,17 @@
     </section>
   {% endif %}
 
+  {% for correction in correction_journeys %}
+    <section class="next-action-card {% if not correction.completed %}current{% endif %}">
+      <div>
+        <p class="eyebrow">Completed Odoo load</p>
+        <h2>{% if correction.completed %}Correction verified{% elif correction.successor_workspace_id %}Continue correcting the completed load{% else %}A verified load can be corrected safely{% endif %}</h2>
+        <p>The original load remains historical evidence. Impodo uses exact prior targets and applies only reviewed scalar field changes.</p>
+      </div>
+      <a class="button {% if correction.completed %}secondary{% else %}primary{% endif %}" href="/workspaces/{{ correction.completed_workspace_id }}/correction">{% if correction.completed %}View correction outcome{% elif correction.successor_workspace_id %}Continue correction{% else %}Correct this Odoo load{% endif %}</a>
+    </section>
+  {% endfor %}
+
   {% if recipes %}
     <section class="next-action-card">
       <div>

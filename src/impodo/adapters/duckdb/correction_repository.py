@@ -50,6 +50,48 @@ class CorrectionRepository:
             )
         return self._binding(dict(zip(columns, row, strict=True))) if row else None
 
+    def get_for_successor_workspace(
+        self,
+        successor_workspace_id: str,
+    ) -> CorrectionBinding | None:
+        """Return the correction binding that owns one successor workspace."""
+
+        successor_workspace_id = require_uuid(
+            successor_workspace_id,
+            "successor_workspace_id",
+        )
+        with self.foundation.database.connect(
+            self.foundation.registry_path
+        ) as connection:
+            row = connection.execute(
+                "SELECT * FROM correction_run_binding "
+                "WHERE successor_workspace_id = ?",
+                [successor_workspace_id],
+            ).fetchone()
+            columns = (
+                tuple(item[0] for item in connection.description)
+                if row is not None
+                else ()
+            )
+        return self._binding(dict(zip(columns, row, strict=True))) if row else None
+
+    def list_for_project(self, project_id: str) -> tuple[CorrectionBinding, ...]:
+        """Return bounded correction pointers for one Project overview."""
+
+        project_id = require_uuid(project_id, "project_id")
+        with self.foundation.database.connect(
+            self.foundation.registry_path
+        ) as connection:
+            rows = connection.execute(
+                "SELECT * FROM correction_run_binding "
+                "WHERE project_id = ? ORDER BY created_at DESC",
+                [project_id],
+            ).fetchall()
+            columns = tuple(item[0] for item in connection.description)
+        return tuple(
+            self._binding(dict(zip(columns, row, strict=True))) for row in rows
+        )
+
     def invalidate_successor_mapping(
         self,
         workspace_id: str,

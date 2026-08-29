@@ -1,8 +1,8 @@
 <div class="page-heading">
   <div>
-    <p class="eyebrow">Stage 3 of 6 · Match data</p>
-    <h1>Match your data to Odoo</h1>
-    <p>{% if odoo_pinned %}Choose which captured values to prepare, then separately approve every field that may be updated.{% else %}Choose where each source value belongs and how existing records are found.{% endif %}</p>
+    <p class="eyebrow">{% if correction_binding %}Completed-load correction{% else %}Stage 3 of 6 · Match data{% endif %}</p>
+    <h1>{% if correction_binding %}Correct the matching rules{% else %}Match your data to Odoo{% endif %}</h1>
+    <p>{% if correction_binding %}Change only the rule, field match, value choice, or casing behavior that was wrong. The completed load remains unchanged.{% elif odoo_pinned %}Choose which captured values to prepare, then separately approve every field that may be updated.{% else %}Choose where each source value belongs and how existing records are found.{% endif %}</p>
   </div>
   {% if has_unvalidated_changes %}
     <span class="status">Saved changes need checking</span>
@@ -14,6 +14,14 @@
     <span class="status ready">Ready to confirm</span>
   {% endif %}
 </div>
+
+{% if correction_binding %}
+  <div class="notice">
+    <strong>You are editing a separate correction workspace.</strong>
+    <p>Save the rule changes here, then return to the focused correction review. Impodo will run the internal preparation and checks for you.</p>
+    <a class="button secondary" href="/workspaces/{{ correction_binding.completed_workspace_id }}/correction">Back to correction review</a>
+  </div>
+{% endif %}
 
 {% if recipe_application and recipe_application.state.value == 'APPLIED' %}
   <div class="notice success">

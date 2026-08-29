@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from io import StringIO
+import logging
 from secrets import compare_digest
 from types import SimpleNamespace
 from typing import Sequence
@@ -30,6 +31,8 @@ from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.run.production import ProductionRunError
+from impodo.domain.run.models import MigrationRunPurpose
+from impodo.domain.correction_origin import CorrectionOriginError
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
@@ -661,6 +664,16 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     verification_complete = not (
                         verification.unknown_count or verification.fallout_count
                     )
+                    if (
+                        verification_complete
+                        and access_context.recipe_application_id is None
+                        and access_context.run_purpose
+                        == MigrationRunPurpose.AUTHORING.value
+                    ):
+                        _publish_completed_correction_origin(
+                            context,
+                            workspace_id,
+                        )
                 return LoadJobResult(
                     execution_run_id=run.run_id,
                     verification_complete=verification_complete,
@@ -830,6 +843,17 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 access_context.recipe_application_id,
                 access_context.migration_run_id,
             )
+        elif (
+            not report.unknown_count
+            and not report.fallout_count
+            and access_context.run_purpose
+            == MigrationRunPurpose.AUTHORING.value
+        ):
+            await run_in_threadpool(
+                _publish_completed_correction_origin,
+                context,
+                workspace_id,
+            )
         _flash_reconciliation(request, report)
         return RedirectResponse(
             f"/workspaces/{workspace_id}/load/outcome",
@@ -896,6 +920,30 @@ def _flash_reconciliation(request: Request, report) -> None:
         _flash(
             request,
             f"Verified {report.verified_count} row(s) against Odoo.",
+        )
+
+
+def _publish_completed_correction_origin(
+    context: WebContext,
+    workspace_id: str,
+) -> None:
+    """Do not misreport a verified Odoo load if finalization needs recovery."""
+
+    try:
+        context.corrections.publish_completed_load(
+            workspace_id,
+            actor=context.actor,
+        )
+    except (CorrectionOriginError, WorkspaceError) as error:
+        logging.getLogger(__name__).warning(
+            "Completed-load correction origin is unavailable for %s: %s",
+            workspace_id,
+            error,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Could not publish completed-load correction origin for %s",
+            workspace_id,
         )
 
 

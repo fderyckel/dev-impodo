@@ -126,6 +126,27 @@ still-unknown rows remain actionable reconciliation evidence.
 
 ## Browser projection boundary
 
+Only a verified Authoring load with a published protected correction origin
+may show **Correct completed load**. Publishing that origin closes the completed
+workspace. Its ordinary authoring routes redirect to the focused correction
+page, while a successor workspace remains the sole owner of corrected rules
+and prepared evidence.
+
+Correction review keeps at most one active review or apply job per completed
+workspace and retains its safe progress projection across page reloads. If the
+submitted mapping still matches the completed mapping, review stops before
+Parquet preparation and before an Odoo read. Otherwise the existing native
+Polars preparation path reduces previous and corrected Parquet snapshots to
+sparse candidates before the exact-ID target read.
+
+The correction page may expose only grouped field and record counts,
+already-correct counts, bounded blocker explanations, and verified or
+needs-attention outcomes. Numeric Odoo IDs, business values, source-row
+numbers, semantic hashes, credentials, and encrypted artifact references stay
+outside browser state. Apply requires an explicit confirmation for the current
+record count; a refreshed plan or changed rule invalidates an older
+confirmation.
+
 The review UI derives its explanation from the current immutable execution
 snapshot. It may show at most five ordered load groups, at most three prepared
 record-type labels per group, and at most five grouped blocker categories.

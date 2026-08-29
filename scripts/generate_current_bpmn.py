@@ -103,8 +103,9 @@ def build_specs() -> tuple[ProcessSpec, ...]:
         lanes=(),
         documentation=(
             "High-level current workflow. File-source projects continue through "
-            "mapping, preparation, final review, disposable-target loading, and "
-            "reconciliation. Odoo-source projects currently stop after bounded "
+            "mapping, preparation, final review, disposable-target loading, "
+            "reconciliation, and an optional scalar completed-load correction. "
+            "Odoo-source projects currently stop after bounded "
             "source capture. Project-level integrated Test planning and exact "
             "qualification are modelled separately because they consume "
             "published Recipes and a new accepted Test DataVersion rather than "
@@ -120,7 +121,7 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             call("Call_Prepare", "Prepare data", "Process_PrepareData", 1160, 80),
             call("Call_Review", "Final review", "Process_FinalReview", 1380, 80),
             call("Call_Load", "Load into Odoo", "Process_LoadOdoo", 1600, 80),
-            Node("End_File", "endEvent", "Reconciled or needs attention", 1820, 102, 36, 36),
+            Node("End_File", "endEvent", "Reconciled, corrected, or needs attention", 1820, 102, 36, 36),
             call("Call_OdooDataSource", "Odoo source data", "Process_OdooData", 500, 290),
             call("Call_OdooCapture", "Freeze Odoo records", "Process_SourceData", 740, 290),
             Node("End_OdooBoundary", "endEvent", "Current Odoo-source boundary", 980, 312, 36, 36),
@@ -396,7 +397,10 @@ def build_specs() -> tuple[ProcessSpec, ...]:
         slug="06-load-into-odoo",
         process_id="Process_LoadOdoo",
         name="Load into Odoo",
-        documentation="Current disposable-target execution and read-back reconciliation workflow.",
+        documentation=(
+            "Current disposable-target execution, read-back reconciliation, "
+            "and scalar completed-load correction workflow."
+        ),
         nodes=(
             event("Start_Load", "startEvent", "Current READY report", 70, 130, "Lane_DataManager"),
             task("Task_ShowPreview", "serviceTask", "Show target, hash, totals, fields, and dependency order", 140, 330, "Lane_Impodo"),
@@ -418,9 +422,18 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             task("Task_ReadBack", "serviceTask", "Read back exact affected records", 2040, 330, "Lane_Impodo"),
             task("Task_Reconcile", "serviceTask", "Publish immutable reconciliation result", 2240, 330, "Lane_Impodo"),
             gateway("Gateway_Verified", "Expected target state proved?", 2450, 340, "Lane_Impodo"),
-            event("End_Reconciled", "endEvent", "Reconciled complete", 2590, 287, "Lane_Impodo"),
+            task("Task_SealCorrectionOrigin", "serviceTask", "Seal exact completed-load correction origin", 2560, 330, "Lane_Impodo"),
+            gateway("Gateway_CorrectionNeeded", "Correction needed later?", 2770, 340, "Lane_Impodo"),
+            event("End_Reconciled", "endEvent", "Reconciled complete", 2890, 417, "Lane_Impodo"),
             task("Task_Fallout", "userTask", "Review fallout; do not blindly retry", 2530, 110, "Lane_DataManager"),
             event("End_Fallout", "endEvent", "Needs attention", 2740, 127, "Lane_DataManager"),
+            task("Task_EditCorrection", "userTask", "Change the incorrect matching rules", 2910, 110, "Lane_DataManager"),
+            task("Task_ReviewCorrection", "serviceTask", "Prepare with Polars and compare changed scalar intent by exact ID", 3110, 330, "Lane_Impodo"),
+            gateway("Gateway_CorrectionSafe", "Blocker-free correction?", 3320, 340, "Lane_Impodo"),
+            event("End_CorrectionBlocked", "endEvent", "Correction needs attention", 3370, 217, "Lane_Impodo"),
+            task("Task_ApplyCorrection", "userTask", "Confirm Apply N corrections", 3440, 110, "Lane_DataManager"),
+            task("Task_ExecuteCorrection", "serviceTask", "Reread, journal, update exact fields, and verify", 3640, 330, "Lane_Impodo"),
+            event("End_CorrectionVerified", "endEvent", "Correction verified", 3840, 347, "Lane_Impodo"),
         ),
         flows=(
             Flow("Flow_LOAD_01", "Start_Load", "Task_ShowPreview"),
@@ -445,15 +458,26 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             Flow("Flow_LOAD_20", "Gateway_MoreBatches", "Task_ReadBack", "No"),
             Flow("Flow_LOAD_21", "Task_ReadBack", "Task_Reconcile"),
             Flow("Flow_LOAD_22", "Task_Reconcile", "Gateway_Verified"),
-            Flow("Flow_LOAD_23", "Gateway_Verified", "End_Reconciled", "Yes"),
+            Flow("Flow_LOAD_23", "Gateway_Verified", "Task_SealCorrectionOrigin", "Yes"),
             Flow("Flow_LOAD_24", "Gateway_Verified", "Task_Fallout", "No"),
             Flow("Flow_LOAD_25", "Task_Fallout", "End_Fallout"),
+            Flow("Flow_LOAD_26", "Task_SealCorrectionOrigin", "Gateway_CorrectionNeeded"),
+            Flow("Flow_LOAD_27", "Gateway_CorrectionNeeded", "End_Reconciled", "No"),
+            Flow("Flow_LOAD_28", "Gateway_CorrectionNeeded", "Task_EditCorrection", "Yes"),
+            Flow("Flow_LOAD_29", "Task_EditCorrection", "Task_ReviewCorrection"),
+            Flow("Flow_LOAD_30", "Task_ReviewCorrection", "Gateway_CorrectionSafe"),
+            Flow("Flow_LOAD_31", "Gateway_CorrectionSafe", "End_CorrectionBlocked", "No"),
+            Flow("Flow_LOAD_32", "Gateway_CorrectionSafe", "Task_ApplyCorrection", "Yes"),
+            Flow("Flow_LOAD_33", "Task_ApplyCorrection", "Task_ExecuteCorrection"),
+            Flow("Flow_LOAD_34", "Task_ExecuteCorrection", "End_CorrectionVerified"),
         ),
         message_flows=(
             MessageFlow("Message_LOAD_Write", "Task_Write", "Participant_Odoo", "Supported Odoo 19 API write"),
             MessageFlow("Message_LOAD_WriteResponse", "Participant_Odoo", "Task_Write", "Write response"),
             MessageFlow("Message_LOAD_ReadBack", "Task_ReadBack", "Participant_Odoo", "Read exact affected scope"),
             MessageFlow("Message_LOAD_ReadBackResponse", "Participant_Odoo", "Task_ReadBack", "Current record state"),
+            MessageFlow("Message_LOAD_CorrectionRead", "Task_ReviewCorrection", "Participant_Odoo", "Read changed-intent fields by exact ID"),
+            MessageFlow("Message_LOAD_CorrectionWrite", "Task_ExecuteCorrection", "Participant_Odoo", "Bounded exact-ID scalar updates and read-back"),
         ),
     )
 

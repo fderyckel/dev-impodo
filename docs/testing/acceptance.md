@@ -265,6 +265,17 @@ certification remain pending.
   re-matched by the governed business key before retry safety is classified;
 - the browser end-to-end test previews, confirms, journals, reads back, and
   renders a verified load without exposing the submitted API key;
+- only a verified Authoring load with a published protected origin shows the
+  focused correction action, and ordinary authoring routes on that closed
+  workspace redirect to it;
+- an unchanged correction mapping stops before Parquet preparation and Odoo
+  reads, while a changed mapping uses the native Polars and Parquet sparse
+  comparison before bounded exact-ID target reads;
+- correction review and apply keep one resumable browser job per completed
+  workspace and expose only compact counts, blocker explanations, and the
+  verified outcome, never target IDs, business values, hashes, or credentials;
+- the correction page proposes zero creates and requires explicit confirmation
+  of the current record count before the exact-ID journalled update path;
 - **Check changes** shows at most five snapshot-derived load groups and five
   grouped actionable blocker categories without source values or row IDs;
 - browser progress does not count planned, in-flight, retry-ready, or

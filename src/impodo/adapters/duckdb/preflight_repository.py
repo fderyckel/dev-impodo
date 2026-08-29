@@ -25,6 +25,7 @@ from impodo.domain.odoo.contracts import (
     MetadataSnapshot,
     RecordSnapshot,
     metadata_snapshot_payload,
+    record_snapshot_from_json,
     record_snapshot_json,
 )
 from ...domain.preflight.reports import (
@@ -108,6 +109,41 @@ class PreflightRepository(DuckDbRepository):
             ],
         )
         return ReadinessReport.from_json(values[0]) if values else None
+
+    def get_record_snapshot(
+        self,
+        workspace_id: str,
+        run_id: str,
+    ) -> RecordSnapshot | None:
+        """Load one protected target snapshot for an exact readiness run."""
+
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Readiness run identifier is invalid") from error
+        values = self._read_json_rows(
+            workspace_id,
+            """
+            SELECT snapshot_json
+              FROM preflight_target_snapshot
+             WHERE run_id = ? AND snapshot_kind = 'records'
+            """,
+            [canonical_run_id],
+        )
+        if not values:
+            return None
+        snapshot = record_snapshot_from_json(values[0])
+        expected = self._read_json_rows(
+            workspace_id,
+            "SELECT report_json FROM readiness_run WHERE run_id = ?",
+            [canonical_run_id],
+        )
+        if not expected:
+            raise WorkspaceError("Readiness report evidence is missing")
+        report = ReadinessReport.from_json(expected[0])
+        if snapshot.content_hash != report.record_snapshot_hash:
+            raise WorkspaceError("Stored Odoo record snapshot changed")
+        return snapshot
 
     def save_readiness_report(
         self,

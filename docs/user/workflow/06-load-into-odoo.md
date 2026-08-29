@@ -38,6 +38,37 @@ authority to another data project, data version, or future rollout.
 
 ![Current Confirm and load screen with the optional loading-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
 
+## Correct a verified Authoring load
+
+When an eligible Authoring load is fully verified, its data-project page shows
+**Correct this Odoo load**. The original load and workspace become historical
+evidence; Impodo creates a separate correction workspace over the same data.
+
+1. Select **Correct this Odoo load**, then **Start correction**.
+2. Select **Edit correction rules**.
+3. Change only the rule that was wrong. This can be a source-to-field value
+   rule, a Selection choice, a constant or fallback, or trimming and casing
+   behavior. The same editor also lets you inspect relationship matches.
+4. Return to the correction page and select **Review correction**.
+5. Review the compact counts by dataset, Odoo model, and field. The review
+   always shows zero creates.
+6. If there are no blockers, explicitly confirm and select **Apply N
+   corrections**.
+7. Leave the progress page open or return to it later. Impodo rereads the exact
+   affected records, applies only the reviewed scalar fields, and verifies the
+   outcome automatically.
+
+Impodo compares the previous prepared intent, the current Odoo value, and the
+corrected prepared intent. It does not rerun the whole migration and does not
+search for another target by business key. If the corrected result is already
+present in Odoo, the page shows that no write is needed.
+
+The first supported correction boundary writes scalar fields only. A changed
+many-to-one relationship, a move to another target field, a missing exact
+record, or a concurrent Odoo change stops the correction without writing.
+Correct the rule where possible; relationship correction remains a separately
+qualified capability.
+
 ## How saving a Recipe relates to the verified outcome
 
 Loading does not create, change, or save a Recipe. If you save the
@@ -111,6 +142,10 @@ complete.
 Either the reviewed snapshot required no writes, or execution finished and
 reconciliation verified the expected Odoo state. A successful HTTP response
 alone is not completion evidence.
+
+For a completed-load correction, Complete means its automatic exact-record
+read-back is verified. A submitted correction request or accepted API response
+is not completion evidence.
 
 ## What changes and what does not
 

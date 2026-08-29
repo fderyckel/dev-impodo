@@ -21,6 +21,8 @@ from typing import Callable
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy
 from ..application.browser_queries import BrowserQueryService
+from ..application.correction_jobs import CorrectionJobManager
+from ..application.correction_workflow import CorrectionWorkflowService
 from ..application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
@@ -193,6 +195,8 @@ class WebContext:
     execution: ExecutionService
     load_jobs: LoadJobManager | None
     reconciliation: ReconciliationService
+    corrections: CorrectionWorkflowService
+    correction_jobs: CorrectionJobManager
     transformation_impacts: TransformationImpactService
     odoo_source_capture: OdooSourceCaptureService
     odoo_capture_publication: OdooCapturePublicationService
