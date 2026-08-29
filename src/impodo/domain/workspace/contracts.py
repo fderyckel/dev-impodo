@@ -14,7 +14,7 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 import json
@@ -27,7 +27,7 @@ from impodo.domain.source_binding import (
     source_binding_from_dict,
 )
 from impodo.domain.shared.models import UniqueConstraintMetadata
-from impodo.domain.serialization import canonical_json
+from impodo.domain.serialization import canonical_json, content_hash
 
 
 WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION = 2
@@ -192,6 +192,26 @@ class SourceSelection:
             datasets=datasets,
             content_hash=payload["content_hash"],
         )
+
+
+def canonical_mapping_source_selection(
+    selection: SourceSelection,
+) -> SourceSelection:
+    """Project a frozen selection into stable mapping dataset identity order."""
+
+    datasets = tuple(sorted(selection.datasets, key=lambda item: item.dataset_id))
+    return replace(
+        selection,
+        datasets=datasets,
+        content_hash=content_hash(
+            {
+                "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+                "datasets": [item.to_dict() for item in datasets],
+                "data_version_id": selection.data_version_id,
+                "version": selection.version,
+            }
+        ),
+    )
 
 
 def _source_dataset_from_dict(value: object) -> SourceDataset:

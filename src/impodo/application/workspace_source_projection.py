@@ -17,11 +17,10 @@ from impodo.application.data_version.source_packages import (
     WorkspaceSourceProjectionRepository,
 )
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan, mapping_source_selection
-from ..domain.serialization import content_hash
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.workspace.contracts import (
     SourceSelection,
-    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+    canonical_mapping_source_selection,
 )
 
 
@@ -69,21 +68,16 @@ class WorkspaceMappingSourceProjection:
             item.to_mapping_dataset() for item in projection.datasets
         )
         version = 1
-        selection = SourceSelection(
-            selection_id=projection.projection_id,
-            version=version,
-            data_version_id=projection.data_version_id,
-            created_at=projection.created_at,
-            created_by=projection.created_by,
-            datasets=datasets,
-            content_hash=content_hash(
-                {
-                    "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
-                    "datasets": [item.to_dict() for item in datasets],
-                    "data_version_id": projection.data_version_id,
-                    "version": version,
-                }
-            ),
+        selection = canonical_mapping_source_selection(
+            SourceSelection(
+                selection_id=projection.projection_id,
+                version=version,
+                data_version_id=projection.data_version_id,
+                created_at=projection.created_at,
+                created_by=projection.created_by,
+                datasets=datasets,
+                content_hash=projection.package_hash,
+            )
         )
         if self.preparation is None:
             return selection

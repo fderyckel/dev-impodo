@@ -126,7 +126,7 @@ class PreflightRepository(DuckDbRepository):
             """
             SELECT snapshot_json
               FROM preflight_target_snapshot
-             WHERE run_id = ? AND snapshot_kind = 'records'
+             WHERE run_id = ? AND kind = 'records'
             """,
             [canonical_run_id],
         )

@@ -33,6 +33,7 @@ from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepo
 from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
 from impodo.domain.workspace.contracts import (
+    canonical_mapping_source_selection,
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
@@ -72,8 +73,20 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             updated_at=datetime.now(timezone.utc),
             updated_by="Test operator",
         )
-        authored = replace(selection, datasets=(product, account))
-        canonical = replace(selection, datasets=(account, product))
+        authored = canonical_mapping_source_selection(
+            replace(
+                selection,
+                datasets=(product, account),
+                content_hash="sha256:" + "a" * 64,
+            )
+        )
+        canonical = canonical_mapping_source_selection(
+            replace(
+                selection,
+                datasets=(account, product),
+                content_hash="sha256:" + "b" * 64,
+            )
+        )
 
         authored_effective = mapping_source_selection(authored, plan, (catalog,))
         canonical_effective = mapping_source_selection(canonical, plan, (catalog,))

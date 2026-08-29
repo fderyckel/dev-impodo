@@ -1034,11 +1034,23 @@ def create_local_app(
     def workspace_route_policy(request, access_context):
         """Keep Recipe-run workspaces inside their owning run journey."""
 
+        parts = request.url.path.strip("/").split("/")
+        area = parts[2] if len(parts) >= 3 else ""
+        trusted_job_path = (
+            len(parts) >= 4 and parts[2] == "preparation"
+        ) or (
+            len(parts) >= 5 and parts[2:4] == ["load", "progress"]
+        ) or (
+            len(parts) >= 5 and parts[2:4] == ["sources", "odoo-capture"]
+        )
+        if trusted_job_path:
+            # The access middleware already resolved these routes from their
+            # verified job packet. Do not reopen a registry that the worker may
+            # intentionally hold while publishing its result.
+            return None
         workspace = context.migration_workspaces.repository.get_migration_workspace(
             access_context.workspace_id
         )
-        parts = request.url.path.strip("/").split("/")
-        area = parts[2] if len(parts) >= 3 else ""
         if (
             workspace.state is MigrationWorkspaceState.CLOSED
             and area not in {"correction", "load"}

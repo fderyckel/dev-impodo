@@ -33,6 +33,7 @@ from ...domain.odoo_source_capture import (
 from impodo.application.data_version.inspection import SourceFileCatalog, SourceInspectionError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
 from impodo.domain.workspace.contracts import (
+    canonical_mapping_source_selection,
     SourceConfiguration,
     SourceDataset,
     SourceSelection,
@@ -504,7 +505,7 @@ class SourceRepository(DuckDbRepository):
         if selection is None:
             return None
         return mapping_source_selection(
-            selection,
+            canonical_mapping_source_selection(selection),
             self._derived_entities.get_derived_entity_plan(workspace_id),
             self.get_source_catalogs(workspace_id),
         )
