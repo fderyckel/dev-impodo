@@ -132,12 +132,16 @@ class CorrectionPlanTests(unittest.TestCase):
                 canonical_json(payload).encode("utf-8")
             )
 
-    def test_relationship_field_cannot_enter_first_scalar_plan(self) -> None:
-        with self.assertRaisesRegex(CorrectionPlanError, "Relationship"):
-            replace(
-                _field(1, "uom_id", ("UNI",), ("Unit",)),
-                value_kind=CorrectionValueKind.MANY2ONE,
-            )
+    def test_relationship_field_requires_exact_protected_identities(self) -> None:
+        field = replace(
+            _field(1, "uom_id", 41, 42),
+            value_kind=CorrectionValueKind.MANY2ONE,
+            current=41,
+        )
+
+        self.assertEqual(make_plan((field,)).fields[0].corrected, 42)
+        with self.assertRaisesRegex(CorrectionPlanError, "relationship identity"):
+            replace(field, corrected=("Unit",))
 
     def test_same_exact_target_field_cannot_be_planned_twice(self) -> None:
         first = _field(1, "active", False, True)

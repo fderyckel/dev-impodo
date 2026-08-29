@@ -114,6 +114,11 @@ def write_polars_correction_candidates(
             field.value_kind is not corrected.value_kind
             or field.value_type != corrected.value_type
             or len(field.value_aliases) != len(corrected.value_aliases)
+            or field.relationship_model != corrected.relationship_model
+            or field.relationship_key_fields
+            != corrected.relationship_key_fields
+            or field.relationship_scope_fields
+            != corrected.relationship_scope_fields
         ):
             raise CorrectionComparisonError(
                 "Correction changes the contract of target field "
@@ -291,6 +296,9 @@ def iter_polars_correction_candidate_batches(
                         value_kind=field.value_kind,
                         previous=_restore_intent(payload["previous"], field),
                         corrected=_restore_intent(payload["corrected"], field),
+                        relationship_model=field.relationship_model,
+                        relationship_key_fields=field.relationship_key_fields,
+                        relationship_scope_fields=field.relationship_scope_fields,
                     )
                 )
             if candidates:
@@ -339,14 +347,21 @@ def _intent_projection(
 ) -> pl.LazyFrame:
     expressions: list[pl.Expr] = [pl.col(SOURCE_ROW_COLUMN)]
     for index, field in enumerate(fields):
-        expressions.extend(
-            pl.col(alias).alias(projected)
-            for alias, projected in zip(
+        for component_index, (alias, projected) in enumerate(
+            zip(
                 field.value_aliases,
                 _projected_aliases(prefix, index, field),
                 strict=True,
             )
-        )
+        ):
+            value = pl.col(alias)
+            if component_index == 0 and field.value_mappings:
+                value = value.replace_strict(
+                    [item[0] for item in field.value_mappings],
+                    [item[1] for item in field.value_mappings],
+                    default=value,
+                )
+            expressions.append(value.alias(projected))
     expressions.append(
         (pl.col(PREPARED_ISSUE_COLUMN).list.len() > 0).alias(issue_alias)
     )

@@ -33,8 +33,10 @@ from impodo.domain.execution.models import (
 )
 from impodo.domain.execution.odoo_readback import (
     MAX_READBACK_IDS,
+    MAX_READBACK_LOOKUPS,
     OdooReadbackError,
     OdooReadbackReader,
+    ReadbackLookup,
 )
 from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.odoo.contracts import RecordSnapshot
@@ -250,8 +252,15 @@ class CorrectionReviewService:
             raise CorrectionReviewError("Correction target index is empty")
         reviewed: list[CorrectionReviewedField] = []
         blockers: list[CorrectionReviewBlocker] = []
+        relationship_cache: dict[
+            tuple[str, tuple[str, ...], tuple[str, ...], tuple[object, ...]],
+            int | str,
+        ] = {}
         for candidate_batch in candidate_batches:
             scalar_candidates: list[
+                tuple[CorrectionCandidate, CorrectionTargetIndexEntry]
+            ] = []
+            relationship_candidates: list[
                 tuple[CorrectionCandidate, CorrectionTargetIndexEntry]
             ] = []
             for candidate in candidate_batch:
@@ -270,17 +279,19 @@ class CorrectionReviewService:
                             "The completed load has no exact target for this row",
                         )
                     )
-                elif candidate.value_kind is not CorrectionValueKind.SCALAR:
-                    blockers.append(
-                        _blocker(
-                            "RELATIONSHIP_NOT_QUALIFIED",
-                            candidate,
-                            "Relationship correction requires its separate "
-                            "qualification",
-                        )
-                    )
+                elif candidate.value_kind is CorrectionValueKind.MANY2ONE:
+                    relationship_candidates.append((candidate, target))
                 else:
                     scalar_candidates.append((candidate, target))
+            resolved_relationships, relationship_blockers = (
+                self._resolve_relationship_batch(
+                    relationship_candidates,
+                    reader,
+                    relationship_cache,
+                )
+            )
+            scalar_candidates.extend(resolved_relationships)
+            blockers.extend(relationship_blockers)
             reviewed_batch, batch_blockers = self._read_scalar_batch(
                 scalar_candidates,
                 reader,
@@ -292,6 +303,150 @@ class CorrectionReviewService:
             fields=tuple(reviewed),
             blockers=tuple(blockers),
         )
+
+    @staticmethod
+    def _resolve_relationship_batch(
+        candidates: list[tuple[CorrectionCandidate, CorrectionTargetIndexEntry]],
+        reader: OdooReadbackReader,
+        cache: dict[
+            tuple[str, tuple[str, ...], tuple[str, ...], tuple[object, ...]],
+            int | str,
+        ],
+    ) -> tuple[
+        list[tuple[CorrectionCandidate, CorrectionTargetIndexEntry]],
+        list[CorrectionReviewBlocker],
+    ]:
+        """Resolve each distinct exact-existing relationship key once."""
+
+        resolved: list[tuple[CorrectionCandidate, CorrectionTargetIndexEntry]] = []
+        blockers: list[CorrectionReviewBlocker] = []
+        required: dict[
+            str,
+            list[
+                tuple[
+                    tuple[str, tuple[str, ...], tuple[str, ...], tuple[object, ...]],
+                    ReadbackLookup,
+                ]
+            ],
+        ] = {}
+        candidate_keys: list[
+            tuple[
+                CorrectionCandidate,
+                CorrectionTargetIndexEntry,
+                tuple[str, tuple[str, ...], tuple[str, ...], tuple[object, ...]]
+                | None,
+                tuple[str, tuple[str, ...], tuple[str, ...], tuple[object, ...]]
+                | None,
+            ]
+        ] = []
+        for candidate, target in candidates:
+            fields = (
+                *candidate.relationship_key_fields,
+                *candidate.relationship_scope_fields,
+            )
+            values = (candidate.previous, candidate.corrected)
+            keys = []
+            for value in values:
+                if (
+                    candidate.relationship_model is None
+                    or not isinstance(value, tuple)
+                    or len(value) != len(fields)
+                    or any(item is None for item in value)
+                ):
+                    keys.append(None)
+                    continue
+                key = (
+                    candidate.relationship_model,
+                    candidate.relationship_key_fields,
+                    candidate.relationship_scope_fields,
+                    value,
+                )
+                keys.append(key)
+                if key not in cache:
+                    required.setdefault(candidate.relationship_model, []).append(
+                        (
+                            key,
+                            ReadbackLookup(
+                                domain=tuple(
+                                    (field, "=", item)
+                                    for field, item in zip(fields, value, strict=True)
+                                )
+                            ),
+                        )
+                    )
+                    cache[key] = "PENDING"
+            candidate_keys.append((candidate, target, keys[0], keys[1]))
+
+        for model in sorted(required):
+            lookups = required[model]
+            for start in range(0, len(lookups), MAX_READBACK_LOOKUPS):
+                batch = lookups[start : start + MAX_READBACK_LOOKUPS]
+                try:
+                    matches = reader.find_records_many(
+                        model,
+                        tuple(lookup for _key, lookup in batch),
+                    )
+                except OdooReadbackError as error:
+                    raise CorrectionReviewError(
+                        "Correction relationships could not be resolved safely"
+                    ) from error
+                if len(matches) != len(batch):
+                    raise CorrectionReviewError(
+                        "Odoo returned incomplete relationship results"
+                    )
+                for (key, _lookup), found in zip(batch, matches, strict=True):
+                    identifiers = {item.odoo_id for item in found}
+                    cache[key] = (
+                        next(iter(identifiers))
+                        if len(found) == 1 and len(identifiers) == 1
+                        else "MISSING"
+                        if not found
+                        else "AMBIGUOUS"
+                    )
+
+        for candidate, target, previous_key, corrected_key in candidate_keys:
+            if previous_key is None or corrected_key is None:
+                blockers.append(
+                    _blocker(
+                        "RELATIONSHIP_NOT_QUALIFIED",
+                        candidate,
+                        "The relationship is not an exact existing Odoo match",
+                    )
+                )
+                continue
+            previous_id = cache[previous_key]
+            corrected_id = cache[corrected_key]
+            if not isinstance(previous_id, int) or not isinstance(corrected_id, int):
+                blockers.append(
+                    _blocker(
+                        (
+                            "RELATIONSHIP_MATCH_AMBIGUOUS"
+                            if "AMBIGUOUS" in {previous_id, corrected_id}
+                            else "RELATIONSHIP_MATCH_MISSING"
+                        ),
+                        candidate,
+                        "The relationship must match exactly one existing Odoo record",
+                    )
+                )
+                continue
+            resolved.append(
+                (
+                    CorrectionCandidate(
+                        dataset=candidate.dataset,
+                        source_row=candidate.source_row,
+                        target_model=candidate.target_model,
+                        target_field=candidate.target_field,
+                        value_kind=CorrectionValueKind.MANY2ONE,
+                        previous=previous_id,
+                        corrected=corrected_id,
+                        relationship_model=candidate.relationship_model,
+                        relationship_key_fields=candidate.relationship_key_fields,
+                        relationship_scope_fields=candidate.relationship_scope_fields,
+                    ),
+                    target,
+                )
+            )
+        return resolved, blockers
 
     @staticmethod
     def _read_scalar_batch(
@@ -359,11 +514,29 @@ class CorrectionReviewService:
                                 )
                             )
                             continue
-                        current = current_record.values[candidate.target_field]
+                        raw_current = current_record.values[candidate.target_field]
+                        try:
+                            current = _canonical_current_value(
+                                candidate.value_kind,
+                                raw_current,
+                            )
+                        except CorrectionReviewError:
+                            blockers.append(
+                                _blocker(
+                                    "CURRENT_RELATIONSHIP_INVALID",
+                                    candidate,
+                                    "The current Odoo relationship is invalid",
+                                )
+                            )
+                            continue
                         decision = classify_correction_field(
                             candidate,
                             current,
-                            equal=odoo_scalar_values_equal,
+                            equal=(
+                                odoo_scalar_values_equal
+                                if candidate.value_kind is CorrectionValueKind.SCALAR
+                                else None
+                            ),
                         )
                         reviewed.append(
                             CorrectionReviewedField(target=target, decision=decision)
@@ -402,10 +575,7 @@ class CorrectionPlanService:
     ) -> CorrectionPlan:
         """Create one deterministic protected plan without rehashing its inputs."""
 
-        unsafe_outcomes = {
-            CorrectionFieldOutcome.CONFLICT,
-            CorrectionFieldOutcome.UNCHANGED_INTENT,
-        }
+        unsafe_outcomes = {CorrectionFieldOutcome.CONFLICT}
         if (
             review.blockers
             or not review.ready_fields
@@ -425,7 +595,6 @@ class CorrectionPlanService:
                 candidate.dataset != target.dataset
                 or candidate.source_row != target.source_row
                 or candidate.target_model != target.target_model
-                or candidate.value_kind is not CorrectionValueKind.SCALAR
             ):
                 raise CorrectionPlanError(
                     "Correction review field does not match its exact target"
@@ -532,6 +701,41 @@ def odoo_scalar_values_equal(expected: object, actual: object) -> bool:
     if expected == "" and actual is False:
         return True
     return expected == actual
+
+
+def odoo_correction_values_equal(
+    kind: CorrectionValueKind,
+    expected: object,
+    actual: object,
+) -> bool:
+    """Compare one protected correction value with its Odoo wire shape."""
+
+    if kind is CorrectionValueKind.SCALAR:
+        return odoo_scalar_values_equal(expected, actual)
+    try:
+        return expected == _canonical_current_value(kind, actual)
+    except CorrectionReviewError:
+        return False
+
+
+def _canonical_current_value(
+    kind: CorrectionValueKind,
+    value: object,
+) -> object:
+    if kind is CorrectionValueKind.SCALAR:
+        return value
+    if value is None or value is False:
+        return None
+    if (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and type(value[0]) is int
+        and value[0] > 0
+    ):
+        return value[0]
+    if type(value) is int and value > 0:
+        return value
+    raise CorrectionReviewError("Current many-to-one value is invalid")
 
 
 def _utc_naive(value: datetime) -> datetime:

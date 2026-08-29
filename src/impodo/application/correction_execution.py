@@ -16,7 +16,7 @@ from impodo.application.correction_orchestration import (
 )
 from impodo.application.correction_service import (
     CorrectionPlanService,
-    odoo_scalar_values_equal,
+    odoo_correction_values_equal,
 )
 from impodo.domain.correction import (
     CorrectionConfirmation,
@@ -222,7 +222,10 @@ class CorrectionExecutionService:
                 rows[index] = item
             record = snapshot.records[indexes[0]]
             values = {
-                field.target_field: _odoo_scalar(field.corrected)
+                field.target_field: _odoo_value(
+                    field.value_kind,
+                    field.corrected,
+                )
                 for field in record.fields
             }
             try:
@@ -351,8 +354,10 @@ class CorrectionExecutionService:
             values = found.get((record.target_model, record.odoo_id))
             if values is None or any(
                 field.target_field not in values
-                or not odoo_scalar_values_equal(
-                    field.confirmed_current, values[field.target_field]
+                or not odoo_correction_values_equal(
+                    field.value_kind,
+                    field.confirmed_current,
+                    values[field.target_field],
                 )
                 for field in record.fields
             ):
@@ -429,8 +434,10 @@ class CorrectionExecutionService:
                 for field in record.fields
                 if values is None
                 or field.target_field not in values
-                or not odoo_scalar_values_equal(
-                    field.corrected, values[field.target_field]
+                or not odoo_correction_values_equal(
+                    field.value_kind,
+                    field.corrected,
+                    values[field.target_field],
                 )
             )
             if values is None:
@@ -444,8 +451,10 @@ class CorrectionExecutionService:
             elif attempt.status is ExecutionRowStatus.OUTCOME_UNKNOWN:
                 unchanged = all(
                     field.target_field in values
-                    and odoo_scalar_values_equal(
-                        field.confirmed_current, values[field.target_field]
+                    and odoo_correction_values_equal(
+                        field.value_kind,
+                        field.confirmed_current,
+                        values[field.target_field],
                     )
                     for field in record.fields
                 )
@@ -524,7 +533,13 @@ def correction_api_scope(snapshot: CorrectionExecutionSnapshot) -> OdooApiScope:
     )
 
 
-def _odoo_scalar(value: Any) -> Any:
+def _odoo_value(kind, value: Any) -> Any:
+    if kind.value == "MANY2ONE":
+        if value is None:
+            return False
+        if type(value) is int and value > 0:
+            return value
+        raise WorkspaceError("A correction relationship identity is invalid")
     if isinstance(value, Decimal):
         return float(value)
     if isinstance(value, datetime):

@@ -11,7 +11,11 @@ from impodo.application.correction_execution import (
     correction_api_scope,
 )
 from impodo.application.correction_orchestration import CorrectionBinding
-from impodo.domain.correction import CorrectionConfirmation, CorrectionPlanError
+from impodo.domain.correction import (
+    CorrectionConfirmation,
+    CorrectionPlanError,
+    CorrectionValueKind,
+)
 from impodo.domain.correction_execution import CorrectionExecutionSnapshot
 from impodo.domain.correction_origin import ProtectedCorrectionArtifactReference
 from impodo.domain.execution.models import ExecutionRunStatus
@@ -225,6 +229,55 @@ class CorrectionExecutionServiceTests(unittest.TestCase):
             index for index, event in enumerate(journal.events) if event[0] == "before-write"
         )
         self.assertGreater(first_write, 0)
+
+    def test_many2one_writes_only_exact_product_relationship_ids(self):
+        field = replace(
+            _field(1, "uom_id", 90, 91),
+            value_kind=CorrectionValueKind.MANY2ONE,
+            current=90,
+        )
+        plan = make_plan((field,))
+        confirmation = CorrectionConfirmation.create(
+            confirmation_id=CONFIRMATION_ID,
+            plan=plan,
+            write_credential_binding_hash=HASHES[11],
+            write_identity=_write_identity(),
+            confirmed_by=plan.created_by,
+            confirmed_at=NOW,
+        )
+        snapshot = CorrectionExecutionSnapshot.create(
+            plan,
+            confirmation,
+            target_database="impodo-test",
+        )
+        target = _Target(snapshot)
+        bindings = _Bindings(plan, confirmation)
+        service = CorrectionExecutionService(
+            bindings,
+            object(),
+            _Journal(),
+            _Results(),
+            CapabilityAuthorizationPolicy(),
+        )
+
+        outcome = service.execute(
+            COMPLETED_WORKSPACE_ID,
+            plan,
+            confirmation,
+            target_database="impodo-test",
+            write_credential_binding_hash=HASHES[11],
+            write_identity=_write_identity(observed_at="2026-08-28T04:02:00Z"),
+            reader=target,
+            writer=target,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(
+            target.write_calls,
+            [("product.template", (701,), {"uom_id": 91})],
+        )
+        self.assertEqual(outcome.reconciliation.status.value, "VERIFIED")
+        self.assertEqual(bindings.completions, 1)
 
     def test_changed_target_invalidates_review_before_journal_or_write(self):
         plan, confirmation, target, bindings, journal, _results, service = self._fixture(

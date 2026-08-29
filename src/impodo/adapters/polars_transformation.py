@@ -23,6 +23,7 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarExpressionStep,
     ColumnarIdentityComponentProgram,
     ColumnarOperationKind,
+    ColumnarRelationshipProgram,
     ColumnarScalarFieldProgram,
     ColumnarSelectionConditionProgram,
     ColumnarSelectionRuleProgram,
@@ -181,6 +182,10 @@ class PreparedIntentColumn:
     value_kind: CorrectionValueKind
     value_type: str
     value_aliases: tuple[str, ...]
+    relationship_model: str | None = None
+    relationship_key_fields: tuple[str, ...] = ()
+    relationship_scope_fields: tuple[str, ...] = ()
+    value_mappings: tuple[tuple[str, str], ...] = ()
 
 
 def write_polars_prepared_snapshot(
@@ -570,6 +575,10 @@ def prepared_intent_columns(
             value_aliases=tuple(
                 value.value_alias for value in component.values
             ),
+            relationship_model=relationship.related_model,
+            relationship_key_fields=relationship.target_key_fields,
+            relationship_scope_fields=relationship.target_scope_fields,
+            value_mappings=relationship.target_value_mappings,
         )
         for relationship, component in zip(
             program.relationships,
@@ -1350,14 +1359,9 @@ def _adapt_frame(
             for item in identity_by_kind["target_scope"]
         )
         references = {
-            relationship.target_field: (
-                None
-                if not key or all(value is None for value in key)
-                else LogicalReference(
-                    origin="incoming",
-                    key=key,
-                    dataset=relationship.parent_dataset_name,
-                )
+            relationship.target_field: _relationship_reference(
+                relationship,
+                key,
             )
             for relationship, component in zip(
                 program.relationships,
@@ -1898,6 +1902,47 @@ def _row_issues(
                 )
             )
     return tuple(issues)
+
+
+def _relationship_reference(
+    relationship: ColumnarRelationshipProgram,
+    incoming_key: tuple[object, ...],
+) -> LogicalReference | None:
+    if not incoming_key or all(value is None for value in incoming_key):
+        return None
+    if relationship.resolver_origin == "dataset":
+        return LogicalReference(
+            origin="incoming",
+            key=incoming_key,
+            dataset=relationship.parent_dataset_name,
+        )
+    mapped_key = list(incoming_key)
+    if mapped_key and relationship.target_value_mappings:
+        mapped_key[0] = dict(relationship.target_value_mappings).get(
+            str(mapped_key[0]),
+            mapped_key[0],
+        )
+    key_width = len(relationship.target_key_fields)
+    target_key = tuple(mapped_key[:key_width])
+    scope = tuple(mapped_key[key_width:])
+    return LogicalReference(
+        origin=(
+            "target"
+            if relationship.resolver_origin == "target_catalog"
+            else "target_then_incoming"
+        ),
+        key=target_key,
+        dataset=relationship.parent_dataset_name or None,
+        model=relationship.related_model,
+        target_fields=relationship.target_key_fields,
+        target_scope_fields=relationship.target_scope_fields,
+        scope=scope,
+        incoming_key=(
+            incoming_key
+            if relationship.resolver_origin == "target_then_dataset"
+            else None
+        ),
+    )
 
 
 def _identity_error_message(

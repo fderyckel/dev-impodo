@@ -399,10 +399,7 @@ class ColumnarCompilerTests(unittest.TestCase):
         self.assertEqual(direct.support, ColumnarSupport.PYTHON_FALLBACK)
         self.assertEqual(
             {item.code for item in direct.fallback_reasons},
-            {
-                "COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED",
-                "COLUMNAR_RELATIONSHIP_UNSUPPORTED",
-            },
+            {"COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED"},
         )
         self.assertEqual(related.support, ColumnarSupport.PYTHON_FALLBACK)
         self.assertEqual(

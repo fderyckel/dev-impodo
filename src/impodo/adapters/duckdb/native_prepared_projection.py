@@ -559,16 +559,56 @@ def _references_json(
         layout.relationships,
         strict=True,
     ):
-        key = _identity_json((component,))
+        incoming_key = _identity_json((component,))
         all_null = " AND ".join(f"{item.alias} IS NULL" for item in component.values)
-        value = f"""
-            CASE WHEN {all_null} THEN NULL ELSE json_object(
-                'dataset', {_literal(relationship.parent_dataset_name)},
-                'key', {key},
-                'origin', 'incoming',
-                'scope', json_array()
-            ) END
-        """
+        if relationship.resolver_origin == "dataset":
+            reference = (
+                "json_object("
+                f"'dataset', {_literal(relationship.parent_dataset_name)}, "
+                f"'key', {incoming_key}, 'origin', 'incoming', "
+                "'scope', json_array())"
+            )
+        else:
+            values = [
+                _identifier(item.alias) for item in component.values
+            ]
+            if values and relationship.target_value_mappings:
+                source = values[0]
+                branches = " ".join(
+                    f"WHEN {_literal(before)} THEN {_literal(after)}"
+                    for before, after in relationship.target_value_mappings
+                )
+                values[0] = f"CASE {source} {branches} ELSE {source} END"
+            key_width = len(relationship.target_key_fields)
+            target_key = _json_array_values(values[:key_width])
+            scope = _json_array_values(values[key_width:])
+            arguments = [
+                f"'key', {target_key}",
+                (
+                    "'origin', 'target'"
+                    if relationship.resolver_origin == "target_catalog"
+                    else "'origin', 'target_then_incoming'"
+                ),
+                f"'scope', {scope}",
+                f"'model', {_literal(relationship.related_model or '')}",
+                (
+                    "'target_fields', "
+                    f"{_string_array_json(relationship.target_key_fields)}"
+                ),
+                (
+                    "'target_scope_fields', "
+                    f"{_string_array_json(relationship.target_scope_fields)}"
+                ),
+            ]
+            if relationship.resolver_origin == "target_then_dataset":
+                arguments.extend(
+                    (
+                        f"'dataset', {_literal(relationship.parent_dataset_name)}",
+                        f"'incoming_key', {incoming_key}",
+                    )
+                )
+            reference = f"json_object({', '.join(arguments)})"
+        value = f"CASE WHEN {all_null} THEN NULL ELSE {reference} END"
         fields.append((relationship.target_field, value))
     return _object_json(tuple(fields))
 
@@ -581,6 +621,8 @@ def _relationship_items_sql(
     for index, (relationship, component) in enumerate(
         zip(projection.program.relationships, layout.relationships, strict=True)
     ):
+        if not relationship.parent_dataset_name:
+            continue
         all_null = " AND ".join(f"{item.alias} IS NULL" for item in component.values)
         key = _identity_json((component,))
         items.append(
@@ -591,6 +633,14 @@ def _relationship_items_sql(
             f"key_json := CASE WHEN {all_null} THEN NULL ELSE {key} END)"
         )
     return ", ".join(items)
+
+
+def _json_array_values(values: list[str]) -> str:
+    return (
+        f"json_array({', '.join(f'to_json({value})' for value in values)})"
+        if values
+        else "json_array()"
+    )
 
 
 def _impact_items_sql(

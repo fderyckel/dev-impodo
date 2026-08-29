@@ -696,7 +696,7 @@ def create_local_app(
         successor_workspace_id,
         _actor,
     ) -> CorrectionTargetReviewEvidence:
-        """Bind one fresh exact-target reader to scalar correction fields."""
+        """Bind one fresh reader to exact targets and governed relationships."""
 
         successor_state = workspace_state_repository.get(
             successor_workspace_id
@@ -723,11 +723,34 @@ def create_local_app(
         if previous is None:
             raise CorrectionOriginError("Completed correction rules are missing")
         fields_by_model: dict[str, set[str]] = {}
+        lookup_fields_by_model: dict[str, set[str]] = {}
         for definition in (previous.definition, mapping.definition):
             for dataset in definition.datasets:
                 fields_by_model.setdefault(dataset.target_model, set()).update(
                     field.target_field for field in dataset.fields
                 )
+                fields_by_model[dataset.target_model].update(
+                    relationship.target_field
+                    for relationship in dataset.relationships
+                )
+                for relationship in dataset.relationships:
+                    resolver = relationship.resolver
+                    if resolver.model and resolver.key_mappings:
+                        lookup_fields = {
+                            item.target_field
+                            for item in (
+                                *resolver.key_mappings,
+                                *resolver.scope_mappings,
+                            )
+                        }
+                        fields_by_model.setdefault(
+                            resolver.model,
+                            set(),
+                        ).update(lookup_fields)
+                        lookup_fields_by_model.setdefault(
+                            resolver.model,
+                            set(),
+                        ).update(lookup_fields)
         scope = OdooApiScope(
             preview_hash=content_hash(
                 {
@@ -739,6 +762,9 @@ def create_local_app(
                 OdooModelScope(
                     model=model,
                     read_fields=tuple(sorted(fields)),
+                    lookup_fields=tuple(
+                        sorted(lookup_fields_by_model.get(model, set()))
+                    ),
                 )
                 for model, fields in sorted(fields_by_model.items())
                 if fields

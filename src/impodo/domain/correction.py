@@ -69,6 +69,9 @@ class CorrectionCandidate:
     value_kind: CorrectionValueKind
     previous: Any
     corrected: Any
+    relationship_model: str | None = None
+    relationship_key_fields: tuple[str, ...] = ()
+    relationship_scope_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for value, label in (
@@ -81,6 +84,21 @@ class CorrectionCandidate:
         if self.source_row < 1:
             raise ValueError("Correction source row is invalid")
         object.__setattr__(self, "value_kind", CorrectionValueKind(self.value_kind))
+        if self.value_kind is CorrectionValueKind.SCALAR:
+            if (
+                self.relationship_model is not None
+                or self.relationship_key_fields
+                or self.relationship_scope_fields
+            ):
+                raise ValueError("Scalar correction cannot carry relationship scope")
+        elif self.relationship_model is not None:
+            if not self.relationship_model or not self.relationship_key_fields:
+                raise ValueError("Correction relationship lookup is incomplete")
+            fields = (*self.relationship_key_fields, *self.relationship_scope_fields)
+            if len(set(fields)) != len(fields) or any(
+                not item or len(item) > 200 for item in fields
+            ):
+                raise ValueError("Correction relationship lookup is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +156,7 @@ def _equal(left: Any, right: Any) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class CorrectionPlanField:
-    """One reviewed scalar update bound to an exact protected Odoo record."""
+    """One reviewed field update bound to exact protected Odoo identities."""
 
     dataset: str
     source_row: int
@@ -172,10 +190,12 @@ class CorrectionPlanField:
         if self.target_binding_hash:
             _plan_hash(self.target_binding_hash, "target_binding_hash")
         object.__setattr__(self, "value_kind", CorrectionValueKind(self.value_kind))
-        if self.value_kind is not CorrectionValueKind.SCALAR:
-            raise CorrectionPlanError(
-                "Relationship corrections require separate qualification"
-            )
+        if self.value_kind is CorrectionValueKind.MANY2ONE:
+            for value in (self.previous, self.current, self.corrected):
+                if value is not None and (type(value) is not int or value <= 0):
+                    raise CorrectionPlanError(
+                        "Correction relationship identity is invalid"
+                    )
         try:
             canonical_json(
                 portable_value((self.previous, self.current, self.corrected))

@@ -29,7 +29,7 @@ from impodo.domain.compiler.columnar_transformation import (
     ColumnarSupport,
     compile_columnar_transformation_program,
 )
-from impodo.domain.correction import CorrectionValueKind
+from impodo.domain.correction import CorrectionCandidate, CorrectionValueKind
 from impodo.domain.correction_origin import (
     CorrectionOriginManifest,
     CorrectionPreparedArtifact,
@@ -45,6 +45,7 @@ from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipResolver,
+    ReferenceKeyMapping,
     ResolverOrigin,
     ScalarValueSource,
     SelectionCondition,
@@ -624,6 +625,152 @@ class PolarsCorrectionTests(unittest.TestCase):
         )
         self.assertEqual(reader.calls, [])
 
+    def test_exact_existing_many2one_is_resolved_once_and_ready_by_id(self) -> None:
+        dataset = self.previous_definition.datasets[0]
+        previous_relationship = RelationshipMapping(
+            target_field="categ_id",
+            kind="many2one",
+            source_column_keys=("product.category",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="product.category",
+                key_mappings=(
+                    ReferenceKeyMapping("product.category", "name"),
+                ),
+            ),
+        )
+        corrected_relationship = replace(
+            previous_relationship,
+            resolver=replace(
+                previous_relationship.resolver,
+                value_mappings=(ValueMapping("Retail", "Consumer"),),
+            ),
+        )
+        previous_definition = canonicalize_mapping_definition(
+            replace(
+                self.previous_definition,
+                datasets=(
+                    replace(dataset, relationships=(previous_relationship,)),
+                ),
+            )
+        )
+        corrected_definition = canonicalize_mapping_definition(
+            replace(
+                self.previous_definition,
+                datasets=(
+                    replace(dataset, relationships=(corrected_relationship,)),
+                ),
+            )
+        )
+        previous_program, previous_path, previous_snapshot = self._prepare(
+            previous_definition,
+            "previous-target-relationship.parquet",
+        )
+        corrected_program, corrected_path, corrected_snapshot = self._prepare(
+            corrected_definition,
+            "corrected-target-relationship.parquet",
+        )
+        artifact = write_polars_correction_candidates(
+            previous_path,
+            previous_snapshot,
+            previous_program,
+            corrected_path,
+            corrected_snapshot,
+            corrected_program,
+            self.root / "target-relationship-candidates.parquet",
+        )
+        reader = _FakeReadbackReader(
+            {71: {"categ_id": [90, "Retail"]}},
+            relationship_ids={
+                ("product.category", (("name", "=", "Retail"),)): 90,
+                ("product.category", (("name", "=", "Consumer"),)): 91,
+            },
+        )
+        review = CorrectionReviewService().review(
+            iter_polars_correction_candidate_batches(artifact),
+            (
+                CorrectionTargetIndexEntry(
+                    dataset="products",
+                    source_row=2,
+                    row_id="row-2",
+                    target_model="product.template",
+                    odoo_id=71,
+                    completed_disposition="UPDATE",
+                    target_binding_hash=target_record_binding_hash(
+                        "product.template",
+                        71,
+                    ),
+                ),
+            ),
+            reader=reader,
+            expected_target_hash=reader.target_hash,
+            expected_reader_scope_hash=reader.scope_hash,
+        )
+
+        self.assertTrue(review.can_apply)
+        decision = review.ready_fields[0].decision
+        self.assertEqual(decision.candidate.value_kind, CorrectionValueKind.MANY2ONE)
+        self.assertEqual(
+            (decision.candidate.previous, decision.current, decision.candidate.corrected),
+            (90, 90, 91),
+        )
+        self.assertEqual(len(reader.lookup_calls), 1)
+        self.assertEqual(len(reader.lookup_calls[0][1]), 2)
+
+    def test_thirty_seven_products_reuse_two_distinct_relationship_lookups(self) -> None:
+        candidates = tuple(
+            CorrectionCandidate(
+                dataset="products",
+                source_row=index,
+                target_model="product.template",
+                target_field="uom_id",
+                value_kind=CorrectionValueKind.MANY2ONE,
+                previous=("UNI",),
+                corrected=("Unit",),
+                relationship_model="uom.uom",
+                relationship_key_fields=("name",),
+            )
+            for index in range(2, 39)
+        )
+        targets = tuple(
+            CorrectionTargetIndexEntry(
+                dataset="products",
+                source_row=index,
+                row_id=f"row-{index}",
+                target_model="product.template",
+                odoo_id=700 + index,
+                completed_disposition="UPDATE",
+                target_binding_hash=target_record_binding_hash(
+                    "product.template",
+                    700 + index,
+                ),
+            )
+            for index in range(2, 39)
+        )
+        reader = _FakeReadbackReader(
+            {
+                700 + index: {"uom_id": [90, "UNI"]}
+                for index in range(2, 39)
+            },
+            relationship_ids={
+                ("uom.uom", (("name", "=", "UNI"),)): 90,
+                ("uom.uom", (("name", "=", "Unit"),)): 91,
+            },
+        )
+
+        review = CorrectionReviewService().review(
+            (candidates,),
+            targets,
+            reader=reader,
+            expected_target_hash=reader.target_hash,
+            expected_reader_scope_hash=reader.scope_hash,
+        )
+
+        self.assertEqual(len(review.ready_fields), 37)
+        self.assertEqual(len(reader.lookup_calls), 1)
+        self.assertEqual(len(reader.lookup_calls[0][1]), 2)
+        self.assertEqual(len(reader.calls), 1)
+
     def test_review_classifies_ready_already_corrected_and_conflict_by_exact_id(
         self,
     ) -> None:
@@ -895,9 +1042,11 @@ class _FakeReadbackReader:
     scope_hash = "sha256:" + "e" * 64
     imports_external_ids = False
 
-    def __init__(self, values_by_id) -> None:
+    def __init__(self, values_by_id, *, relationship_ids=None) -> None:
         self.values_by_id = values_by_id
         self.calls = []
+        self.relationship_ids = relationship_ids or {}
+        self.lookup_calls = []
 
     def read_ids(self, model, identifiers, fields):
         self.calls.append((model, tuple(identifiers), tuple(fields)))
@@ -911,6 +1060,21 @@ class _FakeReadbackReader:
             )
             for identifier in identifiers
             if identifier in self.values_by_id
+        )
+
+    def find_records_many(self, model, lookups):
+        self.lookup_calls.append((model, tuple(lookups)))
+        return tuple(
+            (
+                (ReadbackRecord(identifier, {}),)
+                if (
+                    identifier := self.relationship_ids.get(
+                        (model, tuple(lookup.domain))
+                    )
+                )
+                else ()
+            )
+            for lookup in lookups
         )
 
 

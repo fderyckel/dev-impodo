@@ -431,7 +431,7 @@ class ColumnarIdentityComponentProgram:
 
 @dataclass(frozen=True, slots=True)
 class ColumnarRelationshipProgram:
-    """One incoming many2one key normalized once for all consumers."""
+    """One many-to-one key normalized once for preparation and correction."""
 
     target_field: str
     parent_dataset_id: str
@@ -445,6 +445,11 @@ class ColumnarRelationshipProgram:
     on_ambiguous: str
     operation: str
     null_policy: str
+    resolver_origin: str = "dataset"
+    related_model: str | None = None
+    target_key_fields: tuple[str, ...] = ()
+    target_scope_fields: tuple[str, ...] = ()
+    target_value_mappings: tuple[tuple[str, str], ...] = ()
 
     def to_portable_dict(self) -> dict[str, object]:
         return cast(dict[str, object], portable(asdict(self)))
@@ -683,8 +688,8 @@ class ColumnarTransformationProgram:
             item = cast(Mapping[str, object], value)
             return ColumnarRelationshipProgram(
                 target_field=str(item["target_field"]),
-                parent_dataset_id=str(item["parent_dataset_id"]),
-                parent_dataset_name=str(item["parent_dataset_name"]),
+                parent_dataset_id=str(item.get("parent_dataset_id", "")),
+                parent_dataset_name=str(item.get("parent_dataset_name", "")),
                 key=identity(item["key"]),
                 compare=bool(item["compare"]),
                 validate_only=bool(item["validate_only"]),
@@ -694,6 +699,27 @@ class ColumnarTransformationProgram:
                 on_ambiguous=str(item["on_ambiguous"]),
                 operation=str(item["operation"]),
                 null_policy=str(item["null_policy"]),
+                resolver_origin=str(item.get("resolver_origin", "dataset")),
+                related_model=_optional_string(item.get("related_model")),
+                target_key_fields=tuple(
+                    str(field)
+                    for field in cast(
+                        Sequence[object], item.get("target_key_fields", ())
+                    )
+                ),
+                target_scope_fields=tuple(
+                    str(field)
+                    for field in cast(
+                        Sequence[object], item.get("target_scope_fields", ())
+                    )
+                ),
+                target_value_mappings=tuple(
+                    (str(pair[0]), str(pair[1]))
+                    for pair in cast(
+                        Sequence[Sequence[object]],
+                        item.get("target_value_mappings", ()),
+                    )
+                ),
             )
 
         def set_requirement(value: object) -> ColumnarSetRequirement:
@@ -953,12 +979,15 @@ def _compile_dataset(
         sorted(authored.relationships, key=lambda item: item.target_field)
     ):
         path = f"/relationships/{index}"
-        parent_id = relationship.resolver.dataset_id
-        if (
-            relationship.kind == "many2one"
-            and relationship.resolver.origin is ResolverOrigin.DATASET
-            and parent_id is not None
-        ):
+        resolver = relationship.resolver
+        parent_id = resolver.dataset_id
+        uses_incoming = resolver.origin in {
+            ResolverOrigin.DATASET,
+            ResolverOrigin.TARGET_THEN_DATASET,
+        }
+        parent_dataset = None
+        parent_source = None
+        if uses_incoming and parent_id is not None:
             parent_dataset = next(
                 (
                     item
@@ -968,61 +997,105 @@ def _compile_dataset(
                 None,
             )
             parent_source = datasets.get(parent_id)
-            if parent_dataset is not None and parent_source is not None:
-                key_columns = tuple(
-                    _require_column(key, columns, draft)
-                    for key in relationship.source_column_keys
-                )
-                relationships.append(
-                    ColumnarRelationshipProgram(
-                        target_field=relationship.target_field,
-                        parent_dataset_id=parent_id,
-                        parent_dataset_name=str(
-                            getattr(parent_source, "name")
+        target_mappings = (*resolver.key_mappings, *resolver.scope_mappings)
+        target_source_keys = tuple(
+            item.source_column_key for item in target_mappings
+        )
+        target_supported = (
+            resolver.origin
+            in {ResolverOrigin.TARGET_CATALOG, ResolverOrigin.TARGET_THEN_DATASET}
+            and resolver.model is not None
+            and bool(resolver.key_mappings)
+            and target_source_keys == relationship.source_column_keys
+            and resolver.dataset_projection_field is None
+        )
+        incoming_supported = (
+            not uses_incoming
+            or (
+                parent_id is not None
+                and parent_dataset is not None
+                and parent_source is not None
+            )
+        )
+        if (
+            relationship.kind == "many2one"
+            and incoming_supported
+            and (
+                resolver.origin is ResolverOrigin.DATASET or target_supported
+            )
+        ):
+            key_columns = tuple(
+                _require_column(key, columns, draft)
+                for key in relationship.source_column_keys
+            )
+            target_key_fields = tuple(
+                item.target_field for item in resolver.key_mappings
+            )
+            target_scope_fields = tuple(
+                item.target_field for item in resolver.scope_mappings
+            )
+            relationships.append(
+                ColumnarRelationshipProgram(
+                    target_field=relationship.target_field,
+                    parent_dataset_id=parent_id or "",
+                    parent_dataset_name=(
+                        str(getattr(parent_source, "name"))
+                        if parent_source is not None
+                        else ""
+                    ),
+                    key=ColumnarIdentityComponentProgram(
+                        role="relationship",
+                        source_columns=key_columns,
+                        source_label=" + ".join(
+                            item.source_name for item in key_columns
                         ),
-                        key=ColumnarIdentityComponentProgram(
-                            role="relationship",
-                            source_columns=key_columns,
-                            source_label=" + ".join(
-                                item.source_name for item in key_columns
-                            ),
-                            target_fields=(relationship.target_field,),
-                            value_type="string",
-                            normalization_steps=(
-                                ColumnarExpressionStep(
-                                    ColumnarOperationKind.TRIM
-                                ),
-                                ColumnarExpressionStep(
-                                    ColumnarOperationKind.EMPTY_AS_NULL
-                                ),
-                                ColumnarExpressionStep(
-                                    ColumnarOperationKind.PARSE_STRING
-                                ),
-                            ),
-                            required=relationship.required,
-                            failure_code="SOURCE_REQUIRED_VALUE_MISSING",
+                        target_fields=(
+                            (*target_key_fields, *target_scope_fields)
+                            if target_supported
+                            else (relationship.target_field,)
                         ),
-                        compare=relationship.compare,
-                        validate_only=relationship.validate_only,
+                        value_type="string",
+                        normalization_steps=(
+                            ColumnarExpressionStep(ColumnarOperationKind.TRIM),
+                            ColumnarExpressionStep(
+                                ColumnarOperationKind.EMPTY_AS_NULL
+                            ),
+                            ColumnarExpressionStep(
+                                ColumnarOperationKind.PARSE_STRING
+                            ),
+                        ),
                         required=relationship.required,
-                        required_on_create=relationship.required_on_create,
-                        on_missing=relationship.on_missing,
-                        on_ambiguous=relationship.on_ambiguous,
-                        operation=relationship.operation,
-                        null_policy=relationship.null_policy,
-                    )
+                        failure_code="SOURCE_REQUIRED_VALUE_MISSING",
+                    ),
+                    compare=relationship.compare,
+                    validate_only=relationship.validate_only,
+                    required=relationship.required,
+                    required_on_create=relationship.required_on_create,
+                    on_missing=relationship.on_missing,
+                    on_ambiguous=relationship.on_ambiguous,
+                    operation=relationship.operation,
+                    null_policy=relationship.null_policy,
+                    resolver_origin=resolver.origin.value,
+                    related_model=resolver.model,
+                    target_key_fields=target_key_fields,
+                    target_scope_fields=target_scope_fields,
+                    target_value_mappings=tuple(
+                        (item.source_value, item.target_value)
+                        for item in resolver.value_mappings
+                    ),
                 )
-                draft.use(
-                    ColumnarOperationKind.RELATIONSHIP_KEY_NORMALIZATION,
-                    f"{path}/key",
-                    target_field=relationship.target_field,
-                )
-                draft.use(
-                    ColumnarOperationKind.RELATIONSHIP_RESOLUTION,
-                    f"{path}/resolution",
-                    target_field=relationship.target_field,
-                )
-                continue
+            )
+            draft.use(
+                ColumnarOperationKind.RELATIONSHIP_KEY_NORMALIZATION,
+                f"{path}/key",
+                target_field=relationship.target_field,
+            )
+            draft.use(
+                ColumnarOperationKind.RELATIONSHIP_RESOLUTION,
+                f"{path}/resolution",
+                target_field=relationship.target_field,
+            )
+            continue
         for key in relationship.source_column_keys:
             _require_column(key, columns, draft)
         draft.use(
@@ -1047,6 +1120,7 @@ def _compile_dataset(
             name=item.parent_dataset_name,
         )
         for item in relationships
+        if item.parent_dataset_name
     )
     for control in sorted(
         authored.effective_control_totals,

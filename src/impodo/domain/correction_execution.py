@@ -28,14 +28,22 @@ CORRECTION_EXECUTION_SNAPSHOT_CONTRACT = "correction-execution-snapshot-v1"
 
 @dataclass(frozen=True, slots=True)
 class CorrectionExecutionField:
-    """One confirmed scalar field and its exact intended final value."""
+    """One confirmed field and its exact intended final value."""
 
     target_field: str
+    value_kind: CorrectionValueKind
     confirmed_current: Any
     corrected: Any
 
     def __post_init__(self) -> None:
         required_text(self.target_field, "target_field", maximum=200)
+        object.__setattr__(self, "value_kind", CorrectionValueKind(self.value_kind))
+        if self.value_kind is CorrectionValueKind.MANY2ONE:
+            for value in (self.confirmed_current, self.corrected):
+                if value is not None and (type(value) is not int or value <= 0):
+                    raise CorrectionPlanError(
+                        "Correction execution relationship identity is invalid"
+                    )
         try:
             canonical_json(
                 portable_value((self.confirmed_current, self.corrected))
@@ -176,10 +184,6 @@ class CorrectionExecutionSnapshot:
             dict[str, object],
         ] = {}
         for item in plan.fields:
-            if item.value_kind is not CorrectionValueKind.SCALAR:
-                raise CorrectionPlanError(
-                    "Correction execution supports scalar fields only"
-                )
             key = (
                 item.dataset,
                 item.source_row,
@@ -206,6 +210,7 @@ class CorrectionExecutionSnapshot:
             fields.append(
                 CorrectionExecutionField(
                     target_field=item.target_field,
+                    value_kind=item.value_kind,
                     confirmed_current=item.current,
                     corrected=item.corrected,
                 )
