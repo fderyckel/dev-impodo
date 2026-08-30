@@ -286,6 +286,11 @@ certification remain pending.
 - that local qualification uses 17 Product review pages, one two-key Unit
   lookup, 17 journalled Product writes, 34 execution and read-back Product
   pages, and zero Unit writes;
+- the hosted Odoo Online 19 qualification repeats that 805-field boundary over
+  HTTPS with the same bounded call shape, zero fallout, zero Unit writes, and
+  zero remaining fixture Products;
+- exact read-back retries a bounded transient timeout, while a write with an
+  uncertain response remains outcome unknown and is never retried;
 - **Check changes** shows at most five snapshot-derived load groups and five
   grouped actionable blocker categories without source values or row IDs;
 - browser progress does not count planned, in-flight, retry-ready, or
@@ -312,12 +317,15 @@ remote run remains pending until a disposable on-premises target is available;
 see the [remote acceptance runbook](../developer/runbooks/remote-odoo-acceptance.md).
 
 The current completed-load correction boundary has separate point-in-time
-local Odoo 19 evidence. The
+local and hosted Odoo Online 19 evidence. The
 [Phase 6 local correction report](../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md)
 records vectorized comparison, bounded calls, memory, journal-before-write,
 repeat review, conflict, known rejection, lost response, exact read-back, and
-cleanup. Remote HTTPS correction acceptance remains pending and no broader
-correction scope is inferred from the local result.
+cleanup. The
+[Phase 6 remote correction report](../reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md)
+records the equivalent hosted HTTPS run, the initial fail-closed read timeout,
+the bounded read-only retry, and independent cleanup. Neither result expands
+the correction scope or qualifies an untested remote topology.
 
 ### Relationship dependency regression baseline
 

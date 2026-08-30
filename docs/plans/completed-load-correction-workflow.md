@@ -4,8 +4,8 @@
 
 **Status:** In progress. Phases 1 through 5 are implemented at the domain,
 application, protected-evidence, registry, execution, reconciliation, and
-focused browser boundaries. Phase 6 has passed its current local Odoo 19
-boundary; remote HTTPS qualification remains pending. A verified completed
+focused browser boundaries. Phase 6 has passed its current local Odoo 19 and
+hosted Odoo Online 19 Product boundaries. A verified completed
 Authoring load can now publish one encrypted lean origin manifest and compact
 exact-target index while atomically closing its historical run and workspace.
 The restart-safe successor coordinator creates a new Authoring run and
@@ -46,8 +46,9 @@ and proposes only the fields that genuinely need correction.
 This plan covers the product workflow, lean evidence model, implementation
 slices, Odoo 19 boundary, performance controls, and acceptance gates. Scalar
 and exact-existing many-to-one corrections are current Authoring behavior.
-Phase 6 still owns remote Odoo 19 qualification and any decision about broader
-correction scopes. The passed local result does not widen that scope.
+Phase 6 is complete for the current motivating local and hosted Odoo Online 19
+Product boundary. Separate evidence and decisions still govern broader
+correction scopes and other remote topologies.
 
 ## Reader and intended outcome
 
@@ -808,7 +809,7 @@ performs no business-key search. The 37-Product acceptance fixture uses two
 relationship keys, one bounded lookup call, one exact Product read page, and
 zero writes to `uom.uom`.
 
-### Phase 6: qualify scale and consider broader scopes — local complete, remote pending
+### Phase 6: qualify scale and consider broader scopes — current boundary complete
 
 Run local and opt-in remote disposable Odoo 19 acceptance with measured calls,
 time, memory, restart, conflict, failure, and read-back evidence. Only after
@@ -829,9 +830,14 @@ zero writes. The concurrent-change, known-rejection, and lost-response
 scenarios also stopped or reconciled as designed.
 
 The [local qualification report](../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md)
-records the measurements and cleanup. No disposable remote HTTPS target or
-credential was available, so the remote target class remains unqualified and
-Phase 6 does not authorize any broader correction scope.
+records the loopback measurements. The
+[remote qualification report](../reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md)
+records the same boundary on a user-authorized hosted Odoo Online 19 demo over
+HTTPS. The first remote attempt failed closed on an exact read-back timeout and
+cleaned every fixture record. After exact read-back gained a bounded read-only
+retry, the full rerun committed and verified all 805 fields with the same call
+shape and zero Unit writes. Phase 6 does not authorize a broader correction
+scope, another remote topology, or a larger Product count.
 
 ## Verification matrix
 

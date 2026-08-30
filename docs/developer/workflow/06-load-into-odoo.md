@@ -296,10 +296,16 @@ write, and the conflict, known-rejection, and lost-response cases remained
 fail-closed. See the
 [Phase 6 local qualification report](../../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md).
 
-This evidence qualifies literal-loopback local Odoo only. The same runner can
-target non-loopback HTTPS, but remote correction remains pending until an
-explicitly disposable target and credential are supplied. The result does not
-expand the Authoring-only correction scope.
+The hosted Odoo Online 19 rerun verified the same 805 fields over HTTPS in
+100.833865 seconds. An initial reconciliation timeout published no verified
+result and cleaned every fixture record. `Json2ReadbackReader` now uses the
+configured bounded retry for safe exact reads; the writer still never retries
+an uncertain write. See the
+[Phase 6 remote qualification report](../../reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md).
+
+This evidence qualifies the current literal-loopback and hosted Odoo Online
+19 Product boundary. It does not expand the Authoring-only correction scope or
+qualify another remote topology.
 
 ## Verification
 
@@ -312,6 +318,7 @@ expand the Authoring-only correction scope.
 - [`tests/domain/recipe/test_profile_and_values.py`](../../../tests/domain/recipe/test_profile_and_values.py)
 - [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
 - [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
+- [`tests/integration/odoo/test_readback_retries.py`](../../../tests/integration/odoo/test_readback_retries.py)
 - [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)
 - [`tests/integration/web/test_correction_workflow.py`](../../../tests/integration/web/test_correction_workflow.py)
 - [`tests/application/test_correction_jobs.py`](../../../tests/application/test_correction_jobs.py)

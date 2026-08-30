@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import socket
+import time
 from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import URLError
 from urllib.parse import quote
@@ -268,18 +269,25 @@ class Json2ReadbackReader:
             "X-Odoo-Database": self.config.database,
             "User-Agent": "impodo",
         }
-        try:
-            status, response = self.transport(
-                url,
-                headers,
-                body,
-                self.config.timeout_seconds,
-                "POST",
-            )
-        except (TimeoutError, socket.timeout, URLError, ValueError) as error:
-            raise OdooReadbackError(
-                "Odoo could not be reached for verification"
-            ) from error
+        transient_statuses = {429, 502, 503, 504}
+        for attempt in range(self.config.retries + 1):
+            try:
+                status, response = self.transport(
+                    url,
+                    headers,
+                    body,
+                    self.config.timeout_seconds,
+                    "POST",
+                )
+            except (TimeoutError, socket.timeout, URLError, ValueError) as error:
+                if attempt >= self.config.retries:
+                    raise OdooReadbackError(
+                        "Odoo could not be reached for verification"
+                    ) from error
+            else:
+                if status not in transient_statuses or attempt >= self.config.retries:
+                    break
+            time.sleep(min(0.25 * (2**attempt), 1.0))
         if status in {401, 403}:
             raise OdooReadbackError("Odoo did not authorize verification")
         if status != 200 or not isinstance(response, list):

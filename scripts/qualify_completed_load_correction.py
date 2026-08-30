@@ -817,7 +817,7 @@ def main() -> int:
         api_key=api_key,
         connection_mode=_connection_mode(args.base_url),
         page_size=100,
-        retries=0,
+        retries=2 if _connection_mode(args.base_url) == "REMOTE" else 0,
         relevant_modules=("base", "product", "uom"),
     )
     total_started = perf_counter()

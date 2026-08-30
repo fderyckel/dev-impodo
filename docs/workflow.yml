@@ -417,6 +417,7 @@ stages:
       - tests/domain/recipe/test_profile_and_values.py
       - tests/domain/test_relationship_dependencies.py
       - tests/application/workspace/execution/test_reconciliation.py
+      - tests/integration/odoo/test_readback_retries.py
       - tests/integration/web/test_load_workflow.py
       - tests/integration/web/test_correction_workflow.py
       - tests/application/test_correction_jobs.py
@@ -432,3 +433,4 @@ stages:
       - docs/plans/scalable-relationship-dependency-planning.md
       - docs/plans/completed-load-correction-workflow.md
       - docs/reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md
+      - docs/reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md
