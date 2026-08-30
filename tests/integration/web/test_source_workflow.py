@@ -855,6 +855,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         source_page = self.client.get(confirmed.headers["location"])
         self.assertIn("Save the tables for this data version", source_page.text)
         self.assertIn('name="dataset_name_0"', source_page.text)
+        self.assertIn("Use 1 to 63 characters", source_page.text)
+        self.assertIn("Start with a lowercase letter", source_page.text)
+        self.assertIn("Give each table a different name", source_page.text)
+        self.assertIn("data-dataset-name", source_page.text)
         self.assertIn(
             f'action="/workspaces/{workspace_id}/datasets/freeze"',
             source_page.text,
@@ -868,6 +872,22 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(
             unfinished_page.headers["location"],
             f"/workspaces/{workspace_id}/sources#table-choices",
+        )
+
+        invalid_name = self.client.post(
+            f"/workspaces/{workspace_id}/datasets/freeze",
+            data={
+                "csrf_token": self.csrf,
+                "dataset_name_0": "Product-withUoM_v1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(invalid_name.status_code, 422)
+        self.assertIn("Start with a lowercase letter from a to z", invalid_name.text)
+        self.assertIn(
+            "Use only lowercase letters, numbers, and underscores",
+            invalid_name.text,
         )
 
         frozen = self.client.post(

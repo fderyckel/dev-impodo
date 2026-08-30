@@ -13,9 +13,20 @@
             name="dataset_name_{{ loop.index0 }}"
             value="{{ choice.default_name }}"
             pattern="[a-z][a-z0-9_]{0,62}"
+            aria-describedby="dataset-name-help-{{ loop.index0 }} dataset-name-error-{{ loop.index0 }}"
+            data-dataset-name
             required
           >
-          <small>Use a short, recognisable name such as <code>customer_orders</code>.</small>
+          <small id="dataset-name-help-{{ loop.index0 }}">
+            Use 1 to 63 characters. Start with a lowercase letter. Use only lowercase letters, numbers, and underscores. Give each table a different name. Example: <code>customer_orders</code>.
+          </small>
+          <small
+            class="field-validation-error"
+            id="dataset-name-error-{{ loop.index0 }}"
+            data-dataset-name-error
+            role="alert"
+            hidden
+          ></small>
         </label>
       </div>
     {% endfor %}

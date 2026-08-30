@@ -42,9 +42,10 @@ py -3.12 --version
 ```
 
 The result must begin with `Python 3.12`. If `winget` is unavailable or the
-installation is blocked, stop and ask IT for the approved 64-bit Python 3.12
-package. Do not disable endpoint protection or use an unapproved package
-source.
+installation is blocked, you can use the project-local `uv` alternative in
+Method A when your organization approves the required downloads. Otherwise,
+ask IT for the approved 64-bit Python 3.12-or-newer package. Do not disable
+endpoint protection or use an unapproved package source.
 
 ## Method A — Install from GitHub
 
@@ -157,6 +158,48 @@ Continue only when:
 
 You do not need to activate `.venv`. Every command in this guide uses the
 correct executable inside it directly.
+
+### Alternative to steps 3 and 4: use a project-local Python with uv
+
+Use this route only for a GitHub checkout when `winget` or App Installer is
+unavailable. Before you continue, your organization must approve downloads
+from the official Astral and Python package sources. This route does not
+change Windows, install a system Python, or bypass your organization's
+endpoint controls.
+
+Run these commands from the `dev-impodo` folder. They download the portable
+`uv` tool into this checkout, then use it to download Python 3.14, create
+Impodo's private `.venv` folder, and install the exact package versions in
+`uv.lock`:
+
+```powershell
+$impodoTools = Join-Path $PWD ".tools"
+$impodoUvArchive = Join-Path $impodoTools "uv.zip"
+$null = New-Item -ItemType Directory -Path $impodoTools -Force
+Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" -OutFile $impodoUvArchive
+Expand-Archive -LiteralPath $impodoUvArchive -DestinationPath $impodoTools -Force
+
+$env:UV_CACHE_DIR = Join-Path $PWD ".uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = Join-Path $PWD ".python"
+& ".\.tools\uv.exe" sync --locked --python 3.14
+```
+
+The first run can take several minutes. The `.tools`, `.python`, `.uv-cache`,
+and `.venv` folders belong only to this checkout. This repository ignores
+them, so do not add them to Git or copy them to another computer.
+
+When the command finishes, verify the private Python environment and the
+locked installation:
+
+```powershell
+.\.venv\Scripts\python.exe --version
+& ".\.tools\uv.exe" sync --locked --check --python 3.14
+Test-Path -LiteralPath .\.venv\Scripts\impodo.exe
+```
+
+Continue only when the first command begins with `Python 3.14`, the second
+command reports that it would make no changes, and the last command returns
+`True`. Continue at **5. Start Impodo**.
 
 ### 5. Start Impodo
 

@@ -238,6 +238,11 @@ label small,
   line-height: 1.45;
 }
 
+.field-validation-error {
+  color: var(--impodo-red-dark);
+  font-weight: 700;
+}
+
 .project-updated,
 .project-revision {
   color: var(--muted);

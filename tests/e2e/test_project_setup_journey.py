@@ -781,6 +781,8 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("rememberSourceReviewPosition", source_workflow_script)
         self.assertIn("restoreSourceReviewPosition", source_workflow_script)
         self.assertIn("data-source-review-form", source_workflow_script)
+        self.assertIn("datasetNameViolations", source_workflow_script)
+        self.assertIn("Give each table a different name", source_workflow_script)
         self.assertIn("scheduleScalarCatalogSearch", mapping_script)
         self.assertIn("catalogRequestUrl", mapping_script)
         self.assertIn("relationRequestUrl", mapping_script)

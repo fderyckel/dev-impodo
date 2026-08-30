@@ -1,6 +1,68 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  const datasetNameInputs = Array.from(
+    document.querySelectorAll("[data-dataset-name]")
+  );
+  const datasetNameViolations = (input) => {
+    const name = input.value;
+    if (!name) {
+      return ["Enter a name."];
+    }
+    const violations = [];
+    if (name.length > 63) {
+      violations.push("Use no more than 63 characters.");
+    }
+    if (!/^[a-z]/.test(name)) {
+      violations.push("Start with a lowercase letter from a to z.");
+    }
+    if (/[^a-z0-9_]/.test(name)) {
+      violations.push("Use only lowercase letters, numbers, and underscores.");
+    }
+    if (
+      datasetNameInputs.some(
+        (candidate) => candidate !== input && candidate.value === name
+      )
+    ) {
+      violations.push("Give each table a different name.");
+    }
+    return violations;
+  };
+  const validateDatasetName = (input, reveal) => {
+    const violations = datasetNameViolations(input);
+    const message = violations.length
+      ? `This name is not accepted: ${violations.join(" ")}`
+      : "";
+    const error = input
+      .closest("label")
+      ?.querySelector("[data-dataset-name-error]");
+    input.setCustomValidity(message);
+    input.setAttribute("aria-invalid", String(Boolean(message)));
+    if (error) {
+      error.textContent = reveal ? message : "";
+      error.hidden = !reveal || !message;
+    }
+  };
+  for (const input of datasetNameInputs) {
+    validateDatasetName(input, false);
+    input.addEventListener("input", () => {
+      for (const candidate of datasetNameInputs) {
+        validateDatasetName(
+          candidate,
+          candidate.dataset.datasetNameValidationShown === "true"
+        );
+      }
+    });
+    input.addEventListener("blur", () => {
+      input.dataset.datasetNameValidationShown = "true";
+      validateDatasetName(input, true);
+    });
+    input.addEventListener("invalid", () => {
+      input.dataset.datasetNameValidationShown = "true";
+      validateDatasetName(input, true);
+    });
+  }
+
   const odooCaptureAssessmentDialog = document.querySelector(
     "[data-odoo-capture-assessment-dialog]"
   );

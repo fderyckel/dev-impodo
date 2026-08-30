@@ -66,7 +66,23 @@ from impodo.application.workspace.access import WorkspaceAccessService
 from ..domain.serialization import content_hash
 
 
-_DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+def _dataset_name_violations(name: str) -> tuple[str, ...]:
+    """Explain each stable dataset-name rule that ``name`` breaks."""
+
+    if not name:
+        return ("Enter a name.",)
+    violations: list[str] = []
+    if len(name) > 63:
+        violations.append("Use no more than 63 characters.")
+    if not re.match(r"^[a-z]", name):
+        violations.append("Start with a lowercase letter from a to z.")
+    if re.search(r"[^a-z0-9_]", name):
+        violations.append(
+            "Use only lowercase letters, numbers, and underscores."
+        )
+    return tuple(violations)
+
+
 class WorkspaceStateReader(Protocol):
     """Read the workspace lifecycle needed before dataset freezing."""
 
@@ -485,13 +501,17 @@ class SourceWorkspaceService:
                     (catalog.file_id, table_key),
                     "",
                 ).strip()
-                if not _DATASET_NAME.fullmatch(name):
+                violations = _dataset_name_violations(name)
+                if violations:
                     raise WorkspaceError(
-                        "Dataset names must use lowercase letters, digits, "
-                        "and underscores"
+                        "Name shown in Impodo is not accepted: "
+                        + " ".join(violations)
                     )
                 if name in used_names:
-                    raise WorkspaceError("Dataset names must be unique")
+                    raise WorkspaceError(
+                        f'Name shown in Impodo "{name}" is already used. '
+                        "Give each table a different name."
+                    )
                 used_names.add(name)
                 datasets.append(
                     SourceDataset(
