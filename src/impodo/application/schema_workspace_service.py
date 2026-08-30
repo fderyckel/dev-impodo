@@ -572,7 +572,7 @@ class SchemaWorkspaceService:
                 != current.read_context_hash
             ):
                 raise WorkspaceError(
-                    "The Odoo reader, permissions, or company context changed; "
+                    "The Odoo reader, permissions, or company access changed; "
                     "check the Odoo fields again"
                 )
 
@@ -778,8 +778,9 @@ class SchemaWorkspaceService:
                 != identity_hashes["read_context_hash"]
             ):
                 raise WorkspaceError(
-                    "The Odoo read principal or context changed; refresh the "
-                    "model catalogue before capturing schema"
+                    "The saved Odoo access verification is out of date, or the "
+                    "reader or company access changed; refresh the model catalogue "
+                    "before capturing the Odoo fields"
                 )
         models = self._schema_models_from_snapshot(
             workspace_state,
@@ -1455,7 +1456,8 @@ def _schema_refresh_changes(
         (
             current.read_context_hash,
             candidate.read_context_hash,
-            "The verified Odoo company or access context changed.",
+            "The saved access verification format or available Odoo company "
+            "scope changed.",
         ),
     )
     for previous, observed, description in target_facts:

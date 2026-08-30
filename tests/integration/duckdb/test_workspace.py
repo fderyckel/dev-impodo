@@ -596,7 +596,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
-        with self.assertRaisesRegex(WorkspaceError, "principal or context changed"):
+        with self.assertRaisesRegex(WorkspaceError, "access verification is out of date"):
             self.schemas.capture(
                 self.workspace_state.workspace_id,
                 _metadata_snapshot(),

@@ -506,8 +506,9 @@ def _read_readiness_snapshots(
     ):
         raise OdooReadWorkflowError(
             OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
-            "The Odoo read key, principal, permissions, or context changed; "
-            "refresh the schema before checking data",
+            "The saved Odoo access verification is out of date, or the read key, "
+            "reader, permissions, or company access changed; refresh the Odoo "
+            "fields before checking data",
         )
     if supplemental_models:
         inferred_identity = context.read_identity_probe(
@@ -523,8 +524,8 @@ def _read_readiness_snapshots(
         ):
             raise OdooReadWorkflowError(
                 OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
-                "The Odoo reader or access context changed for linked records; "
-                "refresh the schema before checking data",
+                "The Odoo reader or company access changed for linked records; "
+                "refresh the Odoo fields before checking data",
             )
     if context.readiness_reader is not None:
         return context.readiness_reader(
@@ -588,8 +589,9 @@ def _read_pinned_odoo_snapshots(
     ):
         raise OdooReadWorkflowError(
             OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
-            "The Odoo connection or access context changed. Refresh the captured "
-            "records before comparing.",
+            "The saved Odoo access verification is out of date, or the connection "
+            "or company access changed. Refresh the captured records before "
+            "comparing.",
         )
     if context.readiness_reader is not None:
         return context.readiness_reader(
