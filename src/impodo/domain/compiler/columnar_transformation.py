@@ -32,7 +32,7 @@ from ..serialization import content_hash, portable
 
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 4
-COLUMNAR_COMPILER_VERSION = 4
+COLUMNAR_COMPILER_VERSION = 5
 
 
 def _optional_string(value: object) -> str | None:

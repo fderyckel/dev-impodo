@@ -103,7 +103,7 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
         restored = ExecutionSnapshot.from_json(snapshot.to_json())
 
-        self.assertEqual(restored.contract_version, 7)
+        self.assertEqual(restored.contract_version, 8)
         self.assertTrue(
             all(
                 row.target_binding_hash.startswith("sha256:")
@@ -123,6 +123,43 @@ class ExecutionSnapshotTests(unittest.TestCase):
             restored.readable_models,
             ("product.template", "res.partner"),
         )
+
+    def test_snapshot_carries_used_odoo_field_types_for_readback(self) -> None:
+        frozen, result = _execution_fixture()
+        actionable = next(
+            decision
+            for decision in result.decisions
+            if decision.classification.value in {"CREATE", "UPDATE"}
+        )
+        model = frozen.plan.dataset(actionable.dataset).target.model
+        expected_field = next(
+            field
+            for field in frozen.plan.dataset(actionable.dataset).fields
+        )
+        frozen.captured_schema = SimpleNamespace(
+            read_credential_binding_hash="sha256:" + "7" * 64,
+            read_principal_hash="sha256:" + "8" * 64,
+            read_permission_hash="sha256:" + "9" * 64,
+            read_context_hash="sha256:" + "a" * 64,
+            models=(
+                SimpleNamespace(
+                    name=model,
+                    fields=(SimpleNamespace(name=expected_field, type="html"),),
+                ),
+            ),
+        )
+
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=result,
+        )
+        restored = ExecutionSnapshot.from_json(snapshot.to_json())
+        dataset = next(
+            item for item in restored.datasets if item.dataset == actionable.dataset
+        )
+
+        self.assertEqual(dict(dataset.field_types)[expected_field], "html")
 
     def test_snapshot_accounts_for_every_decision_and_only_writes_ready_rows(
         self,

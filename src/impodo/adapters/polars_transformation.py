@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 
 from ..application.workspace.preparation.columnar_transformation_port import (
     ColumnarPreparedSnapshotCandidate,
@@ -142,6 +142,7 @@ class _IdentityValueLayout:
     value_type: str
     normalized_alias: str
     value_alias: str
+    target_value_alias: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,6 +438,12 @@ def _compile_lazy_transformation(
         _compile_identity_group(
             tuple(item.key for item in program.relationships),
             "relationship",
+            pre_normalization_mappings=(
+                tuple(item.target_value_mappings)
+                if program.compiler_version >= 5
+                else ()
+                for item in program.relationships
+            ),
         )
     )
     for expressions in (
@@ -464,6 +471,8 @@ def _compile_lazy_transformation(
                 final_columns.append(item.normalized_alias)
                 if item.value_alias != item.normalized_alias:
                     final_columns.append(item.value_alias)
+                if item.target_value_alias is not None:
+                    final_columns.append(item.target_value_alias)
 
     if prepared_expressions:
         lazy = lazy.with_columns(prepared_expressions)
@@ -517,6 +526,12 @@ def _execution_layout(
     relationships = _compile_identity_group(
         tuple(item.key for item in program.relationships),
         "relationship",
+        pre_normalization_mappings=(
+            tuple(item.target_value_mappings)
+            if program.compiler_version >= 5
+            else ()
+            for item in program.relationships
+        ),
     )[0]
     output_columns = [PREPARED_ORDINAL_COLUMN, SOURCE_ROW_COLUMN]
     for item in program.inputs:
@@ -540,6 +555,8 @@ def _execution_layout(
                 output_columns.append(item.normalized_alias)
                 if item.value_alias != item.normalized_alias:
                     output_columns.append(item.value_alias)
+                if item.target_value_alias is not None:
+                    output_columns.append(item.target_value_alias)
     output_columns.append(_ISSUE_COLUMN)
     return _ExecutionLayout(
         scalars=scalars,
@@ -573,12 +590,17 @@ def prepared_intent_columns(
             value_kind=CorrectionValueKind.MANY2ONE,
             value_type=relationship.key.value_type,
             value_aliases=tuple(
-                value.value_alias for value in component.values
+                value.target_value_alias or value.value_alias
+                for value in component.values
             ),
             relationship_model=relationship.related_model,
             relationship_key_fields=relationship.target_key_fields,
             relationship_scope_fields=relationship.target_scope_fields,
-            value_mappings=relationship.target_value_mappings,
+            value_mappings=(
+                ()
+                if program.compiler_version >= 5
+                else relationship.target_value_mappings
+            ),
         )
         for relationship, component in zip(
             program.relationships,
@@ -1176,6 +1198,8 @@ def _validation_invalid_expression(
 def _compile_identity_group(
     components: tuple[ColumnarIdentityComponentProgram, ...],
     role: str,
+    *,
+    pre_normalization_mappings: Iterable[tuple[tuple[str, str], ...]] = (),
 ) -> tuple[
     tuple[_IdentityComponentLayout, ...],
     list[pl.Expr],
@@ -1187,7 +1211,13 @@ def _compile_identity_group(
     value_expressions: list[pl.Expr] = []
     issue_expressions: list[pl.Expr] = []
     error_index = 0
+    mappings_by_component = tuple(pre_normalization_mappings)
     for component_index, component in enumerate(components):
+        component_mappings = (
+            tuple(mappings_by_component[component_index])
+            if component_index < len(mappings_by_component)
+            else ()
+        )
         component_values: list[_IdentityValueLayout] = []
         conversion = next(
             (
@@ -1233,6 +1263,32 @@ def _compile_identity_group(
             )
             if value_alias != normalized_alias:
                 value_expressions.append(value.alias(value_alias))
+            target_value_alias = None
+            if source_index == 0 and component_mappings:
+                target_value_alias = (
+                    f"__impodo_{role}_{component_index:04d}_"
+                    f"{source_index:04d}_target_value"
+                )
+                mapped_raw = _mapped_value_before_normalization(
+                    raw,
+                    component_mappings,
+                )
+                target_normalized, _ = _text_expression(mapped_raw, text_steps)
+                target_value, _ = _conversion_expression(
+                    target_normalized,
+                    conversion,
+                )
+                value_expressions.append(
+                    (
+                        target_normalized
+                        if conversion.operation
+                        in {
+                            ColumnarOperationKind.PARSE_STRING,
+                            ColumnarOperationKind.PARSE_INTEGER,
+                        }
+                        else target_value
+                    ).alias(target_value_alias)
+                )
             error = (
                 pl.when(pl.col(normalized_alias).is_null() & pl.lit(component.required))
                 .then(pl.lit(_ERROR_REQUIRED))
@@ -1250,6 +1306,7 @@ def _compile_identity_group(
                     value_type=component.value_type,
                     normalized_alias=normalized_alias,
                     value_alias=value_alias,
+                    target_value_alias=target_value_alias,
                 )
             )
             error_index += 1
@@ -1265,6 +1322,23 @@ def _compile_identity_group(
         value_expressions,
         issue_expressions,
     )
+
+
+def _mapped_value_before_normalization(
+    raw: pl.Expr,
+    mappings: tuple[tuple[str, str], ...],
+) -> pl.Expr:
+    """Translate one reviewed relationship alias before key normalization."""
+
+    lookup = raw.cast(pl.String).str.strip_chars()
+    mapped = raw
+    for source, target in reversed(mappings):
+        mapped = (
+            pl.when(lookup == source)
+            .then(pl.lit(target, dtype=pl.String))
+            .otherwise(mapped)
+        )
+    return mapped
 
 
 def _issue_expression(kind: str, index: int, error: pl.Expr) -> pl.Expr:
@@ -1361,16 +1435,29 @@ def _adapt_frame(
         references = {
             relationship.target_field: _relationship_reference(
                 relationship,
-                key,
+                incoming_key,
+                target_key,
             )
             for relationship, component in zip(
                 program.relationships,
                 layout.relationships,
                 strict=True,
             )
-            for key in (
+            for incoming_key in (
                 tuple(
                     _identity_value(row, indexes, item, errors)
+                    for item in component.values
+                ),
+            )
+            for target_key in (
+                tuple(
+                    _identity_value(
+                        row,
+                        indexes,
+                        item,
+                        errors,
+                        alias=item.target_value_alias or item.value_alias,
+                    )
                     for item in component.values
                 ),
             )
@@ -1788,10 +1875,12 @@ def _identity_value(
     indexes: dict[str, int],
     layout: _IdentityValueLayout,
     errors: dict[tuple[str, int], str],
+    *,
+    alias: str | None = None,
 ):
     if (layout.role, layout.error_index) in errors:
         return None
-    value = row[indexes[layout.value_alias]]
+    value = row[indexes[alias or layout.value_alias]]
     return _canonical_adapter_value(value, layout.value_type)
 
 
@@ -1907,6 +1996,7 @@ def _row_issues(
 def _relationship_reference(
     relationship: ColumnarRelationshipProgram,
     incoming_key: tuple[object, ...],
+    target_values: tuple[object, ...],
 ) -> LogicalReference | None:
     if not incoming_key or all(value is None for value in incoming_key):
         return None
@@ -1916,15 +2006,9 @@ def _relationship_reference(
             key=incoming_key,
             dataset=relationship.parent_dataset_name,
         )
-    mapped_key = list(incoming_key)
-    if mapped_key and relationship.target_value_mappings:
-        mapped_key[0] = dict(relationship.target_value_mappings).get(
-            str(mapped_key[0]),
-            mapped_key[0],
-        )
     key_width = len(relationship.target_key_fields)
-    target_key = tuple(mapped_key[:key_width])
-    scope = tuple(mapped_key[key_width:])
+    target_key = tuple(target_values[:key_width])
+    scope = tuple(target_values[key_width:])
     return LogicalReference(
         origin=(
             "target"

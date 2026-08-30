@@ -42,7 +42,7 @@ from impodo.domain.relationship_dependencies import (
 )
 
 
-EXECUTION_SNAPSHOT_VERSION = 7
+EXECUTION_SNAPSHOT_VERSION = 8
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -57,6 +57,7 @@ class ExecutionDataset:
     existing_policy: str
     identity_fields: tuple[str, ...]
     scope_fields: tuple[str, ...]
+    field_types: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +339,7 @@ class ExecutionSnapshot:
                     "existing_policy": item.existing_policy,
                     "identity_fields": list(item.identity_fields),
                     "scope_fields": list(item.scope_fields),
+                    "field_types": dict(item.field_types),
                 }
                 for item in self.datasets
             ],
@@ -418,6 +420,14 @@ class ExecutionSnapshot:
                     ),
                     scope_fields=tuple(
                         str(value) for value in item.get("scope_fields", ())
+                    ),
+                    field_types=tuple(
+                        sorted(
+                            (str(key), str(value))
+                            for key, value in dict(
+                                item.get("field_types", {})
+                            ).items()
+                        )
                     ),
                 )
                 for item in payload.get("datasets", ())
@@ -512,6 +522,7 @@ def build_execution_snapshot(
     dependencies_by_dataset = dependency_sets_by_owner(
         frozen.plan.dependency_edges
     )
+    schema = getattr(frozen, "captured_schema", None)
     unordered_datasets = tuple(
         ExecutionDataset(
             dataset=dataset.name,
@@ -523,6 +534,12 @@ def build_execution_snapshot(
                 dataset.target_identity.components
             ),
             scope_fields=_identity_fields(dataset.target_identity.scope),
+            field_types=_execution_field_types(
+                dataset.name,
+                dataset.target.model,
+                provisional_rows,
+                schema,
+            ),
         )
         for sequence, dataset in enumerate(frozen.plan.datasets)
     )
@@ -536,7 +553,6 @@ def build_execution_snapshot(
         provisional_rows,
         datasets,
     )
-    schema = getattr(frozen, "captured_schema", None)
     snapshot = ExecutionSnapshot(
         workspace_id=frozen.workspace_id,
         preflight_run_id=preflight_run_id,
@@ -590,6 +606,43 @@ def build_execution_snapshot(
     _validate_read_evidence(snapshot)
     snapshot.portable_dict()
     return snapshot
+
+
+def _execution_field_types(
+    dataset_name: str,
+    target_model: str,
+    rows: tuple[ExecutionRow, ...],
+    schema: object | None,
+) -> tuple[tuple[str, str], ...]:
+    """Carry only field types needed to interpret this dataset's read-back."""
+
+    if schema is None:
+        return ()
+    model = next(
+        (
+            item
+            for item in getattr(schema, "models", ())
+            if getattr(item, "name", None) == target_model
+        ),
+        None,
+    )
+    if model is None:
+        return ()
+    used_fields = {
+        intent.field
+        for row in rows
+        if row.dataset == dataset_name
+        for intent in row.fields
+    }
+    available = {
+        str(field.name): str(field.type)
+        for field in getattr(model, "fields", ())
+    }
+    return tuple(
+        (field, available[field])
+        for field in sorted(used_fields)
+        if field in available
+    )
 
 
 def _validate_read_evidence(snapshot: ExecutionSnapshot) -> None:
@@ -1624,6 +1677,17 @@ def _validate_rows(
 ) -> None:
     """Reject incomplete accounting or writer-ambiguous row contracts."""
 
+    for dataset in datasets:
+        if (
+            dataset.field_types != tuple(sorted(dataset.field_types))
+            or len({field for field, _field_type in dataset.field_types})
+            != len(dataset.field_types)
+            or any(
+                not field or not field_type
+                for field, field_type in dataset.field_types
+            )
+        ):
+            raise ValueError("Execution snapshot field-type metadata is invalid")
     expected_keys = {item.value for item in Classification}
     if set(counts) != expected_keys or any(
         int(value) < 0 for value in counts.values()

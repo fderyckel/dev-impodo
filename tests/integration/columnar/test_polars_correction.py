@@ -27,10 +27,13 @@ from impodo.adapters.correction_review_pipeline import (
     NativeCorrectionReviewPipeline,
 )
 from impodo.adapters.polars_transformation import write_polars_prepared_snapshot
+from impodo.adapters.polars_transformation import iter_polars_prepared_batches
 from impodo.adapters.duckdb.native_prepared_projection import (
     projected_encoded_rows_sql,
 )
 from impodo.domain.compiler.columnar_transformation import (
+    ColumnarExpressionStep,
+    ColumnarOperationKind,
     ColumnarSupport,
     compile_columnar_transformation_program,
 )
@@ -744,6 +747,118 @@ class PolarsCorrectionTests(unittest.TestCase):
         )
         self.assertEqual(len(reader.lookup_calls), 1)
         self.assertEqual(len(reader.lookup_calls[0][1]), 2)
+
+    def test_relationship_alias_is_applied_before_key_normalization(self) -> None:
+        dataset = self.previous_definition.datasets[0]
+        relationship = RelationshipMapping(
+            target_field="categ_id",
+            kind="many2one",
+            source_column_keys=("product.category",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_THEN_DATASET,
+                dataset_id=DATASET_ID,
+                model="product.category",
+                key_mappings=(
+                    ReferenceKeyMapping("product.category", "name"),
+                ),
+                value_mappings=(ValueMapping("Retail", "Consumer"),),
+            ),
+        )
+        definition = canonicalize_mapping_definition(
+            replace(
+                self.previous_definition,
+                datasets=(
+                    replace(
+                        dataset,
+                        fields=(),
+                        relationships=(relationship,),
+                    ),
+                ),
+            )
+        )
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        compiled_relationship = decision.program.relationships[0]
+        steps = compiled_relationship.key.normalization_steps
+        program = replace(
+            decision.program,
+            relationships=(
+                replace(
+                    compiled_relationship,
+                    key=replace(
+                        compiled_relationship.key,
+                        normalization_steps=(
+                            steps[0],
+                            ColumnarExpressionStep(ColumnarOperationKind.CASE_LOWER),
+                            *steps[1:],
+                        ),
+                    ),
+                ),
+            ),
+        )
+        path = self.root / "alias-before-normalization.parquet"
+        candidate = write_polars_prepared_snapshot(
+            self.source_path,
+            self.source_snapshot,
+            program,
+            path,
+        )
+        prepared = PreparedSnapshot.create(
+            workspace_id="11111111-1111-4111-8111-111111111111",
+            dataset_id=self.source_snapshot.dataset_id,
+            dataset_name=self.source_snapshot.dataset_name,
+            source_snapshot_hash=self.source_snapshot.content_hash,
+            mapping_hash=program.mapping_content_hash,
+            schema_hash=program.schema_hash,
+            transformation_program_hash=program.content_hash,
+            row_count=candidate.row_count,
+            physical_schema_hash=candidate.physical_schema_hash,
+            parquet_sha256=candidate.parquet_sha256,
+            created_at=NOW,
+        )
+
+        materialized = next(
+            record
+            for batch in iter_polars_prepared_batches(
+                path,
+                prepared,
+                self.source_snapshot,
+                program,
+                batch_size=1,
+            )
+            for record in batch.records
+        )
+        materialized_reference = materialized.references["categ_id"]
+        assert materialized_reference is not None
+        self.assertEqual(materialized_reference.key, ("consumer",))
+        self.assertEqual(materialized_reference.incoming_key, ("retail",))
+
+        projection = PreparedCanonicalProjection(
+            dataset_id=DATASET_ID,
+            dataset="products",
+            ordinal_start=0,
+            row_count=1,
+            mode=program.target_mode,
+            source_hash=self.source_snapshot.content_hash,
+            physical_dataset_id=DATASET_ID,
+            field_sources={},
+            program=program,
+            set_based_projection=True,
+        )
+        with duckdb.connect() as connection:
+            projected = connection.execute(
+                projected_encoded_rows_sql(projection),
+                [str(path), 0, 1],
+            ).fetchone()
+        assert projected is not None
+        projected_reference = json.loads(projected[-1])["references"]["categ_id"]
+        self.assertEqual(projected_reference["key"], ["consumer"])
+        self.assertEqual(projected_reference["incoming_key"], ["retail"])
 
     def test_thirty_seven_products_reuse_two_distinct_relationship_lookups(self) -> None:
         candidates = tuple(

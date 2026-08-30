@@ -10,6 +10,7 @@ from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.odoo.html import odoo_html_values_equal
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
@@ -669,6 +670,7 @@ class ReconciliationService:
 
         differing = []
         try:
+            field_types = dict(metadata[row.dataset].field_types)
             for intent in row.fields:
                 if intent.action == "OMIT":
                     continue
@@ -686,7 +688,11 @@ class ReconciliationService:
                         if isinstance(expected, tuple)
                         else _many2one_id(actual_value)
                     )
-                if not _values_equal(expected, actual_value):
+                if not _values_equal(
+                    expected,
+                    actual_value,
+                    field_type=field_types.get(intent.field, ""),
+                ):
                     differing.append(intent.field)
         except (KeyError, WorkspaceError) as error:
             return ReconciliationRow(
@@ -872,9 +878,18 @@ def _many2many_ids(value: Any) -> tuple[int, ...]:
     return tuple(sorted(set(value)))
 
 
-def _values_equal(expected: Any, actual: Any) -> bool:
+def _values_equal(
+    expected: Any,
+    actual: Any,
+    *,
+    field_type: str = "",
+) -> bool:
     if expected is None:
         return actual is None or actual is False or actual == ""
+    if expected == "" and actual is False:
+        return True
+    if field_type == "html":
+        return odoo_html_values_equal(expected, actual)
     if type(expected) is bool:
         return actual is expected
     if isinstance(expected, datetime):
@@ -896,8 +911,6 @@ def _values_equal(expected: Any, actual: Any) -> bool:
             return Decimal(str(expected)) == Decimal(str(actual))
         except (InvalidOperation, ValueError):
             return False
-    if expected == "" and actual is False:
-        return True
     return expected == actual
 
 

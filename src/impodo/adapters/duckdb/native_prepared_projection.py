@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 import duckdb
 
@@ -71,6 +72,7 @@ class _ValueColumn:
 class _IdentityComponent:
     program: ColumnarIdentityComponentProgram
     values: tuple[_ValueColumn, ...]
+    target_values: tuple[_ValueColumn, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -569,10 +571,13 @@ def _references_json(
                 "'scope', json_array())"
             )
         else:
-            values = [
-                _identifier(item.alias) for item in component.values
-            ]
-            if values and relationship.target_value_mappings:
+            target_values = component.target_values or component.values
+            values = [_identifier(item.alias) for item in target_values]
+            if (
+                values
+                and relationship.target_value_mappings
+                and not component.target_values
+            ):
                 source = values[0]
                 branches = " ".join(
                     f"WHEN {_literal(before)} THEN {_literal(after)}"
@@ -775,6 +780,12 @@ def _layout(program: ColumnarTransformationProgram) -> _ProjectionLayout:
         relationships=_identity_layout(
             tuple(item.key for item in program.relationships),
             "relationship",
+            target_value_mappings=(
+                tuple(item.target_value_mappings)
+                if program.compiler_version >= 5
+                else ()
+                for item in program.relationships
+            ),
         ),
     )
 
@@ -782,8 +793,11 @@ def _layout(program: ColumnarTransformationProgram) -> _ProjectionLayout:
 def _identity_layout(
     components: tuple[ColumnarIdentityComponentProgram, ...],
     role: str,
+    *,
+    target_value_mappings: Iterable[tuple[tuple[str, str], ...]] = (),
 ) -> tuple[_IdentityComponent, ...]:
     result = []
+    mappings_by_component = tuple(target_value_mappings)
     for component_index, component in enumerate(components):
         conversion = next(
             (
@@ -808,7 +822,34 @@ def _identity_layout(
             )
             for source_index, _source in enumerate(component.source_columns)
         )
-        result.append(_IdentityComponent(program=component, values=values))
+        component_mappings = (
+            tuple(mappings_by_component[component_index])
+            if component_index < len(mappings_by_component)
+            else ()
+        )
+        target_values = (
+            tuple(
+                _ValueColumn(
+                    alias=(
+                        f"__impodo_{role}_{component_index:04d}_"
+                        f"{source_index:04d}_target_value"
+                        if source_index == 0
+                        else values[source_index].alias
+                    ),
+                    value_type=component.value_type,
+                )
+                for source_index, _source in enumerate(component.source_columns)
+            )
+            if component_mappings
+            else ()
+        )
+        result.append(
+            _IdentityComponent(
+                program=component,
+                values=values,
+                target_values=target_values,
+            )
+        )
     return tuple(result)
 
 
@@ -908,6 +949,12 @@ def _all_values(layout: _ProjectionLayout) -> tuple[_ValueColumn, ...]:
         *_flatten(layout.target_identity),
         *_flatten(layout.target_scope),
         *_flatten(layout.relationships),
+        *(
+            item
+            for component in layout.relationships
+            for item in component.target_values
+            if item not in component.values
+        ),
     )
 
 

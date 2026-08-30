@@ -212,6 +212,86 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
         self.assertEqual(results.report.semantic_hash, report.semantic_hash)
 
+    def test_html_readback_accepts_odoo_outer_paragraph_serialization(self):
+        snapshot = _snapshot()
+        product = snapshot.rows[1]
+        snapshot = replace(
+            snapshot,
+            datasets=tuple(
+                replace(
+                    item,
+                    field_types=((*item.field_types, ("description", "html"))),
+                )
+                if item.dataset == "products"
+                else item
+                for item in snapshot.datasets
+            ),
+            rows=(
+                snapshot.rows[0],
+                replace(
+                    product,
+                    fields=(
+                        *product.fields,
+                        FieldIntent(
+                            "description",
+                            "SET_VALUE",
+                            "Assembly-ready & safe",
+                        ),
+                    ),
+                ),
+                snapshot.rows[2],
+            ),
+        )
+        run = _run(snapshot)
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("product.template", 11)]["description"] = (
+            "<P>Assembly-ready &amp; safe</P>"
+        )
+
+        report = service.reconcile(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.rows[1].status, ReconciliationRowStatus.VERIFIED)
+
+    def test_non_html_text_keeps_strict_markup_comparison(self):
+        snapshot = _snapshot()
+        product = snapshot.rows[1]
+        snapshot = replace(
+            snapshot,
+            rows=(
+                snapshot.rows[0],
+                replace(
+                    product,
+                    fields=(
+                        *product.fields,
+                        FieldIntent("description", "SET_VALUE", "Assembly-ready"),
+                    ),
+                ),
+                snapshot.rows[2],
+            ),
+        )
+        run = _run(snapshot)
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("product.template", 11)]["description"] = (
+            "<p>Assembly-ready</p>"
+        )
+
+        report = service.reconcile(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.rows[1].status, ReconciliationRowStatus.DIFFERENT)
+        self.assertEqual(report.rows[1].differing_fields, ("description",))
+
     def test_reconciliation_rejects_changed_write_principal_before_readback(self):
         snapshot = _snapshot()
         run = replace(
