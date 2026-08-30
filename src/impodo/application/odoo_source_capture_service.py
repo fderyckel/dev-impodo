@@ -17,6 +17,7 @@ from ..domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCapturePage,
     OdooCaptureSample,
+    OdooSourceCaptureAccessRefreshRequired,
     OdooSourceCaptureConsistencyError,
     OdooSourceCaptureRequest,
     plan_odoo_source_capture,
@@ -194,7 +195,7 @@ class OdooSourceCaptureService:
         _require_identity(request, end_identity)
         if end_context != protected_context:
             raise OdooSourceCaptureConsistencyError(
-                "Odoo capture company or locale context changed during capture"
+                "Odoo company access changed during capture"
             )
         _require_live_schema(
             request,
@@ -340,15 +341,31 @@ def _require_identity(
     request: OdooSourceCaptureRequest,
     identity: OdooReadIdentity,
 ) -> None:
-    if (
-        identity.target_hash != request.expected_connection_target_hash
-        or identity.principal_hash != request.expected_read_principal_hash
-        or identity.permission_hash != request.expected_read_permission_hash
-        or identity.context_hash != request.expected_context_hash
-        or identity.readable_models != request.schema_model_names
-    ):
-        raise OdooSourceCaptureConsistencyError(
-            "Odoo capture target, principal, permission, or context changed"
+    if identity.target_hash != request.expected_connection_target_hash:
+        raise OdooSourceCaptureAccessRefreshRequired(
+            "The saved Odoo target no longer matches. Refresh Odoo details and "
+            "review the change before reading records."
+        )
+    if identity.principal_hash != request.expected_read_principal_hash:
+        raise OdooSourceCaptureAccessRefreshRequired(
+            "The Odoo API user changed. Refresh Odoo details and review the "
+            "change before reading records."
+        )
+    if identity.permission_hash != request.expected_read_permission_hash:
+        raise OdooSourceCaptureAccessRefreshRequired(
+            "The Odoo API user's read permissions changed. Refresh Odoo details "
+            "and review the change before reading records."
+        )
+    if identity.context_hash != request.expected_context_hash:
+        raise OdooSourceCaptureAccessRefreshRequired(
+            "The saved Odoo access evidence uses an earlier verification format "
+            "or the available company scope changed. Refresh Odoo details, then "
+            "review and save the capture plan again. Your saved work is unchanged."
+        )
+    if identity.readable_models != request.schema_model_names:
+        raise OdooSourceCaptureAccessRefreshRequired(
+            "The Odoo model access scope changed. Refresh Odoo details and review "
+            "the change before reading records."
         )
 
 

@@ -22,6 +22,7 @@ from impodo.domain.odoo_capture import (
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCaptureFieldProjection,
+    OdooSourceCaptureAccessRefreshRequired,
     OdooSourceCaptureCancelled,
     OdooSourceCaptureConfigurationError,
     OdooSourceCaptureConsistencyError,
@@ -251,6 +252,8 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
             set(transport.calls[0]["context"]),
             {"active_test", "allowed_company_ids", "lang", "tz"},
         )
+        self.assertEqual(transport.calls[0]["context"]["lang"], "en_US")
+        self.assertEqual(transport.calls[0]["context"]["tz"], "UTC")
         self.assertNotIn("offset", transport.calls[-1])
 
     def test_sample_is_one_non_authoritative_call_and_type_decoding_is_exact(
@@ -497,7 +500,7 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             OdooSourceCaptureConsistencyError,
-            "principal",
+            "API user",
         ):
             self.service.capture(
                 self.workspace_id,
@@ -505,6 +508,25 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
                 consume_page_factory=lambda request, selection: lambda page: None,
                 actor=LOCAL_ACTOR,
             )
+
+    def test_assessment_requests_one_time_refresh_for_legacy_access_hash(self) -> None:
+        gateway = _Gateway(
+            self.schema,
+            context_hash="sha256:" + "8" * 64,
+        )
+
+        with self.assertRaisesRegex(
+            OdooSourceCaptureAccessRefreshRequired,
+            "earlier verification format",
+        ):
+            self.service.assess(
+                self.workspace_id,
+                gateway,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertEqual(gateway.schema_calls, 0)
+        self.assertEqual(gateway.count_calls, 0)
 
 
 class _WorkspaceStateReader:
@@ -532,7 +554,14 @@ class _SchemaReader:
 
 
 class _Gateway:
-    def __init__(self, schema, *, drift_identity=False, matching_rows=0):
+    def __init__(
+        self,
+        schema,
+        *,
+        drift_identity=False,
+        matching_rows=0,
+        context_hash=None,
+    ):
         self.schema = schema
         self.drift_identity = drift_identity
         self.matching_rows = matching_rows
@@ -541,6 +570,7 @@ class _Gateway:
         self.count_calls = 0
         self.open_calls = 0
         self.context = _context()
+        self.context_hash = context_hash or schema.read_context_hash
 
     def probe_identity(self, request, *, cancellation=None):
         self.identity_calls += 1
@@ -554,7 +584,7 @@ class _Gateway:
                 target_hash=self.schema.connection_target_hash,
                 principal_hash=principal_hash,
                 permission_hash=self.schema.read_permission_hash,
-                context_hash=self.schema.read_context_hash,
+                context_hash=self.context_hash,
                 readable_models=("res.partner",),
                 observed_at="2026-08-12T10:00:00Z",
             ),
@@ -762,8 +792,6 @@ def _request(**changes) -> OdooSourceCaptureRequest:
 
 def _context() -> ProtectedOdooReadContext:
     return ProtectedOdooReadContext(
-        language="en_US",
-        timezone="UTC",
         primary_company_id=1,
         allowed_company_ids=(1, 2),
     )
@@ -784,4 +812,3 @@ def _rows(count: int) -> list[dict[str, object]]:
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -53,6 +53,8 @@ from impodo.domain.shared.models import (
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _MAX_IDENTITY_MODELS = 100
 _MAX_IDENTITY_COMPANIES = 1_000
+STABLE_ODOO_LANGUAGE = "en_US"
+STABLE_ODOO_TIMEZONE = "UTC"
 
 
 from impodo.domain.odoo.contracts import (
@@ -341,10 +343,12 @@ class Json2Config:
 def target_record_read_context(
     context: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Return the governed target-read context including archived records."""
+    """Return the stable governed context for archived-inclusive target reads."""
 
     effective = dict(context)
     effective["active_test"] = False
+    effective["lang"] = STABLE_ODOO_LANGUAGE
+    effective["tz"] = STABLE_ODOO_TIMEZONE
     return effective
 
 
@@ -532,8 +536,6 @@ class Json2ReadConnector:
                     "login",
                     "company_id",
                     "group_ids",
-                    "lang",
-                    "tz",
                     "share",
                 ],
                 "limit": 2,
@@ -551,8 +553,6 @@ class Json2ReadConnector:
         try:
             returned_user_id = int(user["id"])
             login = str(user["login"]).strip()
-            lang = str(user.get("lang") or raw_context.get("lang") or "").strip()
-            timezone_name = str(user.get("tz") or raw_context.get("tz") or "").strip()
             primary_company_id = _many2one_id(user["company_id"])
             group_ids = _positive_ids(user["group_ids"])
             share = bool(user["share"])
@@ -564,7 +564,7 @@ class Json2ReadConnector:
             raise ConnectorIncompleteResultError(
                 "Odoo read identity does not match the authenticated user"
             )
-        if len(login) > 320 or len(lang) > 100 or len(timezone_name) > 100:
+        if len(login) > 320:
             raise ConnectorIncompleteResultError(
                 "Odoo read identity user fields exceed safe limits"
             )
@@ -640,16 +640,19 @@ class Json2ReadConnector:
                 "share": share,
             }
         )
+        access_context = {
+            key: value
+            for key, value in self._config.context.items()
+            if key not in {"lang", "tz"}
+        }
         context_hash = _content_hash(
             {
-                "contract_version": 2,
-                "kind": "ODOO_EXECUTION_CONTEXT",
-                "lang": lang,
-                "timezone": timezone_name,
+                "contract_version": 3,
+                "kind": "ODOO_ACCESS_SCOPE",
                 "primary_company_id": primary_company_id,
                 "allowed_company_ids": effective_company_ids,
                 "active_test": bool(self._config.context.get("active_test", True)),
-                "request_context": portable_value(self._config.context),
+                "request_context": portable_value(access_context),
             }
         )
         return (
@@ -662,8 +665,6 @@ class Json2ReadConnector:
                 observed_at=fingerprint.snapshot_timestamp,
             ),
             ProtectedOdooReadContext(
-                language=lang,
-                timezone=timezone_name,
                 primary_company_id=primary_company_id,
                 allowed_company_ids=effective_company_ids,
             ),

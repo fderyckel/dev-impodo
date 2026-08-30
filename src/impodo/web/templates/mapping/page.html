@@ -11,6 +11,12 @@
 {% endblock %}
 {% block content %}
   {% include "mapping/_heading.html" %}
+  {% if revision and revision.definition.contract_version != current_mapping_contract_version %}
+    <div class="notice warning" role="status">
+      <strong>This mapping was created with mapping contract v{{ revision.definition.contract_version }}.</strong>
+      Impodo can read it and has left the saved revision unchanged. When you save and check field matches, Impodo will create a v{{ current_mapping_contract_version }} successor revision.
+    </div>
+  {% endif %}
   {% if selection and schema and (governance or odoo_pinned) %}
     <form
       method="post"

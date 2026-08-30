@@ -409,6 +409,28 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(cleared_check.status_code, 303)
 
+        current_schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        legacy_gateway = _BrowserOdooCaptureGateway(
+            workspace_state,
+            current_schema,
+        )
+        legacy_gateway.identity_context_hash = "sha256:" + "8" * 64
+        context.source_capture_factory = (
+            lambda selected_workspace_state, _secret: legacy_gateway
+        )
+        refresh_required = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-assessment",
+            {
+                "csrf_token": self.csrf,
+                "selection_id": selection.selection_id,
+                "selection_hash": selection.content_hash,
+            },
+        )
+        self.assertEqual(refresh_required.status_code, 422)
+        self.assertIn("earlier verification format", refresh_required.text)
+        self.assertIn("Refresh Odoo details", refresh_required.text)
+        self.assertNotIn("Check matching records", refresh_required.text)
+
         stale = self._post(
             f"/workspaces/{workspace_id}/sources/odoo-capture",
             {

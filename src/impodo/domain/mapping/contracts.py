@@ -31,12 +31,27 @@ from ..serialization import portable as _portable
 
 
 MAPPING_CONTRACT_VERSION = 13
+SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({12, MAPPING_CONTRACT_VERSION})
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
 MAX_SELECTION_RULES = 20
 MAX_SELECTION_RULE_CONDITIONS = 8
 MAX_SELECTION_RULE_COLUMNS = 20
+
+
+class UnsupportedMappingContractError(ValueError):
+    """A saved mapping cannot be decoded by this workspace generation."""
+
+    def __init__(self, contract_version: int) -> None:
+        self.contract_version = contract_version
+        supported = " and ".join(
+            f"v{version}" for version in sorted(SUPPORTED_MAPPING_CONTRACT_VERSIONS)
+        )
+        super().__init__(
+            f"Mapping contract v{contract_version} is unsupported; this workspace "
+            f"generation supports {supported}"
+        )
 
 
 class MappingTargetMode(StrEnum):
@@ -634,9 +649,22 @@ class MappingDefinition:
     contract_version: int = MAPPING_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version != MAPPING_CONTRACT_VERSION:
+        if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
+            raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version == 12 and any(
+            resolver.dataset_projection_field is not None
+            for dataset in self.datasets
+            for resolver in (
+                *(
+                    component.resolver
+                    for component in (*dataset.target_identity, *dataset.target_scope)
+                    if component.resolver is not None
+                ),
+                *(relationship.resolver for relationship in dataset.relationships),
+            )
+        ):
             raise ValueError(
-                "Mapping contract version does not match the current contract"
+                "Mapping contract v12 cannot contain a dataset projection field"
             )
 
     @property
@@ -654,7 +682,10 @@ class MappingDefinition:
             "source_selection_hash": self.source_selection_hash,
             "schema_hash": self.schema_hash,
             "datasets": [
-                _dataset_mapping_to_dict(item)
+                _dataset_mapping_to_dict(
+                    item,
+                    contract_version=self.contract_version,
+                )
                 for item in sorted(
                     (
                         replace(
@@ -724,17 +755,22 @@ class MappingDefinition:
             "content_hash",
         }:
             raise ValueError("Mapping fields do not match the current contract")
-        if int(payload["contract_version"]) != MAPPING_CONTRACT_VERSION:
-            raise ValueError(
-                "Mapping contract version does not match the current contract"
-            )
+        try:
+            contract_version = int(payload["contract_version"])
+        except (TypeError, ValueError) as error:
+            raise ValueError("Mapping contract version is invalid") from error
+        if contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
+            raise UnsupportedMappingContractError(contract_version)
         definition = cls(
             mapping_id=str(payload["mapping_id"]),
-            contract_version=int(payload["contract_version"]),
+            contract_version=contract_version,
             source_selection_hash=str(payload["source_selection_hash"]),
             schema_hash=str(payload["schema_hash"]),
             datasets=tuple(
-                _dataset_mapping_from_dict(item)
+                _dataset_mapping_from_dict(
+                    item,
+                    contract_version=contract_version,
+                )
                 for item in payload["datasets"]
             ),
         )
@@ -752,6 +788,8 @@ class MappingDefinition:
 
 def _dataset_mapping_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> DatasetMapping:
     _require_contract_fields(
         payload,
@@ -767,11 +805,17 @@ def _dataset_mapping_from_dict(
             payload.get("source_identity_column_keys", ())
         ),
         target_identity=tuple(
-            _identity_component_from_dict(item)
+            _identity_component_from_dict(
+                item,
+                contract_version=contract_version,
+            )
             for item in payload.get("target_identity", ())
         ),
         target_scope=tuple(
-            _identity_component_from_dict(item)
+            _identity_component_from_dict(
+                item,
+                contract_version=contract_version,
+            )
             for item in payload.get("target_scope", ())
         ),
         fields=tuple(
@@ -779,7 +823,10 @@ def _dataset_mapping_from_dict(
             for item in payload.get("fields", ())
         ),
         relationships=tuple(
-            _relationship_from_dict(item)
+            _relationship_from_dict(
+                item,
+                contract_version=contract_version,
+            )
             for item in payload.get("relationships", ())
         ),
         target_field_dispositions=tuple(
@@ -800,8 +847,27 @@ def _dataset_mapping_from_dict(
 
 def _dataset_mapping_to_dict(
     mapping: DatasetMapping,
+    *,
+    contract_version: int,
 ) -> dict[str, Any]:
-    return _portable(asdict(mapping))
+    payload = _portable(asdict(mapping))
+    if contract_version == 12:
+        return _without_dataset_projection_field(payload)
+    return payload
+
+
+def _without_dataset_projection_field(value: Any) -> Any:
+    """Reproduce the exact v12 nested field layout for hashing and round trips."""
+
+    if isinstance(value, dict):
+        return {
+            key: _without_dataset_projection_field(item)
+            for key, item in value.items()
+            if key != "dataset_projection_field"
+        }
+    if isinstance(value, list):
+        return [_without_dataset_projection_field(item) for item in value]
+    return value
 
 
 def _scalar_field_mapping_from_dict(
@@ -999,6 +1065,8 @@ def _text_transform_step_from_dict(
 
 def _identity_component_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> IdentityComponentMapping:
     _require_contract_fields(
         payload,
@@ -1012,6 +1080,7 @@ def _identity_component_from_dict(
         resolver=(
             _resolver_from_dict(
                 payload["resolver"],
+                contract_version=contract_version,
             )
             if payload.get("resolver") is not None
             else None
@@ -1021,6 +1090,8 @@ def _identity_component_from_dict(
 
 def _relationship_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> RelationshipMapping:
     _require_contract_fields(
         payload,
@@ -1033,6 +1104,7 @@ def _relationship_from_dict(
         source_column_keys=tuple(payload.get("source_column_keys", ())),
         resolver=_resolver_from_dict(
             payload["resolver"],
+            contract_version=contract_version,
         ),
         compare=bool(payload.get("compare", True)),
         validate_only=bool(payload.get("validate_only", False)),
@@ -1053,11 +1125,16 @@ def _relationship_from_dict(
 
 def _resolver_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> RelationshipResolver:
+    expected_fields = _contract_fields(RelationshipResolver)
+    if contract_version == 12:
+        expected_fields.remove("dataset_projection_field")
     _require_contract_fields(
         payload,
-        _contract_fields(RelationshipResolver),
-        "Relationship resolver fields do not match the current contract",
+        expected_fields,
+        f"Relationship resolver fields do not match mapping contract v{contract_version}",
     )
     return RelationshipResolver(
         origin=ResolverOrigin(payload["origin"]),

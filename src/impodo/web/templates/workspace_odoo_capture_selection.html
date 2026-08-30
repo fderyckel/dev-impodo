@@ -149,6 +149,12 @@
           The saved plan uses an earlier capture workflow or no longer matches the bounded Odoo fields Impodo can capture. Review and save the plan before freezing records.
         </div>
         <p><a class="button primary" href="#capture-plan">Review and save capture plan</a></p>
+      {% elif access_refresh_required %}
+        <div class="notice warning" role="alert">
+          <strong>Refresh the saved Odoo details once.</strong>
+          Your capture plan and frozen evidence have not been changed.
+        </div>
+        <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo details</a></p>
       {% elif schema and not schema.pending_refresh and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
         <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

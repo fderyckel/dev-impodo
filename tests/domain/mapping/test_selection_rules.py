@@ -254,14 +254,17 @@ class SelectionRuleTests(unittest.TestCase):
 
         self.assertEqual(restored, definition)
         self.assertEqual(restored.contract_version, 13)
-        with self.assertRaisesRegex(ValueError, "current contract"):
-            MappingDefinition(
-                mapping_id=definition.mapping_id,
-                source_selection_hash=HASH_A,
-                schema_hash=HASH_A,
-                datasets=definition.datasets,
-                contract_version=12,
-            )
+        legacy = MappingDefinition(
+            mapping_id=definition.mapping_id,
+            source_selection_hash=HASH_A,
+            schema_hash=HASH_A,
+            datasets=definition.datasets,
+            contract_version=12,
+        )
+        self.assertEqual(
+            MappingDefinition.from_json(legacy.to_json()),
+            legacy,
+        )
 
     def test_form_parser_rejects_extra_fields_and_accepts_portable_rules(self) -> None:
         definition = MappingDefinition(

@@ -192,7 +192,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(MappingDefinition.from_dict(payload), definition)
         for noncurrent_version in (2, 7, 11):
             with self.subTest(noncurrent_version=noncurrent_version):
-                with self.assertRaisesRegex(ValueError, "current contract"):
+                with self.assertRaisesRegex(ValueError, "unsupported"):
                     replace(definition, contract_version=noncurrent_version)
 
         noncurrent_payload = definition.to_dict()
@@ -1739,12 +1739,12 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         portable = current.to_dict()
         portable["contract_version"] = 8
 
-        with self.assertRaisesRegex(ValueError, "current contract"):
+        with self.assertRaisesRegex(ValueError, "unsupported"):
             MappingDefinition.from_dict(portable)
 
     def test_noncurrent_mapping_contract_is_rejected(self) -> None:
         current = _valid_definition(self.selection, self.governance)
-        with self.assertRaisesRegex(ValueError, "current contract"):
+        with self.assertRaisesRegex(ValueError, "unsupported"):
             replace(current, contract_version=2)
 
 

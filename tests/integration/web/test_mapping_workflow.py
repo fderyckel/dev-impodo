@@ -6,6 +6,8 @@ from io import BytesIO
 
 from openpyxl import load_workbook
 
+from impodo.domain.mapping.contracts import UnsupportedMappingContractError
+
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     CategoricalCoveragePolicy,
@@ -39,6 +41,81 @@ from tests.support.browser_scenarios import (
 
 
 class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_supported_legacy_mapping_opens_with_successor_notice(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=1,
+        )
+        context = self.app.state.context
+        source_identity = dataset.columns[0]
+        revision, _validation = context.mapping_workspace.check_definition(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        legacy_revision = replace(
+            revision,
+            definition=replace(revision.definition, contract_version=12),
+        )
+
+        with patch.object(
+            context.queries,
+            "get_mapping_revision",
+            return_value=legacy_revision,
+        ):
+            page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("created with mapping contract v12", page.text)
+        self.assertIn("create a v13 successor revision", page.text)
+
+    def test_unsupported_mapping_has_controlled_stage_and_project_pages(self) -> None:
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=1,
+        )
+        context = self.app.state.context
+        error = UnsupportedMappingContractError(11)
+
+        with patch.object(
+            context.queries,
+            "get_mapping_revision",
+            side_effect=error,
+        ):
+            mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(mapping_page.status_code, 409, mapping_page.text)
+        self.assertIn("saved mapping cannot be opened safely", mapping_page.text)
+        self.assertIn("Mapping contract v11", mapping_page.text)
+        self.assertIn("rest of this project remains available", mapping_page.text)
+
+        workspace = context.migration_workspaces.get(
+            workspace_id,
+            actor=context.actor,
+        )
+        with patch.object(
+            context.recipe_publication.compiler.mappings,
+            "get_mapping_revision",
+            side_effect=error,
+        ):
+            project_page = self.client.get(f"/projects/{workspace.project_id}")
+
+        self.assertEqual(project_page.status_code, 200, project_page.text)
+        self.assertIn("mapping contract v11", project_page.text)
+        self.assertIn("rest of the project remains available", project_page.text)
+
     def test_failed_check_can_create_and_download_matching_review_workbook(
         self,
     ) -> None:

@@ -56,6 +56,12 @@ class OdooSourceCaptureConsistencyError(OdooSourceCaptureError):
     """A response or end probe no longer matches the bound capture contract."""
 
 
+class OdooSourceCaptureAccessRefreshRequired(
+    OdooSourceCaptureConsistencyError
+):
+    """Saved Odoo identity evidence must be refreshed before another read."""
+
+
 class OdooSourceCaptureCancelled(OdooSourceCaptureError):
     """Capture stopped at a bounded cancellation checkpoint."""
 

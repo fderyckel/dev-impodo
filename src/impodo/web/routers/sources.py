@@ -39,6 +39,7 @@ from ...application.odoo_capture_job_service import (
 )
 from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.odoo_source_capture import (
+    OdooSourceCaptureAccessRefreshRequired,
     OdooSourceCaptureError,
     OdooSourceCaptureConfigurationError,
     is_odoo_capture_value_field,
@@ -371,6 +372,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_state,
                 error=str(error),
+                access_refresh_required=isinstance(
+                    error,
+                    OdooSourceCaptureAccessRefreshRequired,
+                ),
                 status_code=422,
             )
         return _render_odoo_capture_selection(
@@ -938,6 +943,7 @@ def _render_odoo_capture_selection(
     error: str | None = None,
     status_code: int = 200,
     assessment=None,
+    access_refresh_required: bool = False,
 ):
     """Render current Odoo capture choices, credential state, and history.
 
@@ -1052,6 +1058,7 @@ def _render_odoo_capture_selection(
         capture_policy=CURRENT_ODOO_SOURCE_POLICY,
         capture_page_sizes=ODOO_CAPTURE_PAGE_SIZES,
         assessment=assessment,
+        access_refresh_required=access_refresh_required,
         error=error,
         status_code=status_code,
     )

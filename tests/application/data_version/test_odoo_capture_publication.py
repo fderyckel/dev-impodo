@@ -553,8 +553,6 @@ class _Gateway:
         self.values = values
         self.calls: list[str] = []
         self.context = ProtectedOdooReadContext(
-            language="en_US",
-            timezone="UTC",
             primary_company_id=1,
             allowed_company_ids=(1,),
         )

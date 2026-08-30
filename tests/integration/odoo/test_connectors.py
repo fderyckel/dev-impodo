@@ -83,7 +83,7 @@ class Json2ConnectorTests(unittest.TestCase):
         self.assertTrue(
             all(
                 call[2]["context"]
-                == {"active_test": False, "lang": "fr_FR"}
+                == {"active_test": False, "lang": "en_US", "tz": "UTC"}
                 for call in post_calls
             )
         )
@@ -119,6 +119,7 @@ class Json2ConnectorTests(unittest.TestCase):
         self,
     ) -> None:
         calls = []
+        company_rows = [{"id": 7}, {"id": 3}]
 
         def transport(url, headers, body, timeout, method):
             del timeout, method
@@ -141,7 +142,7 @@ class Json2ConnectorTests(unittest.TestCase):
                     }
                 ]
             if url.endswith("/res.company/search_read"):
-                return 200, [{"id": 7}, {"id": 3}]
+                return 200, list(company_rows)
             if url.endswith("/has_access"):
                 return 200, True
             self.fail(f"unexpected URL: {url}")
@@ -160,6 +161,22 @@ class Json2ConnectorTests(unittest.TestCase):
             transport=transport,
             now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
         ).probe_read_identity(("product.template", "res.partner"))
+        bangkok_identity = Json2ReadConnector(
+            self.config(context={"lang": "en_US", "tz": "Asia/Bangkok"}),
+            transport=transport,
+            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+        ).probe_read_identity(("product.template", "res.partner"))
+        brussels_identity = Json2ReadConnector(
+            self.config(context={"lang": "fr_BE", "tz": "Europe/Brussels"}),
+            transport=transport,
+            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+        ).probe_read_identity(("product.template", "res.partner"))
+        company_rows[:] = [{"id": 9}, {"id": 3}]
+        changed_company_identity = Json2ReadConnector(
+            self.config(),
+            transport=transport,
+            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+        ).probe_read_identity(("product.template", "res.partner"))
 
         self.assertRegex(identity.principal_hash, r"^sha256:[0-9a-f]{64}$")
         self.assertRegex(identity.permission_hash, r"^sha256:[0-9a-f]{64}$")
@@ -169,6 +186,19 @@ class Json2ConnectorTests(unittest.TestCase):
             ("product.template", "res.partner"),
         )
         self.assertEqual(identity, rotated_identity)
+        self.assertEqual(bangkok_identity, brussels_identity)
+        self.assertEqual(
+            identity.principal_hash,
+            changed_company_identity.principal_hash,
+        )
+        self.assertEqual(
+            identity.permission_hash,
+            changed_company_identity.permission_hash,
+        )
+        self.assertNotEqual(
+            identity.context_hash,
+            changed_company_identity.context_hash,
+        )
         self.assertNotIn("super-secret-token", repr(identity))
         context_call = next(
             call for call in calls if call[0].endswith("/res.users/context_get")
@@ -179,6 +209,10 @@ class Json2ConnectorTests(unittest.TestCase):
         )
         self.assertEqual(user_call[2]["domain"], [["id", "=", 17]])
         self.assertEqual(user_call[2]["limit"], 2)
+        self.assertEqual(
+            user_call[2]["fields"],
+            ["id", "login", "company_id", "group_ids", "share"],
+        )
         company_call = next(
             call for call in calls if call[0].endswith("/res.company/search_read")
         )
@@ -188,7 +222,7 @@ class Json2ConnectorTests(unittest.TestCase):
         )
         self.assertEqual(company_call[2]["fields"], ["id"])
         access_calls = [call for call in calls if call[0].endswith("/has_access")]
-        self.assertEqual(len(access_calls), 4)
+        self.assertEqual(len(access_calls), 10)
         self.assertTrue(all(call[2]["ids"] == [] for call in access_calls))
         self.assertTrue(
             all(call[2]["operation"] == "read" for call in access_calls)

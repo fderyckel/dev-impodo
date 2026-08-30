@@ -15,6 +15,7 @@ from ..domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     DatasetMapping,
     MappingTargetMode,
+    UnsupportedMappingContractError,
 )
 from ..domain.schema.governance import BusinessKeyStatus, SchemaGovernance
 from ..domain.recipe_parameters import (
@@ -196,7 +197,19 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.NEW_PROJECT,
                 ),
             )
-        revision = self.mappings.get_mapping_revision(workspace_id)
+        try:
+            revision = self.mappings.get_mapping_revision(workspace_id)
+        except UnsupportedMappingContractError as error:
+            return None, (
+                self._issue(
+                    "MAPPING_CONTRACT_UNREADABLE",
+                    f"The saved field matches use mapping contract v{error.contract_version}, "
+                    "which this Impodo version cannot safely read.",
+                    "The rest of the project remains available. Open Match data "
+                    "for the precise recovery requirement.",
+                    RecipeDraftRecoveryStep.MATCH_DATA,
+                ),
+            )
         submission = (
             self.mappings.get_mapping_submission(workspace_id, revision.version)
             if revision is not None

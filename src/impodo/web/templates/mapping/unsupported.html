@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Match data unavailable · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Match data</p>
+      <h1>This saved mapping cannot be opened safely</h1>
+      <p>The rest of this project remains available.</p>
+    </div>
+    <span class="status needs_review">Needs attention</span>
+  </div>
+  <section class="form-card">
+    <div class="notice warning" role="alert">
+      <strong>Mapping contract v{{ saved_mapping_contract_version }} is not supported by this Impodo version.</strong>
+      This workspace generation can read mapping contracts {% for version in supported_mapping_contract_versions %}v{{ version }}{% if not loop.last %} and {% endif %}{% endfor %}. Impodo did not change the saved mapping.
+    </div>
+    <p>Install an Impodo version that supports this mapping contract, then reopen Match data.</p>
+    <div class="actions">
+      <a class="button secondary" href="/projects/{{ migration_project.project_id }}">Back to project</a>
+    </div>
+  </section>
+{% endblock %}

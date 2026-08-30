@@ -228,14 +228,14 @@ class OdooReadIdentity:
 
 @dataclass(frozen=True, slots=True)
 class ProtectedOdooReadContext:
-    """Ephemeral numeric context needed to reproduce one governed read.
+    """Ephemeral company scope needed to reproduce one governed read.
 
     This value is never serialized into portable workspace contracts.  The
     persisted schema and selection retain only ``OdooReadIdentity.context_hash``.
+    Presentation preferences such as language and timezone deliberately do not
+    belong to this protected identity.
     """
 
-    language: str
-    timezone: str
     primary_company_id: int
     allowed_company_ids: tuple[int, ...]
 

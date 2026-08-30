@@ -13,7 +13,14 @@ from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from impodo.domain.odoo.contracts import ConnectorError, MetadataRequest, MetadataSnapshot
-from impodo.adapters.odoo.connectors import Json2CaptureIdentityProbe, Json2Config, Json2ReadConnector, Transport
+from impodo.adapters.odoo.connectors import (
+    Json2CaptureIdentityProbe,
+    Json2Config,
+    Json2ReadConnector,
+    STABLE_ODOO_LANGUAGE,
+    STABLE_ODOO_TIMEZONE,
+    Transport,
+)
 from ..domain.odoo_capture import (
     OdooCaptureFilterOperator,
     OdooCaptureFilterPolicy,
@@ -777,15 +784,12 @@ def _capture_context(
     context: ProtectedOdooReadContext,
     policy: OdooCaptureFilterPolicy,
 ) -> dict[str, object]:
-    result: dict[str, object] = {
+    return {
         "active_test": policy is OdooCaptureFilterPolicy.ACTIVE_RECORDS,
         "allowed_company_ids": list(context.allowed_company_ids),
+        "lang": STABLE_ODOO_LANGUAGE,
+        "tz": STABLE_ODOO_TIMEZONE,
     }
-    if context.language:
-        result["lang"] = context.language
-    if context.timezone:
-        result["tz"] = context.timezone
-    return result
 
 
 def _headers(config: Json2Config) -> dict[str, str]:

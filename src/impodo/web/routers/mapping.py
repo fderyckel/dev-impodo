@@ -53,7 +53,12 @@ from impodo.web.composition.target_readers import (
 
 from ...application.odoo_read_failures import classify_odoo_read_failure
 from ...domain.errors import ReadinessError
-from ...domain.mapping.contracts import TargetFieldHandling
+from ...domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
+    SUPPORTED_MAPPING_CONTRACT_VERSIONS,
+    TargetFieldHandling,
+    UnsupportedMappingContractError,
+)
 from ...domain.mapping.validation.evidence import MappingValidationResult
 from ...domain.staging.transformation_impact import TransformationImpactFilter
 from ..constants import (
@@ -108,7 +113,21 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             return RedirectResponse(active_url, status_code=303)
-        return _render_mapping(request, context, workspace_id)
+        try:
+            return _render_mapping(request, context, workspace_id)
+        except UnsupportedMappingContractError as error:
+            return _render(
+                request,
+                "mapping/unsupported.html",
+                workspace_state=context.queries.get(workspace_id),
+                workspace_navigation=None,
+                saved_mapping_contract_version=error.contract_version,
+                current_mapping_contract_version=MAPPING_CONTRACT_VERSION,
+                supported_mapping_contract_versions=tuple(
+                    sorted(SUPPORTED_MAPPING_CONTRACT_VERSIONS)
+                ),
+                status_code=409,
+            )
 
     @router.get(
         "/workspaces/{workspace_id}/mapping/field-catalog",

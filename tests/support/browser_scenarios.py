@@ -489,9 +489,8 @@ class _BrowserOdooCaptureGateway:
         self.schema = schema
         self.now = datetime.now(timezone.utc)
         self.calls: list[str] = []
+        self.identity_context_hash = schema.read_context_hash
         self.context = ProtectedOdooReadContext(
-            language="en_US",
-            timezone="UTC",
             primary_company_id=1,
             allowed_company_ids=(1,),
         )
@@ -503,7 +502,7 @@ class _BrowserOdooCaptureGateway:
                 target_hash=self.schema.connection_target_hash,
                 principal_hash=self.schema.read_principal_hash,
                 permission_hash=self.schema.read_permission_hash,
-                context_hash=self.schema.read_context_hash,
+                context_hash=self.identity_context_hash,
                 readable_models=request.schema_model_names,
                 observed_at=self.now.isoformat(),
             ),

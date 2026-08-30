@@ -29,6 +29,7 @@ from ...domain.source_binding import (
     SourceOriginKind,
 )
 from ...domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
     MAX_CONTROL_TOTALS_PER_DATASET,
     ScalarFieldMapping,
     ScalarValueSource,
@@ -293,6 +294,7 @@ def _render_mapping(
         governance=governance,
         odoo_pinned=odoo_pinned,
         revision=revision,
+        current_mapping_contract_version=MAPPING_CONTRACT_VERSION,
         validation=validation,
         submission=submission,
         working_draft=working_draft,
