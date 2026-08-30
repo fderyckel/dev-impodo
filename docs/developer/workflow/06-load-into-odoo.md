@@ -278,6 +278,29 @@ The `PRODUCTION` DataVersion purpose does not bypass the current
 disposable-target acceptance boundary. Recipe lineage is not Odoo write
 authorization.
 
+### Completed-load correction qualification
+
+The opt-in
+[`qualify_completed_load_correction.py`](../../../scripts/qualify_completed_load_correction.py)
+runner accepts only a database whose name begins with
+`impodo_correction_`. It uses the production Polars sparse comparison,
+`CorrectionReviewService`, `CorrectionExecutionService`, the closed JSON-2
+reader and writer, and automatic reconciliation. A separate fixed setup and
+cleanup seam creates and deletes synthetic Products; it cannot grant Unit
+writes to the correction scope.
+
+The 2026-08-30 local Odoo 19 result verified 768 scalar and 37 exact-existing
+many-to-one Product fields. Calls scaled by 50-ID pages and two distinct Unit
+keys rather than by one Unit lookup per Product. The repeat review proposed no
+write, and the conflict, known-rejection, and lost-response cases remained
+fail-closed. See the
+[Phase 6 local qualification report](../../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md).
+
+This evidence qualifies literal-loopback local Odoo only. The same runner can
+target non-loopback HTTPS, but remote correction remains pending until an
+explicitly disposable target and credential are supplied. The result does not
+expand the Authoring-only correction scope.
+
 ## Verification
 
 - [`tests/application/workspace/execution/test_service.py`](../../../tests/application/workspace/execution/test_service.py)
@@ -295,6 +318,7 @@ authorization.
 - [`tests/application/test_correction_orchestration.py`](../../../tests/application/test_correction_orchestration.py)
 - [`tests/application/test_correction_execution.py`](../../../tests/application/test_correction_execution.py)
 - [`tests/integration/columnar/test_polars_correction.py`](../../../tests/integration/columnar/test_polars_correction.py)
+- [`tests/performance/test_correction_qualification.py`](../../../tests/performance/test_correction_qualification.py)
 
 Verify scope enforcement, dependency order, create batching, update behavior,
 journal-before-transport, unknown outcomes, deferred relationships,

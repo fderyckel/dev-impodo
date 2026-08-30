@@ -423,6 +423,7 @@ stages:
       - tests/application/test_correction_orchestration.py
       - tests/application/test_correction_execution.py
       - tests/integration/columnar/test_polars_correction.py
+      - tests/performance/test_correction_qualification.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md
     references:
@@ -430,3 +431,4 @@ stages:
       - docs/testing/acceptance.md
       - docs/plans/scalable-relationship-dependency-planning.md
       - docs/plans/completed-load-correction-workflow.md
+      - docs/reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md

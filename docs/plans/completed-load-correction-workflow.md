@@ -4,7 +4,8 @@
 
 **Status:** In progress. Phases 1 through 5 are implemented at the domain,
 application, protected-evidence, registry, execution, reconciliation, and
-focused browser boundaries. A verified completed
+focused browser boundaries. Phase 6 has passed its current local Odoo 19
+boundary; remote HTTPS qualification remains pending. A verified completed
 Authoring load can now publish one encrypted lean origin manifest and compact
 exact-target index while atomically closing its historical run and workspace.
 The restart-safe successor coordinator creates a new Authoring run and
@@ -45,8 +46,8 @@ and proposes only the fields that genuinely need correction.
 This plan covers the product workflow, lean evidence model, implementation
 slices, Odoo 19 boundary, performance controls, and acceptance gates. Scalar
 and exact-existing many-to-one corrections are current Authoring behavior.
-Phase 6 still owns measured local and remote Odoo 19 scale qualification and
-any decision about broader correction scopes.
+Phase 6 still owns remote Odoo 19 qualification and any decision about broader
+correction scopes. The passed local result does not widen that scope.
 
 ## Reader and intended outcome
 
@@ -807,7 +808,7 @@ performs no business-key search. The 37-Product acceptance fixture uses two
 relationship keys, one bounded lookup call, one exact Product read page, and
 zero writes to `uom.uom`.
 
-### Phase 6: qualify scale and consider broader scopes
+### Phase 6: qualify scale and consider broader scopes — local complete, remote pending
 
 Run local and opt-in remote disposable Odoo 19 acceptance with measured calls,
 time, memory, restart, conflict, failure, and read-back evidence. Only after
@@ -817,6 +818,20 @@ Production correction.
 
 **Exit result:** the supported scale and target class are explicit. No broader
 write capability is inferred from the initial success.
+
+The 2026-08-30 local Odoo 19 qualification passed the current motivating
+boundary. Polars reduced 999 prepared Product intents to 768 scalar candidates.
+One protected plan then applied and verified those 768 scalar fields together
+with 37 exact-existing Unit fields. Review used 17 exact Product pages and one
+two-key Unit lookup. Execution used 17 bounded Product writes and 34 exact-ID
+Product reads, with zero Unit writes and zero fallout. A repeat review proposed
+zero writes. The concurrent-change, known-rejection, and lost-response
+scenarios also stopped or reconciled as designed.
+
+The [local qualification report](../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md)
+records the measurements and cleanup. No disposable remote HTTPS target or
+credential was available, so the remote target class remains unqualified and
+Phase 6 does not authorize any broader correction scope.
 
 ## Verification matrix
 
