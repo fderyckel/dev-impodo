@@ -136,4 +136,3 @@ For remote acceptance, use a non-loopback HTTPS URL and a disposable database
 with the same required prefix. The credential must be able to read, create,
 write, and delete synthetic Products. The correction scope itself still
 writes only `product.template.active` and `product.template.uom_id`.
-
