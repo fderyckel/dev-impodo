@@ -406,19 +406,25 @@ and threat review, fault injection, backup and rollback evidence, and measured
 batch and call counts. Until those guarantees exist,
 `PRODUCTION_WRITE_UNSUPPORTED` remains unchanged.
 
-### 5. Add governed corrections to a completed load
+### 5. Broaden completed-load corrections beyond the Authoring boundary
 
-**Status:** Proposed and deferred. The workflow is not implemented.
+**Status:** Deferred.
 
-The [completed-load correction plan](completed-load-correction-workflow.md)
-defines a successor Authoring run that reuses one unchanged file-source
-DataVersion, preserves the completed load, recalculates evidence automatically,
-compares previous intent with current Odoo state and corrected intent, and
-writes only confirmed field differences to exact protected target records.
+The current Authoring workflow can correct scalar fields and exact-existing
+many-to-one fields after a verified Odoo load. It preserves the completed load,
+recalculates evidence in a successor workspace, and writes only confirmed
+field differences to exact protected target records. The
+[Load into Odoo developer workflow](../developer/workflow/06-load-into-odoo.md)
+defines that current boundary. The
+[local](../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md)
+and
+[remote](../reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md)
+reports record its measured qualification.
 
-Product ownership must activate this track and its disposable-target boundary
-before implementation. Integrated Test and Production correction remain
-outside the first delivery.
+Identity-field corrections, supporting-record creation, Odoo-source
+corrections, and corrections inside Integrated Test or Production runs each
+require a separate proposal and qualification. None is inferred from the
+current Authoring result.
 
 ### 6. Conditional target-side gateway
 

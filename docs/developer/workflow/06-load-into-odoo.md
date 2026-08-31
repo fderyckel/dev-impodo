@@ -341,4 +341,3 @@ Odoo 19 target.
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
 - [Proposed scalable relationship dependency plan](../../plans/scalable-relationship-dependency-planning.md)
-- [Completed-load correction plan](../../plans/completed-load-correction-workflow.md)

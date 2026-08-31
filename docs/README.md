@@ -76,10 +76,6 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
-- [Correct a completed Odoo load](plans/completed-load-correction-workflow.md)
-  — the proposed successor-run workflow, three-way field comparison,
-  protected baseline, phased implementation, and Odoo 19 safeguards for
-  correcting a rule after a verified load.
 - [Scalable relationship dependency planning and execution](plans/scalable-relationship-dependency-planning.md)
   — the proposed generic dataset and row dependency planner for hierarchies,
   Product relationships, BOM-shaped migrations, cycle handling, bounded Odoo
