@@ -40,6 +40,8 @@ def default_project_root(*, development_mode: bool | None = None) -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         return Path(local_app_data) / "Impodo" / "projects"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Impodo" / "projects"
     return Path.cwd() / "var" / "projects"
 
 

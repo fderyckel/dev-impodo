@@ -67,6 +67,26 @@ class ProjectRootPolicyTests(unittest.TestCase):
             if candidate.exists():
                 shutil.rmtree(candidate)
 
+    def test_macos_defaults_to_the_private_application_support_root(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {"IMPODO_PROJECT_ROOT": "", "LOCALAPPDATA": ""},
+                clear=False,
+            ),
+            patch("impodo.web.launcher.sys.platform", "darwin"),
+            patch(
+                "impodo.web.launcher.Path.home",
+                return_value=Path("/Users/example"),
+            ),
+        ):
+            root = default_project_root(development_mode=False)
+
+        self.assertEqual(
+            root,
+            Path("/Users/example/Library/Application Support/Impodo/projects"),
+        )
+
     @unittest.skipUnless(os.name == "nt", "Windows project-root policy")
     def test_normal_windows_mode_rejects_a_git_checkout(self) -> None:
         with self.assertRaisesRegex(ProjectRootSecurityError, "Git checkout"):

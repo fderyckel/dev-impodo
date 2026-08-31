@@ -132,11 +132,14 @@ rename, or delete active project folders outside Impodo.
 From the `dev-impodo` folder, run:
 
 ```bash
-IMPODO_PROJECT_ROOT="$HOME/Library/Application Support/Impodo/projects" .venv/bin/impodo
+.venv/bin/impodo
 ```
 
 Impodo opens a single-use authenticated address in your default browser. Keep
-the Terminal window open while you use the application.
+the Terminal window open while you use the application. On macOS, the launcher
+uses `$HOME/Library/Application Support/Impodo/projects` automatically. An
+explicit `IMPODO_PROJECT_ROOT` remains available for a reviewed development or
+evaluation setup that intentionally uses another owner-private folder.
 
 ## Confirm the first start
 

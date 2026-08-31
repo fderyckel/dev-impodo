@@ -182,9 +182,11 @@ PowerShell window.
 
 For the complete GitHub-checkout installation, library verification, and
 launch instructions, see [Install Impodo on macOS](docs/user/installation/macos.md).
-Impodo requires Python 3.12 or newer. Keep the Terminal window open while
-using Impodo; press `Control+C` or select **Quit Impodo** in the browser when
-finished.
+Impodo requires Python 3.12 or newer. From the checkout, start it with
+`.venv/bin/impodo`. The launcher stores projects under
+`$HOME/Library/Application Support/Impodo/projects` by default. Keep the
+Terminal window open while using Impodo; press `Control+C` or select **Quit
+Impodo** in the browser when finished.
 
 Editable installation is the development lane. For use with approved internal
 data, promote and install a clean, evidence-producing bundle by following the
