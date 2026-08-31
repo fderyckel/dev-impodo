@@ -317,15 +317,8 @@ remote run remains pending until a disposable on-premises target is available;
 see the [remote acceptance runbook](../developer/runbooks/remote-odoo-acceptance.md).
 
 The current completed-load correction boundary has separate point-in-time
-local and hosted Odoo Online 19 evidence. The
-[Phase 6 local correction report](../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md)
-records vectorized comparison, bounded calls, memory, journal-before-write,
-repeat review, conflict, known rejection, lost response, exact read-back, and
-cleanup. The
-[Phase 6 remote correction report](../reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md)
-records the equivalent hosted HTTPS run, the initial fail-closed read timeout,
-the bounded read-only retry, and independent cleanup. Neither result expands
-the correction scope or qualifies an untested remote topology.
+local and hosted Odoo Online 19 qualification. Neither result expands the
+correction scope or qualifies an untested remote topology.
 
 ### Relationship dependency regression baseline
 
@@ -343,9 +336,7 @@ PYTHONPATH=src .venv/bin/python scripts/benchmark_dependency_execution.py \
 
 [`test_dependency_execution_baseline.py`](../../tests/performance/test_dependency_execution_baseline.py)
 protects the exact fixture rows, edges, business order, current relationship
-patches, and repeated-run semantic evidence. The point-in-time measurements
-and their limitations are recorded in the
-[Phase 0 baseline report](../reports/scalable-relationship-phase-0-baseline-2026-08-28.md).
+patches, and repeated-run semantic evidence.
 
 Phase 1 adds a contract-level regression gate. Browser mappings and compiled
 profiles must produce the same sorted hard and deferrable dependency edges.
@@ -356,9 +347,7 @@ cycle that crosses datasets must fail before preflight transport.
 [`test_relationship_dependencies.py`](../../tests/domain/test_relationship_dependencies.py)
 protects extractor, compiler, preflight, permutation, self-reference, and
 cross-dataset cycle behavior. Mapping validation tests also prove that a
-captured Odoo-required relationship compiles as hard. The implementation and
-current limitation are recorded in the
-[Phase 1 dependency-contract report](../reports/scalable-relationship-phase-1-dependency-contract-2026-08-28.md).
+captured Odoo-required relationship compiles as hard.
 
 Phase 2 protects deterministic row components, exact optional-cycle completion
 fields, hard-cycle blockers, same-dataset hierarchy order, and schedule hash
@@ -371,13 +360,6 @@ create retry, exact optional-cycle completion resume, stop-on-known-rejection,
 and field-scope-grouped read-back. Phase 5 adds bounded load-order and blocker
 presentation plus durable-state-derived load-group and relationship progress.
 
-The implementation evidence is recorded in the
-[Phase 2 row-scheduling report](../reports/scalable-relationship-phase-2-row-scheduling-2026-08-28.md)
-and [Phase 3 bounded-execution report](../reports/scalable-relationship-phase-3-bounded-execution-2026-08-28.md).
-The [Phase 4 recovery report](../reports/scalable-relationship-phase-4-recovery-and-reconciliation-2026-08-28.md)
-records the interruption and resume evidence.
-The [Phase 5 progressive-guidance report](../reports/scalable-relationship-phase-5-progressive-guidance-2026-08-28.md)
-records the browser projection and progress evidence.
 
 ### Phase 6 current-boundary qualification
 
@@ -446,15 +428,12 @@ Focused browser integration covers the generated-link choice. The existing
 relationship-catalog screenshot remains accurate, but the current in-app
 browser policy blocked a new local eligible-field capture and prohibited an
 alternate capture route. This is retained as documentation debt, not used as
-a substitute for the executable browser gate. The [Phase 6 qualification
-report](../reports/scalable-relationship-phase-6-current-boundary-qualification-2026-08-28.md)
-records the detailed evidence and limitation.
+a substitute for the executable browser gate.
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by
 read-back, no fallout or unknown outcomes, and a fresh preview with all 150
-unchanged. The [P4 result](../reports/p4-representative-run-2026-08-06.md)
-records the target counts and reproduction boundary.
+unchanged.
 
 ### Verified
 
@@ -993,9 +972,7 @@ however, the candidate improved only 7.774%; the required improvement is 30%.
 The relationship semantic oracle was stopped before completion and has no
 accepted result. The 100,000-row mixed/derived route remains capped and was not
 qualified. Therefore existing capability limits and user-facing claims remain
-unchanged. Detailed evidence and the discovered `HEAD`-stability blind spot are
-recorded in the
-[transformation-scale implementation log](../reports/transformation-scale-implementation-log.md#windows-phase-7-qualification-result--2026-08-12).
+unchanged.
 
 Structural requirements already apply:
 

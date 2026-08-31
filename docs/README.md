@@ -55,9 +55,6 @@ applies those rules when documentation is created or rewritten.
 - [Python code map](architecture/python-code-map.md) — navigation from browser
   and CLI entry points through services, domain behavior, repositories, and
   migration evidence.
-- [Code architecture maintainability audit](reports/code-architecture-maintainability-audit-2026-08-26.md)
-  — point-in-time evidence about domain ownership, package navigability,
-  dependency direction, change hubs, tests, and browser assets.
 - [Security and infrastructure](architecture/security-and-infrastructure.md) — factual
   overview of the local architecture, implemented controls, infrastructure
   requirements, data handling, verification evidence, and current limitations.
@@ -88,47 +85,9 @@ applies those rules when documentation is created or rewritten.
 - [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
   the approved plan for applying an existing Recipe to fresh data and an Odoo
   target without repeating the six authoring stages.
-- The separate browser-language proposal is active design work; completed
-  delivery history belongs in reports and Git history.
-
-## Historical implementation evidence
-
-These reports and completed plans explain how the current architecture was
-reached. They are not current workflow authority; architecture, contracts, and
-paired workflow pages own current behavior.
-
-- [Completed code-organization remediation](plans/code-organization-remediation.md)
-  — the historical execution contract and verified delivery record for the
-  five-phase package, dependency, test, and browser-asset reorganization.
-- [M7.6 semantic authority and legacy removal](reports/m7-6-semantic-authority-and-legacy-removal-2026-08-24.md)
-  — final authority synchronization, exact contract enforcement, legacy-path
-  removal, durable test vocabulary, and repository-wide semantic closure.
-- [M7.5 browser and job semantic cutover](reports/m7-5-browser-and-job-semantic-cutover-2026-08-24.md)
-  — exact Project and workspace routes, workspace-owned job keys, verified
-  background packets, and bounded parent-Project authorization reads.
-- [M7.4 workspace evidence and storage cutover](reports/m7-4-workspace-evidence-storage-cutover-2026-08-24.md)
-  — exact workspace and DataVersion evidence owners, owner-specific artifact
-  roots, run-owned shared snapshots, cross-store linkage checks, and clean
-  generation rejection.
-- [M7.3 parent-Project authorization](reports/m7-3-parent-project-authorization-2026-08-24.md)
-  — mandatory workspace lineage resolution, parent-Project capability checks,
-  safe browser failures, and immutable Odoo-worker access packets.
-- [M7.2 canonical owner consolidation](reports/m7-2-canonical-owner-consolidation-2026-08-24.md)
-  — registry-owned workspace setup, DataVersion-owned draft source evidence,
-  run-owned target setup, explicit page owners, and obsolete setup removal.
-- [M7.1 workspace identity foundation](reports/m7-1-workspace-identity-foundation-2026-08-24.md)
-  — executable identity classification, bounded workspace-to-Project lineage,
-  and adversarial Project authorization evidence before the browser cutover.
-- [Recipe-first Phase R1 implementation report](reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
-  — completed Recipe/DataVersion registry lineage, protected payload storage,
-  workspace linkage and sealing, compatibility resolution, and deterministic
-  intent-recovery evidence.
-- [Recipe-first Phase R2 implementation report](reports/reusable-recipes-phase-r2-authoring-2026-08-19.md)
-  — completed Recipe-native creation, current-evidence draft projection,
-  portable compilation, immutable publication, and revision-history evidence.
-- [Recipe-first Phase R3 implementation report](reports/reusable-recipes-phase-r3-test-application-2026-08-19.md)
-  — completed remote Test TargetBinding, same-ish source application, focused
-  drift, fresh mapping/preparation/quality seeds, and protected evidence.
+- The separate browser-language proposal is active design work. Completed
+  delivery history belongs in Git history; current behavior belongs in the
+  architecture, contracts, and paired workflow pages.
 
 ## Guides, runbooks, and quality
 

@@ -11,7 +11,7 @@ and the proposed [scalable relationship dependency
 planner](scalable-relationship-dependency-planning.md).
 Completed behavior belongs in architecture, contracts, user and developer
 documentation. Point-in-time implementation evidence belongs in
-`docs/reports/`, `docs/testing/`, and Git history.
+`docs/testing/` and Git history.
 
 Finishing an item means removing its delivery detail from this file after the
 current documentation and evidence have been updated. Completed plan files do
@@ -77,11 +77,9 @@ Before raising any limit, the release evidence must prove:
 - three fresh Windows worker runs below the accepted time and memory limits,
   including a reproducible improvement for the sanitized 1,000-customer case.
 
-The [transformation scale implementation
-log](../reports/transformation-scale-implementation-log.md) retains the
-completed measurements and failed qualification evidence. Transport or
-hash-root changes remain conditional on measured benefit and must not weaken
-artifact verification.
+Git history retains the completed measurements and failed qualification
+evidence. Transport or hash-root changes remain conditional on measured benefit
+and must not weaken artifact verification.
 
 ### 2. Add optional clean-package certification
 
@@ -415,11 +413,8 @@ many-to-one fields after a verified Odoo load. It preserves the completed load,
 recalculates evidence in a successor workspace, and writes only confirmed
 field differences to exact protected target records. The
 [Load into Odoo developer workflow](../developer/workflow/06-load-into-odoo.md)
-defines that current boundary. The
-[local](../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md)
-and
-[remote](../reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md)
-reports record its measured qualification.
+defines that current boundary. Git history retains its measured local and
+remote qualification evidence.
 
 Identity-field corrections, supporting-record creation, Odoo-source
 corrections, and corrections inside Integrated Test or Production runs each

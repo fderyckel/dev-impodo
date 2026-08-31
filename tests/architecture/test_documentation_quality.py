@@ -102,7 +102,6 @@ class DocumentationQualityTests(unittest.TestCase):
             "docs/decisions/**/*.md",
             "docs/developer/**/*.md",
             "docs/plans/**/*.md",
-            "docs/reports/**/*.md",
             "docs/testing/**/*.md",
             "docs/user/**/*.md",
         }

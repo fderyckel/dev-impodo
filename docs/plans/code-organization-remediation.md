@@ -788,7 +788,6 @@ decision point changes.
 ## Related evidence
 
 - [Current code organization](../architecture/code-organization.md)
-- [Code architecture maintainability audit](../reports/code-architecture-maintainability-audit-2026-08-26.md)
 - [Architecture overview](../architecture/overview.md)
 - [Python code map](../architecture/python-code-map.md)
 - [ADR-008 and ADR-014](../decisions/README.md)

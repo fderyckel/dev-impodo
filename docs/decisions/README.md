@@ -392,10 +392,9 @@ across environments.
 - all competing roadmap tracks remain deferred until the Recipe-first
   definition of done passes.
 
-The historical Recipe-first delivery evidence remains in the dated
-[implementation reports](../reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
-and Git history. The replacement architecture is defined by ADR-014 and the
-current lifecycle contracts.
+Historical Recipe-first delivery evidence remains in Git history. The
+replacement architecture is defined by ADR-014 and the current lifecycle
+contracts.
 
 ## ADR-014 — Migration projects coordinate reusable Recipes and cutover plans
 
@@ -509,10 +508,10 @@ execution.
   generations follow ADR-015. Runtime semantic backfill, dual writes, Project
   shells, lazy adoption, compatibility routes, and temporary type aliases are
   not retained.
-- Historical Recipe-first plans and reports remain labelled evidence. Current
-  contracts, architecture, browser documentation, BPMN models, screenshots,
-  code maps, and tests change with the implementation gate that changes their
-  behavior.
+- Historical Recipe-first plans remain labelled evidence in Git history.
+  Current contracts, architecture, browser documentation, BPMN models,
+  screenshots, code maps, and tests change with the implementation gate that
+  changes their behavior.
 
 ## ADR-015 — Current storage generations upgrade forward before use
 

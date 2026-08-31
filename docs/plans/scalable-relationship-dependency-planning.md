@@ -522,9 +522,8 @@ hierarchy, an optional cycle, and the existing Product/BOM fixtures.
 **Exit result:** accepted fixtures and current measurements make regressions
 visible. No runtime behavior changes.
 
-**Completed 2026-08-28:** The accepted fixtures, exact call-count assertions,
-fresh-process measurements, and limitations are recorded in the
-[Phase 0 dependency baseline](../reports/scalable-relationship-phase-0-baseline-2026-08-28.md).
+**Completed 2026-08-28:** The accepted fixtures and exact call-count
+assertions protect the current execution shapes.
 
 ### Phase 1: complete compiler dependency evidence
 
@@ -543,9 +542,7 @@ cannot change it.
 **Completed 2026-08-28:** Browser mapping validation, compiled profiles,
 preflight evidence, and execution-snapshot construction now use one immutable
 edge extractor. The extractor classifies hard and deferrable edges, retains
-self-references, and rejects only hard cycles that cross datasets. The
-[Phase 1 dependency-contract report](../reports/scalable-relationship-phase-1-dependency-contract-2026-08-28.md)
-records the implementation and parity evidence.
+self-references, and rejects only hard cycles that cross datasets.
 
 ### Phase 2: add snapshot-owned row scheduling and cycle classification
 
@@ -566,9 +563,7 @@ component counts, exact completion fields, blocker evidence, and a schedule
 root hash. The iterative scheduler orders acyclic same-dataset hierarchies,
 cuts only the optional fields needed to break a cycle, propagates blockers,
 and rejects hard row cycles. Execution consumes the frozen component layers,
-so the hierarchy fixture now uses zero relationship patches. The
-[Phase 2 row-scheduling report](../reports/scalable-relationship-phase-2-row-scheduling-2026-08-28.md)
-records the implementation and verification evidence.
+so the hierarchy fixture now uses zero relationship patches.
 
 ### Phase 3: integrate execution and bounded crosswalks
 
@@ -589,8 +584,7 @@ most 100, and requires each key to resolve uniquely to the record reviewed in
 preflight. It then consumes topological components in pages of at most 500
 rows. Every retained incoming create edge passes an explicit journalled-receipt
 barrier before the dependent call; only frozen optional completion fields run
-later. The [Phase 3 execution report](../reports/scalable-relationship-phase-3-bounded-execution-2026-08-28.md)
-records the implementation and verification evidence.
+later.
 
 ### Phase 4: implement recovery and reconciliation by component
 
@@ -612,9 +606,7 @@ field scopes, and proves the schedule's final scalar and relationship values.
 the run, revalidates the target crosswalk, and retries only an absent create,
 an exact update whose reviewed fields still differ, or the frozen deferred
 fields of a partially applied create. A known rejection stops independent
-later components. The [Phase 4 recovery
-report](../reports/scalable-relationship-phase-4-recovery-and-reconciliation-2026-08-28.md)
-records the implementation and verification evidence.
+later components.
 
 ### Phase 5: expose progressive user guidance
 
@@ -633,9 +625,6 @@ source values, and explicitly preserves the data manager's freedom to change
 mappings, rows, keys, and optional relationships before comparing again. Load
 progress now follows durable journal states, names the current load group, and
 does not count in-flight, retry-ready, or relationship-pending rows as final.
-The [Phase 5 progressive-guidance
-report](../reports/scalable-relationship-phase-5-progressive-guidance-2026-08-28.md)
-records the implementation and browser evidence.
 
 ### Phase 6: qualify representative scale and Odoo 19 behavior
 
@@ -678,9 +667,7 @@ relationship-catalog screenshot remains accurate. A refreshed eligible-field
 capture could not be produced because the available browser blocks local and
 embedded pages; this is recorded as a non-functional documentation limitation,
 not a reason to weaken the automated gate. Only the clean Windows repeat is
-still required, so Phase 6 remains cross-platform incomplete. The
-[Phase 6 qualification report](../reports/scalable-relationship-phase-6-current-boundary-qualification-2026-08-28.md)
-records the evidence and remaining gates.
+still required, so Phase 6 remains cross-platform incomplete.
 
 ## Verification matrix
 
@@ -773,5 +760,4 @@ The plan is complete only when:
 - [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
 - [Match data developer workflow](../developer/workflow/03-match-data.md)
 - [Acceptance and test strategy](../testing/acceptance.md)
-- [Phase 0 dependency baseline](../reports/scalable-relationship-phase-0-baseline-2026-08-28.md)
 - [Impodo remaining work](remaining-work.md)

@@ -289,19 +289,17 @@ reader and writer, and automatic reconciliation. A separate fixed setup and
 cleanup seam creates and deletes synthetic Products; it cannot grant Unit
 writes to the correction scope.
 
-The 2026-08-30 local Odoo 19 result verified 768 scalar and 37 exact-existing
-many-to-one Product fields. Calls scaled by 50-ID pages and two distinct Unit
-keys rather than by one Unit lookup per Product. The repeat review proposed no
-write, and the conflict, known-rejection, and lost-response cases remained
-fail-closed. See the
-[Phase 6 local qualification report](../../reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md).
+The 2026-08-30 local Odoo 19 qualification verified 768 scalar and 37
+exact-existing many-to-one Product fields. Calls scaled by 50-ID pages and two
+distinct Unit keys rather than by one Unit lookup per Product. The repeat
+review proposed no write, and the conflict, known-rejection, and lost-response
+cases remained fail-closed.
 
 The hosted Odoo Online 19 rerun verified the same 805 fields over HTTPS in
 100.833865 seconds. An initial reconciliation timeout published no verified
-result and cleaned every fixture record. `Json2ReadbackReader` now uses the
-configured bounded retry for safe exact reads; the writer still never retries
-an uncertain write. See the
-[Phase 6 remote qualification report](../../reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md).
+result and cleaned every fixture record. `Json2ReadbackReader` uses the
+configured bounded retry for safe exact reads; the writer never retries an
+uncertain write.
 
 This evidence qualifies the current literal-loopback and hosted Odoo Online
 19 Product boundary. It does not expand the Authoring-only correction scope or

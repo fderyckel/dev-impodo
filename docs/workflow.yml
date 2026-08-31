@@ -431,5 +431,3 @@ stages:
       - docs/architecture/security-and-infrastructure.md
       - docs/testing/acceptance.md
       - docs/plans/scalable-relationship-dependency-planning.md
-      - docs/reports/completed-load-correction-phase-6-local-qualification-2026-08-30.md
-      - docs/reports/completed-load-correction-phase-6-remote-qualification-2026-08-30.md

@@ -80,6 +80,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
             "_validation.html",
             "_next_step.html",
             "_form_actions.html",
+            "_matching_review_workbook.html",
             "_quality.html",
             "_value_match_dialog.html",
         )
