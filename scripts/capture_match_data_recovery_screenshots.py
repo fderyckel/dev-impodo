@@ -22,6 +22,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
+from impodo.web.security import LoopbackSecurityMiddleware
 
 
 DEFAULT_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "docs" / "images" / "user"
@@ -35,6 +36,11 @@ def _start_server(app) -> tuple[uvicorn.Server, Thread, int]:
     listener.bind(("127.0.0.1", 0))
     listener.listen(128)
     port = int(listener.getsockname()[1])
+    expected_host = f"127.0.0.1:{port}"
+    for middleware in app.user_middleware:
+        if middleware.cls is LoopbackSecurityMiddleware:
+            middleware.kwargs["expected_host"] = expected_host
+    app.middleware_stack = None
     server = uvicorn.Server(
         uvicorn.Config(
             app,
@@ -68,18 +74,22 @@ def _stop_server(server: uvicorn.Server, thread: Thread) -> None:
         raise RuntimeError("The isolated Impodo screenshot server did not stop.")
 
 
-def _open_formula(row) -> None:
-    advanced = row.locator("details.advanced-rule")
-    advanced.evaluate("element => { element.open = true; }")
-
-
-def _configure_formula(page, formula: str) -> None:
+def _configure_formula(page, formula: str, *, source_column_key: str) -> None:
     row = page.locator('tr[data-target-field="field_0000"]')
     row.locator("[data-value-source]").select_option("source")
     source = row.locator("[data-source-column]")
-    source.select_option(index=1)
-    _open_formula(row)
+    source.focus()
+    source.select_option(source_column_key)
     formula_box = row.locator("[data-rule-formula]")
+    formula_box.evaluate(
+        """element => {
+          let current = element.parentElement;
+          while (current) {
+            if (current instanceof HTMLDetailsElement) current.open = true;
+            current = current.parentElement;
+          }
+        }"""
+    )
     formula_box.fill(formula)
     formula_box.blur()
 
@@ -103,9 +113,14 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
     server: uvicorn.Server | None = None
     thread: Thread | None = None
     try:
-        workspace_id, _dataset, _business_key = fixture._mapping_ready_workspace(
+        workspace_id, dataset, _business_key = fixture._mapping_ready_workspace(
             scalar_field_count=1
         )
+        source_column_key = dataset.columns[1].stable_key
+        session_cookie = fixture.client.cookies.get("impodo_session")
+        if not session_cookie:
+            raise RuntimeError("The isolated setup did not create an Impodo session.")
+        fixture.client.close()
         server, thread, port = _start_server(fixture.app)
         base_url = f"http://127.0.0.1:{port}"
         mapping_url = f"{base_url}/workspaces/{workspace_id}/mapping"
@@ -120,11 +135,33 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 device_scale_factor=1,
                 locale="en-GB",
             )
+            context.add_cookies(
+                [
+                    {
+                        "name": "impodo_session",
+                        "value": session_cookie,
+                        "url": base_url,
+                        "httpOnly": True,
+                        "sameSite": "Strict",
+                    }
+                ]
+            )
             page = context.new_page()
-            page.goto(f"{base_url}/launch?token=launch-secret")
-            page.goto(mapping_url, wait_until="networkidle")
+            mapping_response = page.goto(mapping_url, wait_until="networkidle")
+            formula_row = page.locator('tr[data-target-field="field_0000"]')
+            if formula_row.count() != 1:
+                status = mapping_response.status if mapping_response else "no response"
+                summary = page.locator("body").inner_text()[:2_000]
+                raise RuntimeError(
+                    "The current Match data page did not render the fictional "
+                    f"formula field. URL={page.url!r}; status={status}; body={summary!r}"
+                )
 
-            _configure_formula(page, INVALID_FORMULA)
+            _configure_formula(
+                page,
+                INVALID_FORMULA,
+                source_column_key=source_column_key,
+            )
             feedback = page.locator(
                 'tr[data-target-field="field_0000"] [data-formula-feedback]'
             )
@@ -150,7 +187,11 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
 
             newer_page = context.new_page()
             newer_page.goto(mapping_url, wait_until="networkidle")
-            _configure_formula(newer_page, 'value == "Newer saved choice"')
+            _configure_formula(
+                newer_page,
+                'value == "Newer saved choice"',
+                source_column_key=source_column_key,
+            )
             newer_feedback = newer_page.locator(
                 'tr[data-target-field="field_0000"] [data-formula-feedback]'
             )
@@ -182,7 +223,7 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             _stop_server(server, thread)
             server = None
             thread = None
-            disconnected = page.locator("[data-server-recovery-banner]")
+            disconnected = page.locator("[data-server-recovery]")
             expect(disconnected).to_be_visible(timeout=22_000)
             expect(disconnected).to_contain_text("Impodo is not responding")
             _capture(

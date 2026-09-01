@@ -2,8 +2,10 @@
 
 ## Status and proposed decision
 
-**Status:** Partially implemented. Slices 0 and 1 were completed on 2026-09-01.
-Slices 2 through 5 remain proposed.
+**Status:** Slices 0 through 5 were implemented on 2026-09-01. The macOS
+responsiveness qualification remains open, including concurrent catalogue
+reads from separate editor identities, before cross-platform acceptance is
+complete.
 
 Add immediate, field-level validation for advanced formulas and make every
 **Match data** request end in one visible, recoverable state. A malformed
@@ -408,12 +410,34 @@ authenticated browser session remained valid after the process replacement.
 
 ### Slice 5 — update current documentation after implementation
 
+**Implementation status:** Completed on 2026-09-01.
+
 - Update the paired user and developer **Match data** pages.
 - Update `docs/workflow.yml`, code references, and affected docstrings.
 - Capture the formula error, saved-with-issues, conflict, and disconnected
   states at 1440 by 1024 using fictional data.
 - Keep each remaining behavior marked proposed until its acceptance criteria
   are verified.
+
+The paired Match data pages now describe the shipped formula, mutation receipt,
+catalogue scheduling, server recovery, and privacy boundaries. The workflow
+registry links the authoritative runtime symbols and the reproducible browser
+capture helper. The Python code map and evidence lifecycle contract describe
+the same implemented ownership boundaries.
+
+The screenshot helper created an isolated fictional Contact workspace, served
+the current authenticated application on an ephemeral loopback port, and drove
+installed Microsoft Edge at 1440 by 1024 CSS pixels with device scale factor
+1. The four current user images show inline **Must fix**, **Saved — needs
+attention**, stale-tab **Conflict**, and **Impodo is not responding**. No
+operator workspace, source data, credential, or external Odoo service entered
+the captures.
+
+**Verified result:** the current browser produced all four states through the
+implemented routes and JavaScript. The disconnected capture stopped the
+isolated server and waited for the real three-failure heartbeat threshold.
+Documentation registration, links, images, symbols, focused browser contracts,
+and repository formatting pass the Slice 5 checks.
 
 ## Verification matrix
 

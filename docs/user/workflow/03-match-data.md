@@ -260,6 +260,8 @@ the browser knows that a formula is invalid or is still being checked. If the
 quick check is temporarily unavailable, saving remains safe and the complete
 server-side match check still validates the formula before confirmation.
 
+![A malformed formula shows Must fix beside the affected Odoo field before the data manager saves.](../../images/user/11a-mapping-formula-error.png)
+
 ### If a save is interrupted
 
 Impodo gives each **Save progress**, **Check matches**, Odoo-field decision,
@@ -282,6 +284,10 @@ The bottom message distinguishes these outcomes:
 The full recovery message and support reference remain beside the bottom
 workflow actions. They are also announced to assistive technology.
 
+![Saving a malformed formula preserves the fictional draft and reports Saved — needs attention beside the workflow actions.](../../images/user/11b-mapping-saved-needs-attention.png)
+
+![A stale fictional editor keeps its formula and offers Copy my edits and Reload saved version after a conflict.](../../images/user/11c-mapping-save-conflict.png)
+
 ### If Impodo stops responding
 
 While an Impodo page is open, the browser checks that the local Impodo server
@@ -299,6 +305,8 @@ If the server does not recover, restart Impodo normally. After it opens, select
 The downloaded ZIP contains bounded operational timings, process events, and
 version information. It does not contain source rows, formula contents,
 credentials, tokens, request bodies, headers, complete URLs, or query strings.
+
+![The authenticated Match data page keeps the fictional edit visible while the Impodo is not responding banner offers Try again.](../../images/user/11d-impodo-not-responding.png)
 
 ## What makes this work stale
 

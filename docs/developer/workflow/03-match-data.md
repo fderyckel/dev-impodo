@@ -286,6 +286,7 @@ validation result for the malformed formula.
 | Authenticated health and diagnostic-bundle routes | [`lifecycle.py`](../../../src/impodo/web/routers/lifecycle.py) |
 | Same-port server process supervision | [`server_supervisor.py`](../../../src/impodo/web/server_supervisor.py) |
 | Browser heartbeat and disconnected state | [`server-recovery.js`](../../../src/impodo/web/static/server-recovery.js) |
+| Authenticated recovery-state screenshot capture | [`capture_match_data_recovery_screenshots.py`](../../../scripts/capture_match_data_recovery_screenshots.py) |
 | Safe-formula parser | [`value_rules.py`](../../../src/impodo/domain/recipe/value_rules.py) |
 | Formula authoring issue projection | [`mapping_formula_authoring.py`](../../../src/impodo/web/mapping_formula_authoring.py) |
 | Browser-to-runtime mapping compiler | [`browser_mapping_compiler.py`](../../../src/impodo/domain/compiler/browser_mapping_compiler.py) |
@@ -449,6 +450,15 @@ protected-evidence management authority, while download requires
 protected-evidence read authority.
 
 ## Verification
+
+`capture_match_data_recovery_screenshots.py::capture` creates an isolated
+fictional Contact workspace, serves the current authenticated application on
+an ephemeral loopback port, and drives the installed Edge browser at 1440 by
+1024 CSS pixels with device scale factor 1. It captures the inline formula
+error, saved-with-issues, stale-tab conflict, and disconnected-server states
+that the paired user page presents. The helper stops the isolated server to
+exercise the real heartbeat; it does not edit an operator workspace or use
+operational source data.
 
 - [`tests/integration/web/test_mapping_forms.py`](../../../tests/integration/web/test_mapping_forms.py)
 - [`tests/domain/mapping/test_validation.py`](../../../tests/domain/mapping/test_validation.py)

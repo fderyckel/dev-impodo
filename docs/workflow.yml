@@ -288,6 +288,7 @@ stages:
       - src/impodo/web/diagnostics.py::create_diagnostic_bundle
       - src/impodo/web/routers/lifecycle.py::build_lifecycle_router
       - src/impodo/web/server_supervisor.py::supervise_server
+      - scripts/capture_match_data_recovery_screenshots.py::capture
       - src/impodo/domain/recipe/value_rules.py::validate_formula
       - src/impodo/web/mapping_formula_authoring.py::validate_formula_authoring
       - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogProjectionCache
