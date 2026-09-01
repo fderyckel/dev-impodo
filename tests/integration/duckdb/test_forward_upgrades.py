@@ -93,6 +93,7 @@ def _workspace() -> MigrationWorkspace:
 
 def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS correction_run_binding")
+    connection.execute("DROP TABLE IF EXISTS mapping_mutation_receipt")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
@@ -303,12 +304,25 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
             schema._ensure_workspace_database_schema(connection)
             schema._ensure_workspace_database_schema(connection)
 
-            _assert_upgrade_record(
-                self,
-                connection,
-                generation=SCHEMA_GENERATION,
-                version=SCHEMA_VERSION,
-                migration_id="workspace-engine-v1-to-v2-migration-ledger",
+            self.assertEqual(
+                connection.execute(
+                    "SELECT generation, version FROM schema_version"
+                ).fetchone(),
+                (SCHEMA_GENERATION, SCHEMA_VERSION),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT from_version, to_version, migration_id "
+                    "FROM schema_migration ORDER BY from_version"
+                ).fetchall(),
+                [
+                    (1, 2, "workspace-engine-v1-to-v2-migration-ledger"),
+                    (
+                        2,
+                        3,
+                        "workspace-engine-v2-to-v3-mapping-mutation-receipts",
+                    ),
+                ],
             )
         finally:
             connection.close()

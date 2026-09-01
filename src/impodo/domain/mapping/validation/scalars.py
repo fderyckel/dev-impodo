@@ -763,7 +763,7 @@ def _validate_transform_policy(
                     target_field=field_mapping.target_field,
                 )
             )
-    if policy.formula:
+    if policy.formula.strip():
         aliases = {
             f"column_{getattr(column, 'ordinal', index + 1)}"
             for index, column in enumerate(columns.values())

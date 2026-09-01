@@ -55,6 +55,10 @@ services.
 | Artifact, protected-evidence, job, Odoo, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, and `adapters/odoo`, plus named integration facades directly below `adapters` |
 | Request handling and view construction | `web/routers` and `web/presenters` |
 | Concrete runtime construction | `web/composition`, `web/app.py`, and `web/capability_builders.py` |
+| Privacy-safe local diagnostics and process recovery | `web/diagnostics.py` builds bounded evidence and redacted bundles; `web/server_supervisor.py` owns same-port child restart and the circuit breaker; `web/launcher.py` secures and binds the local runtime; `web/routers/lifecycle.py` and `web/static/server-recovery.js` own authenticated recovery actions |
+| Safe formula authoring feedback | `domain/recipe/value_rules.py` owns parsing; `web/mapping_formula_authoring.py` projects formula-free issues for the mapping route and browser |
+| Recoverable Match data mutation outcomes | `domain/mapping/mutations.py` defines receipts and structured conflicts; `adapters/duckdb/mapping_repository.py` commits receipts with mapping writes; `web/routers/mapping.py` and `web/static/mapping-editor.js` own read-back and recovery UX |
+| Bounded Match data catalogue searches | `web/mapping_catalog_runtime.py` owns the content-keyed projection cache, per-editor newest-generation authority, and workspace single-flight gate; `web/static/mapping-catalogs.js` owns browser cancellation and current-result application |
 | Server-rendered pages and page-owned browser behavior | `web/templates`, `web/templates/mapping`, and `web/static` |
 | Focused evidence | `tests/architecture`, `tests/domain`, `tests/application`, `tests/integration`, `tests/e2e`, and `tests/performance` |
 | Explicit non-discovered test builders and paths | `tests/support` |

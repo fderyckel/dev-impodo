@@ -11,6 +11,7 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import (
     datetime,
     timezone,
@@ -25,6 +26,12 @@ from ...domain.schema.governance import SchemaGovernance
 from ...domain.mapping.artifacts import (
     MappingRevision,
     MappingSubmission,
+)
+from ...domain.mapping.mutations import (
+    MappingMutationAction,
+    MappingMutationReceipt,
+    MappingMutationState,
+    MappingVersionConflict,
 )
 from ...domain.mapping.validation.evidence import (
     MappingValidationResult,
@@ -83,6 +90,190 @@ class MappingRepository(DuckDbRepository):
             """,
         )
         return MappingWorkingDraft.from_json(value) if value else None
+
+    def begin_mapping_mutation(
+        self,
+        workspace_id: str,
+        *,
+        operation_id: str,
+        action: MappingMutationAction,
+        request_hash: str,
+        submitted_working_draft_version: int | None,
+        submitted_mapping_revision_version: int | None,
+        actor: Actor,
+    ) -> MappingMutationReceipt:
+        """Reserve one durable browser command identity before it runs."""
+
+        started_at = datetime.now(timezone.utc)
+        proposed = MappingMutationReceipt(
+            operation_id=operation_id,
+            workspace_id=workspace_id,
+            action=action,
+            request_hash=request_hash,
+            state=MappingMutationState.PENDING,
+            submitted_working_draft_version=(
+                submitted_working_draft_version
+            ),
+            submitted_mapping_revision_version=(
+                submitted_mapping_revision_version
+            ),
+            working_draft_version=None,
+            mapping_revision_version=None,
+            content_identity="",
+            failure_code="",
+            failure_detail="",
+            started_at=started_at,
+            completed_at=None,
+            actor_issuer=actor.identity.issuer,
+            actor_subject=actor.identity.subject_id,
+        )
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            row = connection.execute(
+                "SELECT * FROM mapping_mutation_receipt WHERE operation_id = ?",
+                [operation_id],
+            ).fetchone()
+            if row is not None:
+                current = self._mapping_mutation_receipt_from_row(
+                    workspace_id,
+                    row,
+                )
+                if (
+                    current.action is not proposed.action
+                    or current.request_hash != proposed.request_hash
+                    or current.submitted_working_draft_version
+                    != proposed.submitted_working_draft_version
+                    or current.submitted_mapping_revision_version
+                    != proposed.submitted_mapping_revision_version
+                    or current.actor_issuer != proposed.actor_issuer
+                    or current.actor_subject != proposed.actor_subject
+                ):
+                    raise WorkspaceError(
+                        "Mapping operation identity was already used for another request"
+                    )
+                return replace(current, replayed=True)
+            connection.execute(
+                """
+                INSERT INTO mapping_mutation_receipt VALUES (
+                    ?, ?, ?, 'PENDING', ?, ?, NULL, NULL, '', '', '', ?,
+                    NULL, ?, ?
+                )
+                """,
+                [
+                    proposed.operation_id,
+                    proposed.action.value,
+                    proposed.request_hash,
+                    proposed.submitted_working_draft_version,
+                    proposed.submitted_mapping_revision_version,
+                    proposed.started_at.isoformat(),
+                    proposed.actor_issuer,
+                    proposed.actor_subject,
+                ],
+            )
+        return proposed
+
+    def get_mapping_mutation_receipt(
+        self,
+        workspace_id: str,
+        operation_id: str,
+    ) -> MappingMutationReceipt | None:
+        """Return one durable browser command receipt, when it reached Impodo."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            row = connection.execute(
+                "SELECT * FROM mapping_mutation_receipt WHERE operation_id = ?",
+                [operation_id],
+            ).fetchone()
+        return (
+            self._mapping_mutation_receipt_from_row(workspace_id, row)
+            if row is not None
+            else None
+        )
+
+    def reject_mapping_mutation(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        *,
+        failure_code: str,
+        failure_detail: str,
+        working_draft_version: int | None,
+        mapping_revision_version: int | None,
+    ) -> MappingMutationReceipt:
+        """Record a definitive non-commit after a reserved command is rejected."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            connection.execute(
+                """
+                UPDATE mapping_mutation_receipt
+                   SET state = 'REJECTED', working_draft_version = ?,
+                       mapping_revision_version = ?, failure_code = ?,
+                       failure_detail = ?, completed_at = ?
+                 WHERE operation_id = ? AND state = 'PENDING'
+                """,
+                [
+                    working_draft_version,
+                    mapping_revision_version,
+                    failure_code,
+                    failure_detail,
+                    datetime.now(timezone.utc).isoformat(),
+                    operation_id,
+                ],
+            )
+        receipt = self.get_mapping_mutation_receipt(workspace_id, operation_id)
+        if receipt is None:
+            raise WorkspaceError("Mapping operation receipt was not reserved")
+        return receipt
+
+    def complete_mapping_mutation(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        *,
+        content_identity: str = "",
+    ) -> MappingMutationReceipt:
+        """Complete a command whose durable change is owned outside mapping."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            working = connection.execute(
+                "SELECT version FROM mapping_working_draft WHERE singleton_id = 1"
+            ).fetchone()
+            current = connection.execute(
+                "SELECT version FROM mapping_current WHERE singleton_id = 1"
+            ).fetchone()
+            connection.begin()
+            try:
+                self._commit_mapping_mutation(
+                    connection,
+                    operation_id,
+                    working_draft_version=(int(working[0]) if working else None),
+                    mapping_revision_version=(int(current[0]) if current else None),
+                    content_identity=content_identity,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        receipt = self.get_mapping_mutation_receipt(workspace_id, operation_id)
+        if receipt is None:
+            raise WorkspaceError("Mapping operation receipt was not reserved")
+        return receipt
+
     def save_mapping_working_draft(
         self,
         workspace_id: str,
@@ -90,6 +281,7 @@ class MappingRepository(DuckDbRepository):
         *,
         expected_version: int | None,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Replace unchecked editor progress using its optimistic draft version."""
 
@@ -228,8 +420,11 @@ class MappingRepository(DuckDbRepository):
                 or draft.mapping_id != expected_mapping_id
                 or draft.base_mapping_version != actual_base_version
             ):
-                raise WorkspaceError(
-                    "The working draft was modified by another request"
+                raise MappingVersionConflict(
+                    submitted_working_draft_version=expected_version,
+                    submitted_mapping_revision_version=draft.base_mapping_version,
+                    current_working_draft_version=actual_version,
+                    current_mapping_revision_version=actual_base_version,
                 )
             revision = self._workspace_revision(connection)
             connection.begin()
@@ -261,6 +456,14 @@ class MappingRepository(DuckDbRepository):
                     ),
                     actor=actor,
                 )
+                if operation_id is not None:
+                    self._commit_mapping_mutation(
+                        connection,
+                        operation_id,
+                        working_draft_version=draft.version,
+                        mapping_revision_version=draft.base_mapping_version,
+                        content_identity=draft.content_hash,
+                    )
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -322,6 +525,7 @@ class MappingRepository(DuckDbRepository):
         expected_working_draft_version: int | None,
         checked_draft: MappingWorkingDraft,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Promote an expected editor state to a checked immutable revision."""
 
@@ -381,8 +585,15 @@ class MappingRepository(DuckDbRepository):
                     or revision.mapping_id != current_id
                     or revision.version != next_version
                 ):
-                    raise WorkspaceError(
-                        "The mapping or working draft was modified by another request"
+                    raise MappingVersionConflict(
+                        submitted_working_draft_version=(
+                            expected_working_draft_version
+                        ),
+                        submitted_mapping_revision_version=(
+                            expected_parent_version
+                        ),
+                        current_working_draft_version=working_version,
+                        current_mapping_revision_version=current_version,
                     )
                 revision_number = self._workspace_revision(connection)
                 connection.execute(
@@ -452,6 +663,14 @@ class MappingRepository(DuckDbRepository):
                     ),
                     actor=actor,
                 )
+                if operation_id is not None:
+                    self._commit_mapping_mutation(
+                        connection,
+                        operation_id,
+                        working_draft_version=checked_draft.version,
+                        mapping_revision_version=revision.version,
+                        content_identity=revision.definition.content_hash,
+                    )
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -483,6 +702,7 @@ class MappingRepository(DuckDbRepository):
         validation: MappingValidationResult,
         *,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Append revalidation only when its mapping content hash matches."""
 
@@ -506,20 +726,39 @@ class MappingRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "Mapping validation does not match its revision"
                 )
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO mapping_validation
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    str(row[0]),
-                    version,
-                    validation.validator_version,
-                    validation.validation_hash,
-                    datetime.now(timezone.utc).isoformat(),
-                    validation.to_json(),
-                ],
-            )
+            working = connection.execute(
+                "SELECT version FROM mapping_working_draft WHERE singleton_id = 1"
+            ).fetchone()
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO mapping_validation
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        str(row[0]),
+                        version,
+                        validation.validator_version,
+                        validation.validation_hash,
+                        datetime.now(timezone.utc).isoformat(),
+                        validation.to_json(),
+                    ],
+                )
+                if operation_id is not None:
+                    self._commit_mapping_mutation(
+                        connection,
+                        operation_id,
+                        working_draft_version=(
+                            int(working[0]) if working else None
+                        ),
+                        mapping_revision_version=version,
+                        content_identity=validation.mapping_content_hash,
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
     def get_mapping_submission(
         self,
         workspace_id: str,
@@ -546,6 +785,7 @@ class MappingRepository(DuckDbRepository):
         submission: MappingSubmission,
         *,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Append a submission only when validation and warnings match exactly."""
 
@@ -598,6 +838,9 @@ class MappingRepository(DuckDbRepository):
                     "Mapping submission has not passed its validation gate"
                 )
             revision = self._workspace_revision(connection)
+            working = connection.execute(
+                "SELECT version FROM mapping_working_draft WHERE singleton_id = 1"
+            ).fetchone()
             connection.begin()
             try:
                 connection.execute(
@@ -629,7 +872,93 @@ class MappingRepository(DuckDbRepository):
                     ),
                     actor=actor,
                 )
+                if operation_id is not None:
+                    self._commit_mapping_mutation(
+                        connection,
+                        operation_id,
+                        working_draft_version=(
+                            int(working[0]) if working else None
+                        ),
+                        mapping_revision_version=submission.version,
+                        content_identity=submission.mapping_content_hash,
+                    )
                 connection.commit()
             except Exception:
                 connection.rollback()
                 raise
+
+    @staticmethod
+    def _commit_mapping_mutation(
+        connection,
+        operation_id: str,
+        *,
+        working_draft_version: int | None,
+        mapping_revision_version: int | None,
+        content_identity: str,
+    ) -> None:
+        """Commit a receipt inside the authoritative mapping transaction."""
+
+        row = connection.execute(
+            "SELECT state FROM mapping_mutation_receipt WHERE operation_id = ?",
+            [operation_id],
+        ).fetchone()
+        if row is None:
+            raise WorkspaceError("Mapping operation receipt was not reserved")
+        if str(row[0]) not in {
+            MappingMutationState.PENDING.value,
+            MappingMutationState.COMMITTED.value,
+        }:
+            raise WorkspaceError("Mapping operation receipt is already terminal")
+        connection.execute(
+            """
+            UPDATE mapping_mutation_receipt
+               SET state = 'COMMITTED', working_draft_version = ?,
+                   mapping_revision_version = ?, content_identity = ?,
+                   failure_code = '', failure_detail = '', completed_at = ?
+             WHERE operation_id = ? AND state IN ('PENDING', 'COMMITTED')
+            """,
+            [
+                working_draft_version,
+                mapping_revision_version,
+                content_identity,
+                datetime.now(timezone.utc).isoformat(),
+                operation_id,
+            ],
+        )
+
+    @staticmethod
+    def _mapping_mutation_receipt_from_row(
+        workspace_id: str,
+        row,
+    ) -> MappingMutationReceipt:
+        completed_at = (
+            datetime.fromisoformat(str(row[12]))
+            if row[12] is not None
+            else None
+        )
+        return MappingMutationReceipt(
+            operation_id=str(row[0]),
+            workspace_id=workspace_id,
+            action=MappingMutationAction(str(row[1])),
+            request_hash=str(row[2]),
+            state=MappingMutationState(str(row[3])),
+            submitted_working_draft_version=(
+                int(row[4]) if row[4] is not None else None
+            ),
+            submitted_mapping_revision_version=(
+                int(row[5]) if row[5] is not None else None
+            ),
+            working_draft_version=(
+                int(row[6]) if row[6] is not None else None
+            ),
+            mapping_revision_version=(
+                int(row[7]) if row[7] is not None else None
+            ),
+            content_identity=str(row[8]),
+            failure_code=str(row[9]),
+            failure_detail=str(row[10]),
+            started_at=datetime.fromisoformat(str(row[11])),
+            completed_at=completed_at,
+            actor_issuer=str(row[13]),
+            actor_subject=str(row[14]),
+        )

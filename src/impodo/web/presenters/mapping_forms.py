@@ -173,6 +173,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
     allowed = {
         "csrf_token",
         "action",
+        "operation_id",
         "editable_dataset_id",
         "expected_parent_version",
         "expected_working_draft_version",

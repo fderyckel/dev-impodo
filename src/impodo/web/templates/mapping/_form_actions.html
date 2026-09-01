@@ -1,4 +1,23 @@
       <div class="actions mapping-actions">
+        <div
+          class="mapping-save-outcome notice error"
+          data-mapping-save-outcome
+          role="alert"
+          tabindex="-1"
+          hidden
+        >
+          <p data-mapping-save-outcome-message></p>
+          <p class="technical-note">
+            Support reference: <code data-mapping-operation-reference></code>
+          </p>
+          <div class="mapping-save-recovery" data-mapping-conflict-recovery hidden>
+            <button class="button secondary compact" type="button" data-copy-mapping-edits>Copy my edits</button>
+            <button class="button secondary compact" type="button" data-reload-saved-mapping>Reload saved version</button>
+          </div>
+          <div class="mapping-save-recovery" data-mapping-unknown-recovery hidden>
+            <button class="button secondary compact" type="button" data-check-mapping-outcome>Check save outcome</button>
+          </div>
+        </div>
         <p
           class="mapping-save-state"
           data-mapping-save-status
@@ -6,7 +25,9 @@
           role="status"
           aria-live="polite"
         >
-          {% if has_unvalidated_changes %}
+          {% if formula_authoring_issue_payloads %}
+            Saved — needs attention. Correct the formula before checking matches.
+          {% elif has_unvalidated_changes %}
             Progress is saved. Check matches when ready.
           {% elif submission %}
             Field matches are confirmed.
@@ -18,9 +39,34 @@
             Changes are not saved yet.
           {% endif %}
         </p>
+        <div
+          class="mapping-authoring-issues"
+          data-formula-issue-summary
+          role="status"
+          aria-live="polite"
+          {% if not formula_authoring_issue_payloads %}hidden{% endif %}
+        >
+          <span data-formula-issue-count>
+            {% if formula_authoring_issue_payloads %}
+              {{ formula_authoring_issue_payloads|length }} formula issue{% if formula_authoring_issue_payloads|length != 1 %}s{% endif %} must be fixed before checking matches.
+            {% endif %}
+          </span>
+          <button class="button secondary compact" type="button" data-go-to-formula-issue>Go to issue</button>
+        </div>
         <a class="button secondary" href="/workspaces/{{ workspace_id }}/{{ 'sources' if odoo_pinned else 'schema' }}">Back to Odoo data</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
-        <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
+        <button
+          class="button secondary"
+          name="action"
+          value="draft"
+          type="submit"
+          data-check-mapping
+          aria-describedby="formula-check-help"
+          {% if formula_authoring_issue_payloads %}disabled{% endif %}
+        >Check matches</button>
+        <span class="visually-hidden" id="formula-check-help" data-formula-check-help>
+          {% if formula_authoring_issue_payloads %}Correct formula issues before checking matches.{% endif %}
+        </span>
         {% if next_step.available and next_step.kind == 'link' %}
           <a class="button {{ next_step.button_style }}" href="{{ next_step.href }}">{{ next_step.label }}</a>
         {% elif next_step.available %}

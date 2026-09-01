@@ -111,8 +111,11 @@ the same field's preparation controls.
 3. Set **Value type** to **Yes or no**.
 4. Open **Advanced: formula or custom calculation**.
 5. Enter `value == 10` in **Formula**.
-6. Select **Save progress**, then select **Check matches**.
-7. Select **Review rule effects** and confirm that code `10` produces Yes and
+6. Pause briefly or leave the Formula box. If Impodo shows **Must fix**, follow
+   the correction beside the formula. Use **Go to issue** if the field is no
+   longer visible.
+7. Select **Save progress**, then select **Check matches**.
+8. Select **Review rule effects** and confirm that code `10` produces Yes and
    each other status produces No before you confirm the field matches.
 
 The word `value` means the source value you selected for this field. This
@@ -296,8 +299,11 @@ because the protected capture identity—not the name—identifies the record.
 ## How do I check and confirm my matching rules?
 
 1. Select **Save progress** to keep your choices. This does not validate or
-   write to Odoo.
+   write to Odoo. A malformed advanced formula is still preserved and the
+   save reports **Saved — needs attention**.
 2. Select **Check matches** to check the full frozen source domain.
+   **Check matches** is unavailable while a formula shows **Must fix** or is
+   still being checked. Correct it beside the field or select **Go to issue**.
 3. Select **Create matching review workbook** when an Excel review will help.
    You can create it after a passing check or a check with errors, then select
    **Download matching review workbook**.
@@ -327,6 +333,7 @@ confirmation no longer describe the current rule.
 | More than one Odoo record matches | Stop or send it to review. Never select the first result. |
 | A relationship differs only by case | Treat it as a review case; match it explicitly only after approval. |
 | Two conditional rules both match | Reorder them deliberately and inspect **Review rule effects**. |
+| An advanced formula shows **Must fix** | Follow the correction beside the formula. Saving preserves the draft, but correct the issue before **Check matches**. |
 | A required field has no source value | Map it, use a verified Odoo default, or use an Odoo-managed disposition only when Impodo offers it. |
 | You need to join First name and Last name | This guided rule is **not yet available**. Keep the source prepared as one field or use the reviewed advanced calculation while the [combine-source-columns proposal](../../plans/concatenate-source-columns-matching-rule.md) remains a plan. |
 | You changed a confirmed rule | Save, check, review again if needed, and confirm the new exact revision. |

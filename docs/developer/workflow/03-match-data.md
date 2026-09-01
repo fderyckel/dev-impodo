@@ -37,6 +37,46 @@ providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
 
+Every browser mutation carries one UUID operation identity bound to the exact
+non-secret form meaning, submitted working-draft version, submitted mapping
+revision, and actor. `MappingRepository` first reserves a durable `PENDING`
+`MappingMutationReceipt`. Draft, revision, validation, and submission writes
+change it to `COMMITTED` with the resulting versions and content identity in
+the same DuckDB transaction. A handled rejection records `REJECTED`; an
+interrupted process may deliberately leave `PENDING`, which means unknown and
+does not authorize a blind replay. Reusing an operation identity with different
+meaning fails closed.
+
+`GET /workspaces/{workspace_id}/mapping/mutation-receipts/{operation_id}` is
+the authenticated read-back boundary. `mapping-editor.js` gives mutations a
+15-second browser timeout and receipt reads a separate bounded timeout. Every
+path clears `aria-busy` in `finally`. A committed receipt becomes **Saved**, a
+missing receipt becomes **Not saved**, and a surviving pending receipt remains
+**Save outcome unknown** with an explicit read-back control.
+
+Optimistic version mismatches raise `MappingVersionConflict` and return HTTP
+409 with the stable `MAPPING_VERSION_CONFLICT` code, submitted and current
+versions, and recovery metadata. The browser preserves the form, does not copy
+current versions into the stale hidden fields, blocks another mutation, and
+offers **Copy my edits** plus **Reload saved version**. Complete failure text
+and the operation reference remain in the sticky bottom action region.
+
+`POST /workspaces/{workspace_id}/mapping/formula-validation` is an
+authenticated, CSRF-protected, read-only authoring check. It accepts one
+dataset identity and one bounded formula, resolves the dataset's current
+`column_N` aliases, and delegates to
+`domain/recipe/value_rules.py::validate_formula`. It neither stores mapping
+evidence nor reads Odoo. The response is `valid` plus one optional lightweight
+issue; it never returns the submitted formula.
+
+`mapping-formula-validation.js` waits 500 ms after input, checks immediately on
+blur, aborts obsolete requests, and ignores stale generations. A known invalid
+or pending formula disables **Check matches**, while **Save progress** remains
+available. `mapping_formula_authoring.py` projects the same parser failure into
+inline **Must fix** feedback and saved-draft issue summaries. Browser checks
+are advisory authoring feedback only: `MappingWorkspaceService` and the domain
+semantic validator remain authoritative when JavaScript is absent or bypassed.
+
 The browser default-recovery actions save the reviewed `odoo_default`
 disposition before they validate the exact saved working draft. Individual,
 grouped, and freshly captured default decisions each trigger one complete
@@ -210,12 +250,22 @@ authorize submission. Preparation and final review remain responsible for
 row-level uniqueness and relationship resolution; a mapping preview does not
 claim those results.
 
+Formula authoring issues use the stable `MAPPING_FORMULA_INVALID` code and
+carry severity, correction, optional one-based character position, dataset,
+target field, and portable mapping path. They do not contain formula text or
+source values. Saving a malformed formula increments the recoverable working
+draft and returns **Saved — needs attention**; it does not create valid
+semantic evidence. A direct **Check matches** request still creates an invalid
+validation result for the malformed formula.
+
 ## Code references
 
 | Role | Code |
 | --- | --- |
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/workspace/mapping/service.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
+| Mapping mutation receipts and conflicts | [`mutations.py`](../../../src/impodo/domain/mapping/mutations.py) |
+| Mapping draft, revision, submission, and receipt persistence | [`mapping_repository.py`](../../../src/impodo/adapters/duckdb/mapping_repository.py) |
 | Semantic validator | [`validator.py`](../../../src/impodo/domain/mapping/validation/validator.py) |
 | Governed-reference policy | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
 | Shared scalar and conditional-rule evaluator | [`scalar_values.py`](../../../src/impodo/domain/mapping/scalar_values.py) |
@@ -228,6 +278,16 @@ claim those results.
 | Matching review workbook | [`mapping_review.py`](../../../src/impodo/adapters/artifacts/mapping_review.py) |
 | Optional Recipe compilation | [`RecipeCompiler`](../../../src/impodo/application/recipe_compilation_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
+| Catalogue projection cache and newest-generation scheduler | [`mapping_catalog_runtime.py`](../../../src/impodo/web/mapping_catalog_runtime.py) |
+| Browser catalogue search generations | [`mapping-catalogs.js`](../../../src/impodo/web/static/mapping-catalogs.js) |
+| Browser save timeout, receipt read-back, and recovery state | [`mapping-save-recovery.js`](../../../src/impodo/web/static/mapping-save-recovery.js) |
+| Mapping view and timing phases | [`mapping_view.py`](../../../src/impodo/web/presenters/mapping_view.py) |
+| Mapping timing, local request evidence, and redacted bundle creation | [`diagnostics.py`](../../../src/impodo/web/diagnostics.py) |
+| Authenticated health and diagnostic-bundle routes | [`lifecycle.py`](../../../src/impodo/web/routers/lifecycle.py) |
+| Same-port server process supervision | [`server_supervisor.py`](../../../src/impodo/web/server_supervisor.py) |
+| Browser heartbeat and disconnected state | [`server-recovery.js`](../../../src/impodo/web/static/server-recovery.js) |
+| Safe-formula parser | [`value_rules.py`](../../../src/impodo/domain/recipe/value_rules.py) |
+| Formula authoring issue projection | [`mapping_formula_authoring.py`](../../../src/impodo/web/mapping_formula_authoring.py) |
 | Browser-to-runtime mapping compiler | [`browser_mapping_compiler.py`](../../../src/impodo/domain/compiler/browser_mapping_compiler.py) |
 | Canonical relationship dependencies | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Batched Odoo read planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
@@ -245,6 +305,9 @@ The matching review workbook is also a projection rather than a new decision
 source. It cannot change the validation status, acknowledge a warning, confirm
 the mapping, or qualify prepared data. The Stage 5 workbook remains a separate
 artifact derived from prepared rows and fresh target-comparison evidence.
+`MappingMutationReceipt` is operational recovery evidence rather than mapping
+approval. It proves whether one browser command committed and identifies the
+resulting draft/revision content; it cannot make a draft valid or submitted.
 
 ## Completion and navigation
 
@@ -263,12 +326,109 @@ it does not block submission. Stage 4 still requires current prepared evidence
 and review before the workflow can continue.
 
 Form parsers must reject unexpected fields and stale versions. Preserve the
-working draft when validation fails so the data manager can correct it.
+working draft when validation fails so the data manager can correct it. A
+stale submitted version must return structured HTTP 409 and must not be
+replaced with the current version in the retained browser form. A browser
+timeout must use receipt read-back; mutation requests are never retried
+automatically.
 Whenever confirmation is unavailable, the page must show every current blocker
 outside paged or filtered field lists and link directly to a recovery action.
 The same checked blockers remain exportable through the matching review
 workbook. Saving any different working draft makes the prior download
 ineligible even when its workbook file still exists as historical evidence.
+
+## Operational diagnostics and responsiveness
+
+The production launcher writes privacy-safe operational evidence to the
+`diagnostics` directory beside the protected Project database root. It applies
+the same private filesystem policy to that directory before opening the log.
+The active `impodo.jsonl` file rotates at 2 MiB and retains five bounded backup
+files.
+
+Every request receives an `X-Impodo-Request-ID` response header. Its terminal
+record contains only the request identity, HTTP method, registered route
+template, status, duration, slow-request flag, exception class when present,
+and the current working-draft version when the mapping route exposes one. The
+recorder does not accept raw URLs, query strings, headers, bodies, source
+values, formulas, credentials, CSRF tokens, or launch tokens.
+
+The complete synchronous mapping-page build runs in the bounded thread pool,
+not on the asynchronous event loop. It reports thread-pool queue wait,
+workspace-read, view-build, template-render, and total durations through
+`Server-Timing`. The field-catalogue fragment also reports projection time. A
+lightweight loop monitor records a bounded event when other synchronous work
+delays the application event loop beyond the slow-request threshold.
+
+`mapping-catalogs.js` gives each open editor a random identity and gives each
+scalar or relationship search a monotonically increasing generation. New
+input aborts the older browser request immediately. The route accepts only a
+valid identity and positive bounded generation. It returns HTTP 204 for a
+generation that became obsolete before or during projection, so an old result
+cannot replace the current field list.
+
+`MappingCatalogSearchCoordinator` keeps generation authority separate per
+actor, workspace, editor, and catalogue. It also admits only one catalogue
+projection at a time per actor and workspace. This workspace gate prevents
+parallel DuckDB attachment work while a newer generation for the same editor
+can supersede older waiting work. The bounded coordinator retains at most 256
+editor and workspace entries. If every slot is actively serving a different
+editor or workspace, the route returns HTTP 503 with a one-second retry hint
+instead of growing an unbounded queue.
+
+`MappingCatalogProjectionCache` stores at most 64 search-neutral projections.
+Its key binds the source-selection hash, schema and governance hashes, physical
+selection, derived plan, source catalogues, active dataset, selected Odoo
+models, and working-draft or revision identity. Search and pagination filter
+this cached field index; they do not rebuild the complete mapping view. The
+fragment's `X-Impodo-Catalog-Projection` header reports `hit` or `miss` for
+qualification.
+The cache is operational only and creates no mapping evidence.
+
+`GET /health` requires the launch-token session and returns only the fixed
+healthy status. `server-recovery.js` starts a same-origin, no-store health
+request every four seconds and gives each request a two-second timeout. Three
+consecutive failures produce **Impodo is not responding**. A fully timed-out
+sequence is therefore visible within 18 seconds in an active tab. The script dispatches
+`impodo:server-disconnected`, which clears shared single-submit state and makes
+an in-flight Match data action show an unknown outcome beside its action
+buttons. It never repeats the mutation. A successful later health check shows
+**Impodo is responding again** and dispatches `impodo:server-reconnected`.
+
+The launcher retains the chosen loopback port and the session-signing secret,
+but the FastAPI and Uvicorn application runs in a spawned child process. A
+normal child exit ends supervision. After the first non-zero exit, the parent
+binds a fresh exclusive listener to the same port and starts one replacement
+child. A fresh socket is required on Windows because an asyncio listener that
+was associated with the first child's I/O completion port cannot be reused by
+the second process. If the port cannot be acquired safely, or if the
+replacement child also exits unexpectedly, the restart circuit opens and no
+further automatic restart occurs. Lifecycle records contain the child process
+identifier, port, exit code, and restart attempt, but no launch token or
+session secret. The same-port and same-session behavior is exercised with two
+real spawned server processes on Windows.
+
+`POST /diagnostics/bundle` requires the authenticated session, same-origin
+request policy, and CSRF token. Bundle construction runs in the bounded thread
+pool. It reads at most 5,000 bounded log records and re-sanitizes every field
+against a second allowlist before creating the ZIP. The bundle contains a
+manifest with application, Python, operating-system, and workspace-schema
+versions, sanitized JSON Lines, and at most 100 recent slow-request or
+event-loop-delay summaries. Exported routes are reduced to a fixed route class.
+The exporter cannot include source rows, formulas, credentials, tokens,
+request bodies, headers, raw URLs, query strings, or arbitrary exception text.
+
+Launcher and application records distinguish startup, server binding, normal
+stopping, shutdown failure, a caught server exception, an unexpected child
+exit, a restart attempt, and an opened restart circuit. A hard process
+termination still cannot write its own final record, so the supervisor's child
+exit record and any missing application stop record preserve the distinction.
+
+`test_mapping_catalog_scale.py` qualifies a representative 1,000-field
+catalogue on Windows. It enforces 20 seconds for a cold page, 5 seconds for a
+warm cached search, 10 seconds for a coalesced four-generation search burst,
+5 seconds for save and stale-version rejection, and 1 GiB for process peak
+memory. It also verifies that the mapping renderer has no running event loop,
+records the detailed server timing phases, and prints the measured baseline.
 
 ## Odoo 19 and performance
 
@@ -295,6 +455,10 @@ protected-evidence read authority.
 - [`tests/domain/mapping/test_selection_rules.py`](../../../tests/domain/mapping/test_selection_rules.py)
 - [`tests/integration/web/test_mapping_impact_presenter.py`](../../../tests/integration/web/test_mapping_impact_presenter.py)
 - [`tests/integration/web/test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py)
+- [`tests/integration/web/test_mapping_catalog_scale.py`](../../../tests/integration/web/test_mapping_catalog_scale.py)
+- [`tests/integration/web/test_mapping_catalog_runtime.py`](../../../tests/integration/web/test_mapping_catalog_runtime.py)
+- [`tests/integration/web/test_diagnostics.py`](../../../tests/integration/web/test_diagnostics.py)
+- [`tests/domain/recipe/test_value_rules.py`](../../../tests/domain/recipe/test_value_rules.py)
 - [`tests/integration/artifacts/test_mapping_review_workbook.py`](../../../tests/integration/artifacts/test_mapping_review_workbook.py)
 - [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
 - [`tests/domain/preparation/test_target_first_relationships.py`](../../../tests/domain/preparation/test_target_first_relationships.py)
@@ -304,6 +468,9 @@ Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,
 direct exact submission, target-first reuse without updates, case-sensitive
 relationship matching, incoming fallback, and required Stage 4 review.
+Also verify formula authoring success and failure, CSRF and current-dataset
+checks, formula-free responses, saved invalid-draft recovery, and authoritative
+server rejection when the browser guard is bypassed.
 For the workbook, also verify invalid-check export, issue precedence, written
 status alongside colour, exact-revision download, Odoo-source value redaction,
 and separation from the Stage 5 workbook.
@@ -314,6 +481,7 @@ Run the focused Mapping package with:
 .venv/bin/python -m unittest \
   tests.integration.web.test_mapping_forms \
   tests.domain.mapping.test_validation \
+  tests.domain.recipe.test_value_rules \
   tests.domain.mapping.test_selection_rules \
   tests.integration.web.test_mapping_impact_presenter -v
 ```

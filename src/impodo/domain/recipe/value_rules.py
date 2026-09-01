@@ -170,6 +170,21 @@ class ScalarRuleError(ValueError):
         self.code = code
 
 
+class FormulaValidationError(ValueError):
+    """A safe formula is structurally invalid at an optional character."""
+
+    def __init__(
+        self,
+        reason: str,
+        message: str,
+        *,
+        position: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.position = position
+
+
 @lru_cache(maxsize=256)
 def validate_pattern(pattern: str) -> re.Pattern[str]:
     """Compile a bounded custom pattern and reject known ReDoS constructs."""
@@ -216,16 +231,28 @@ def _validate_formula(
     """Cache structural validation shared by rows using the same formula."""
 
     if len(expression) > MAX_FORMULA_LENGTH:
-        raise ValueError(
-            f"Formulas are limited to {MAX_FORMULA_LENGTH} characters"
+        raise FormulaValidationError(
+            "FORMULA_TOO_LONG",
+            f"Formulas are limited to {MAX_FORMULA_LENGTH} characters",
         )
     try:
         parsed = ast.parse(expression, mode="eval")
     except SyntaxError as error:
-        raise ValueError("Formula syntax is invalid") from error
+        raise FormulaValidationError(
+            "FORMULA_SYNTAX_INVALID",
+            "Formula syntax is invalid",
+            position=_formula_character_position(
+                expression,
+                line=error.lineno,
+                one_based_column=error.offset,
+            ),
+        ) from error
     nodes = tuple(ast.walk(parsed))
     if len(nodes) > MAX_FORMULA_NODES:
-        raise ValueError("Formula is too complex")
+        raise FormulaValidationError(
+            "FORMULA_TOO_COMPLEX",
+            "Formula is too complex",
+        )
     permitted = (
         ast.Expression,
         ast.Constant,
@@ -253,11 +280,20 @@ def _validate_formula(
         ast.GtE,
         ast.IfExp,
         ast.Call,
+        ast.keyword,
     )
-    if any(not isinstance(node, permitted) for node in nodes):
-        raise ValueError(
-            "Formula uses an unsupported operation; use values, arithmetic, "
-            "comparisons, or the listed helper functions"
+    unsupported = next(
+        (node for node in nodes if not isinstance(node, permitted)),
+        None,
+    )
+    if unsupported is not None:
+        raise FormulaValidationError(
+            "FORMULA_OPERATION_UNSUPPORTED",
+            (
+                "Formula uses an unsupported operation; use values, arithmetic, "
+                "comparisons, or the listed helper functions"
+            ),
+            position=_formula_node_position(expression, unsupported),
         )
     function_names = frozenset(
         {"concat", "coalesce", "substring", "upper", "lower", "strip", "length", "abs"}
@@ -272,15 +308,57 @@ def _validate_formula(
         }
     )
     if unknown:
-        raise ValueError(f"Formula uses unknown value {unknown[0]!r}")
+        unknown_name = unknown[0]
+        unknown_node = next(
+            node
+            for node in nodes
+            if isinstance(node, ast.Name) and node.id == unknown_name
+        )
+        raise FormulaValidationError(
+            "FORMULA_UNKNOWN_VALUE",
+            f"Formula uses unknown value {unknown_name!r}",
+            position=_formula_node_position(expression, unknown_node),
+        )
     for node in nodes:
         if isinstance(node, ast.Call) and (
             not isinstance(node.func, ast.Name) or node.func.id not in function_names
         ):
-            raise ValueError("Formula calls an unsupported function")
+            raise FormulaValidationError(
+                "FORMULA_FUNCTION_UNSUPPORTED",
+                "Formula calls an unsupported function",
+                position=_formula_node_position(expression, node),
+            )
         if isinstance(node, ast.Call) and node.keywords:
-            raise ValueError("Formula helper functions do not accept named arguments")
+            raise FormulaValidationError(
+                "FORMULA_NAMED_ARGUMENT_UNSUPPORTED",
+                "Formula helper functions do not accept named arguments",
+                position=_formula_node_position(expression, node.keywords[0]),
+            )
     return parsed
+
+
+def _formula_node_position(expression: str, node: ast.AST) -> int | None:
+    line = getattr(node, "lineno", None)
+    column = getattr(node, "col_offset", None)
+    return _formula_character_position(
+        expression,
+        line=line,
+        one_based_column=(column + 1 if isinstance(column, int) else None),
+    )
+
+
+def _formula_character_position(
+    expression: str,
+    *,
+    line: int | None,
+    one_based_column: int | None,
+) -> int | None:
+    if line is None or one_based_column is None or line < 1 or one_based_column < 1:
+        return None
+    lines = expression.splitlines(keepends=True)
+    if line > len(lines):
+        return None
+    return sum(len(item) for item in lines[: line - 1]) + one_based_column
 
 
 def prepare_rule_text(

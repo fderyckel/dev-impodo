@@ -18,12 +18,15 @@ import hashlib
 import json
 from dataclasses import replace
 from io import StringIO
+from time import perf_counter
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
+    Response,
     StreamingResponse,
 )
 from starlette.concurrency import run_in_threadpool
@@ -66,6 +69,7 @@ from ..constants import (
     TRANSFORMATION_IMPACT_PAGE_SIZE,
 )
 from ..context import WebContext
+from ..diagnostics import set_diagnostic_working_draft_version
 from ..forms import (
     _is_json_request,
     _mapping_request_form,
@@ -74,6 +78,23 @@ from ..forms import (
     _secure_form,
     _text,
     _texts,
+)
+from ...domain.mapping.mutations import (
+    MappingMutationAction,
+    MappingMutationReceipt,
+    MappingMutationState,
+    MappingVersionConflict,
+)
+from ..mapping_formula_authoring import (
+    formula_allowed_names,
+    mapping_formula_authoring_issues,
+    saved_with_formula_issues_message,
+    validate_formula_authoring,
+)
+from ..mapping_catalog_runtime import (
+    MappingCatalogCapacityError,
+    MappingCatalogProjectionCache,
+    MappingCatalogSearchCoordinator,
 )
 from ..presenters.common import _flash, _render
 from ..presenters.mapping_forms import (
@@ -106,6 +127,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
     """Build mapping editor, preview, impact, validation, and submission routes."""
 
     router = APIRouter()
+    catalog_projection_cache = MappingCatalogProjectionCache(maximum_entries=64)
+    catalog_searches = MappingCatalogSearchCoordinator(maximum_editors=256)
 
     @router.get("/workspaces/{workspace_id}/mapping", response_class=HTMLResponse)
     async def workspace_mapping(request: Request, workspace_id: str):
@@ -113,21 +136,29 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             return RedirectResponse(active_url, status_code=303)
-        try:
-            return _render_mapping(request, context, workspace_id)
-        except UnsupportedMappingContractError as error:
-            return _render(
-                request,
-                "mapping/unsupported.html",
-                workspace_state=context.queries.get(workspace_id),
-                workspace_navigation=None,
-                saved_mapping_contract_version=error.contract_version,
-                current_mapping_contract_version=MAPPING_CONTRACT_VERSION,
-                supported_mapping_contract_versions=tuple(
-                    sorted(SUPPORTED_MAPPING_CONTRACT_VERSIONS)
-                ),
-                status_code=409,
-            )
+        queued_at = perf_counter()
+
+        def render_mapping_page():
+            queue_wait_ms = (perf_counter() - queued_at) * 1000
+            try:
+                response = _render_mapping(request, context, workspace_id)
+            except UnsupportedMappingContractError as error:
+                response = _render(
+                    request,
+                    "mapping/unsupported.html",
+                    workspace_state=context.queries.get(workspace_id),
+                    workspace_navigation=None,
+                    saved_mapping_contract_version=error.contract_version,
+                    current_mapping_contract_version=MAPPING_CONTRACT_VERSION,
+                    supported_mapping_contract_versions=tuple(
+                        sorted(SUPPORTED_MAPPING_CONTRACT_VERSIONS)
+                    ),
+                    status_code=409,
+                )
+            _append_server_timing(response, "queue_wait", queue_wait_ms)
+            return response
+
+        return await run_in_threadpool(render_mapping_page)
 
     @router.get(
         "/workspaces/{workspace_id}/mapping/field-catalog",
@@ -141,12 +172,70 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
         require_session(request)
         _require_mapping_idle(context, workspace_id)
-        return await run_in_threadpool(
-            _render_mapping_field_catalog,
-            request,
-            context,
-            workspace_id,
+        search_generation = _mapping_catalog_search_generation(request)
+        queued_at = perf_counter()
+
+        def render_catalog():
+            queue_wait_ms = (perf_counter() - queued_at) * 1000
+            response = _render_mapping_field_catalog(
+                request,
+                context,
+                workspace_id,
+                catalog_projection_cache,
+            )
+            _append_server_timing(response, "queue_wait", queue_wait_ms)
+            return response
+
+        if search_generation is None:
+            return await run_in_threadpool(render_catalog)
+        editor_id, generation = search_generation
+        catalog_kind = (
+            "relation"
+            if request.query_params.get("catalog") == "relation"
+            else "scalar"
         )
+
+        async def render_latest_catalog():
+            return await run_in_threadpool(render_catalog)
+
+        try:
+            response = await catalog_searches.run_latest(
+                (
+                    workspace_id,
+                    context.actor.identity.issuer,
+                    context.actor.identity.subject_id,
+                    editor_id,
+                    catalog_kind,
+                ),
+                generation,
+                render_latest_catalog,
+                work_key=(
+                    workspace_id,
+                    context.actor.identity.issuer,
+                    context.actor.identity.subject_id,
+                ),
+            )
+        except MappingCatalogCapacityError:
+            return Response(
+                "Field search is busy. Wait a moment and try again.",
+                status_code=503,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Retry-After": "1",
+                },
+            )
+        if response is None:
+            return Response(
+                status_code=204,
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-Impodo-Catalog-Generation": str(generation),
+                    "X-Impodo-Catalog-Result": "superseded",
+                },
+            )
+        response.headers["X-Impodo-Catalog-Generation"] = str(generation)
+        response.headers["X-Impodo-Catalog-Result"] = "current"
+        return response
 
     @router.post("/workspaces/{workspace_id}/mapping/value-choices")
     async def workspace_mapping_value_choices(
@@ -316,6 +405,47 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
 
+    @router.post("/workspaces/{workspace_id}/mapping/formula-validation")
+    async def workspace_mapping_formula_validation(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Return one safe-parser authoring result without changing evidence."""
+
+        require_session(request)
+        _require_mapping_idle(context, workspace_id)
+        form = await _mapping_request_form(request)
+        _secure_form(request, form, {"csrf_token", "dataset_id", "formula"})
+        selection = context.queries.get_mapping_source_selection(workspace_id)
+        if selection is None:
+            raise HTTPException(status_code=422, detail="Source selection missing")
+        dataset_id = _text(form, "dataset_id")
+        source_dataset = next(
+            (
+                dataset
+                for dataset in selection.datasets
+                if dataset.dataset_id == dataset_id
+            ),
+            None,
+        )
+        if source_dataset is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Choose one current source dataset",
+            )
+        issue = validate_formula_authoring(
+            _text(form, "formula"),
+            allowed_names=formula_allowed_names(source_dataset),
+        )
+        response = JSONResponse(
+            {
+                "valid": issue is None,
+                "issue": issue.portable_dict() if issue is not None else None,
+            }
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @router.get(
         "/workspaces/{workspace_id}/mapping/transformation-impact",
         response_class=HTMLResponse,
@@ -330,7 +460,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         try:
             evidence = _transformation_impact_evidence(context, workspace_id)
         except WorkspaceError as error:
-            return _render_mapping(
+            return await run_in_threadpool(
+                _render_mapping,
                 request,
                 context,
                 workspace_id,
@@ -448,7 +579,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         try:
             evidence = _transformation_impact_evidence(context, workspace_id)
         except WorkspaceError as error:
-            return _render_mapping(
+            return await run_in_threadpool(
+                _render_mapping,
                 request,
                 context,
                 workspace_id,
@@ -631,6 +763,45 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             },
         )
 
+    @router.get(
+        "/workspaces/{workspace_id}/mapping/mutation-receipts/{operation_id}"
+    )
+    async def mapping_mutation_receipt(
+        request: Request,
+        workspace_id: str,
+        operation_id: str,
+    ):
+        """Resolve a timed-out browser mutation without repeating its write."""
+
+        require_session(request)
+        try:
+            receipt = await run_in_threadpool(
+                context.mapping_workspace.get_mutation_receipt,
+                workspace_id,
+                operation_id,
+                actor=context.actor,
+            )
+        except WorkspaceError:
+            receipt = None
+        if receipt is None:
+            return JSONResponse(
+                {
+                    "operation_id": operation_id,
+                    "status": "not_found",
+                    "failure_code": "MAPPING_OPERATION_NOT_FOUND",
+                    "message": (
+                        "This operation did not reach Impodo. Nothing was saved."
+                    ),
+                }
+            )
+        return JSONResponse(
+            _mapping_mutation_receipt_payload(
+                request,
+                workspace_id,
+                receipt,
+            )
+        )
+
     @router.post("/workspaces/{workspace_id}/mapping/save")
     async def save_workspace_mapping(request: Request, workspace_id: str):
         """Run one explicit save, check, or confirmation command."""
@@ -671,6 +842,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         governance = context.queries.get_schema_governance(workspace_id)
         if schema is None:
             raise HTTPException(status_code=422, detail="Odoo schema missing")
+        operation_id = ""
+        mutation_started = False
         try:
             form = await _mapping_request_form(request)
             allowed = _mapping_allowed_fields(form, selection, schema)
@@ -693,6 +866,37 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             expected_working_version = _optional_int(
                 _text(form, "expected_working_draft_version")
             )
+            operation_id = _text(form, "operation_id") or str(uuid4())
+            receipt = await run_in_threadpool(
+                context.mapping_workspace.begin_mutation,
+                workspace_id,
+                operation_id=operation_id,
+                action=_mapping_mutation_action(action),
+                request_hash=_mapping_mutation_request_hash(form),
+                submitted_working_draft_version=expected_working_version,
+                submitted_mapping_revision_version=expected_parent,
+                actor=context.actor,
+            )
+            mutation_started = True
+            if receipt.replayed:
+                payload = _mapping_mutation_receipt_payload(
+                    request,
+                    workspace_id,
+                    receipt,
+                )
+                if json_request:
+                    status_code = (
+                        200
+                        if receipt.state is MappingMutationState.COMMITTED
+                        else (
+                            409
+                            if receipt.state is MappingMutationState.REJECTED
+                            else 202
+                        )
+                    )
+                    return JSONResponse(payload, status_code=status_code)
+                _flash(request, str(payload["message"]))
+                return RedirectResponse(mapping_return_url, status_code=303)
             if action.startswith(
                 ("set_disposition:", "clear_disposition:")
             ):
@@ -724,6 +928,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     handling=handling,
                     expected_version=expected_working_version,
                     actor=context.actor,
+                    operation_id=operation_id,
                 )
                 decision_base_url = (
                     _mapping_return_url(
@@ -738,6 +943,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         workspace_id,
                         draft,
                         expected_parent_version=expected_parent,
+                        operation_id=operation_id,
                     )
                     message = _checked_default_message(
                         "Odoo will choose this value.",
@@ -764,11 +970,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     )
                 if json_request:
                     return JSONResponse(
-                        {
-                            "message": message,
-                            "redirect_url": decision_return_url,
-                            "expected_working_draft_version": draft.version,
-                        }
+                        await _mapping_mutation_result_payload(
+                            context,
+                            request,
+                            workspace_id,
+                            operation_id,
+                            message=message,
+                            redirect_url=decision_return_url,
+                        )
                     )
                 _flash(request, message)
                 return RedirectResponse(decision_return_url, status_code=303)
@@ -778,6 +987,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     workspace_id,
                     expected_version=expected_working_version,
                     actor=context.actor,
+                    operation_id=operation_id,
                 )
                 message = (
                     f"Removed {removed_count} Odoo-managed field "
@@ -786,13 +996,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 if json_request:
                     return JSONResponse(
-                        {
-                            "message": message,
-                            "redirect_url": mapping_return_url,
-                            "expected_working_draft_version": (
-                                working_draft.version
-                            ),
-                        }
+                        await _mapping_mutation_result_payload(
+                            context,
+                            request,
+                            workspace_id,
+                            operation_id,
+                            message=message,
+                            redirect_url=mapping_return_url,
+                        )
                     )
                 _flash(request, message)
                 return RedirectResponse(mapping_return_url, status_code=303)
@@ -802,12 +1013,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     workspace_id,
                     expected_version=expected_working_version,
                     actor=context.actor,
+                    operation_id=operation_id,
                 )
                 working_draft, validation = await _check_saved_default_decision(
                     context,
                     workspace_id,
                     working_draft,
                     expected_parent_version=expected_parent,
+                    operation_id=operation_id,
                 )
                 message = _checked_default_message(
                     f"Confirmed {confirmed_count} Odoo default"
@@ -822,13 +1035,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 if json_request:
                     return JSONResponse(
-                        {
-                            "message": message,
-                            "redirect_url": decision_return_url,
-                            "expected_working_draft_version": (
-                                working_draft.version
-                            ),
-                        }
+                        await _mapping_mutation_result_payload(
+                            context,
+                            request,
+                            workspace_id,
+                            operation_id,
+                            message=message,
+                            redirect_url=decision_return_url,
+                        )
                     )
                 _flash(request, message)
                 return RedirectResponse(decision_return_url, status_code=303)
@@ -857,17 +1071,24 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     schema_review_url = (
                         f"/workspaces/{workspace_id}/schema#odoo-details"
                     )
+                    await run_in_threadpool(
+                        context.mapping_workspace.complete_mutation,
+                        workspace_id,
+                        operation_id,
+                        actor=context.actor,
+                        content_identity=refreshed_schema.content_hash,
+                    )
                     _flash(request, message)
                     if json_request:
                         return JSONResponse(
-                            {
-                                "message": message,
-                                "redirect_url": schema_review_url,
-                                "expected_working_draft_version": (
-                                    expected_working_version
-                                ),
-                                "expected_parent_version": expected_parent,
-                            }
+                            await _mapping_mutation_result_payload(
+                                context,
+                                request,
+                                workspace_id,
+                                operation_id,
+                                message=message,
+                                redirect_url=schema_review_url,
+                            )
                         )
                     return RedirectResponse(schema_review_url, status_code=303)
                 working_draft, confirmed_count = await run_in_threadpool(
@@ -875,12 +1096,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     workspace_id,
                     expected_version=expected_working_version,
                     actor=context.actor,
+                    operation_id=operation_id,
                 )
                 working_draft, validation = await _check_saved_default_decision(
                     context,
                     workspace_id,
                     working_draft,
                     expected_parent_version=expected_parent,
+                    operation_id=operation_id,
                 )
                 message = _checked_default_message(
                     f"Odoo will decide {confirmed_count} required field"
@@ -896,13 +1119,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 if json_request:
                     return JSONResponse(
-                        {
-                            "message": message,
-                            "redirect_url": decision_return_url,
-                            "expected_working_draft_version": (
-                                working_draft.version
-                            ),
-                        }
+                        await _mapping_mutation_result_payload(
+                            context,
+                            request,
+                            workspace_id,
+                            operation_id,
+                            message=message,
+                            redirect_url=decision_return_url,
+                        )
                     )
                 _flash(request, message)
                 return RedirectResponse(decision_return_url, status_code=303)
@@ -933,19 +1157,42 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     datasets=datasets,
                     expected_version=expected_working_version,
                     actor=context.actor,
+                    operation_id=operation_id,
+                )
+                set_diagnostic_working_draft_version(
+                    request,
+                    working_draft.version,
+                )
+                formula_issues = mapping_formula_authoring_issues(
+                    working_draft.definition.datasets,
+                    selection,
+                )
+                save_message = (
+                    saved_with_formula_issues_message(len(formula_issues))
+                    if formula_issues
+                    else "Progress saved. Check matches when ready."
                 )
                 if json_request:
                     return JSONResponse(
-                        {
-                            "message": "Progress saved. Check matches when ready.",
-                            "redirect_url": mapping_return_url,
-                            "expected_working_draft_version": working_draft.version,
-                            "saved_at": working_draft.updated_at.isoformat(),
-                        }
+                        await _mapping_mutation_result_payload(
+                            context,
+                            request,
+                            workspace_id,
+                            operation_id,
+                            message=save_message,
+                            redirect_url=mapping_return_url,
+                            extra={
+                                "saved_at": working_draft.updated_at.isoformat(),
+                                "authoring_issues": [
+                                    issue.portable_dict()
+                                    for issue in formula_issues
+                                ],
+                            },
+                        )
                     )
                 _flash(
                     request,
-                    "Saved your matching progress. Check the matches when ready.",
+                    save_message,
                 )
                 return RedirectResponse(
                     mapping_return_url,
@@ -961,6 +1208,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         expected_working_version
                     ),
                     actor=context.actor,
+                    operation_id=operation_id,
                 )
                 if validation.status.value == "INVALID":
                     message = "Matches checked. Review the items that need attention."
@@ -984,6 +1232,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         form, "warning_acknowledgement"
                     ),
                     actor=context.actor,
+                    operation_id=operation_id,
                 )
                 access = context.workspace_access.require(
                     context.actor,
@@ -1015,7 +1264,94 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     message = "Field matches confirmed."
                     mapping_return_url = f"/workspaces/{workspace_id}/prepare"
                 _flash(request, message)
+        except MappingVersionConflict as error:
+            rejected = await _reject_mapping_mutation(
+                context,
+                workspace_id,
+                operation_id,
+                mutation_started=mutation_started,
+                failure_code=error.code,
+                failure_detail=str(error),
+            )
+            if (
+                json_request
+                and rejected is not None
+                and rejected.state is MappingMutationState.COMMITTED
+            ):
+                payload = _mapping_mutation_receipt_payload(
+                    request,
+                    workspace_id,
+                    rejected,
+                )
+                payload.update(
+                    {
+                        "message": (
+                            "The Odoo-field decision was saved, but checking "
+                            "met a newer mapping version. Reload to continue "
+                            "from the saved state."
+                        ),
+                        "follow_up_status": "conflict",
+                    }
+                )
+                return JSONResponse(payload)
+            if json_request:
+                payload = (
+                    _mapping_mutation_receipt_payload(
+                        request,
+                        workspace_id,
+                        rejected,
+                    )
+                    if rejected is not None
+                    else {
+                        "operation_id": operation_id,
+                        "status": "rejected",
+                        "failure_code": error.code,
+                    }
+                )
+                payload.update(
+                    {
+                        "detail": str(error),
+                        "submitted_working_draft_version": (
+                            error.submitted_working_draft_version
+                        ),
+                        "submitted_mapping_revision_version": (
+                            error.submitted_mapping_revision_version
+                        ),
+                        "current_working_draft_version": (
+                            error.current_working_draft_version
+                        ),
+                        "current_mapping_revision_version": (
+                            error.current_mapping_revision_version
+                        ),
+                        "recovery": {
+                            "reload_url": _mapping_return_url(
+                                request,
+                                workspace_id,
+                            ),
+                            "copy_edits": True,
+                        },
+                    }
+                )
+                return JSONResponse(payload, status_code=409)
+            request.session["mapping_error"] = str(error)
+            return RedirectResponse(mapping_return_url, status_code=303)
         except HTTPException as error:
+            rejected = await _reject_mapping_mutation(
+                context,
+                workspace_id,
+                operation_id,
+                mutation_started=mutation_started,
+                failure_code=f"HTTP_{error.status_code}",
+                failure_detail=str(error.detail),
+            )
+            if json_request and rejected is not None:
+                payload = _mapping_mutation_receipt_payload(
+                    request,
+                    workspace_id,
+                    rejected,
+                )
+                payload["detail"] = str(error.detail)
+                return JSONResponse(payload, status_code=error.status_code)
             return _mapping_save_error_response(
                 request,
                 workspace_id,
@@ -1029,6 +1365,29 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             MigrationRunPlanningError,
             WorkspaceError,
         ) as error:
+            rejected = await _reject_mapping_mutation(
+                context,
+                workspace_id,
+                operation_id,
+                mutation_started=mutation_started,
+                failure_code=_mapping_mutation_failure_code(error),
+                failure_detail=_mapping_mutation_failure_detail(error),
+            )
+            if (
+                json_request
+                and rejected is not None
+                and rejected.state is MappingMutationState.COMMITTED
+            ):
+                payload = _mapping_mutation_receipt_payload(
+                    request,
+                    workspace_id,
+                    rejected,
+                )
+                payload["message"] = (
+                    "The Match data change was saved. Reload to continue from "
+                    "the committed state."
+                )
+                return JSONResponse(payload)
             if json_request:
                 current_working = (
                     context.queries.get_mapping_working_draft(workspace_id)
@@ -1036,18 +1395,26 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 current_revision = context.queries.get_mapping_revision(
                     workspace_id
                 )
-                return JSONResponse(
-                    {
+                set_diagnostic_working_draft_version(
+                    request,
+                    current_working.version if current_working else None,
+                )
+                payload = {
                         "detail": str(error),
+                        "operation_id": operation_id,
+                        "status": "rejected",
+                        "failure_code": _mapping_mutation_failure_code(error),
                         "expected_working_draft_version": (
                             current_working.version if current_working else None
                         ),
                         "expected_parent_version": (
                             current_revision.version if current_revision else None
                         ),
-                    },
-                    status_code=422,
-                )
+                    }
+                if rejected is not None:
+                    payload.update(rejected.portable_dict())
+                    payload["detail"] = str(error)
+                return JSONResponse(payload, status_code=422)
             request.session["mapping_error"] = str(error)
             return RedirectResponse(
                 mapping_return_url,
@@ -1055,10 +1422,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
         if json_request:
             return JSONResponse(
-                {
-                    "message": message,
-                    "redirect_url": mapping_return_url,
-                }
+                await _mapping_mutation_result_payload(
+                    context,
+                    request,
+                    workspace_id,
+                    operation_id,
+                    message=message,
+                    redirect_url=mapping_return_url,
+                )
             )
         return RedirectResponse(
             mapping_return_url,
@@ -1135,7 +1506,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             OSError,
             WorkspaceError,
         ) as error:
-            return _render_mapping(
+            return await run_in_threadpool(
+                _render_mapping,
                 request,
                 context,
                 workspace_id,
@@ -1202,6 +1574,42 @@ def build_mapping_router(context: WebContext) -> APIRouter:
     return router
 
 
+def _mapping_catalog_search_generation(
+    request: Request,
+) -> tuple[str, int] | None:
+    editor_value = request.query_params.get("editor_id", "").strip()
+    generation_value = request.query_params.get("generation", "").strip()
+    if not editor_value and not generation_value:
+        return None
+    if not editor_value or not generation_value:
+        raise HTTPException(
+            status_code=422,
+            detail="Field search identity is incomplete",
+        )
+    try:
+        editor_id = str(UUID(editor_value))
+        generation = int(generation_value)
+    except (ValueError, TypeError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Field search identity is invalid",
+        ) from error
+    if generation < 1 or generation > 2_147_483_647:
+        raise HTTPException(
+            status_code=422,
+            detail="Field search generation is invalid",
+        )
+    return editor_id, generation
+
+
+def _append_server_timing(response, name: str, duration_ms: float) -> None:
+    timing = f"{name};dur={max(0.0, duration_ms):.1f}"
+    existing = response.headers.get("Server-Timing", "")
+    response.headers["Server-Timing"] = (
+        f"{existing}, {timing}" if existing else timing
+    )
+
+
 def _confirmed_recipe_mapping_destination(application) -> str:
     """Continue through the run while another Recipe review remains."""
 
@@ -1232,12 +1640,164 @@ def _require_mapping_idle(context: WebContext, workspace_id: str) -> None:
         )
 
 
+def _mapping_mutation_action(action: str) -> MappingMutationAction:
+    if action == "save_progress":
+        return MappingMutationAction.SAVE_PROGRESS
+    if action == "draft":
+        return MappingMutationAction.CHECK_MATCHES
+    if action == "submit":
+        return MappingMutationAction.CONFIRM_MATCHES
+    if action == "remove_readonly":
+        return MappingMutationAction.REMOVE_READONLY
+    if action == "confirm_defaults":
+        return MappingMutationAction.CONFIRM_DEFAULTS
+    if action == "refresh_defaults":
+        return MappingMutationAction.REFRESH_DEFAULTS
+    if action.startswith("set_disposition:"):
+        return MappingMutationAction.SET_DISPOSITION
+    if action.startswith("clear_disposition:"):
+        return MappingMutationAction.CLEAR_DISPOSITION
+    raise WorkspaceError("Choose a supported matching action")
+
+
+def _mapping_mutation_request_hash(form) -> str:
+    """Bind one operation identity to exact non-secret submitted meaning."""
+
+    pairs = sorted(
+        (str(name), str(value))
+        for name, value in form.multi_items()
+        if name not in {"csrf_token", "operation_id"}
+    )
+    payload = json.dumps(pairs, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _mapping_mutation_receipt_payload(
+    request: Request,
+    workspace_id: str,
+    receipt: MappingMutationReceipt,
+) -> dict[str, object]:
+    payload = receipt.portable_dict()
+    payload["redirect_url"] = _mapping_return_url(request, workspace_id)
+    if receipt.state is MappingMutationState.PENDING:
+        payload["message"] = (
+            "Impodo is still resolving this operation. Do not repeat it yet; "
+            "check the save outcome again."
+        )
+    elif receipt.state is MappingMutationState.COMMITTED:
+        completed = receipt.completed_at
+        completed_label = completed.isoformat() if completed is not None else ""
+        payload["saved_at"] = completed_label
+        payload["message"] = (
+            f"Saved {completed_label}."
+            if completed_label
+            else "The Match data change was saved."
+        )
+    elif receipt.failure_code == MappingVersionConflict.code:
+        payload["detail"] = (
+            "This page is out of date because newer Match data was saved. "
+            "Your edits are still on this page."
+        )
+        payload["message"] = str(payload["detail"])
+        payload["recovery"] = {
+            "reload_url": _mapping_return_url(request, workspace_id),
+            "copy_edits": True,
+        }
+    else:
+        payload["message"] = receipt.failure_detail or (
+            "This operation did not complete. Your edits remain on this page."
+        )
+    return payload
+
+
+async def _mapping_mutation_result_payload(
+    context: WebContext,
+    request: Request,
+    workspace_id: str,
+    operation_id: str,
+    *,
+    message: str,
+    redirect_url: str,
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    receipt = await run_in_threadpool(
+        context.mapping_workspace.get_mutation_receipt,
+        workspace_id,
+        operation_id,
+        actor=context.actor,
+    )
+    if receipt is None or receipt.state is not MappingMutationState.COMMITTED:
+        raise WorkspaceError(
+            "Impodo could not verify the saved Match data operation receipt"
+        )
+    payload = _mapping_mutation_receipt_payload(
+        request,
+        workspace_id,
+        receipt,
+    )
+    payload.update(
+        {
+            "message": message,
+            "redirect_url": redirect_url,
+        }
+    )
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+async def _reject_mapping_mutation(
+    context: WebContext,
+    workspace_id: str,
+    operation_id: str,
+    *,
+    mutation_started: bool,
+    failure_code: str,
+    failure_detail: str,
+) -> MappingMutationReceipt | None:
+    if not mutation_started or not operation_id:
+        return None
+    try:
+        return await run_in_threadpool(
+            context.mapping_workspace.reject_mutation,
+            workspace_id,
+            operation_id,
+            failure_code=failure_code,
+            failure_detail=failure_detail,
+            actor=context.actor,
+        )
+    except Exception:
+        # Cleanup must never hide the original command failure. A surviving
+        # PENDING receipt correctly leaves the browser outcome as unknown.
+        return None
+
+
+def _mapping_mutation_failure_code(error: Exception) -> str:
+    if isinstance(error, (ConnectorError, SecretStoreError)):
+        return "ODOO_READ_FAILED"
+    if isinstance(error, MigrationRunPlanningError):
+        return "MAPPING_CONFIRMATION_FAILED"
+    if isinstance(error, ValueError):
+        return "MAPPING_INPUT_INVALID"
+    return "MAPPING_COMMAND_REJECTED"
+
+
+def _mapping_mutation_failure_detail(error: Exception) -> str:
+    if isinstance(error, (ConnectorError, SecretStoreError)):
+        return (
+            "Impodo could not read the required Odoo details. Check the Odoo "
+            "connection and try again."
+        )
+    return str(error)
+
+
 async def _check_saved_default_decision(
     context: WebContext,
     workspace_id: str,
     working_draft: MappingWorkingDraft,
     *,
     expected_parent_version: int | None,
+    operation_id: str | None = None,
 ) -> tuple[MappingWorkingDraft, MappingValidationResult]:
     """Validate saved Odoo-default decisions before returning to the page."""
 
@@ -1248,6 +1808,7 @@ async def _check_saved_default_decision(
         expected_parent_version=expected_parent_version,
         expected_working_draft_version=working_draft.version,
         actor=context.actor,
+        operation_id=operation_id,
     )
     checked_draft = await run_in_threadpool(
         context.mapping_workspace.mappings.get_mapping_working_draft,

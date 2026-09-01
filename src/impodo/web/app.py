@@ -17,6 +17,7 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -252,6 +253,11 @@ from .security import (
     LoopbackSecurityMiddleware,
     WorkspaceAccessMiddleware,
 )
+from .diagnostics import (
+    LocalDiagnosticRecorder,
+    RequestDiagnosticsMiddleware,
+    monitor_event_loop,
+)
 from .workspace_journeys import (
     WorkspaceJourney,
     enforce_workspace_journey,
@@ -286,6 +292,7 @@ def create_local_app(
     load_jobs_enabled: bool = True,
     duckdb_lock_wait_timeout_seconds: float = 0.0,
     application_build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
+    diagnostic_recorder: LocalDiagnosticRecorder | None = None,
 ) -> FastAPI:
     """Construct the loopback FastAPI application for migration Stages A–K.
 
@@ -294,6 +301,9 @@ def create_local_app(
     and the separate practical writer. Parameters expose the security, storage,
     job, reader, and writer seams so tests or another local composition can
     replace them without changing application/domain behavior.
+
+    An injected diagnostic recorder adds privacy-safe lifecycle, request, and
+    event-loop timing evidence. It does not change application decisions.
 
     The returned app keeps the assembled :class:`WebContext` in
     ``app.state.context`` and passes that same context to every router. This
@@ -987,16 +997,44 @@ def create_local_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        event_loop_monitor = None
+        if diagnostic_recorder is not None:
+            diagnostic_recorder.record_lifecycle(
+                "application_started",
+                build_version=(
+                    f"contract-{application_build_contract.contract_version}"
+                ),
+            )
+            event_loop_monitor = asyncio.create_task(
+                monitor_event_loop(diagnostic_recorder),
+                name="impodo-event-loop-monitor",
+            )
         try:
             yield
         finally:
-            if context.preparation_jobs is not None:
-                context.preparation_jobs.shutdown()
-            if context.odoo_capture_jobs is not None:
-                context.odoo_capture_jobs.shutdown()
-            if context.load_jobs is not None:
-                context.load_jobs.shutdown()
-            context.correction_jobs.shutdown()
+            if event_loop_monitor is not None:
+                event_loop_monitor.cancel()
+                await asyncio.gather(event_loop_monitor, return_exceptions=True)
+            if diagnostic_recorder is not None:
+                diagnostic_recorder.record_lifecycle("application_stopping")
+            try:
+                if context.preparation_jobs is not None:
+                    context.preparation_jobs.shutdown()
+                if context.odoo_capture_jobs is not None:
+                    context.odoo_capture_jobs.shutdown()
+                if context.load_jobs is not None:
+                    context.load_jobs.shutdown()
+                context.correction_jobs.shutdown()
+            except BaseException as error:
+                if diagnostic_recorder is not None:
+                    diagnostic_recorder.record_lifecycle(
+                        "application_shutdown_failed",
+                        exception_class=type(error).__name__,
+                    )
+                raise
+            else:
+                if diagnostic_recorder is not None:
+                    diagnostic_recorder.record_lifecycle("application_stopped")
 
     app = FastAPI(
         title="Impodo",
@@ -1009,6 +1047,7 @@ def create_local_app(
     app.state.build_contract = application_build_contract
     app.state.server = None
     app.state.templates = templates
+    app.state.diagnostic_recorder = diagnostic_recorder
     app.mount(
         "/static",
         StaticFiles(directory=package_dir / "static"),
@@ -1138,6 +1177,11 @@ def create_local_app(
         LoopbackSecurityMiddleware,
         expected_host=expected_host,
     )
+    if diagnostic_recorder is not None:
+        app.add_middleware(
+            RequestDiagnosticsMiddleware,
+            recorder=diagnostic_recorder,
+        )
 
     @app.exception_handler(WorkspaceStateNotFoundError)
     async def project_not_found(_request: Request, _error: WorkspaceStateNotFoundError):

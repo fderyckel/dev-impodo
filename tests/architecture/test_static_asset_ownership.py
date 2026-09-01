@@ -24,7 +24,38 @@ class StaticAssetOwnershipTests(unittest.TestCase):
         positions = [template.index(style) for style in styles]
         self.assertEqual(positions, sorted(positions))
         self.assertIn("/app.js", template)
+        self.assertIn("/server-recovery.js", template)
+        self.assertLess(
+            template.index("/app.js"),
+            template.index("/server-recovery.js"),
+        )
         self.assertFalse((STATIC_ROOT / "app.css").exists())
+
+    def test_shared_recovery_ui_uses_bounded_authenticated_heartbeat(self) -> None:
+        template = (TEMPLATE_ROOT / "base.html").read_text(encoding="utf-8")
+        script = (STATIC_ROOT / "server-recovery.js").read_text(
+            encoding="utf-8"
+        )
+        shared_script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+        mapping_editor = (STATIC_ROOT / "mapping-editor.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Impodo is not responding", template)
+        self.assertIn('data-health-url="/health"', template)
+        self.assertIn('data-failure-limit="3"', template)
+        self.assertIn('data-heartbeat-interval-ms="4000"', template)
+        self.assertIn('data-heartbeat-timeout-ms="2000"', template)
+        self.assertIn('action="/diagnostics/bundle"', template)
+        self.assertIn("Create diagnostic bundle", template)
+        self.assertIn("consecutiveFailures >= failureLimit", script)
+        self.assertIn('credentials: "same-origin"', script)
+        self.assertIn('cache: "no-store"', script)
+        self.assertIn('new CustomEvent("impodo:server-disconnected")', script)
+        self.assertIn('"impodo:server-disconnected"', shared_script)
+        self.assertIn('"impodo:server-disconnected"', mapping_editor)
+        self.assertIn("check the save outcome before retrying", mapping_editor)
+        self.assertLessEqual(len(script.splitlines()), 220)
 
     def test_shared_script_does_not_reclaim_page_workflows(self) -> None:
         script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
@@ -42,7 +73,9 @@ class StaticAssetOwnershipTests(unittest.TestCase):
     def test_page_templates_name_their_owned_scripts(self) -> None:
         expected_assets = {
             "mapping/page.html": (
+                "/mapping-save-recovery.js",
                 "/mapping-editor.js",
+                "/mapping-formula-validation.js",
                 "/mapping-value-rules.js",
                 "/mapping-catalogs.js",
                 "/mapping.js",

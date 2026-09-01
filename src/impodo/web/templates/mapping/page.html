@@ -4,7 +4,9 @@
   <link rel="stylesheet" href="{{ url_for('static', path='/mapping.css') }}">
 {% endblock %}
 {% block page_scripts %}
+  <script src="{{ url_for('static', path='/mapping-save-recovery.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-editor.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/mapping-formula-validation.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-value-rules.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-catalogs.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping.js') }}" defer></script>
@@ -22,6 +24,10 @@
       method="post"
       action="/workspaces/{{ workspace_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
       data-mapping-form
+      data-formula-validation-url="/workspaces/{{ workspace_id }}/mapping/formula-validation"
+      data-mutation-receipt-url="/workspaces/{{ workspace_id }}/mapping/mutation-receipts/"
+      data-mutation-timeout-ms="15000"
+      data-formula-authoring-issues='{{ formula_authoring_issue_payloads|tojson }}'
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="expected_parent_version" value="{{ revision.version if revision else '' }}">
@@ -36,7 +42,6 @@
           >
         {% endfor %}
       {% endfor %}
-      <div class="notice error" data-mapping-save-error role="alert" hidden></div>
       <details class="technical-evidence">
         <summary>
           Support details

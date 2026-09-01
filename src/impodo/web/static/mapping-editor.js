@@ -290,7 +290,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveStatus = mappingForm.querySelector(
       "[data-mapping-save-status]"
     );
-    const saveError = mappingForm.querySelector("[data-mapping-save-error]");
     const confirmMapping = mappingForm.querySelector("[data-confirm-mapping]");
     let dirty = false;
     let submitting = false;
@@ -336,6 +335,32 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       window.location.assign(target);
     };
+
+    const saveRecovery = window.impodoMappingSaveRecovery.create({
+      mappingForm,
+      saveStatus,
+      updateMappingVersionFields,
+      navigateToMappingResult,
+      setDirty: (value) => {
+        dirty = value;
+      },
+    });
+
+    document.addEventListener("impodo:server-disconnected", () => {
+      if (!submitting) {
+        return;
+      }
+      submitting = false;
+      mappingForm.removeAttribute("aria-busy");
+      saveRecovery.showFailure(
+        "Impodo stopped responding before it confirmed this action. Keep this tab open. When Impodo responds again, check the save outcome before retrying."
+      );
+      if (saveStatus) {
+        saveStatus.textContent =
+          "Save outcome unknown. Wait for Impodo, then check before retrying.";
+        saveStatus.classList.add("unsaved");
+      }
+    });
 
     mappingForm.addEventListener("focusin", (event) => {
       window.impodoMappingPosition?.rememberInteraction(event.target);
@@ -456,11 +481,13 @@ document.addEventListener("DOMContentLoaded", () => {
         typeof value === "string" ? value : "",
       ]);
     };
-
     mappingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       window.impodoMappingPosition?.remember();
       if (submitting) {
+        return;
+      }
+      if (saveRecovery.blockIfNeeded()) {
         return;
       }
       const action = event.submitter?.value || "";
@@ -473,11 +500,9 @@ document.addEventListener("DOMContentLoaded", () => {
         action.startsWith("set_disposition:") ||
         action.startsWith("clear_disposition:");
       if (action === "submit" && dirty) {
-        if (saveError) {
-          saveError.textContent =
-            "These changes have not been checked yet. Check matches before confirming.";
-          saveError.hidden = false;
-        }
+        saveRecovery.showFailure(
+          "These changes have not been checked yet. Check matches before confirming. Your edits remain on this page."
+        );
         if (saveStatus) {
           saveStatus.textContent = "Unsaved changes need checking.";
           saveStatus.classList.add("unsaved");
@@ -485,23 +510,24 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       if ((action === "remove_readonly" || changesFieldDisposition) && dirty) {
-        if (saveError) {
-          saveError.textContent =
-            "Save or check your current edits before changing an Odoo-field decision.";
-          saveError.hidden = false;
-        }
+        saveRecovery.showFailure(
+          "Save or check your current edits before changing an Odoo-field decision. Your edits remain on this page."
+        );
         if (saveStatus) {
           saveStatus.textContent = "Unsaved changes need saving first.";
           saveStatus.classList.add("unsaved");
         }
         return;
       }
+      const operation = saveRecovery.createOperation({
+        action,
+        choosesOdooDefault,
+        changesDisposition: changesFieldDisposition,
+        entries: sparseMappingEntries(event.submitter),
+      });
       submitting = true;
       mappingForm.setAttribute("aria-busy", "true");
-      if (saveError) {
-        saveError.hidden = true;
-        saveError.textContent = "";
-      }
+      saveRecovery.clear();
       if (saveStatus) {
         if (action === "save_progress") {
           saveStatus.textContent = "Saving progress...";
@@ -519,7 +545,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         saveStatus.classList.remove("unsaved");
       }
-      let responseReceived = false;
       try {
         const csrfToken = mappingForm.querySelector(
           'input[name="csrf_token"]'
@@ -528,92 +553,48 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!mappingSaveUrl) {
           throw new Error("The mapping save URL is missing.");
         }
-        const response = await fetch(mappingSaveUrl, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            "X-CSRF-Token": csrfToken || "",
-          },
-          body: JSON.stringify({
-            entries: sparseMappingEntries(event.submitter),
-          }),
-        });
-        responseReceived = true;
-        let payload = {};
-        try {
-          payload = await response.json();
-        } catch (_error) {
-          payload = {};
-        }
+        const response = await saveRecovery.fetchSave(
+          mappingSaveUrl,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrfToken || "",
+            },
+            body: JSON.stringify({ entries: operation.entries }),
+          }
+        );
+        const payload = await saveRecovery.responseJson(response);
         if (!response.ok) {
-          updateMappingVersionFields(payload);
-          throw new Error(
-            payload.detail ||
-              "The matches could not be saved. Please try again."
-          );
-        }
-        const workingVersionUpdated = updateMappingVersionFields(payload);
-        dirty = false;
-        if (saveStatus) {
-          saveStatus.textContent = payload.message || "Matches saved.";
-        }
-        if (action === "save_progress") {
-          if (!workingVersionUpdated) {
-            const workingVersion = mappingForm.querySelector(
-              'input[name="expected_working_draft_version"]'
-            );
-            const currentVersion = Number.parseInt(
-              workingVersion?.value || "0",
-              10
-            );
-            if (workingVersion) {
-              workingVersion.value = String(
-                (Number.isFinite(currentVersion) ? currentVersion : 0) + 1
-              );
+          if (payload.status) {
+            saveRecovery.applyMutationOutcome(payload, operation);
+          } else {
+            if (action !== "submit") {
+              dirty = true;
+            }
+            const message =
+              (payload.detail || "The matches could not be saved.") +
+              saveRecovery.failureSuffix(operation);
+            saveRecovery.showFailure(message, {
+              operationId: operation.operationId,
+            });
+            if (saveStatus) {
+              saveStatus.textContent = "Not saved. Your edits are retained.";
+              saveStatus.classList.add("unsaved");
             }
           }
-          submitting = false;
-          mappingForm.removeAttribute("aria-busy");
           return;
         }
-        navigateToMappingResult(payload.redirect_url);
-      } catch (error) {
+        if (payload.status !== "committed" && payload.status !== "pending") {
+          throw new Error("Impodo returned an incomplete save receipt.");
+        }
+        saveRecovery.applyMutationOutcome(payload, operation);
+      } catch (_error) {
+        await saveRecovery.resolveMutationOutcome(operation);
+      } finally {
         submitting = false;
         mappingForm.removeAttribute("aria-busy");
-        const message =
-          !responseReceived && error instanceof TypeError
-            ? "This browser tab can no longer reach its Impodo session. Reopen Impodo in the newly opened tab; keep this tab open while copying any unsaved choices."
-            : error instanceof Error
-            ? error.message
-            : "The matches could not be saved.";
-        if (saveError) {
-          saveError.textContent = choosesOdooDefault
-            ? `${message} The Odoo decision may already be saved; reload this page to see its current checked state.`
-            : action === "submit" ||
-              action === "remove_readonly" ||
-              changesFieldDisposition
-              ? `${message} Your checked matches are unchanged.`
-              : `${message} Your unsaved changes are still on this page.`;
-          saveError.hidden = false;
-        }
-        if (saveStatus) {
-          if (choosesOdooDefault) {
-            saveStatus.textContent =
-              "The Odoo decision was not fully checked. Reload before trying again.";
-          } else if (action === "submit") {
-            saveStatus.textContent =
-              "Confirmation was not completed. Checked matches are unchanged.";
-          } else if (action === "remove_readonly" || changesFieldDisposition) {
-            saveStatus.textContent =
-              "The Odoo-field decision was not changed. Checked matches are unchanged.";
-          } else {
-            dirty = true;
-            saveStatus.textContent =
-              "Save failed. Unsaved changes are retained.";
-            saveStatus.classList.add("unsaved");
-          }
-        }
       }
     });
 

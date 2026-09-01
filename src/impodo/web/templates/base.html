@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="{{ url_for('static', path='/workflow-pages.css') }}">
     {% block page_styles %}{% endblock %}
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/server-recovery.js') }}" defer></script>
     {% block page_scripts %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -202,6 +203,36 @@
       ></button>
       <main class="app-main">
         <div class="page-shell">
+          <section
+            class="notice error server-recovery-banner"
+            data-server-recovery
+            data-health-url="/health"
+            data-failure-limit="3"
+            data-heartbeat-interval-ms="4000"
+            data-heartbeat-timeout-ms="2000"
+            role="alert"
+            aria-live="assertive"
+            tabindex="-1"
+            hidden
+          >
+            <strong data-server-recovery-title>Impodo is not responding</strong>
+            <p data-server-recovery-message>
+              Keep this tab open while Impodo tries to reconnect. Your saved
+              work is unchanged, and unsaved entries remain on this page.
+            </p>
+            <div class="server-recovery-actions">
+              <button
+                class="button secondary compact"
+                type="button"
+                data-server-recovery-retry
+              >Try again</button>
+            </div>
+            <p class="muted">
+              If Impodo does not recover, restart it. After it opens, create a
+              diagnostic bundle from the page footer before trying the action
+              again.
+            </p>
+          </section>
           {% if navigation and navigation.registered %}
             <nav class="project-breadcrumb" aria-label="Current location">
               <a href="/projects">Data projects</a>
@@ -278,13 +309,24 @@
           alt="Thailand flag"
         >
       </span>
-      <form method="post" action="/quit">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="link-button footer-quit" type="submit">
-          {{ app_icon("power") }}
-          Quit Impodo
-        </button>
-      </form>
+      <div class="footer-actions">
+        {% if diagnostics_available %}
+          <form method="post" action="/diagnostics/bundle">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="link-button" type="submit">
+              {{ app_icon("file-earmark-zip") }}
+              Create diagnostic bundle
+            </button>
+          </form>
+        {% endif %}
+        <form method="post" action="/quit">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="link-button footer-quit" type="submit">
+            {{ app_icon("power") }}
+            Quit Impodo
+          </button>
+        </form>
+      </div>
     </footer>
     {% if read_credential_prompt %}
       {% include "_read_credential_dialog.html" %}

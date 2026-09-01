@@ -741,6 +741,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Advanced: formula or custom calculation", mapping_page.text)
         self.assertIn("Safe formulas only", mapping_page.text)
         self.assertIn('/static/mapping.css', mapping_page.text)
+        self.assertIn('/static/mapping-save-recovery.js', mapping_page.text)
         self.assertIn('/static/mapping-editor.js', mapping_page.text)
         self.assertIn('/static/mapping-value-rules.js', mapping_page.text)
         self.assertIn('/static/mapping-catalogs.js', mapping_page.text)
@@ -749,6 +750,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         mapping_script = "\n".join(
             self.client.get(asset).text
             for asset in (
+                "/static/mapping-save-recovery.js",
                 "/static/mapping-editor.js",
                 "/static/mapping-value-rules.js",
                 "/static/mapping-catalogs.js",
@@ -787,6 +789,11 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("catalogRequestUrl", mapping_script)
         self.assertIn("relationRequestUrl", mapping_script)
         self.assertIn("new AbortController()", mapping_script)
+        self.assertIn('searchParams.set("editor_id"', mapping_script)
+        self.assertIn('searchParams.set("generation"', mapping_script)
+        self.assertIn("response.status === 204", mapping_script)
+        self.assertIn("requestGeneration !== scalarSearchGeneration", mapping_script)
+        self.assertIn("requestGeneration !== relationSearchGeneration", mapping_script)
         self.assertIn("new DOMParser()", mapping_script)
         self.assertIn("window.history.replaceState", mapping_script)
         self.assertIn("restoreScalarRow(row)", mapping_script)
@@ -825,7 +832,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             mapping_script,
         )
         self.assertIn(
-            "Your checked matches are unchanged",
+            "Your checked matches remain unchanged on this page",
             mapping_script,
         )
         self.assertIn("hydrateSourceOptions", mapping_script)
@@ -921,7 +928,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("data-mapping-dataset", saved_progress_page.text)
         self.assertIn(
-            "Saved your matching progress. Check the matches when ready.",
+            "Progress saved. Check matches when ready.",
             saved_progress_page.text,
         )
         saved_draft = (

@@ -316,7 +316,9 @@ class OrderedTextStepFormTests(unittest.TestCase):
         )
 
         self.assertIn("/mapping.css", template)
+        self.assertIn("/mapping-save-recovery.js", template)
         self.assertIn("/mapping-editor.js", template)
+        self.assertIn("/mapping-formula-validation.js", template)
         self.assertIn("/mapping-value-rules.js", template)
         self.assertIn("/mapping-catalogs.js", template)
         self.assertIn("/mapping.js", template)

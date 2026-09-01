@@ -41,6 +41,11 @@ from impodo.domain.mapping.artifacts import (
     MappingSubmission,
 )
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
+from impodo.domain.mapping.mutations import (
+    MappingMutationAction,
+    MappingMutationReceipt,
+    MappingVersionConflict,
+)
 from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
@@ -100,6 +105,44 @@ class MappingWorkspaceRepository(Protocol):
     ) -> MappingWorkingDraft | None:
         """Return recoverable unchecked editor state, if one exists."""
         ...
+
+    def begin_mapping_mutation(
+        self,
+        workspace_id: str,
+        *,
+        operation_id: str,
+        action: MappingMutationAction,
+        request_hash: str,
+        submitted_working_draft_version: int | None,
+        submitted_mapping_revision_version: int | None,
+        actor: Actor,
+    ) -> MappingMutationReceipt: ...
+
+    def get_mapping_mutation_receipt(
+        self,
+        workspace_id: str,
+        operation_id: str,
+    ) -> MappingMutationReceipt | None: ...
+
+    def reject_mapping_mutation(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        *,
+        failure_code: str,
+        failure_detail: str,
+        working_draft_version: int | None,
+        mapping_revision_version: int | None,
+    ) -> MappingMutationReceipt: ...
+
+    def complete_mapping_mutation(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        *,
+        content_identity: str = "",
+    ) -> MappingMutationReceipt: ...
+
     def save_mapping_working_draft(
         self,
         workspace_id: str,
@@ -107,6 +150,7 @@ class MappingWorkspaceRepository(Protocol):
         *,
         expected_version: int | None,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Replace editor state only at the expected optimistic draft version."""
         ...
@@ -152,6 +196,7 @@ class MappingWorkspaceRepository(Protocol):
         expected_working_draft_version: int | None,
         checked_draft: MappingWorkingDraft,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Promote one expected draft state to a checked revision."""
         ...
@@ -163,6 +208,7 @@ class MappingWorkspaceRepository(Protocol):
         validation: MappingValidationResult,
         *,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Append deterministic revalidation for one exact stored revision."""
         ...
@@ -173,6 +219,7 @@ class MappingWorkspaceRepository(Protocol):
         submission: MappingSubmission,
         *,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> None:
         """Append exact submission evidence after repository-side gate checks."""
         ...
@@ -228,6 +275,111 @@ class MappingWorkspaceService:
         self.downstream_invalidator = downstream_invalidator
         self.validator = MappingSemanticValidator()
 
+    def begin_mutation(
+        self,
+        workspace_id: str,
+        *,
+        operation_id: str,
+        action: MappingMutationAction,
+        request_hash: str,
+        submitted_working_draft_version: int | None,
+        submitted_mapping_revision_version: int | None,
+        actor: Actor,
+    ) -> MappingMutationReceipt:
+        """Reserve one browser operation identity before running its command."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            workspace_id=workspace_id,
+        )
+        return self.mappings.begin_mapping_mutation(
+            workspace_id,
+            operation_id=operation_id,
+            action=action,
+            request_hash=request_hash,
+            submitted_working_draft_version=(
+                submitted_working_draft_version
+            ),
+            submitted_mapping_revision_version=(
+                submitted_mapping_revision_version
+            ),
+            actor=actor,
+        )
+
+    def get_mutation_receipt(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        *,
+        actor: Actor,
+    ) -> MappingMutationReceipt | None:
+        """Read the durable outcome for one browser operation identity."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            workspace_id=workspace_id,
+        )
+        receipt = self.mappings.get_mapping_mutation_receipt(
+            workspace_id,
+            operation_id,
+        )
+        if receipt is not None and (
+            receipt.actor_issuer != actor.identity.issuer
+            or receipt.actor_subject != actor.identity.subject_id
+        ):
+            return None
+        return receipt
+
+    def reject_mutation(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        *,
+        failure_code: str,
+        failure_detail: str,
+        actor: Actor,
+    ) -> MappingMutationReceipt:
+        """Record that a reserved command definitively did not commit."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            workspace_id=workspace_id,
+        )
+        working = self.mappings.get_mapping_working_draft(workspace_id)
+        revision = self.mappings.get_mapping_revision(workspace_id)
+        return self.mappings.reject_mapping_mutation(
+            workspace_id,
+            operation_id,
+            failure_code=failure_code,
+            failure_detail=failure_detail[:500],
+            working_draft_version=(working.version if working else None),
+            mapping_revision_version=(revision.version if revision else None),
+        )
+
+    def complete_mutation(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        *,
+        actor: Actor,
+        content_identity: str = "",
+    ) -> MappingMutationReceipt:
+        """Complete a reserved command whose authoritative write is external."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            workspace_id=workspace_id,
+        )
+        return self.mappings.complete_mapping_mutation(
+            workspace_id,
+            operation_id,
+            content_identity=content_identity,
+        )
+
     def save_working_draft(
         self,
         workspace_id: str,
@@ -235,6 +387,7 @@ class MappingWorkspaceService:
         datasets: Iterable[DatasetMapping],
         expected_version: int | None,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> MappingWorkingDraft:
         """Persist incomplete browser work without semantic validation."""
 
@@ -254,8 +407,15 @@ class MappingWorkspaceService:
         existing = self.mappings.get_mapping_working_draft(workspace_id)
         actual_version = existing.version if existing else None
         if expected_version != actual_version:
-            raise WorkspaceError(
-                "The working draft was modified by another request; reload it"
+            raise MappingVersionConflict(
+                submitted_working_draft_version=expected_version,
+                submitted_mapping_revision_version=(
+                    current.version if current else None
+                ),
+                current_working_draft_version=actual_version,
+                current_mapping_revision_version=(
+                    current.version if current else None
+                ),
             )
         if existing is not None:
             mapping_id = existing.mapping_id
@@ -290,11 +450,16 @@ class MappingWorkspaceService:
                 mapping_hash=definition.content_hash,
                 actor=actor,
             )
+        save_options: dict[str, object] = {
+            "expected_version": expected_version,
+            "actor": actor,
+        }
+        if operation_id is not None:
+            save_options["operation_id"] = operation_id
         self.mappings.save_mapping_working_draft(
             workspace_id,
             draft,
-            expected_version=expected_version,
-            actor=actor,
+            **save_options,
         )
         return draft
 
@@ -304,6 +469,7 @@ class MappingWorkspaceService:
         *,
         expected_version: int | None,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> tuple[MappingWorkingDraft, int]:
         """Remove write mappings for fields the captured schema marks readonly.
 
@@ -323,8 +489,16 @@ class MappingWorkspaceService:
                 "Load the current matching draft and Odoo fields first"
             )
         if expected_version != existing.version:
-            raise WorkspaceError(
-                "The working draft was modified by another request; reload it"
+            current = self.mappings.get_mapping_revision(workspace_id)
+            raise MappingVersionConflict(
+                submitted_working_draft_version=expected_version,
+                submitted_mapping_revision_version=(
+                    current.version if current else None
+                ),
+                current_working_draft_version=existing.version,
+                current_mapping_revision_version=(
+                    current.version if current else None
+                ),
             )
 
         readonly_by_model = {
@@ -373,6 +547,7 @@ class MappingWorkspaceService:
             datasets=cleaned_datasets,
             expected_version=expected_version,
             actor=actor,
+            operation_id=operation_id,
         )
         return draft, removed_count
 
@@ -385,6 +560,7 @@ class MappingWorkspaceService:
         handling: TargetFieldHandling | None,
         expected_version: int | None,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> MappingWorkingDraft:
         """Save or clear one explicit decision to leave an Odoo field unset."""
 
@@ -400,8 +576,16 @@ class MappingWorkspaceService:
                 "Load the current matching draft and Odoo fields first"
             )
         if expected_version != existing.version:
-            raise WorkspaceError(
-                "The working draft was modified by another request; reload it"
+            current = self.mappings.get_mapping_revision(workspace_id)
+            raise MappingVersionConflict(
+                submitted_working_draft_version=expected_version,
+                submitted_mapping_revision_version=(
+                    current.version if current else None
+                ),
+                current_working_draft_version=existing.version,
+                current_mapping_revision_version=(
+                    current.version if current else None
+                ),
             )
         dataset = next(
             (
@@ -493,6 +677,7 @@ class MappingWorkspaceService:
             datasets=updated_datasets,
             expected_version=expected_version,
             actor=actor,
+            operation_id=operation_id,
         )
 
     def confirm_available_odoo_defaults(
@@ -501,6 +686,7 @@ class MappingWorkspaceService:
         *,
         expected_version: int | None,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> tuple[MappingWorkingDraft, int]:
         """Confirm every currently uncovered verified create default together."""
 
@@ -516,8 +702,16 @@ class MappingWorkspaceService:
                 "Load the current matching draft and Odoo fields first"
             )
         if expected_version != existing.version:
-            raise WorkspaceError(
-                "The working draft was modified by another request; reload it"
+            current = self.mappings.get_mapping_revision(workspace_id)
+            raise MappingVersionConflict(
+                submitted_working_draft_version=expected_version,
+                submitted_mapping_revision_version=(
+                    current.version if current else None
+                ),
+                current_working_draft_version=existing.version,
+                current_mapping_revision_version=(
+                    current.version if current else None
+                ),
             )
         models = {model.name: model for model in schema.models}
         updated: list[DatasetMapping] = []
@@ -573,6 +767,7 @@ class MappingWorkspaceService:
             datasets=updated,
             expected_version=expected_version,
             actor=actor,
+            operation_id=operation_id,
         )
         return draft, confirmed_count
 
@@ -643,6 +838,7 @@ class MappingWorkspaceService:
         expected_parent_version: int | None,
         expected_working_draft_version: int | None,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> tuple[MappingRevision, MappingValidationResult]:
         """Check one editor state and persist only new semantic content."""
 
@@ -661,16 +857,29 @@ class MappingWorkspaceService:
         current = self.mappings.get_mapping_revision(workspace_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
-            raise WorkspaceError(
-                "The mapping was modified by another request; reload it"
+            working = self.mappings.get_mapping_working_draft(workspace_id)
+            raise MappingVersionConflict(
+                submitted_working_draft_version=(
+                    expected_working_draft_version
+                ),
+                submitted_mapping_revision_version=expected_parent_version,
+                current_working_draft_version=(
+                    working.version if working else None
+                ),
+                current_mapping_revision_version=actual_parent,
             )
         working_draft = self.mappings.get_mapping_working_draft(workspace_id)
         actual_working_version = (
             working_draft.version if working_draft is not None else None
         )
         if expected_working_draft_version != actual_working_version:
-            raise WorkspaceError(
-                "The working draft was modified by another request; reload it"
+            raise MappingVersionConflict(
+                submitted_working_draft_version=(
+                    expected_working_draft_version
+                ),
+                submitted_mapping_revision_version=expected_parent_version,
+                current_working_draft_version=actual_working_version,
+                current_mapping_revision_version=actual_parent,
             )
         expected_schema_hash = (
             governance.content_hash
@@ -723,11 +932,14 @@ class MappingWorkspaceService:
                     expected_version=working_draft.version,
                     actor=actor,
                 )
+            validation_options: dict[str, object] = {"actor": actor}
+            if operation_id is not None:
+                validation_options["operation_id"] = operation_id
             self.mappings.save_mapping_validation(
                 workspace_id,
                 current.version,
                 validation,
-                actor=actor,
+                **validation_options,
             )
             return current, validation
         historical_versions = self.mappings.list_mapping_revisions(workspace_id)
@@ -751,14 +963,19 @@ class MappingWorkspaceService:
             updated_at=revision.created_at,
             updated_by=actor.identity.display_name,
         )
+        revision_options: dict[str, object] = {
+            "validation": validation,
+            "expected_parent_version": expected_parent_version,
+            "expected_working_draft_version": expected_working_draft_version,
+            "checked_draft": checked_draft,
+            "actor": actor,
+        }
+        if operation_id is not None:
+            revision_options["operation_id"] = operation_id
         self.mappings.save_mapping_revision(
             workspace_id,
             revision,
-            validation=validation,
-            expected_parent_version=expected_parent_version,
-            expected_working_draft_version=expected_working_draft_version,
-            checked_draft=checked_draft,
-            actor=actor,
+            **revision_options,
         )
         return revision, validation
 
@@ -771,6 +988,7 @@ class MappingWorkspaceService:
         expected_working_draft_version: int | None,
         warning_acknowledgements: Iterable[str] = (),
         actor: Actor,
+        operation_id: str | None = None,
     ) -> MappingSubmission:
         """Confirm the exact current checked revision without rewriting it."""
 
@@ -796,17 +1014,27 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "Check the field matches before confirming them"
             )
-        if expected_version != revision.version:
-            raise WorkspaceError(
-                "The mapping was modified by another request; reload it"
-            )
         working_draft = self.mappings.get_mapping_working_draft(workspace_id)
         actual_working_version = (
             working_draft.version if working_draft is not None else None
         )
+        if expected_version != revision.version:
+            raise MappingVersionConflict(
+                submitted_working_draft_version=(
+                    expected_working_draft_version
+                ),
+                submitted_mapping_revision_version=expected_version,
+                current_working_draft_version=actual_working_version,
+                current_mapping_revision_version=revision.version,
+            )
         if expected_working_draft_version != actual_working_version:
-            raise WorkspaceError(
-                "The working draft was modified by another request; reload it"
+            raise MappingVersionConflict(
+                submitted_working_draft_version=(
+                    expected_working_draft_version
+                ),
+                submitted_mapping_revision_version=expected_version,
+                current_working_draft_version=actual_working_version,
+                current_mapping_revision_version=revision.version,
             )
         expected_schema_hash = (
             governance.content_hash
@@ -893,10 +1121,13 @@ class MappingWorkspaceService:
             submitted_at=datetime.now(timezone.utc),
             submitted_by=actor.identity.display_name,
         )
+        submission_options: dict[str, object] = {"actor": actor}
+        if operation_id is not None:
+            submission_options["operation_id"] = operation_id
         self.mappings.save_mapping_submission(
             workspace_id,
             submission,
-            actor=actor,
+            **submission_options,
         )
         return submission
 

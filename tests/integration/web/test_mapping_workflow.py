@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from io import BytesIO
-
 from openpyxl import load_workbook
 
 from impodo.domain.mapping.contracts import UnsupportedMappingContractError
@@ -197,52 +196,143 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Close this table's fields", page.text)
         self.assertIn('id="mapping-table-fields-0" data-table-fields-panel', page.text)
 
-    def test_first_identity_mapping_save_persists_without_validation(self) -> None:
+    def test_invalid_formula_saves_as_attention_but_full_check_rejects_it(
+        self,
+    ) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
-            scalar_field_count=30
+            scalar_field_count=1
         )
-        source_identity = dataset.columns[0]
         context = self.app.state.context
+        source_identity, source_value = dataset.columns
+        invalid_formula = 'value 1= "UNI"'
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "save_progress"],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", ""],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "upsert"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", source_identity.stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", source_identity.stable_key],
+            ["visible_scalar_target_0", "field_0000"],
+            ["scalar_value_source_0_1", "source"],
+            ["scalar_source_0_1", source_value.stable_key],
+            ["scalar_type_0_1", "string"],
+            ["scalar_case_0_1", "preserve"],
+            ["scalar_formula_0_1", invalid_formula],
+            ["scalar_compare_0_1", "1"],
+            ["scalar_null_0_1", "distinct"],
+        ]
 
         saved = self.client.post(
             f"/workspaces/{workspace_id}/mapping/save",
-            json={
-                "entries": [
-                    ["csrf_token", self.csrf],
-                    ["action", "save_progress"],
-                    ["expected_parent_version", ""],
-                    ["expected_working_draft_version", ""],
-                    ["editable_dataset_id", dataset.dataset_id],
-                    ["target_model_0", "res.partner"],
-                    ["mode_0", "upsert"],
-                    ["on_existing_0", "block"],
-                    ["source_identity_0", source_identity.stable_key],
-                    ["business_key_0", business_key.key_id],
-                    [
-                        "identity_source_0_0",
-                        source_identity.stable_key,
-                    ],
-                ]
-            },
-            headers={
-                **POST_HEADERS,
-                "X-CSRF-Token": self.csrf,
-            },
+            json={"entries": entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
 
-        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.status_code, 200, saved.text)
+        payload = saved.json()
+        self.assertIn("Saved — needs attention", payload["message"])
+        self.assertEqual(len(payload["authoring_issues"]), 1)
         self.assertEqual(
-            saved.json()["message"],
-            "Progress saved. Check matches when ready.",
+            payload["authoring_issues"][0]["dataset_id"],
+            dataset.dataset_id,
         )
-        working = context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id)
-        self.assertIsNotNone(working)
-        self.assertEqual(working.version, 1)
         self.assertEqual(
-            working.definition.datasets[0].target_identity[0].source_column_keys,
-            (source_identity.stable_key,),
+            payload["authoring_issues"][0]["target_field"],
+            "field_0000",
         )
-        self.assertIsNone(context.mapping_workspace.mappings.get_mapping_revision(workspace_id))
+        self.assertEqual(
+            payload["authoring_issues"][0]["path"],
+            "/datasets/0/fields/field_0000/transform/formula",
+        )
+        self.assertNotIn(invalid_formula, saved.text)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            workspace_id
+        )
+        self.assertEqual(
+            working.definition.datasets[0].fields[0].transform.formula,
+            invalid_formula,
+        )
+        self.assertIsNone(
+            context.mapping_workspace.mappings.get_mapping_revision(workspace_id)
+        )
+
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Must fix:", page.text)
+        self.assertIn("data-go-to-formula-issue", page.text)
+        self.assertIn("data-check-mapping", page.text)
+        self.assertIn("Correct formula issues before checking matches.", page.text)
+        self.assertRegex(page.text, r"data-check-mapping[\s\S]{0,100}disabled")
+
+        checked_entries = []
+        for name, value in entries:
+            if name == "action":
+                value = "draft"
+            elif name == "expected_working_draft_version":
+                value = "1"
+            checked_entries.append([name, value])
+        checked = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json={"entries": checked_entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(checked.status_code, 200, checked.text)
+        revision = context.mapping_workspace.mappings.get_mapping_revision(
+            workspace_id
+        )
+        validation = context.mapping_workspace.mappings.get_mapping_validation(
+            workspace_id,
+            revision.version,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+        self.assertIn(
+            "MAPPING_FORMULA_INVALID",
+            {issue.code for issue in validation.issues},
+        )
+
+    def test_formula_validation_script_guards_only_match_checking(self) -> None:
+        script = self.client.get("/static/mapping-formula-validation.js")
+
+        self.assertEqual(script.status_code, 200, script.text)
+        self.assertIn("formulaValidationDelayMs = 500", script.text)
+        self.assertIn("new AbortController()", script.text)
+        self.assertIn('event.submitter?.value !== "draft"', script.text)
+        self.assertIn("event.stopImmediatePropagation()", script.text)
+        self.assertIn("applySaveResult", script.text)
+        self.assertIn("formulaApplies", script.text)
+        self.assertIn("generations.set(key", script.text)
+
+        recovery = self.client.get("/static/mapping-save-recovery.js")
+        self.assertEqual(recovery.status_code, 200, recovery.text)
+        self.assertIn("mutationTimeoutMs", recovery.text)
+        self.assertIn("fetchWithTimeout", recovery.text)
+        self.assertIn("readMutationReceipt", recovery.text)
+        self.assertIn("MAPPING_VERSION_CONFLICT", recovery.text)
+        self.assertIn("Check save outcome", recovery.text)
+        self.assertIn("window.impodoMappingSaveRecovery", recovery.text)
+
+        editor = self.client.get("/static/mapping-editor.js")
+        self.assertEqual(editor.status_code, 200, editor.text)
+        self.assertIn("window.impodoMappingSaveRecovery.create", editor.text)
+        self.assertIn("mappingForm.removeAttribute(\"aria-busy\")", editor.text)
+        self.assertIn("finally", editor.text)
+
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=1
+        )
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn('data-mutation-timeout-ms="15000"', page.text)
+        self.assertIn("data-mapping-save-outcome", page.text)
+        self.assertIn("data-copy-mapping-edits", page.text)
+        self.assertIn("data-reload-saved-mapping", page.text)
+        self.assertIn("data-check-mapping-outcome", page.text)
 
     def test_selection_choices_load_and_save_from_the_mapping_dialog(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(

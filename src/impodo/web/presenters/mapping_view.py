@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from time import perf_counter
+from typing import Any
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
@@ -50,10 +52,16 @@ from impodo.domain.preparation.quality import (
 from impodo.domain.workspace.errors import WorkspaceError
 from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
+from ..diagnostics import set_diagnostic_working_draft_version
 from ..forms import (
     _positive_query_int,
     _text,
 )
+from ..mapping_formula_authoring import (
+    formula_issues_by_dataset,
+    mapping_formula_authoring_issues,
+)
+from ..mapping_catalog_runtime import MappingCatalogProjectionCache
 from .common import _render
 from .mapping_forms import (
     _canonical_mapping_type,
@@ -67,6 +75,34 @@ from .mapping_impact import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _CatalogFieldProjection:
+    index: int
+    field: Any
+    search_text: str
+    mapped: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _CatalogRecommendation:
+    field_name: str
+    dataset_id: str
+    source_columns: tuple[str, ...]
+    kind: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _DatasetCatalogProjection:
+    scalar_fields: tuple[_CatalogFieldProjection, ...]
+    scalar_candidates: tuple[_CatalogFieldProjection, ...]
+    numeric_fields: tuple[Any, ...]
+    scalar_mapped_total: int
+    relation_fields: tuple[_CatalogFieldProjection, ...]
+    relation_candidates: tuple[_CatalogFieldProjection, ...]
+    relation_recommendations: tuple[_CatalogRecommendation, ...]
+    relation_mapped_total: int
+
+
 def _render_mapping(
     request: Request,
     context: WebContext,
@@ -75,6 +111,7 @@ def _render_mapping(
     error: str | None = None,
     status_code: int = 200,
 ):
+    started = perf_counter()
     session_error = request.session.pop("mapping_error", None)
     if error is None and isinstance(session_error, str):
         error = session_error
@@ -83,6 +120,7 @@ def _render_mapping(
             "The mapping request exceeded a safety limit or could not be read. "
             "No mapping change was saved; the last working draft is loaded."
         )
+    workspace_read_started = perf_counter()
     physical_selection = context.queries.get_source_selection(workspace_id)
     preparation_plan = context.queries.get_derived_entity_plan(workspace_id)
     source_catalogs = (
@@ -109,6 +147,12 @@ def _render_mapping(
         else None
     )
     working_draft = context.queries.get_mapping_working_draft(workspace_id)
+    workspace_read_ms = (perf_counter() - workspace_read_started) * 1000
+    set_diagnostic_working_draft_version(
+        request,
+        working_draft.version if working_draft is not None else None,
+    )
+    view_build_started = perf_counter()
     odoo_pinned = bool(
         selection is not None
         and selection.datasets
@@ -123,6 +167,17 @@ def _render_mapping(
         governance,
         revision,
         working_draft,
+    )
+    formula_authoring_issues = (
+        mapping_formula_authoring_issues(
+            active_definition.datasets,
+            selection,
+        )
+        if active_definition is not None and selection is not None
+        else ()
+    )
+    formula_authoring_issues_by_dataset = formula_issues_by_dataset(
+        formula_authoring_issues
     )
     has_unvalidated_changes = bool(
         working_draft_is_current
@@ -190,7 +245,11 @@ def _render_mapping(
         if selection and schema
         else ()
     )
-    _add_mapping_dataset_urls(request, workspace_id, dataset_views)
+    dataset_views = _add_mapping_dataset_urls(
+        request,
+        workspace_id,
+        dataset_views,
+    )
     readonly_field_recovery = _readonly_field_recovery(
         validation,
         selection,
@@ -284,7 +343,9 @@ def _render_mapping(
             context.queries.get_current_quality_ruleset(workspace_id),
         )
     correction_binding = context.corrections.binding_for_successor(workspace_id)
-    return _render(
+    view_build_ms = (perf_counter() - view_build_started) * 1000
+    render_started = perf_counter()
+    response = _render(
         request,
         "mapping/page.html",
         workspace_id=workspace_id,
@@ -303,6 +364,12 @@ def _render_mapping(
             working_draft is not None and not working_draft_is_current
         ),
         has_unvalidated_changes=has_unvalidated_changes,
+        formula_authoring_issue_payloads=[
+            issue.portable_dict() for issue in formula_authoring_issues
+        ],
+        formula_authoring_issues_by_dataset=(
+            formula_authoring_issues_by_dataset
+        ),
         dataset_views=dataset_views,
         warning_issues=warning_issues,
         readonly_field_recovery=readonly_field_recovery,
@@ -317,12 +384,22 @@ def _render_mapping(
         error=error,
         status_code=status_code,
     )
+    render_ms = (perf_counter() - render_started) * 1000
+    _set_mapping_server_timing(
+        response,
+        workspace_read=workspace_read_ms,
+        view_build=view_build_ms,
+        render=render_ms,
+        total=(perf_counter() - started) * 1000,
+    )
+    return response
 
 
 def _render_mapping_field_catalog(
     request: Request,
     context: WebContext,
     workspace_id: str,
+    projection_cache: MappingCatalogProjectionCache[_DatasetCatalogProjection],
 ) -> HTMLResponse:
     """Render only one active field catalogue from saved local evidence."""
 
@@ -343,7 +420,11 @@ def _render_mapping_field_catalog(
     governance = snapshot.governance
     revision = snapshot.revision
     working_draft = snapshot.working_draft
-    _working_draft_is_current, active_definition = _active_mapping_state(
+    set_diagnostic_working_draft_version(
+        request,
+        working_draft.version if working_draft is not None else None,
+    )
+    working_draft_is_current, active_definition = _active_mapping_state(
         selection,
         schema,
         governance,
@@ -355,6 +436,17 @@ def _render_mapping_field_catalog(
             "The saved Odoo field catalogue is not available.",
             status_code=409,
         )
+    formula_authoring_issues = (
+        mapping_formula_authoring_issues(
+            active_definition.datasets,
+            selection,
+        )
+        if active_definition is not None
+        else ()
+    )
+    formula_authoring_issues_by_dataset = formula_issues_by_dataset(
+        formula_authoring_issues
+    )
 
     dataset_count = len(selection.datasets)
     active_dataset_index = min(
@@ -368,6 +460,36 @@ def _render_mapping_field_catalog(
         physical_selection,
         preparation_plan,
         source_catalogs,
+    )
+    mapping_identity = "none"
+    if working_draft_is_current and working_draft is not None:
+        mapping_identity = (
+            f"draft:{working_draft.version}:{working_draft.content_hash}"
+        )
+    elif revision is not None:
+        mapping_identity = (
+            f"revision:{revision.version}:{revision.definition.content_hash}"
+        )
+    projection_identity = (
+        selection.content_hash,
+        schema.content_hash,
+        (
+            governance.content_hash
+            if governance is not None
+            else schema.content_hash
+        ),
+        (
+            physical_selection.content_hash
+            if physical_selection is not None
+            else "none"
+        ),
+        (
+            preparation_plan.content_hash
+            if preparation_plan is not None
+            else "none"
+        ),
+        tuple(item.content_hash for item in source_catalogs),
+        mapping_identity,
     )
     dataset_views = _mapping_dataset_views(
         selection,
@@ -412,8 +534,15 @@ def _render_mapping_field_catalog(
         ),
         field_query=request.query_params.get("field_query", "").strip()[:128],
         mapped_only=request.query_params.get("mapped_only") == "1",
+        catalog_projection_cache=projection_cache,
+        catalog_projection_identity=projection_identity,
+        only_active_dataset=True,
     )
-    _add_mapping_dataset_urls(request, workspace_id, dataset_views)
+    dataset_views = _add_mapping_dataset_urls(
+        request,
+        workspace_id,
+        dataset_views,
+    )
     active_view = next(
         (view for view in dataset_views if view["active"]),
         None,
@@ -440,17 +569,31 @@ def _render_mapping_field_catalog(
         workspace_id=workspace_id,
         dataset_index=active_view["index"],
         view=active_view,
+        formula_authoring_issues_by_dataset=(
+            formula_authoring_issues_by_dataset
+        ),
     )
     render_ms = (perf_counter() - render_started) * 1000
     response = HTMLResponse(html)
     response.headers["Cache-Control"] = "no-store"
-    response.headers["Server-Timing"] = (
-        f"workspace_read;dur={workspace_read_ms:.1f}, "
-        f"view_build;dur={view_build_ms:.1f}, "
-        f"projection;dur={projection_ms:.1f}, render;dur={render_ms:.1f}, "
-        f"total;dur={(perf_counter() - started) * 1000:.1f}"
+    response.headers["X-Impodo-Catalog-Projection"] = (
+        "hit" if active_view["catalog_projection_cache_hit"] else "miss"
+    )
+    _set_mapping_server_timing(
+        response,
+        workspace_read=workspace_read_ms,
+        view_build=view_build_ms,
+        projection=projection_ms,
+        render=render_ms,
+        total=(perf_counter() - started) * 1000,
     )
     return response
+
+
+def _set_mapping_server_timing(response, **metrics: float) -> None:
+    response.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={max(0.0, value):.1f}" for name, value in metrics.items()
+    )
 
 
 def _active_mapping_state(
@@ -510,8 +653,9 @@ def _add_mapping_dataset_urls(
     request: Request,
     workspace_id: str,
     dataset_views,
-) -> None:
-    for view in dataset_views:
+) -> tuple[dict[str, object], ...]:
+    result = tuple(dict(view) for view in dataset_views)
+    for view in result:
         view["edit_url"] = _mapping_return_url(
             request,
             workspace_id,
@@ -596,6 +740,7 @@ def _add_mapping_dataset_urls(
             if int(view["relation_page"]) < int(view["relation_page_count"])
             else None
         )
+    return result
 
 
 def _readonly_field_recovery(validation, selection, schema):
@@ -944,6 +1089,150 @@ def _odoo_default_value_label(field) -> str:
     return str(value)
 
 
+def _build_dataset_catalog_projection(
+    *,
+    model,
+    identity_targets,
+    scalar_by_target,
+    relation_by_target,
+    disposition_by_target,
+    odoo_pinned,
+    source_dataset_id,
+    link_by_child,
+    derived_by_consumer,
+    selected_model_by_dataset,
+) -> _DatasetCatalogProjection:
+    """Build one search-neutral field index from immutable saved evidence."""
+
+    schema_scalar_fields = tuple(
+        field
+        for field in (model.fields if model else ())
+        if field.type not in {"many2one", "many2many", "one2many"}
+    )
+    scalar_fields = tuple(
+        _CatalogFieldProjection(
+            index=field_index,
+            field=field,
+            search_text=f"{field.label} {field.name} {field.type}".casefold(),
+            mapped=(
+                field.name in scalar_by_target
+                or field.name in disposition_by_target
+            ),
+        )
+        for field_index, field in enumerate(schema_scalar_fields)
+        if (
+            not field.readonly
+            or (
+                field.name in scalar_by_target
+                and scalar_by_target[field.name].validate_only
+            )
+        )
+    )
+    scalar_candidates = tuple(
+        item for item in scalar_fields if item.field.name not in identity_targets
+    )
+
+    schema_relation_fields = tuple(
+        field
+        for field in (model.fields if model else ())
+        if field.type in {"many2one", "many2many", "one2many"}
+    )
+    relation_fields = tuple(
+        _CatalogFieldProjection(
+            index=relation_index,
+            field=field,
+            search_text=(
+                f"{field.label} {field.name} {field.type} "
+                f"{field.relation or ''}"
+            ).casefold(),
+            mapped=(
+                field.name in relation_by_target
+                or field.name in disposition_by_target
+            ),
+        )
+        for relation_index, field in enumerate(schema_relation_fields)
+        if (
+            not field.readonly
+            or (
+                field.name in relation_by_target
+                and relation_by_target[field.name].validate_only
+            )
+        )
+    )
+    recommendation_by_field: dict[str, _CatalogRecommendation] = {}
+    related_link = link_by_child.get(source_dataset_id)
+    if related_link is not None:
+        parent_model = selected_model_by_dataset.get(
+            related_link.parent_dataset_id
+        )
+        for item in relation_fields:
+            field = item.field
+            if (
+                field.name not in identity_targets
+                and field.type in {"many2one", "many2many"}
+                and field.relation == parent_model
+            ):
+                recommendation_by_field[field.name] = _CatalogRecommendation(
+                    field_name=field.name,
+                    dataset_id=related_link.parent_dataset_id,
+                    source_columns=tuple(related_link.reference_column_keys),
+                )
+    for link in derived_by_consumer.get(source_dataset_id, ()):
+        derived_model = selected_model_by_dataset.get(link.derived_dataset_id)
+        matches = tuple(
+            item.field
+            for item in relation_fields
+            if item.field.name not in identity_targets
+            and item.field.type == "many2one"
+            and item.field.relation == derived_model
+        )
+        if len(matches) == 1:
+            recommendation_by_field[matches[0].name] = _CatalogRecommendation(
+                field_name=matches[0].name,
+                dataset_id=link.derived_dataset_id,
+                source_columns=(link.source_column_key,),
+                kind="extracted_lookup",
+            )
+    relation_candidates = tuple(
+        sorted(
+            (
+                item
+                for item in relation_fields
+                if item.field.name not in identity_targets
+            ) if not odoo_pinned else (),
+            key=lambda item: (
+                0
+                if item.mapped
+                else (
+                    1
+                    if item.field.name in recommendation_by_field
+                    else 2
+                ),
+                item.field.label.casefold(),
+                item.field.name,
+            ),
+        )
+    )
+
+    return _DatasetCatalogProjection(
+        scalar_fields=scalar_fields,
+        scalar_candidates=scalar_candidates,
+        numeric_fields=tuple(
+            item.field
+            for item in scalar_fields
+            if item.field.type in {"integer", "float", "monetary"}
+        ),
+        scalar_mapped_total=sum(item.mapped for item in scalar_fields),
+        relation_fields=relation_fields,
+        relation_candidates=relation_candidates,
+        relation_recommendations=tuple(
+            recommendation_by_field[name]
+            for name in sorted(recommendation_by_field)
+        ),
+        relation_mapped_total=sum(item.mapped for item in relation_fields),
+    )
+
+
 def _mapping_dataset_views(
     selection,
     schema,
@@ -963,6 +1252,9 @@ def _mapping_dataset_views(
     relation_query="",
     field_query="",
     mapped_only=False,
+    catalog_projection_cache=None,
+    catalog_projection_identity=(),
+    only_active_dataset=False,
 ) -> tuple[dict[str, object], ...]:
     existing_by_id = {item.dataset_id: item for item in existing_datasets}
     models = {item.name: item for item in schema.models}
@@ -1025,6 +1317,8 @@ def _mapping_dataset_views(
             active_dataset_index is None
             or dataset_index == active_dataset_index
         )
+        if only_active_dataset and not active:
+            continue
         source_samples = prepared_source_samples.get(
             source_dataset.dataset_id,
             _mapping_source_samples(source_dataset, source_catalogs),
@@ -1144,30 +1438,48 @@ def _mapping_dataset_views(
             if existing
             else {}
         )
-        schema_scalar_fields = tuple(
-            field
-            for field in (model.fields if model else ())
-            if field.type not in {"many2one", "many2many", "one2many"}
+        relation_by_target = (
+            {item.target_field: item for item in existing.relationships}
+            if existing
+            else {}
         )
-        indexed_scalar_fields = tuple(
-            (field_index, field)
-            for field_index, field in enumerate(schema_scalar_fields)
-            if (
-                not field.readonly
-                or (
-                    field.name in scalar_by_target
-                    and scalar_by_target[field.name].validate_only
-                )
+        projection_key = (
+            *catalog_projection_identity,
+            "dataset-catalog-v1",
+            source_dataset.dataset_id,
+            selected_model_name,
+            tuple(sorted(selected_model_by_dataset.items())),
+        )
+
+        def build_catalog_projection() -> _DatasetCatalogProjection:
+            return _build_dataset_catalog_projection(
+                model=model,
+                identity_targets=identity_targets,
+                scalar_by_target=scalar_by_target,
+                relation_by_target=relation_by_target,
+                disposition_by_target=disposition_by_target,
+                odoo_pinned=odoo_pinned,
+                source_dataset_id=source_dataset.dataset_id,
+                link_by_child=link_by_child,
+                derived_by_consumer=derived_by_consumer,
+                selected_model_by_dataset=selected_model_by_dataset,
             )
-        )
+
+        if catalog_projection_cache is None:
+            catalog_projection = build_catalog_projection()
+            catalog_projection_cache_hit = False
+        else:
+            (
+                catalog_projection,
+                catalog_projection_cache_hit,
+            ) = catalog_projection_cache.get_or_create(
+                projection_key,
+                build_catalog_projection,
+            )
         all_scalar_fields = tuple(
-            field for _index, field in indexed_scalar_fields
+            item.field for item in catalog_projection.scalar_fields
         )
-        numeric_fields = tuple(
-            field
-            for field in all_scalar_fields
-            if field.type in {"integer", "float", "monetary"}
-        )
+        numeric_fields = catalog_projection.numeric_fields
         existing_controls = existing.effective_control_totals if existing else ()
         existing_control_ids = (
             tuple(item.control_id for item in existing.control_definitions)
@@ -1190,24 +1502,18 @@ def _mapping_dataset_views(
             }
             for index in range(MAX_CONTROL_TOTALS_PER_DATASET)
         )
-        scalar_candidates = tuple(
-            (field_index, field)
-            for field_index, field in indexed_scalar_fields
-            if field.name not in identity_targets
-        )
+        scalar_candidates = catalog_projection.scalar_candidates
         normalized_query = field_query.casefold()
         matching_scalars = tuple(
-            (field_index, field)
-            for field_index, field in scalar_candidates
+            item
+            for item in scalar_candidates
             if (
                 not normalized_query
-                or normalized_query
-                in f"{field.label} {field.name} {field.type}".casefold()
+                or normalized_query in item.search_text
             )
             and (
                 not mapped_only
-                or field.name in scalar_by_target
-                or field.name in disposition_by_target
+                or item.mapped
             )
         )
         scalar_page_count = max(
@@ -1287,92 +1593,29 @@ def _mapping_dataset_views(
                     baseline_captured=field.name in captured_field_names,
                 ),
             }
-            for field_index, field in visible_scalars
-        )
-        relation_by_target = (
-            {item.target_field: item for item in existing.relationships}
-            if existing
-            else {}
-        )
-        schema_relation_fields = tuple(
-            field
-            for field in (model.fields if model else ())
-            if field.type in {"many2one", "many2many", "one2many"}
-        )
-        indexed_relation_fields = tuple(
-            (relation_index, field)
-            for relation_index, field in enumerate(schema_relation_fields)
-            if (
-                not field.readonly
-                or (
-                    field.name in relation_by_target
-                    and relation_by_target[field.name].validate_only
-                )
+            for field_index, field in (
+                (item.index, item.field) for item in visible_scalars
             )
         )
         all_relation_fields = tuple(
-            field for _index, field in indexed_relation_fields
+            item.field for item in catalog_projection.relation_fields
         )
-        relation_recommendations: dict[str, dict[str, object]] = {}
-        related_link = link_by_child.get(source_dataset.dataset_id)
-        if related_link is not None:
-            parent_model = selected_model_by_dataset.get(
-                related_link.parent_dataset_id
-            )
-            for field in all_relation_fields:
-                if (
-                    field.name not in identity_targets
-                    and field.type in {"many2one", "many2many"}
-                    and field.relation == parent_model
-                ):
-                    relation_recommendations[field.name] = {
-                        "dataset_id": related_link.parent_dataset_id,
-                        "source_columns": related_link.reference_column_keys,
-                    }
-        for link in derived_by_consumer.get(source_dataset.dataset_id, ()):
-            derived_model = selected_model_by_dataset.get(link.derived_dataset_id)
-            matches = tuple(
-                field
-                for field in all_relation_fields
-                if field.name not in identity_targets
-                and field.type == "many2one"
-                and field.relation == derived_model
-            )
-            if len(matches) == 1:
-                relation_recommendations[matches[0].name] = {
-                    "dataset_id": link.derived_dataset_id,
-                    "source_columns": (link.source_column_key,),
-                    "kind": "extracted_lookup",
-                }
+        relation_recommendations = {
+            item.field_name: {
+                "dataset_id": item.dataset_id,
+                "source_columns": item.source_columns,
+                "kind": item.kind,
+            }
+            for item in catalog_projection.relation_recommendations
+        }
         normalized_relation_query = relation_query.casefold()
-        relation_candidates = sorted(
-            (
-                (relation_index, field)
-                for relation_index, field in indexed_relation_fields
-                if field.name not in identity_targets
-                and (
-                    not normalized_relation_query
-                    or normalized_relation_query
-                    in (
-                        f"{field.label} {field.name} {field.type} "
-                        f"{field.relation or ''}"
-                    ).casefold()
-                )
-            ) if not odoo_pinned else (),
-            key=lambda item: (
-                0
-                if (
-                    item[1].name in relation_by_target
-                    or item[1].name in disposition_by_target
-                )
-                else (
-                    1
-                    if item[1].name in relation_recommendations
-                    else 2
-                ),
-                item[1].label.casefold(),
-                item[1].name,
-            ),
+        relation_candidates = tuple(
+            item
+            for item in catalog_projection.relation_candidates
+            if (
+                not normalized_relation_query
+                or normalized_relation_query in item.search_text
+            )
         )
         relation_page_count = max(
             1,
@@ -1389,7 +1632,9 @@ def _mapping_dataset_views(
             else ()
         )
         relation_rows: list[dict[str, object]] = []
-        for relation_index, field in visible_relations:
+        for projected_field in visible_relations:
+            relation_index = projected_field.index
+            field = projected_field.field
             mapping = relation_by_target.get(field.name)
             recommendation = relation_recommendations.get(field.name)
             related_keys = _related_business_keys(
@@ -1494,10 +1739,8 @@ def _mapping_dataset_views(
                 "control_total_slots": control_total_slots,
                 "scalar_catalog_total": len(scalar_candidates),
                 "scalar_matching_total": len(matching_scalars),
-                "scalar_mapped_total": sum(
-                    field.name in scalar_by_target
-                    or field.name in disposition_by_target
-                    for field in all_scalar_fields
+                "scalar_mapped_total": (
+                    catalog_projection.scalar_mapped_total
                 ),
                 "scalar_page": current_scalar_page,
                 "scalar_page_count": scalar_page_count,
@@ -1505,10 +1748,8 @@ def _mapping_dataset_views(
                 "relation_rows": tuple(relation_rows),
                 "relation_catalog_total": len(all_relation_fields),
                 "relation_matching_total": len(relation_candidates),
-                "relation_mapped_total": sum(
-                    field.name in relation_by_target
-                    or field.name in disposition_by_target
-                    for field in all_relation_fields
+                "relation_mapped_total": (
+                    catalog_projection.relation_mapped_total
                 ),
                 "relation_page": current_relation_page,
                 "relation_page_count": relation_page_count,
@@ -1516,6 +1757,9 @@ def _mapping_dataset_views(
                 "relation_query": relation_query,
                 "field_query": field_query,
                 "mapped_only": mapped_only,
+                "catalog_projection_cache_hit": (
+                    catalog_projection_cache_hit
+                ),
                 "other_datasets": tuple(
                     item
                     for item in selection.datasets

@@ -10,6 +10,13 @@ document.addEventListener("DOMContentLoaded", () => {
   } = window.impodoMappingEditor;
 
   const fieldCatalogSearchDelayMs = 350;
+  const mappingCatalogEditorId =
+    globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (token) => {
+          const value = Math.floor(Math.random() * 16);
+          return (token === "x" ? value : (value & 0x3) | 0x8).toString(16);
+        });
   for (const catalog of document.querySelectorAll(
     "[data-scalar-field-catalog]"
   )) {
@@ -100,6 +107,13 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     let fieldSearchTimer;
     let fieldSearchController;
+    let scalarSearchGeneration = 0;
+    const beginScalarSearch = () => {
+      scalarSearchGeneration += 1;
+      fieldSearchController?.abort();
+      fieldSearchController = null;
+      return scalarSearchGeneration;
+    };
     const catalogSearchUrl = (requestedUrl = null) => {
       const url = new URL(requestedUrl || window.location.href);
       if (requestedUrl === null) {
@@ -127,13 +141,24 @@ document.addEventListener("DOMContentLoaded", () => {
       requestUrl.search = stateUrl.search;
       return requestUrl;
     };
-    const loadScalarCatalog = async (requestedUrl = null) => {
+    const loadScalarCatalog = async (
+      requestedUrl = null,
+      scheduledGeneration = null
+    ) => {
       window.clearTimeout(fieldSearchTimer);
-      fieldSearchController?.abort();
+      const requestGeneration =
+        scheduledGeneration === null
+          ? beginScalarSearch()
+          : scheduledGeneration;
+      if (requestGeneration !== scalarSearchGeneration) {
+        return;
+      }
       const activeController = new AbortController();
       fieldSearchController = activeController;
       const stateUrl = catalogSearchUrl(requestedUrl);
       const requestUrl = catalogRequestUrl(stateUrl);
+      requestUrl.searchParams.set("editor_id", mappingCatalogEditorId);
+      requestUrl.searchParams.set("generation", String(requestGeneration));
       catalog.setAttribute("aria-busy", "true");
       if (count) {
         count.textContent = "Searching Odoo fields\u2026";
@@ -143,11 +168,21 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "text/html" },
           signal: activeController.signal,
         });
+        if (
+          response.status === 204 ||
+          requestGeneration !== scalarSearchGeneration
+        ) {
+          return;
+        }
         if (!response.ok) {
           throw new Error("The field list could not be updated. Please try again.");
         }
+        const responseText = await response.text();
+        if (requestGeneration !== scalarSearchGeneration) {
+          return;
+        }
         const documentResult = new DOMParser().parseFromString(
-          await response.text(),
+          responseText,
           "text/html"
         );
         const incomingCatalog = documentResult.querySelector(
@@ -211,19 +246,23 @@ document.addEventListener("DOMContentLoaded", () => {
               : "Field search failed.";
         }
       } finally {
-        if (fieldSearchController === activeController) {
+        if (
+          fieldSearchController === activeController &&
+          requestGeneration === scalarSearchGeneration
+        ) {
           catalog.removeAttribute("aria-busy");
         }
       }
     };
     const scheduleScalarCatalogSearch = () => {
       window.clearTimeout(fieldSearchTimer);
+      const scheduledGeneration = beginScalarSearch();
       updateScalarFieldRows();
       if (count) {
         count.textContent = "Searching Odoo fields\u2026";
       }
       fieldSearchTimer = window.setTimeout(
-        () => loadScalarCatalog(),
+        () => loadScalarCatalog(null, scheduledGeneration),
         fieldCatalogSearchDelayMs
       );
     };
@@ -259,6 +298,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const results = catalog.querySelector("[data-relation-field-results]");
     let relationSearchTimer;
     let relationSearchController;
+    let relationSearchGeneration = 0;
+    const beginRelationSearch = () => {
+      relationSearchGeneration += 1;
+      relationSearchController?.abort();
+      relationSearchController = null;
+      return relationSearchGeneration;
+    };
 
     const initializeRelationRows = () => {
       for (const row of catalog.querySelectorAll(
@@ -295,13 +341,24 @@ document.addEventListener("DOMContentLoaded", () => {
       requestUrl.searchParams.set("catalog", "relation");
       return requestUrl;
     };
-    const loadRelationCatalog = async (requestedUrl = null) => {
+    const loadRelationCatalog = async (
+      requestedUrl = null,
+      scheduledGeneration = null
+    ) => {
       window.clearTimeout(relationSearchTimer);
-      relationSearchController?.abort();
+      const requestGeneration =
+        scheduledGeneration === null
+          ? beginRelationSearch()
+          : scheduledGeneration;
+      if (requestGeneration !== relationSearchGeneration) {
+        return;
+      }
       const activeController = new AbortController();
       relationSearchController = activeController;
       const stateUrl = relationCatalogUrl(requestedUrl);
       const requestUrl = relationRequestUrl(stateUrl);
+      requestUrl.searchParams.set("editor_id", mappingCatalogEditorId);
+      requestUrl.searchParams.set("generation", String(requestGeneration));
       catalog.setAttribute("aria-busy", "true");
       if (count) {
         count.textContent = "Searching linked Odoo fields\u2026";
@@ -311,13 +368,23 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "text/html" },
           signal: activeController.signal,
         });
+        if (
+          response.status === 204 ||
+          requestGeneration !== relationSearchGeneration
+        ) {
+          return;
+        }
         if (!response.ok) {
           throw new Error(
             "The linked-field list could not be updated. Please try again."
           );
         }
+        const responseText = await response.text();
+        if (requestGeneration !== relationSearchGeneration) {
+          return;
+        }
         const documentResult = new DOMParser().parseFromString(
-          await response.text(),
+          responseText,
           "text/html"
         );
         const incomingCatalog = documentResult.querySelector(
@@ -383,18 +450,22 @@ document.addEventListener("DOMContentLoaded", () => {
               : "Linked-field search failed.";
         }
       } finally {
-        if (relationSearchController === activeController) {
+        if (
+          relationSearchController === activeController &&
+          requestGeneration === relationSearchGeneration
+        ) {
           catalog.removeAttribute("aria-busy");
         }
       }
     };
     const scheduleRelationCatalogSearch = () => {
       window.clearTimeout(relationSearchTimer);
+      const scheduledGeneration = beginRelationSearch();
       if (count) {
         count.textContent = "Searching linked Odoo fields\u2026";
       }
       relationSearchTimer = window.setTimeout(
-        () => loadRelationCatalog(),
+        () => loadRelationCatalog(null, scheduledGeneration),
         fieldCatalogSearchDelayMs
       );
     };

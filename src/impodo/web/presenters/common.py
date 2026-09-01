@@ -129,6 +129,9 @@ def _render(
         context["migration_context"] = workspace_view
     values = {
         "csrf_token": request.session.get("csrf_token", ""),
+        "diagnostics_available": (
+            request.app.state.diagnostic_recorder is not None
+        ),
         "flash": request.session.pop("flash", None),
         "concepts": CONCEPTS,
         "concepts_by_slug": CONCEPTS_BY_SLUG,

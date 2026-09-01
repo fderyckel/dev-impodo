@@ -34,7 +34,11 @@ record identity automatically.
 6. Resolve linked fields using a stable key in another project table or
    approved existing Odoo data.
 7. Select **Save progress** before leaving the page.
-8. Select **Check matches**.
+   If an advanced formula is malformed, Impodo shows **Must fix** beside the
+   field. Saving still preserves the formula and reports **Saved — needs
+   attention**.
+8. Correct every displayed formula issue, then select **Check matches**. Use
+   **Go to issue** when the affected field is outside the current field page.
 9. Select **Create matching review workbook** when you want to review the
    checked matches in Excel. You can create it when the check passes or when
    it finds errors.
@@ -56,6 +60,12 @@ value, match the field or provide a fixed value instead.
 New read-only fields need no input. If an Odoo change makes an existing write
 match read-only, Impodo keeps the saved match visible and offers one grouped
 removal action before you check the matches again.
+
+When you use **Find a field**, Impodo waits briefly for you to finish typing
+and then shows only the newest search. An older search cannot replace newer
+results, and repeated typing cannot queue unlimited field-list work. Searching
+does not change the saved mapping; you can still use **Save progress** while
+the field list is being refreshed.
 
 ### Review checked matches in Excel
 
@@ -241,6 +251,54 @@ and the grouped Odoo-default actions save the decision and check the mapping
 automatically. For ordinary field edits, select **Check matches** yourself.
 **Let Odoo choose** appears only when the captured target provides a usable
 create default for that required field.
+
+For an advanced formula, Impodo checks the safe formula after you pause for a
+moment or leave the Formula box. **Must fix** includes a correction and, when
+available, the character near the problem. **Save progress** remains available
+so the exact draft is recoverable. **Check matches** remains unavailable while
+the browser knows that a formula is invalid or is still being checked. If the
+quick check is temporarily unavailable, saving remains safe and the complete
+server-side match check still validates the formula before confirmation.
+
+### If a save is interrupted
+
+Impodo gives each **Save progress**, **Check matches**, Odoo-field decision,
+and confirmation its own support reference. A finished save shows its saved
+time beside the bottom actions. If the browser waits 15 seconds without a
+usable response, it stops showing the page as busy and checks that reference
+instead of repeating the save.
+
+The bottom message distinguishes these outcomes:
+
+- **Saved** means Impodo found the committed draft or checked version.
+- **Not saved** means the operation did not reach Impodo or was rejected. Your
+  values remain on the page, so correct the displayed problem and try again.
+- **Conflict** means another tab saved a newer version. Impodo does not apply
+  the older form. Select **Copy my edits**, then **Reload saved version** and
+  reapply only the choices that are still needed.
+- **Save outcome unknown** means Impodo cannot yet prove either outcome. Keep
+  the tab open, do not repeat the action, and select **Check save outcome**.
+
+The full recovery message and support reference remain beside the bottom
+workflow actions. They are also announced to assistive technology.
+
+### If Impodo stops responding
+
+While an Impodo page is open, the browser checks that the local Impodo server
+is still responding. After three consecutive failed checks, the page shows
+**Impodo is not responding**. Keep the tab open. Your saved work is unchanged,
+and unsaved entries remain on the page.
+
+Impodo tries one automatic server restart on the same local address. If the
+banner changes to **Impodo is responding again**, review the page and any save
+outcome before repeating the action. Impodo never repeats a save automatically.
+Use **Try again** to request an immediate health check.
+
+If the server does not recover, restart Impodo normally. After it opens, select
+**Create diagnostic bundle** in the page footer before trying the action again.
+The downloaded ZIP contains bounded operational timings, process events, and
+version information. It does not contain source rows, formula contents,
+credentials, tokens, request bodies, headers, complete URLs, or query strings.
 
 ## What makes this work stale
 

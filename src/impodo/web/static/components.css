@@ -702,6 +702,29 @@ label.checkbox input {
   color: #593d0f;
 }
 
+.server-recovery-banner {
+  position: sticky;
+  z-index: 30;
+  top: 1rem;
+  box-shadow: 0 8px 24px rgb(39 42 38 / 16%);
+}
+
+.server-recovery-banner p {
+  margin: .4rem 0 0;
+}
+
+.server-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+  margin-top: .8rem;
+}
+
+.server-recovery-banner:focus {
+  outline: 3px solid rgb(157 43 43 / 30%);
+  outline-offset: 2px;
+}
+
 .setup-blockers {
   max-width: 52rem;
 }

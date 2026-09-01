@@ -284,12 +284,25 @@ stages:
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
       - src/impodo/adapters/artifacts/mapping_review.py::write_mapping_review_workbook
+      - src/impodo/web/diagnostics.py::RequestDiagnosticsMiddleware
+      - src/impodo/web/diagnostics.py::create_diagnostic_bundle
+      - src/impodo/web/routers/lifecycle.py::build_lifecycle_router
+      - src/impodo/web/server_supervisor.py::supervise_server
+      - src/impodo/domain/recipe/value_rules.py::validate_formula
+      - src/impodo/web/mapping_formula_authoring.py::validate_formula_authoring
+      - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogProjectionCache
+      - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogSearchCoordinator
+      - src/impodo/web/presenters/mapping_view.py::_render_mapping
     tests:
       - tests/integration/web/test_mapping_forms.py
       - tests/domain/mapping/test_validation.py
       - tests/domain/mapping/test_selection_rules.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
+      - tests/integration/web/test_mapping_catalog_scale.py
+      - tests/integration/web/test_mapping_catalog_runtime.py
+      - tests/integration/web/test_diagnostics.py
+      - tests/domain/recipe/test_value_rules.py
       - tests/integration/artifacts/test_mapping_review_workbook.py
       - tests/domain/preparation/test_target_first_relationships.py
       - tests/domain/test_relationship_dependencies.py

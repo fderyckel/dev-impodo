@@ -6,6 +6,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const button = form.querySelector('button[type="submit"]');
     const idleLabel = button?.textContent || "";
 
+    const clearSubmittingState = () => {
+      submitting = false;
+      form.removeAttribute("aria-busy");
+      if (button) {
+        button.disabled = false;
+        button.textContent = idleLabel;
+      }
+    };
+
     form.addEventListener("submit", (event) => {
       if (submitting) {
         event.preventDefault();
@@ -19,14 +28,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    window.addEventListener("pageshow", () => {
-      submitting = false;
-      form.removeAttribute("aria-busy");
-      if (button) {
-        button.disabled = false;
-        button.textContent = idleLabel;
-      }
-    });
+    window.addEventListener("pageshow", clearSubmittingState);
+    document.addEventListener(
+      "impodo:server-disconnected",
+      clearSubmittingState
+    );
   }
 
   const setupBlockers = document.querySelector(

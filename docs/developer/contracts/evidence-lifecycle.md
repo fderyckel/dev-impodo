@@ -109,6 +109,14 @@ one exact schema revision. Mapping evidence then binds the exact source
 selection, schema, governance, providers, transformations, relationships,
 validation result, reviewed warnings, and actor submission.
 
+A mapping mutation receipt is separate operational recovery evidence. Its UUID
+binds one actor and exact submitted command meaning. The committed receipt is
+written in the same workspace-engine transaction as the authoritative mapping
+draft, revision, validation, or submission change and records the resulting
+versions and content identity. A rejected or pending receipt never validates,
+submits, or otherwise authorizes mapping evidence. Pending means the outcome is
+still unknown and forbids automatic mutation replay.
+
 The exact current mapping contract is version 13. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant

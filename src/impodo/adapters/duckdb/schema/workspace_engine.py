@@ -61,6 +61,23 @@ _AUDIT_EVENT_COLUMNS = (
     "actor_subject",
     "actor_display_name",
 )
+_MAPPING_MUTATION_RECEIPT_COLUMNS = (
+    "operation_id",
+    "action",
+    "request_hash",
+    "state",
+    "submitted_working_draft_version",
+    "submitted_mapping_revision_version",
+    "working_draft_version",
+    "mapping_revision_version",
+    "content_identity",
+    "failure_code",
+    "failure_detail",
+    "started_at",
+    "completed_at",
+    "actor_issuer",
+    "actor_subject",
+)
 _SCHEMA_MIGRATION_COLUMNS = SCHEMA_MIGRATION_COLUMNS
 _WORKSPACE_ENGINE_TABLES = frozenset(
     {
@@ -71,7 +88,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "derived_value_artifact_current", "derived_value_artifact_manifest",
         "effective_dataset_current", "effective_dataset_reconciliation", "effective_row",
         "execution_current", "execution_row", "execution_run", "mapping_current",
-        "mapping_revision", "mapping_submission", "mapping_validation",
+        "mapping_mutation_receipt", "mapping_revision", "mapping_submission", "mapping_validation",
         "mapping_working_draft", "normalization_current", "normalization_effect",
         "normalization_group", "normalization_run", "normalization_transition",
         "odoo_capture_manifest_current", "odoo_capture_manifest_revision",
@@ -255,6 +272,24 @@ class WorkspaceEngineSchemaMixin:
                 content_hash VARCHAR NOT NULL,
                 updated_at VARCHAR NOT NULL,
                 draft_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE mapping_mutation_receipt (
+                operation_id VARCHAR PRIMARY KEY,
+                action VARCHAR NOT NULL,
+                request_hash VARCHAR NOT NULL,
+                state VARCHAR NOT NULL,
+                submitted_working_draft_version INTEGER,
+                submitted_mapping_revision_version INTEGER,
+                working_draft_version INTEGER,
+                mapping_revision_version INTEGER,
+                content_identity VARCHAR NOT NULL,
+                failure_code VARCHAR NOT NULL,
+                failure_detail VARCHAR NOT NULL,
+                started_at VARCHAR NOT NULL,
+                completed_at VARCHAR,
+                actor_issuer VARCHAR NOT NULL,
+                actor_subject VARCHAR NOT NULL
             );
 
             CREATE TABLE retired_evidence (
@@ -738,6 +773,10 @@ class WorkspaceEngineSchemaMixin:
             ("schema_migration", _SCHEMA_MIGRATION_COLUMNS),
             ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
             ("audit_event", _AUDIT_EVENT_COLUMNS),
+            (
+                "mapping_mutation_receipt",
+                _MAPPING_MUTATION_RECEIPT_COLUMNS,
+            ),
         ):
             try:
                 columns = tuple(
@@ -762,9 +801,39 @@ def _upgrade_workspace_engine_v1_to_v2(
     create_schema_migration_ledger(connection)
 
 
+def _upgrade_workspace_engine_v2_to_v3(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE mapping_mutation_receipt (
+            operation_id VARCHAR PRIMARY KEY,
+            action VARCHAR NOT NULL,
+            request_hash VARCHAR NOT NULL,
+            state VARCHAR NOT NULL,
+            submitted_working_draft_version INTEGER,
+            submitted_mapping_revision_version INTEGER,
+            working_draft_version INTEGER,
+            mapping_revision_version INTEGER,
+            content_identity VARCHAR NOT NULL,
+            failure_code VARCHAR NOT NULL,
+            failure_detail VARCHAR NOT NULL,
+            started_at VARCHAR NOT NULL,
+            completed_at VARCHAR,
+            actor_issuer VARCHAR NOT NULL,
+            actor_subject VARCHAR NOT NULL
+        )
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
         apply=_upgrade_workspace_engine_v1_to_v2,
+    ),
+    2: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v2-to-v3-mapping-mutation-receipts",
+        apply=_upgrade_workspace_engine_v2_to_v3,
     ),
 }

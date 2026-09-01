@@ -39,6 +39,7 @@
                   {% set field_index = row.index %}
                   {% set mapping = row.mapping %}
                   {% set disposition = row.disposition %}
+                  {% set formula_issue = formula_authoring_issues_by_dataset.get(view.source.dataset_id, {}).get(row.metadata.name) %}
                   {% set recommended_source = row.recommended_source_column if not disposition else none %}
                   {% set value_source = mapping.value_source.value if mapping else ('source' if recommended_source else '') %}
                   <tr
@@ -455,7 +456,7 @@
                             </details>
                           </div>
 
-                          <details class="advanced-rule">
+                          <details class="advanced-rule" {% if formula_issue %}open{% endif %}>
                             <summary>Advanced: formula or custom calculation</summary>
                             <label>
                               Formula
@@ -465,10 +466,20 @@
                                 rows="2"
                                 placeholder="Example: column_2 * column_3"
                                 spellcheck="false"
+                                aria-invalid="{{ 'true' if formula_issue else 'false' }}"
+                                aria-describedby="formula-help-{{ dataset_index }}-{{ field_index }} formula-feedback-{{ dataset_index }}-{{ field_index }}"
                                 data-rule-formula
                               >{{ transform.formula if transform else '' }}</textarea>
                             </label>
-                            <small>
+                            <p
+                              class="mapping-formula-feedback"
+                              id="formula-feedback-{{ dataset_index }}-{{ field_index }}"
+                              data-formula-feedback
+                              role="status"
+                              aria-live="polite"
+                              {% if not formula_issue %}hidden{% endif %}
+                            ><strong data-formula-feedback-prefix>Must fix:</strong> <span data-formula-feedback-message>{{ formula_issue.display_message if formula_issue else '' }}</span></p>
+                            <small id="formula-help-{{ dataset_index }}-{{ field_index }}">
                               Safe formulas only—no files, network, Odoo access, loops, or imported code.
                               Available values:
                               <code>value</code> (this field)

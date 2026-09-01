@@ -655,6 +655,13 @@ label.model-choice input {
   margin: 0;
 }
 
+.footer-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 1rem;
+}
+
 .creator-credit {
   color: var(--impodo-charcoal);
   font-weight: 550;
@@ -2016,6 +2023,13 @@ a.impact-card:focus-visible,
 
   .site-footer form {
     justify-self: start;
+  }
+
+  .footer-actions {
+    align-items: flex-start;
+    justify-self: start;
+    flex-direction: column;
+    gap: .5rem;
   }
 
   .creator-credit {
