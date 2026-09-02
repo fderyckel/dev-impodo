@@ -24,6 +24,34 @@
     {% endif %}
   </div>
 
+  {% if schema and not schema.pending_refresh and schema.origin.value != 'LOCAL_MANUAL' and not is_recipe_run_setup and workspace_state.source_mode.value == 'ODOO' and not selection %}
+    <section class="next-action-card ready" id="schema-next-action">
+      <div>
+        <p class="eyebrow">Stage 1 complete</p>
+        {% if capture_plans_complete %}
+          <h2>All Odoo capture plans are ready</h2>
+          <p>
+            Fields and limits are saved for all {{ schema.models|length }} selected record types.
+            Next, check the live record counts and freeze {% if schema.models|length == 1 %}the dataset{% else %}the datasets together{% endif %}.
+          </p>
+        {% else %}
+          <h2>Continue to the capture plans</h2>
+          <p>
+            The Odoo fields are ready. Choose the exact fields and limit for
+            each selected record type before freezing any records.
+          </p>
+        {% endif %}
+      </div>
+      <div class="next-action-buttons">
+        {% if capture_plans_complete %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#selection-saved">Continue to record count check</a>
+        {% else %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#capture-plan">Continue to capture plans</a>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
   <section class="form-card">
     {% if is_recipe_run_setup %}
       {% if is_recipe_run_recovery %}
@@ -442,15 +470,7 @@
       </div>
     {% endif %}
     {% if workspace_state.source_mode.value == 'ODOO' and not selection %}
-      <section class="form-card" id="schema-governance">
-        <p class="eyebrow">Next step</p>
-        <h2>Define the bounded Odoo capture</h2>
-        <p>
-          The record type and field metadata are ready. Choose the exact scalar
-          fields and maximum record count that a later read-only capture may use.
-        </p>
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Define capture plan</a>
-      </section>
+      {# The Odoo-source next action is shown beside the ready state above. #}
     {% else %}
     <form method="post" action="/workspaces/{{ workspace_id }}/schema/govern">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

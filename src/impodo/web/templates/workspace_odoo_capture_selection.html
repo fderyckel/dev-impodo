@@ -7,8 +7,13 @@
   <div class="page-heading">
     <div>
       <p class="eyebrow">Stage 2 of 6 · Odoo source data</p>
-      <h1>Define a bounded Odoo capture</h1>
-      <p>Choose a small field surface for each selected record type, then freeze all datasets as one source version.</p>
+      {% if plans_complete and not show_capture_plan_editor %}
+        <h1>Review and freeze the Odoo source</h1>
+        <p>The capture plans are saved. Check the matching records, then freeze all datasets as one source version.</p>
+      {% else %}
+        <h1>Define a bounded Odoo capture</h1>
+        <p>Choose a small field surface for each selected record type, then freeze all datasets as one source version.</p>
+      {% endif %}
     </div>
     {% if current_selections %}<span class="status registered">{{ current_selections|length }} of {{ models|length }} plans saved</span>{% endif %}
   </div>
@@ -28,6 +33,27 @@
       <strong>Product and Unit of Measure will be frozen together, not imported in screen order.</strong>
       A future cross-instance load must match or create Units of Measure before Products and bind each Product relationship to the destination record. That load path remains disabled; this capture alone is not yet ready to write into another Odoo instance.
     </div>
+  {% endif %}
+
+  {% if capture_ready_to_assess and not assessment %}
+    <section class="next-action-card ready" id="capture-next-action">
+      <div>
+        <p class="eyebrow">Capture plans complete</p>
+        <h2>Check the records, then freeze {% if current_selections|length == 1 %}the dataset{% else %}the datasets together{% endif %}</h2>
+        <p>
+          All {{ current_selections|length }} record type plans are saved. Impodo will first count
+          the matching records without downloading their business values.
+        </p>
+      </div>
+      <div class="next-action-buttons">
+        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
+          <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
+          <button class="button primary" type="submit">Check matching records and continue</button>
+        </form>
+      </div>
+    </section>
   {% endif %}
 
   {% if not read_credential_present %}
@@ -69,6 +95,7 @@
       <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo details</a>
     </section>
   {% else %}
+    {% if show_capture_plan_editor %}
     <section class="form-card" id="capture-plan">
       <div class="page-heading compact">
         <div>
@@ -82,7 +109,7 @@
         <p><strong>Odoo record type</strong></p>
         <nav class="actions" aria-label="Odoo record types">
           {% for item in models %}
-            <a class="button {% if selected_model and selected_model.name == item.name %}primary{% else %}secondary{% endif %}" href="/workspaces/{{ workspace_id }}/sources?model={{ item.name }}#capture-plan">
+            <a class="button {% if selected_model and selected_model.name == item.name %}primary{% else %}secondary{% endif %}" href="/workspaces/{{ workspace_id }}/sources?model={{ item.name }}&amp;edit=1#capture-plan">
               {{ item.label }} ({{ item.name }})
               {% if item.name in current_by_model %} · saved{% endif %}
             </a>
@@ -137,6 +164,19 @@
         </form>
       {% endif %}
     </section>
+    {% else %}
+      <details class="form-card" id="capture-plan">
+        <summary>Edit saved capture plans</summary>
+        <p>Reopen a record type only if you need to change its fields or request size.</p>
+        <nav class="actions" aria-label="Edit Odoo record type plans">
+          {% for item in models %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/sources?model={{ item.name }}&amp;edit=1#capture-plan">
+              Edit {{ item.label }}
+            </a>
+          {% endfor %}
+        </nav>
+      </details>
+    {% endif %}
   {% endif %}
 
   {% if current_selections %}
@@ -179,7 +219,7 @@
           Your capture plan and frozen evidence have not been changed.
         </div>
         <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo details</a></p>
-      {% elif schema and not schema.pending_refresh and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
+      {% elif capture_ready_to_assess %}
         <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">

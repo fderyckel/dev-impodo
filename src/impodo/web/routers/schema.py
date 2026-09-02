@@ -30,7 +30,11 @@ from ...domain.recipe.models import RecipeError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateError
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStateError,
+)
 from ..context import WebContext
 from ..forms import (
     _checked,
@@ -163,6 +167,26 @@ def _mark_local_metadata_ready(
                 else len(schema.models)
             ),
         )
+
+
+def _odoo_source_capture_location(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+) -> str:
+    """Return the first unfinished Odoo-source capture destination."""
+
+    selections = context.queries.get_current_odoo_capture_selections(
+        workspace_state.workspace_id
+    )
+    planned_models = {item.model for item in selections}
+    required_models = {item.name for item in schema.models}
+    anchor = (
+        "selection-saved"
+        if required_models and planned_models == required_models
+        else "capture-plan"
+    )
+    return f"/workspaces/{workspace_state.workspace_id}/sources#{anchor}"
 
 
 def build_schema_router(context: WebContext) -> APIRouter:
@@ -525,6 +549,17 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     status_code=422,
                 )
         _flash(request, "Odoo data is ready.")
+        if saved_workspace_state.source_mode is SourceMode.ODOO:
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            if schema is not None:
+                return RedirectResponse(
+                    _odoo_source_capture_location(
+                        context,
+                        saved_workspace_state,
+                        schema,
+                    ),
+                    status_code=303,
+                )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/schema#odoo-details",
             status_code=303,
@@ -586,6 +621,18 @@ def build_schema_router(context: WebContext) -> APIRouter:
             )
         else:
             _flash(request, "Odoo data is ready.")
+        if (
+            schema.pending_refresh is None
+            and not (
+                current is not None
+                and current.origin is SchemaOrigin.LIVE_API
+            )
+            and workspace_state.source_mode is SourceMode.ODOO
+        ):
+            return RedirectResponse(
+                _odoo_source_capture_location(context, workspace_state, schema),
+                status_code=303,
+            )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/schema#odoo-details",
             status_code=303,
@@ -596,6 +643,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Promote one reviewed checked snapshot and invalidate dependents."""
 
         form = await request.form()
+        workspace_state = context.queries.get(workspace_id)
         _secure_form(
             request,
             form,
@@ -619,7 +667,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         try:
-            context.schema_workspace.confirm_refresh(
+            schema = context.schema_workspace.confirm_refresh(
                 workspace_id,
                 expected_current_content_hash=_text(
                     form, "expected_current_content_hash"
@@ -642,6 +690,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
             request,
             "Updated the saved Odoo details. Review the stages that now need attention.",
         )
+        if workspace_state.source_mode is SourceMode.ODOO:
+            return RedirectResponse(
+                _odoo_source_capture_location(context, workspace_state, schema),
+                status_code=303,
+            )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/schema#odoo-details",
             status_code=303,

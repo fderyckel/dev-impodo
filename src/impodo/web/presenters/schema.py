@@ -429,6 +429,14 @@ def _render_schema(
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     model_choices = _schema_model_choices(workspace_state, model_catalog)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    current_capture_plans = (
+        context.queries.get_current_odoo_capture_selections(workspace_id)
+        if schema is not None
+        else ()
+    )
+    capture_plans_complete = bool(schema and schema.models) and {
+        item.model for item in current_capture_plans
+    } == {item.name for item in schema.models}
     odoo_check_plan = context.test_runs.odoo_check_requirements_for_workspace(
         workspace_id,
         actor=context.actor,
@@ -521,6 +529,7 @@ def _render_schema(
             1 for choice in model_choices if choice["in_focus"]
         ),
         schema=schema,
+        capture_plans_complete=capture_plans_complete,
         schema_field_count=(
             sum(len(model.fields) for model in schema.models)
             if schema is not None

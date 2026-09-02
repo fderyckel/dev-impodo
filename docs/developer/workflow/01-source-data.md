@@ -144,9 +144,11 @@ complete source lineage when materialized later.
 File mode completes when a source selection exists and then unlocks Odoo data.
 Odoo mode deliberately reverses the first two responsibilities: **Odoo source
 data** captures eligible fields, then **Freeze Odoo records** publishes the
-selection. It then unlocks Match data and the later offline preparation and
-same-database comparison stages. Preparation verifies protected capture
-provenance and consumes the frozen snapshot without contacting Odoo.
+selection. It then unlocks Match data and offline preparation. Preparation
+verifies every protected capture sidecar and consumes the frozen snapshots
+without contacting Odoo. The current pinned comparison remains a
+single-dataset contract, so a multi-model Product and Unit of Measure source
+does not yet proceed to comparison or load.
 
 Odoo source mode is a pinned-update workflow for the same configured database.
 It is not a cross-database Recipe application, and current policy does not

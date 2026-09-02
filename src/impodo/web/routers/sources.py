@@ -274,13 +274,37 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        current_selections = (
+            context.queries.get_current_odoo_capture_selections(workspace_id)
+            if schema is not None
+            else ()
+        )
+        planned_models = {item.model for item in current_selections}
+        missing_models = tuple(
+            item
+            for item in (schema.models if schema is not None else ())
+            if item.name not in planned_models
+        )
+        if missing_models:
+            next_model = missing_models[0]
+            _flash(
+                request,
+                f"Saved {selection.model}. Next, save a plan for "
+                f"{next_model.label}.",
+            )
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/sources?model={next_model.name}"
+                "#capture-plan",
+                status_code=303,
+            )
         _flash(
             request,
-            f"Saved Odoo capture plan version {selection.version}. No rows were read.",
+            "All Odoo capture plans are saved. Check the matching records "
+            "to continue.",
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/sources?model={selection.model}"
-            "#selection-saved",
+            f"/workspaces/{workspace_id}/sources#capture-next-action",
             status_code=303,
         )
 
@@ -464,13 +488,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/workspaces/{workspace_id}/sources/odoo-capture")
     async def start_odoo_capture(request: Request, workspace_id: str):
-        """Confirm the exact current plan and enqueue live snapshot publication.
+        """Confirm the exact current plan set and enqueue snapshot publication.
 
-        The submitted selection ID and semantic hash must match current durable
-        state, the operator must explicitly confirm the read, and the stored
-        credential binding must match the captured schema. A successful enqueue
-        leaves any previous frozen source version current until the background
-        job publishes the replacement atomically.
+        The submitted set hash must match current durable state, the operator
+        must explicitly confirm the read, and the stored credential binding
+        must match the captured schema. A successful enqueue leaves any
+        previous frozen source version current until the background job
+        publishes every selected model atomically.
         """
 
         form = await request.form()
@@ -595,6 +619,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     or item.get("page_size") != selections[index].page_size
                     for index, item in enumerate(evidence_items or ())
                 )
+                or assessment_evidence["matching_rows"]
+                != sum(item["matching_rows"] for item in evidence_items)
             ):
                 raise WorkspaceError(
                     "Check the current number of matching records before freezing them."
@@ -1116,6 +1142,30 @@ def _render_odoo_capture_selection(
         if error is None:
             error = str(credential_error)
             status_code = 422
+    read_credential_matches_schema = bool(
+        schema is not None
+        and read_credential is not None
+        and schema.read_credential_binding_hash == read_credential.binding_hash
+    )
+    capture_ready_to_assess = bool(
+        plans_complete
+        and not capture_plan_errors
+        and not access_refresh_required
+        and schema is not None
+        and not schema.pending_refresh
+        and schema.origin.value == "LIVE_API"
+        and schema.connection_target_hash
+        and schema.read_principal_hash
+        and schema.read_permission_hash
+        and schema.read_context_hash
+        and read_credential_matches_schema
+    )
+    edit_capture_plan = request.query_params.get("edit", "").strip() == "1"
+    show_capture_plan_editor = bool(
+        not plans_complete
+        or capture_plan_errors
+        or edit_capture_plan
+    )
     current_manifests = context.odoo_provenance.current_manifests(
         workspace_state.workspace_id,
         actor=context.actor,
@@ -1153,11 +1203,9 @@ def _render_odoo_capture_selection(
         ),
         capture_history=capture_history,
         read_credential_present=read_credential_present,
-        read_credential_matches_schema=bool(
-            schema is not None
-            and read_credential is not None
-            and schema.read_credential_binding_hash == read_credential.binding_hash
-        ),
+        read_credential_matches_schema=read_credential_matches_schema,
+        capture_ready_to_assess=capture_ready_to_assess,
+        show_capture_plan_editor=show_capture_plan_editor,
         capture_policy=CURRENT_ODOO_SOURCE_POLICY,
         capture_page_sizes=ODOO_CAPTURE_PAGE_SIZES,
         assessment=assessment,

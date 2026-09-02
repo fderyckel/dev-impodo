@@ -291,12 +291,62 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             },
         )
         self.assertEqual(scoped.status_code, 303)
+        self.assertEqual(
+            scoped.headers["location"],
+            f"/workspaces/{workspace_id}/sources#capture-plan",
+        )
         self.assertEqual(self.schema_calls, [(workspace_id, "read-secret")])
 
         source_page = self.client.get(f"/workspaces/{workspace_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertIn("Define a bounded Odoo capture", source_page.text)
         self.assertIn("Freezing is read-only", source_page.text)
+        render_schema = self.app.state.context.queries.get_odoo_schema_catalog(
+            workspace_id
+        )
+        self.assertIsNotNone(render_schema)
+        assert render_schema is not None
+        base_model = render_schema.models[0]
+        product_model = replace(
+            base_model,
+            name="product.template",
+            label="Product",
+            fields=tuple(
+                replace(field, label="Product Name")
+                if field.name == "name"
+                else field
+                for field in base_model.fields
+            ),
+        )
+        uom_model = replace(
+            base_model,
+            name="uom.uom",
+            label="Unit of Measure",
+            fields=tuple(
+                replace(field, label="Unit of Measure Name")
+                if field.name == "name"
+                else field
+                for field in base_model.fields
+            ),
+        )
+        with patch.object(
+            self.app.state.context.queries,
+            "get_odoo_schema_catalog",
+            return_value=replace(
+                render_schema,
+                models=(product_model, uom_model),
+            ),
+        ):
+            product_page = self.client.get(
+                f"/workspaces/{workspace_id}/sources?model=product.template"
+            )
+            uom_page = self.client.get(
+                f"/workspaces/{workspace_id}/sources?model=uom.uom"
+            )
+        self.assertIn("Product Name", product_page.text)
+        self.assertNotIn("Unit of Measure Name", product_page.text)
+        self.assertIn("Unit of Measure Name", uom_page.text)
+        self.assertNotIn("Product Name", uom_page.text)
         calls_before_selection = len(self.schema_calls)
         selected = self._post(
             f"/workspaces/{workspace_id}/sources/odoo-selection",
@@ -310,6 +360,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             },
         )
         self.assertEqual(selected.status_code, 303)
+        self.assertEqual(
+            selected.headers["location"],
+            f"/workspaces/{workspace_id}/sources#capture-next-action",
+        )
         self.assertEqual(len(self.schema_calls), calls_before_selection)
         selection = (
             self.app.state.context.sources.sources
@@ -320,8 +374,24 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         saved_page = self.client.get(selected.headers["location"])
         self.assertIn("Capture plan version 1", saved_page.text)
         self.assertIn("Check matching records", saved_page.text)
+        self.assertIn("Capture plans complete", saved_page.text)
+        self.assertIn("Check matching records and continue", saved_page.text)
+        self.assertIn("Review and freeze the Odoo source", saved_page.text)
+        self.assertIn("Edit saved capture plans", saved_page.text)
+        self.assertNotIn("Eligible fields from", saved_page.text)
         self.assertNotIn("Freeze these Odoo records", saved_page.text)
         self.assertIn("Ready to freeze", saved_page.text)
+        completed_schema_page = self.client.get(
+            f"/workspaces/{workspace_id}/schema"
+        )
+        self.assertIn(
+            "All Odoo capture plans are ready",
+            completed_schema_page.text,
+        )
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/sources#selection-saved"',
+            completed_schema_page.text,
+        )
 
         context = self.app.state.context
         schema = context.queries.get_odoo_schema_catalog(workspace_id)
