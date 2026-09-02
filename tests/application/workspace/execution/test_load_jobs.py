@@ -143,6 +143,8 @@ class LoadJobManagerTests(unittest.TestCase):
             return LoadJobResult(
                 execution_run_id="11111111-1111-4111-8111-111111111111",
                 verification_complete=True,
+                completion_warning="Correction origin is unavailable.",
+                completion_warning_code="CORRECTION_ORIGIN_PREPARED_MISSING",
             )
 
         queued = manager.enqueue(
@@ -172,6 +174,14 @@ class LoadJobManagerTests(unittest.TestCase):
         self.assertEqual(finished.attention_count, 1)
         self.assertEqual(finished.progress_percent, 100)
         self.assertTrue(finished.verification_complete)
+        self.assertEqual(
+            finished.completion_warning,
+            "Correction origin is unavailable.",
+        )
+        self.assertEqual(
+            finished.completion_warning_code,
+            "CORRECTION_ORIGIN_PREPARED_MISSING",
+        )
         self.assertEqual(
             [item.status for item in published],
             [LoadJobStatus.RUNNING, LoadJobStatus.SUCCEEDED],

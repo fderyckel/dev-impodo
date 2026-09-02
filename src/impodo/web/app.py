@@ -256,6 +256,7 @@ from .security import (
 from .diagnostics import (
     LocalDiagnosticRecorder,
     RequestDiagnosticsMiddleware,
+    install_asyncio_exception_diagnostics,
     monitor_event_loop,
 )
 from .workspace_journeys import (
@@ -997,6 +998,11 @@ def create_local_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        loop = asyncio.get_running_loop()
+        previous_exception_handler = install_asyncio_exception_diagnostics(
+            loop,
+            diagnostic_recorder,
+        )
         event_loop_monitor = None
         if diagnostic_recorder is not None:
             diagnostic_recorder.record_lifecycle(
@@ -1035,6 +1041,8 @@ def create_local_app(
             else:
                 if diagnostic_recorder is not None:
                     diagnostic_recorder.record_lifecycle("application_stopped")
+            finally:
+                loop.set_exception_handler(previous_exception_handler)
 
     app = FastAPI(
         title="Impodo",
@@ -1244,7 +1252,10 @@ def create_local_app(
         build_normalization_router(context),
         build_summary_router(context),
         build_preflight_router(context),
-        build_execution_router(context),
+        build_execution_router(
+            context,
+            diagnostic_recorder=diagnostic_recorder,
+        ),
         build_corrections_router(context),
     ):
         app.include_router(router)

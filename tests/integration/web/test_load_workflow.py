@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from tests.support.browser_scenarios import (
     Capability,
     ExecutionRowStatus,
@@ -20,6 +22,64 @@ from tests.support.browser_scenarios import (
 
 
 class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_verified_historical_load_without_origin_shows_warning(self) -> None:
+        context = self.app.state.context
+        workspace_state = self.workspaces.create(
+            name="Historical verified load",
+            source_system="Other",
+        )
+        run_id = "11111111-1111-4111-8111-111111111111"
+        current_run = SimpleNamespace(
+            run_id=run_id,
+            rows=(),
+            committed_count=1,
+            failed_count=0,
+            blocked_count=0,
+            partially_applied_count=0,
+            unknown_count=0,
+        )
+        preview = SimpleNamespace(
+            snapshot=SimpleNamespace(
+                counts={"CREATE": 1, "UPDATE": 0, "UNCHANGED": 0},
+                target_database="migration",
+                target_odoo_version="19.0",
+                semantic_hash="sha256:" + "a" * 64,
+                target_hash="sha256:" + "b" * 64,
+            ),
+            datasets=(),
+            current_run=current_run,
+            can_load=False,
+        )
+        reconciliation = SimpleNamespace(
+            status=SimpleNamespace(value="VERIFIED"),
+            rows=(),
+            verified_count=1,
+            fallout_count=0,
+            unknown_count=0,
+            retry_safe_count=0,
+        )
+
+        with (
+            patch.object(
+                type(context.execution),
+                "current_preview",
+                return_value=preview,
+            ),
+            patch.object(
+                type(context.reconciliation),
+                "current",
+                return_value=reconciliation,
+            ),
+        ):
+            page = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/load/outcome"
+            )
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Completed-load correction is unavailable", page.text)
+        self.assertIn("CORRECTION_ORIGIN_NOT_PUBLISHED", page.text)
+        self.assertIn("verified", page.text.casefold())
+
     def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
         context = self.app.state.context
         workspace_state = self.workspaces.create(
@@ -358,6 +418,17 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             kwargs["progress"](completed_run)
             return completed_run
 
+        preview_reads_outside_event_loop = []
+
+        def current_preview(_workspace_id):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                preview_reads_outside_event_loop.append(True)
+            else:
+                raise AssertionError("Load preview read blocked the event loop")
+            return preview
+
         read_identity = OdooReadIdentity(
             target_hash=target_hash,
             principal_hash="sha256:" + "d" * 64,
@@ -380,7 +451,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             patch.object(
                 type(context.execution),
                 "current_preview",
-                return_value=preview,
+                side_effect=current_preview,
             ),
             patch.object(type(context.execution), "execute", side_effect=execute),
             patch.object(
@@ -435,6 +506,15 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(finished["created_count"], 1)
         self.assertEqual(finished["updated_count"], 1)
         self.assertTrue(finished["verification_complete"])
+        self.assertEqual(preview_reads_outside_event_loop, [True])
+        self.assertIn(
+            "not available for correction",
+            finished["completion_warning"],
+        )
+        self.assertEqual(
+            finished["completion_warning_code"],
+            "CORRECTION_ORIGIN_COMPLETED_EVIDENCE_INCOMPLETE",
+        )
         self.assertEqual(
             finished["redirect_url"],
             f"/workspaces/{workspace_state.workspace_id}/load/outcome",

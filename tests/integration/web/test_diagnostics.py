@@ -13,7 +13,7 @@ import socket
 from time import perf_counter, sleep
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPCookieProcessor, Request, build_opener
@@ -31,6 +31,7 @@ from impodo.web.diagnostics import (
     RequestDiagnosticsMiddleware,
     create_diagnostic_bundle,
     diagnostic_directory,
+    install_asyncio_exception_diagnostics,
     monitor_event_loop,
     parse_server_timing,
 )
@@ -131,6 +132,33 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                 "render": 4.0,
             },
         )
+
+    def test_operation_stage_records_only_bounded_support_fields(self) -> None:
+        with _diagnostic_test_directory("impodo-operation-stage") as directory:
+            recorder = LocalDiagnosticRecorder(
+                directory,
+                slow_request_seconds=0.01,
+            )
+            recorder.record_operation_stage(
+                "odoo_load",
+                "correction_origin",
+                duration_ms=25.5,
+                outcome="warning",
+                reason="CORRECTION_ORIGIN_PREPARED_MISSING",
+                exception_class="CorrectionOriginError",
+            )
+            recorder.close()
+            record = json.loads(
+                (directory / DIAGNOSTIC_LOG_NAME).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(record["event"], "operation_stage_completed")
+        self.assertEqual(record["operation"], "odoo_load")
+        self.assertEqual(record["stage"], "correction_origin")
+        self.assertEqual(record["outcome"], "warning")
+        self.assertEqual(record["reason"], "CORRECTION_ORIGIN_PREPARED_MISSING")
+        self.assertTrue(record["slow"])
+        self.assertNotIn("workspace_id", record)
 
     def test_bundle_resanitizes_logs_and_contains_only_bounded_support_data(
         self,
@@ -308,6 +336,65 @@ class RequestDiagnosticsMiddlewareTests(unittest.IsolatedAsyncioTestCase):
 
 
 class EventLoopDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+    async def test_only_exact_windows_proactor_reset_is_downgraded(self) -> None:
+        with _diagnostic_test_directory("impodo-proactor-reset") as directory:
+            recorder = LocalDiagnosticRecorder(directory)
+            prior_handler = Mock()
+            loop = Mock()
+            loop.get_exception_handler.return_value = prior_handler
+            previous = install_asyncio_exception_diagnostics(
+                loop,
+                recorder,
+                platform_name="win32",
+            )
+            handler = loop.set_exception_handler.call_args.args[0]
+            reset = ConnectionResetError("client reset")
+            reset.winerror = 10054
+
+            handler(
+                loop,
+                {
+                    "message": (
+                        "Exception in callback "
+                        "_ProactorBasePipeTransport._call_connection_lost()"
+                    ),
+                    "exception": reset,
+                },
+            )
+            recorder.close()
+            record = json.loads(
+                (directory / DIAGNOSTIC_LOG_NAME).read_text(encoding="utf-8")
+            )
+
+        self.assertIs(previous, prior_handler)
+        prior_handler.assert_not_called()
+        self.assertEqual(record["event"], "client_connection_reset")
+        self.assertEqual(record["reason"], "windows_proactor_cleanup")
+
+    async def test_macos_and_other_asyncio_errors_keep_the_prior_handler(self) -> None:
+        prior_handler = Mock()
+        loop = Mock()
+        loop.get_exception_handler.return_value = prior_handler
+        install_asyncio_exception_diagnostics(
+            loop,
+            None,
+            platform_name="darwin",
+        )
+        handler = loop.set_exception_handler.call_args.args[0]
+        reset = ConnectionResetError("client reset")
+        reset.winerror = 10054
+        context = {
+            "message": (
+                "Exception in callback "
+                "_ProactorBasePipeTransport._call_connection_lost()"
+            ),
+            "exception": reset,
+        }
+
+        handler(loop, context)
+
+        prior_handler.assert_called_once_with(loop, context)
+
     async def test_event_loop_delay_is_recorded_without_stack_content(self) -> None:
         with _diagnostic_test_directory("impodo-event-loop") as directory:
             recorder = LocalDiagnosticRecorder(
@@ -356,8 +443,17 @@ class ApplicationLifecycleDiagnosticTests(unittest.IsolatedAsyncioTestCase):
                 diagnostic_recorder=recorder,
             )
 
+            loop = asyncio.get_running_loop()
+            previous_exception_handler = loop.get_exception_handler()
             async with app.router.lifespan_context(app):
-                pass
+                self.assertIsNot(
+                    loop.get_exception_handler(),
+                    previous_exception_handler,
+                )
+            self.assertIs(
+                loop.get_exception_handler(),
+                previous_exception_handler,
+            )
 
             recorder.close()
             encoded = (directory / "diagnostics" / DIAGNOSTIC_LOG_NAME).read_text(

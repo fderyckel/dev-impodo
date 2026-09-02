@@ -29,6 +29,15 @@ CORRECTION_ORIGIN_CONTRACT = "correction-origin-v1"
 class CorrectionOriginError(ValueError):
     """Reject incomplete, ambiguous, or altered correction-origin evidence."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_code: str = "CORRECTION_ORIGIN_INVALID",
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
+
 
 @dataclass(frozen=True, slots=True)
 class CorrectionTargetIndexEntry:

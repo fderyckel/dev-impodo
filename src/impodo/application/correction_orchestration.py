@@ -314,38 +314,83 @@ class CorrectionOriginPublisher:
         run = request.completed_run
         workspace = request.completed_workspace
         snapshot = request.execution_snapshot
-        if (
-            run.purpose is not MigrationRunPurpose.AUTHORING
-            or run.project_id != workspace.project_id
-            or run.data_version_id != workspace.data_version_id
-            or run.migration_run_id != workspace.migration_run_id
-            or snapshot.workspace_id != workspace.workspace_id
-            or request.mapping.mapping_id != snapshot.mapping_id
-            or request.mapping.version != snapshot.mapping_version
-            or request.mapping.definition.content_hash
-            != snapshot.mapping_content_hash
-        ):
-            raise CorrectionOriginError(
-                "Completed load owners do not form one correction origin"
-            )
+        owner_checks = (
+            (
+                run.purpose is MigrationRunPurpose.AUTHORING,
+                "CORRECTION_ORIGIN_RUN_PURPOSE_INVALID",
+            ),
+            (
+                run.project_id == workspace.project_id,
+                "CORRECTION_ORIGIN_PROJECT_MISMATCH",
+            ),
+            (
+                run.data_version_id == workspace.data_version_id,
+                "CORRECTION_ORIGIN_DATA_VERSION_MISMATCH",
+            ),
+            (
+                run.migration_run_id == workspace.migration_run_id,
+                "CORRECTION_ORIGIN_RUN_MISMATCH",
+            ),
+            (
+                snapshot.workspace_id == workspace.workspace_id,
+                "CORRECTION_ORIGIN_WORKSPACE_MISMATCH",
+            ),
+            (
+                request.mapping.mapping_id == snapshot.mapping_id,
+                "CORRECTION_ORIGIN_MAPPING_ID_MISMATCH",
+            ),
+            (
+                request.mapping.version == snapshot.mapping_version,
+                "CORRECTION_ORIGIN_MAPPING_VERSION_MISMATCH",
+            ),
+            (
+                request.mapping.definition.content_hash
+                == snapshot.mapping_content_hash,
+                "CORRECTION_ORIGIN_MAPPING_HASH_MISMATCH",
+            ),
+        )
+        for eligible, failure_code in owner_checks:
+            if not eligible:
+                raise CorrectionOriginError(
+                    "Completed load owners do not form one correction origin",
+                    failure_code=failure_code,
+                )
         prepared = tuple(
             sorted(request.prepared_snapshots, key=lambda item: item.dataset_id)
         )
         expected_datasets = {item.dataset for item in snapshot.datasets}
-        if (
-            not prepared
-            or {item.dataset_name for item in prepared} != expected_datasets
-            or any(
-                item.workspace_id != workspace.workspace_id
-                or item.mapping_hash != snapshot.mapping_content_hash
-                for item in prepared
-            )
-            or len({item.dataset_id for item in prepared}) != len(prepared)
-            or len({item.schema_hash for item in prepared}) != 1
-        ):
-            raise CorrectionOriginError(
-                "Completed prepared evidence is not eligible for correction"
-            )
+        prepared_checks = (
+            (bool(prepared), "CORRECTION_ORIGIN_PREPARED_MISSING"),
+            (
+                {item.dataset_name for item in prepared} == expected_datasets,
+                "CORRECTION_ORIGIN_DATASET_SET_MISMATCH",
+            ),
+            (
+                all(item.workspace_id == workspace.workspace_id for item in prepared),
+                "CORRECTION_ORIGIN_PREPARED_WORKSPACE_MISMATCH",
+            ),
+            (
+                all(
+                    item.mapping_hash == snapshot.mapping_content_hash
+                    for item in prepared
+                ),
+                "CORRECTION_ORIGIN_PREPARED_MAPPING_HASH_MISMATCH",
+            ),
+            (
+                len({item.dataset_id for item in prepared}) == len(prepared),
+                "CORRECTION_ORIGIN_DUPLICATE_DATASET",
+            ),
+            (
+                len({item.schema_hash for item in prepared}) == 1,
+                "CORRECTION_ORIGIN_SCHEMA_HASH_MISMATCH",
+            ),
+        )
+        for eligible, failure_code in prepared_checks:
+            if not eligible:
+                raise CorrectionOriginError(
+                    "Completed prepared evidence is not eligible for correction",
+                    failure_code=failure_code,
+                )
         entries = build_completed_load_target_index(
             snapshot,
             request.execution,

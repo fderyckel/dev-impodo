@@ -292,6 +292,16 @@
       </span>
     </div>
 
+    {% if completion_warning %}
+      <section class="notice warning" role="status" aria-labelledby="load-completion-warning-title">
+        <strong id="load-completion-warning-title">Completed-load correction is unavailable</strong>
+        <p>{{ completion_warning }}</p>
+        {% if completion_warning_code %}
+          <small>Support code: <code>{{ completion_warning_code }}</code></small>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if reconciliation %}
       <section class="next-action-card {% if reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}" aria-labelledby="load-result-title">
         <div>

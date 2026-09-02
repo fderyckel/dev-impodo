@@ -153,7 +153,8 @@ class CorrectionWorkflowService:
             or reconciliation is None
         ):
             raise CorrectionOriginError(
-                "Verified completed-load evidence is incomplete"
+                "Verified completed-load evidence is incomplete",
+                failure_code="CORRECTION_ORIGIN_COMPLETED_EVIDENCE_INCOMPLETE",
             )
         records = self.preflight_repository.get_record_snapshot(
             workspace_id,
@@ -161,7 +162,8 @@ class CorrectionWorkflowService:
         )
         if records is None:
             raise CorrectionOriginError(
-                "Completed-load target evidence is missing"
+                "Completed-load target evidence is missing",
+                failure_code="CORRECTION_ORIGIN_TARGET_EVIDENCE_MISSING",
             )
         return self.origin_publisher.publish(
             CorrectionOriginRequest(

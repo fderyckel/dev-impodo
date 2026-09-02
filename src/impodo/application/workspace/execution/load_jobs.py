@@ -42,6 +42,8 @@ class LoadJobResult:
 
     execution_run_id: str
     verification_complete: bool
+    completion_warning: str = ""
+    completion_warning_code: str = ""
 
 
 LoadProgress = Callable[[ExecutionRun], None]
@@ -131,6 +133,8 @@ class LoadJobManager:
                 progress_percent=0,
                 execution_run_id="",
                 verification_complete=False,
+                completion_warning="",
+                completion_warning_code="",
                 created_at=now,
                 started_at=None,
                 updated_at=now,
@@ -301,6 +305,10 @@ class LoadJobManager:
                 progress_percent=100,
                 execution_run_id=result.execution_run_id,
                 verification_complete=result.verification_complete,
+                completion_warning=result.completion_warning.strip()[:1000],
+                completion_warning_code=(
+                    result.completion_warning_code.strip()[:200]
+                ),
                 updated_at=now,
                 finished_at=now,
             )

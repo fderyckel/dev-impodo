@@ -65,6 +65,8 @@ class LoadJob:
     progress_percent: int
     execution_run_id: str
     verification_complete: bool
+    completion_warning: str
+    completion_warning_code: str
     created_at: datetime
     started_at: datetime | None
     updated_at: datetime

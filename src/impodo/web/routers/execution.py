@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import StringIO
 import logging
 from secrets import compare_digest
+from time import perf_counter
 from types import SimpleNamespace
 from typing import Sequence
 from urllib.parse import urlencode, urlsplit
@@ -43,6 +45,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.access import WorkspaceAccessContext
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
+from ..diagnostics import LocalDiagnosticRecorder
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_load_workspace_navigation
@@ -156,6 +159,24 @@ class LoadRowPage:
     last_row: int
 
 
+@dataclass(frozen=True, slots=True)
+class LoadCompletionWarning:
+    """Non-secret post-load warning that must survive the progress redirect."""
+
+    message: str
+    code: str
+
+
+def _correction_unavailable_warning(code: str) -> LoadCompletionWarning:
+    return LoadCompletionWarning(
+        message=(
+            "The Odoo load is verified, but this completed load is not "
+            "available for correction. The verified Odoo result is unchanged."
+        ),
+        code=code,
+    )
+
+
 def _load_row_page(
     rows: Sequence[object],
     *,
@@ -204,6 +225,35 @@ def _target_server(base_url: str) -> str:
     return parsed.netloc or parsed.path or "Configured Odoo server"
 
 
+@contextmanager
+def _diagnostic_load_stage(
+    recorder: LocalDiagnosticRecorder | None,
+    stage: str,
+):
+    """Time one generic load stage without recording workspace or row data."""
+
+    started = perf_counter()
+    try:
+        yield
+    except Exception as error:
+        if recorder is not None:
+            recorder.record_operation_stage(
+                "odoo_load",
+                stage,
+                duration_ms=(perf_counter() - started) * 1000,
+                outcome="failed",
+                exception_class=type(error).__name__,
+            )
+        raise
+    else:
+        if recorder is not None:
+            recorder.record_operation_stage(
+                "odoo_load",
+                stage,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+
+
 def _load_job_display_context(
     context: WebContext,
     workspace_id: str,
@@ -224,7 +274,11 @@ def _load_job_display_context(
     return migration_project.display_name, environment
 
 
-def build_execution_router(context: WebContext) -> APIRouter:
+def build_execution_router(
+    context: WebContext,
+    *,
+    diagnostic_recorder: LocalDiagnosticRecorder | None = None,
+) -> APIRouter:
     """Build the Stage-J load action and Stage-K read-back result flow."""
 
     router = APIRouter()
@@ -272,6 +326,69 @@ def build_execution_router(context: WebContext) -> APIRouter:
             requested_page=request.query_params.get("rows_page"),
             requested_page_size=request.query_params.get("rows_per_page"),
         )
+        latest_load_job = (
+            context.load_jobs.latest(workspace_id)
+            if context.load_jobs is not None
+            else None
+        )
+        completion_warning = None
+        completion_warning_code = None
+        if (
+            preview.current_run is not None
+            and latest_load_job is not None
+            and latest_load_job.execution_run_id == preview.current_run.run_id
+            and latest_load_job.completion_warning
+        ):
+            completion_warning = latest_load_job.completion_warning
+            completion_warning_code = latest_load_job.completion_warning_code
+        if (
+            completion_warning is None
+            and step == "outcome"
+            and preview.current_run is not None
+            and reconciliation is not None
+            and reconciliation.status.value == "VERIFIED"
+        ):
+            access_context = context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.EXPORT_PLAN_EXECUTE,
+            )
+            correction_is_expected = (
+                access_context.recipe_application_id is None
+                and access_context.run_purpose
+                == MigrationRunPurpose.AUTHORING.value
+            )
+            if correction_is_expected:
+                try:
+                    correction_view = context.corrections.get(
+                        workspace_id,
+                        actor=context.actor,
+                    )
+                except (CorrectionOriginError, WorkspaceError) as error:
+                    failure_code = getattr(
+                        error,
+                        "failure_code",
+                        "CORRECTION_ORIGIN_STATUS_UNAVAILABLE",
+                    )
+                    logging.getLogger(__name__).warning(
+                        "Completed-load correction status is unavailable for "
+                        "%s [%s]: %s",
+                        workspace_id,
+                        failure_code,
+                        error,
+                    )
+                    durable_warning = _correction_unavailable_warning(failure_code)
+                else:
+                    durable_warning = (
+                        _correction_unavailable_warning(
+                            "CORRECTION_ORIGIN_NOT_PUBLISHED"
+                        )
+                        if correction_view is None
+                        else None
+                    )
+                if durable_warning is not None:
+                    completion_warning = durable_warning.message
+                    completion_warning_code = durable_warning.code
         return _render(
             request,
             "workspace_load.html",
@@ -310,6 +427,8 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 else None
             ),
             has_stored_write_key=has_stored_write_key,
+            completion_warning=completion_warning,
+            completion_warning_code=completion_warning_code,
             error=error,
             status_code=status_code,
         )
@@ -323,7 +442,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = context.execution.current_preview(workspace_id)
+        preview = await run_in_threadpool(
+            context.execution.current_preview,
+            workspace_id,
+        )
         if preview is None:
             destination = f"/workspaces/{workspace_id}/summary"
         elif preview.current_run is not None:
@@ -409,7 +531,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = context.execution.current_preview(workspace_id)
+        preview = await run_in_threadpool(
+            context.execution.current_preview,
+            workspace_id,
+        )
         if preview is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/summary",
@@ -420,7 +545,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
-        return render(request, workspace_id, step="outcome")
+        return await run_in_threadpool(
+            render,
+            request,
+            workspace_id,
+            step="outcome",
+        )
 
     @router.get(
         "/workspaces/{workspace_id}/load/progress/{job_id}",
@@ -482,29 +612,50 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "remember_api_key",
             },
         )
-        workspace_state = context.queries.get(workspace_id)
-        active_job = _manager(context).active(workspace_id)
-        if active_job is not None:
-            return RedirectResponse(
-                _load_progress_url(workspace_id, active_job.job_id),
-                status_code=303,
+        with _diagnostic_load_stage(
+            diagnostic_recorder,
+            "submission_context",
+        ):
+            workspace_state = await run_in_threadpool(
+                context.queries.get,
+                workspace_id,
             )
-        credential_owner = context.target_credential_workspace(
-            workspace_id,
-            workspace_state=workspace_state,
-        )
+            active_job = _manager(context).active(workspace_id)
+            if active_job is not None:
+                return RedirectResponse(
+                    _load_progress_url(workspace_id, active_job.job_id),
+                    status_code=303,
+                )
+            credential_owner = await run_in_threadpool(
+                context.target_credential_workspace,
+                workspace_id,
+                workspace_state=workspace_state,
+            )
         try:
-            access_context = context.workspace_access.resolve(
-                workspace_id,
-                actor=context.actor,
-                capability=Capability.EXPORT_PLAN_EXECUTE,
-            )
-            context.cutover_plans.assert_application_can_execute(
-                workspace_id,
-                actor=context.actor,
-            )
+            with _diagnostic_load_stage(
+                diagnostic_recorder,
+                "submission_authorization",
+            ):
+                access_context = await run_in_threadpool(
+                    context.workspace_access.resolve,
+                    workspace_id,
+                    actor=context.actor,
+                    capability=Capability.EXPORT_PLAN_EXECUTE,
+                )
+                await run_in_threadpool(
+                    context.cutover_plans.assert_application_can_execute,
+                    workspace_id,
+                    actor=context.actor,
+                )
             batch_rows = validated_create_batch_rows(_text(form, "batch_rows"))
-            preview = context.execution.current_preview(workspace_id)
+            with _diagnostic_load_stage(
+                diagnostic_recorder,
+                "submission_preview",
+            ):
+                preview = await run_in_threadpool(
+                    context.execution.current_preview,
+                    workspace_id,
+                )
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
             if preview.scope_error:
@@ -512,45 +663,58 @@ def build_execution_router(context: WebContext) -> APIRouter:
             snapshot_hash = _text(form, "snapshot_hash")
             if snapshot_hash != preview.snapshot.semantic_hash:
                 raise WorkspaceError("The load preview changed. Review it again.")
-            read_credential = None
-            if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
-                read_credential = get_target_credential(
+            with _diagnostic_load_stage(
+                diagnostic_recorder,
+                "submission_credentials",
+            ):
+                read_credential = None
+                if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
+                    read_credential = await run_in_threadpool(
+                        get_target_credential,
+                        context.secret_store,
+                        credential_owner,
+                        TargetCredentialRole.READ,
+                    )
+                    if read_credential is None:
+                        raise SecretStoreError(
+                            "Enter the current Odoo read key, refresh the schema, "
+                            "and compare again"
+                        )
+                    if not preview.snapshot.readable_models:
+                        raise WorkspaceError(
+                            "Refresh the remote Odoo schema and compare again"
+                        )
+                submitted_key = _text(form, "write_api_key") or _text(
+                    form,
+                    "api_key",
+                )
+                saved_write_credential = await run_in_threadpool(
+                    get_target_credential,
                     context.secret_store,
                     credential_owner,
-                    TargetCredentialRole.READ,
+                    TargetCredentialRole.WRITE,
                 )
-                if read_credential is None:
+                if not submitted_key and saved_write_credential is None:
                     raise SecretStoreError(
-                        "Enter the current Odoo read key, refresh the schema, "
-                        "and compare again"
+                        "Enter an Odoo API key approved for loading on this "
+                        "exact target"
                     )
-                if not preview.snapshot.readable_models:
-                    raise WorkspaceError(
-                        "Refresh the remote Odoo schema and compare again"
-                    )
-            submitted_key = _text(form, "write_api_key") or _text(
-                form,
-                "api_key",
-            )
-            saved_write_credential = get_target_credential(
-                context.secret_store,
-                credential_owner,
-                TargetCredentialRole.WRITE,
-            )
-            if not submitted_key and saved_write_credential is None:
-                raise SecretStoreError(
-                    "Enter an Odoo API key approved for loading on this exact target"
+                api_key = (
+                    submitted_key
+                    if submitted_key
+                    else saved_write_credential.secret
                 )
-            api_key = submitted_key if submitted_key else saved_write_credential.secret
-            if (
-                credential_owner.workspace_id != workspace_state.workspace_id
-                and read_credential is not None
-                and compare_digest(read_credential.secret, api_key)
-            ):
-                raise SecretStoreError("Use a different Odoo API key for write access")
-            remember_write_key = (
-                "remember_write_api_key" in form or "remember_api_key" in form
-            )
+                if (
+                    credential_owner.workspace_id != workspace_state.workspace_id
+                    and read_credential is not None
+                    and compare_digest(read_credential.secret, api_key)
+                ):
+                    raise SecretStoreError(
+                        "Use a different Odoo API key for write access"
+                    )
+                remember_write_key = (
+                    "remember_write_api_key" in form or "remember_api_key" in form
+                )
 
             def run_load(
                 authorized_workspace: WorkspaceAccessContext,
@@ -561,98 +725,107 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     raise MigrationConflictError(
                         "The authorized workspace changed before the load began"
                     )
-                read_identity = _probe_read_identity_sync(
-                    context,
-                    workspace_state,
-                    preview,
-                    read_credential.secret if read_credential is not None else "",
-                )
-                write_identity = _probe_remote_write_identity_sync(
-                    context,
-                    workspace_state,
-                    preview,
-                    api_key,
-                )
-                write_credential = saved_write_credential
-                if submitted_key:
-                    write_credential = store_target_credential(
-                        context.secret_store,
-                        credential_owner,
-                        TargetCredentialRole.WRITE,
-                        submitted_key,
-                        persistent=remember_write_key,
-                    )
-                    audit_stored_target_credential(
-                        context.workspace_states,
+                with _diagnostic_load_stage(
+                    diagnostic_recorder,
+                    "target_authority",
+                ):
+                    read_identity = _probe_read_identity_sync(
+                        context,
                         workspace_state,
-                        TargetCredentialRole.WRITE,
-                        write_credential,
-                        actor=context.actor,
+                        preview,
+                        read_credential.secret if read_credential is not None else "",
                     )
-                if write_credential is None:
-                    raise SecretStoreError(
-                        "Enter an Odoo API key approved for loading on this exact target"
-                    )
-                read_credential_binding_hash = (
-                    read_credential.binding_hash if read_credential is not None else ""
-                )
-                context.production_runs.assert_execution_authority(
-                    workspace_id,
-                    read_identity=read_identity,
-                    read_credential_generation=read_credential_binding_hash,
-                    expected_read_credential_generation=(
-                        preview.snapshot.read_credential_binding_hash
-                    ),
-                    write_identity=write_identity,
-                    write_credential_generation=write_credential.binding_hash,
-                    actor=context.actor,
-                )
-                executor = context.write_executor_factory(
-                    workspace_state,
-                    api_key,
-                    preview.api_scope,
-                )
-                run = context.execution.execute(
-                    workspace_id,
-                    expected_snapshot_hash=snapshot_hash,
-                    executor=executor,
-                    actor=context.actor,
-                    batch_rows=batch_rows,
-                    read_identity=read_identity,
-                    read_credential_binding_hash=read_credential_binding_hash,
-                    write_identity=write_identity,
-                    write_credential_binding_hash=(
-                        write_credential.binding_hash
-                        if write_identity is not None
-                        else ""
-                    ),
-                    progress=report_writing,
-                )
-                report_verifying(run)
-                try:
-                    readback_identity = _probe_remote_write_identity_sync(
+                    write_identity = _probe_remote_write_identity_sync(
                         context,
                         workspace_state,
                         preview,
                         api_key,
                     )
-                    reader = context.readback_reader_factory(
+                    write_credential = saved_write_credential
+                    if submitted_key:
+                        write_credential = store_target_credential(
+                            context.secret_store,
+                            credential_owner,
+                            TargetCredentialRole.WRITE,
+                            submitted_key,
+                            persistent=remember_write_key,
+                        )
+                        audit_stored_target_credential(
+                            context.workspace_states,
+                            workspace_state,
+                            TargetCredentialRole.WRITE,
+                            write_credential,
+                            actor=context.actor,
+                        )
+                    if write_credential is None:
+                        raise SecretStoreError(
+                            "Enter an Odoo API key approved for loading on this "
+                            "exact target"
+                        )
+                    read_credential_binding_hash = (
+                        read_credential.binding_hash
+                        if read_credential is not None
+                        else ""
+                    )
+                    context.production_runs.assert_execution_authority(
+                        workspace_id,
+                        read_identity=read_identity,
+                        read_credential_generation=read_credential_binding_hash,
+                        expected_read_credential_generation=(
+                            preview.snapshot.read_credential_binding_hash
+                        ),
+                        write_identity=write_identity,
+                        write_credential_generation=write_credential.binding_hash,
+                        actor=context.actor,
+                    )
+                    executor = context.write_executor_factory(
                         workspace_state,
                         api_key,
                         preview.api_scope,
                     )
-                    verification = context.reconciliation.reconcile(
+                with _diagnostic_load_stage(diagnostic_recorder, "write"):
+                    run = context.execution.execute(
                         workspace_id,
-                        expected_execution_run_id=run.run_id,
-                        reader=reader,
+                        expected_snapshot_hash=snapshot_hash,
+                        executor=executor,
                         actor=context.actor,
-                        write_identity=readback_identity,
+                        batch_rows=batch_rows,
+                        read_identity=read_identity,
+                        read_credential_binding_hash=read_credential_binding_hash,
+                        write_identity=write_identity,
                         write_credential_binding_hash=(
                             write_credential.binding_hash
-                            if readback_identity is not None
+                            if write_identity is not None
                             else ""
                         ),
+                        progress=report_writing,
                     )
+                report_verifying(run)
+                try:
+                    with _diagnostic_load_stage(diagnostic_recorder, "verification"):
+                        readback_identity = _probe_remote_write_identity_sync(
+                            context,
+                            workspace_state,
+                            preview,
+                            api_key,
+                        )
+                        reader = context.readback_reader_factory(
+                            workspace_state,
+                            api_key,
+                            preview.api_scope,
+                        )
+                        verification = context.reconciliation.reconcile(
+                            workspace_id,
+                            expected_execution_run_id=run.run_id,
+                            reader=reader,
+                            actor=context.actor,
+                            write_identity=readback_identity,
+                            write_credential_binding_hash=(
+                                write_credential.binding_hash
+                                if readback_identity is not None
+                                else ""
+                            ),
+                        )
                 except (
                     ConnectorError,
                     OdooReadbackError,
@@ -660,49 +833,60 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     WorkspaceError,
                 ):
                     verification_complete = False
+                    completion_warning = None
                 else:
                     verification_complete = not (
                         verification.unknown_count or verification.fallout_count
                     )
+                    completion_warning = None
                     if (
                         verification_complete
                         and access_context.recipe_application_id is None
                         and access_context.run_purpose
                         == MigrationRunPurpose.AUTHORING.value
                     ):
-                        _publish_completed_correction_origin(
+                        completion_warning = _publish_completed_correction_origin(
                             context,
                             workspace_id,
+                            diagnostic_recorder=diagnostic_recorder,
                         )
                 return LoadJobResult(
                     execution_run_id=run.run_id,
                     verification_complete=verification_complete,
+                    completion_warning=(
+                        completion_warning.message if completion_warning else ""
+                    ),
+                    completion_warning_code=(
+                        completion_warning.code if completion_warning else ""
+                    ),
                 )
 
-            migration_project_name, target_environment = _load_job_display_context(
-                context,
-                workspace_id,
-            )
-            job = _manager(context).enqueue(
-                workspace_id,
-                migration_project_name,
-                target_database=preview.snapshot.target_database,
-                target_server=_target_server(workspace_state.odoo_base_url),
-                target_environment=target_environment,
-                total_rows=preview.snapshot.write_count,
-                relationship_total_rows=getattr(
-                    preview,
-                    "deferred_create_count",
-                    0,
-                ),
-                load_group_count=getattr(
-                    getattr(preview, "dependency_summary", None),
-                    "total_group_count",
-                    0,
-                ),
-                access_context=access_context,
-                work=run_load,
-            )
+            with _diagnostic_load_stage(diagnostic_recorder, "submission_enqueue"):
+                migration_project_name, target_environment = await run_in_threadpool(
+                    _load_job_display_context,
+                    context,
+                    workspace_id,
+                )
+                job = _manager(context).enqueue(
+                    workspace_id,
+                    migration_project_name,
+                    target_database=preview.snapshot.target_database,
+                    target_server=_target_server(workspace_state.odoo_base_url),
+                    target_environment=target_environment,
+                    total_rows=preview.snapshot.write_count,
+                    relationship_total_rows=getattr(
+                        preview,
+                        "deferred_create_count",
+                        0,
+                    ),
+                    load_group_count=getattr(
+                        getattr(preview, "dependency_summary", None),
+                        "total_group_count",
+                        0,
+                    ),
+                    access_context=access_context,
+                    work=run_load,
+                )
         except (
             AuthorizationError,
             LoadJobStateError,
@@ -712,7 +896,8 @@ def build_execution_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
-            return render(
+            return await run_in_threadpool(
+                render,
                 request,
                 workspace_id,
                 step="confirm",
@@ -849,11 +1034,18 @@ def build_execution_router(context: WebContext) -> APIRouter:
             and access_context.run_purpose
             == MigrationRunPurpose.AUTHORING.value
         ):
-            await run_in_threadpool(
+            completion_warning = await run_in_threadpool(
                 _publish_completed_correction_origin,
                 context,
                 workspace_id,
+                diagnostic_recorder=diagnostic_recorder,
             )
+            if completion_warning is not None:
+                _flash(
+                    request,
+                    f"{completion_warning.message} "
+                    f"Support code: {completion_warning.code}.",
+                )
         _flash_reconciliation(request, report)
         return RedirectResponse(
             f"/workspaces/{workspace_id}/load/outcome",
@@ -926,25 +1118,70 @@ def _flash_reconciliation(request: Request, report) -> None:
 def _publish_completed_correction_origin(
     context: WebContext,
     workspace_id: str,
-) -> None:
+    *,
+    diagnostic_recorder: LocalDiagnosticRecorder | None = None,
+) -> LoadCompletionWarning | None:
     """Do not misreport a verified Odoo load if finalization needs recovery."""
 
+    started = perf_counter()
     try:
         context.corrections.publish_completed_load(
             workspace_id,
             actor=context.actor,
         )
     except (CorrectionOriginError, WorkspaceError) as error:
+        failure_code = getattr(
+            error,
+            "failure_code",
+            "CORRECTION_ORIGIN_PUBLICATION_UNAVAILABLE",
+        )
         logging.getLogger(__name__).warning(
-            "Completed-load correction origin is unavailable for %s: %s",
+            "Completed-load correction origin is unavailable for %s [%s]: %s",
             workspace_id,
+            failure_code,
             error,
         )
-    except Exception:
+        if diagnostic_recorder is not None:
+            diagnostic_recorder.record_operation_stage(
+                "odoo_load",
+                "correction_origin",
+                duration_ms=(perf_counter() - started) * 1000,
+                outcome="warning",
+                reason=failure_code,
+                exception_class=type(error).__name__,
+            )
+        return _correction_unavailable_warning(failure_code)
+    except Exception as error:
+        failure_code = "CORRECTION_ORIGIN_PUBLICATION_FAILED"
         logging.getLogger(__name__).exception(
             "Could not publish completed-load correction origin for %s",
             workspace_id,
         )
+        if diagnostic_recorder is not None:
+            diagnostic_recorder.record_operation_stage(
+                "odoo_load",
+                "correction_origin",
+                duration_ms=(perf_counter() - started) * 1000,
+                outcome="failed",
+                reason=failure_code,
+                exception_class=type(error).__name__,
+            )
+        return LoadCompletionWarning(
+            message=(
+                "The Odoo load is verified, but Impodo could not finish "
+                "preparing this load for correction. The verified Odoo result "
+                "is unchanged."
+            ),
+            code=failure_code,
+        )
+    else:
+        if diagnostic_recorder is not None:
+            diagnostic_recorder.record_operation_stage(
+                "odoo_load",
+                "correction_origin",
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+        return None
 
 
 def _job_payload(job: LoadJob) -> dict[str, object]:
@@ -970,6 +1207,8 @@ def _job_payload(job: LoadJob) -> dict[str, object]:
         "progress_percent": job.progress_percent,
         "execution_run_id": job.execution_run_id,
         "verification_complete": job.verification_complete,
+        "completion_warning": job.completion_warning,
+        "completion_warning_code": job.completion_warning_code,
         "failure_message": job.failure_message,
         "redirect_url": (
             f"/workspaces/{job.workspace_id}/load/outcome"

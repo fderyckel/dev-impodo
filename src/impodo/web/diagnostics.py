@@ -199,6 +199,37 @@ class LocalDiagnosticRecorder:
             }
         )
 
+    def record_operation_stage(
+        self,
+        operation: str,
+        stage: str,
+        *,
+        duration_ms: float,
+        outcome: str = "completed",
+        reason: str | None = None,
+        exception_class: str | None = None,
+    ) -> None:
+        """Record one bounded application stage without business identifiers."""
+
+        duration = _safe_duration(duration_ms)
+        payload: dict[str, Any] = {
+            "event": "operation_stage_completed",
+            "process_id": os.getpid(),
+            "operation": _safe_name(operation, fallback="operation"),
+            "stage": _safe_name(stage, fallback="stage"),
+            "outcome": _safe_name(outcome, fallback="completed"),
+            "duration_ms": round(duration, 3),
+            "slow": duration >= self.slow_request_seconds * 1000,
+        }
+        if reason is not None:
+            payload["reason"] = _safe_name(reason, fallback="unspecified")
+        if exception_class is not None:
+            payload["exception_class"] = _safe_name(
+                exception_class,
+                fallback="Exception",
+            )
+        self._write(payload)
+
     def close(self) -> None:
         """Flush and close the rotating file without writing another record."""
 
@@ -355,7 +386,11 @@ def create_diagnostic_bundle(
         for item in records
         if item.get("slow") is True
         and item.get("event")
-        in {"request_completed", "event_loop_delay_observed"}
+        in {
+            "request_completed",
+            "event_loop_delay_observed",
+            "operation_stage_completed",
+        }
     ][-100:]
     created_at = _utc_timestamp()
     manifest = {
@@ -455,6 +490,56 @@ async def monitor_event_loop(
         expected_tick = observed_at + interval_seconds
 
 
+def install_asyncio_exception_diagnostics(
+    loop,
+    recorder: LocalDiagnosticRecorder | None,
+    *,
+    platform_name: str | None = None,
+):
+    """Install a narrow transport-noise filter and return the prior handler."""
+
+    previous_handler = loop.get_exception_handler()
+    resolved_platform = platform_name or sys.platform
+
+    def handle_exception(active_loop, context: dict[str, Any]) -> None:
+        if _is_expected_windows_proactor_reset(
+            context,
+            platform_name=resolved_platform,
+        ):
+            if recorder is not None:
+                recorder.record_lifecycle(
+                    "client_connection_reset",
+                    reason="windows_proactor_cleanup",
+                    exception_class="ConnectionResetError",
+                )
+            return
+        if previous_handler is not None:
+            previous_handler(active_loop, context)
+        else:
+            active_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(handle_exception)
+    return previous_handler
+
+
+def _is_expected_windows_proactor_reset(
+    context: dict[str, Any],
+    *,
+    platform_name: str,
+) -> bool:
+    """Match only CPython's known Windows connection-close callback noise."""
+
+    exception = context.get("exception")
+    error_number = getattr(exception, "winerror", None)
+    message = str(context.get("message", ""))
+    return (
+        platform_name == "win32"
+        and isinstance(exception, ConnectionResetError)
+        and error_number == 10054
+        and "_ProactorBasePipeTransport._call_connection_lost" in message
+    )
+
+
 def _safe_server_timings(values: dict[str, float]) -> dict[str, float]:
     timings: dict[str, float] = {}
     for key, value in sorted(values.items()):
@@ -552,7 +637,14 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         parsed = _bounded_int(value.get(field), minimum, maximum)
         if parsed is not None:
             safe[field] = parsed
-    for field in ("reason", "exception_class", "build_version"):
+    for field in (
+        "reason",
+        "exception_class",
+        "build_version",
+        "operation",
+        "stage",
+        "outcome",
+    ):
         if field in value:
             candidate = _safe_name(str(value[field]), fallback="")
             if candidate:

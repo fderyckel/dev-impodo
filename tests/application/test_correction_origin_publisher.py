@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
@@ -26,6 +27,7 @@ from impodo.domain.reconciliation import (
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.shared.access import Actor, ActorIdentity
 from impodo.domain.shared.models import target_record_binding_hash
+from impodo.domain.correction_origin import CorrectionOriginError
 
 
 IDS = tuple(f"{value:08d}-0000-4000-8000-000000000000" for value in range(1, 12))
@@ -176,42 +178,42 @@ class CorrectionOriginPublisherTests(unittest.TestCase):
         )
         protected = _Protected()
         bindings = _Bindings()
-        publication = CorrectionOriginPublisher(bindings, protected).publish(
-            CorrectionOriginRequest(
-                completed_run=SimpleNamespace(
-                    migration_run_id=run_id,
-                    project_id=IDS[1],
-                    data_version_id=IDS[8],
-                    purpose=MigrationRunPurpose.AUTHORING,
-                    optimistic_revision=4,
-                ),
-                completed_workspace=SimpleNamespace(
-                    workspace_id=workspace_id,
-                    project_id=IDS[1],
-                    data_version_id=IDS[8],
-                    migration_run_id=run_id,
-                    optimistic_revision=6,
-                ),
-                mapping=SimpleNamespace(
-                    mapping_id=snapshot.mapping_id,
-                    version=snapshot.mapping_version,
-                    definition=SimpleNamespace(
-                        content_hash=snapshot.mapping_content_hash
-                    ),
-                ),
-                prepared_snapshots=(prepared,),
-                execution_snapshot=snapshot,
-                execution=execution,
-                reconciliation=reconciliation,
-                target_records=SimpleNamespace(
-                    fingerprint=SimpleNamespace(target_hash=snapshot.target_hash),
-                    content_hash=snapshot.record_snapshot_hash,
-                    complete=True,
-                    records={
-                        "product.template": (SimpleNamespace(odoo_id=701),)
-                    },
+        request = CorrectionOriginRequest(
+            completed_run=SimpleNamespace(
+                migration_run_id=run_id,
+                project_id=IDS[1],
+                data_version_id=IDS[8],
+                purpose=MigrationRunPurpose.AUTHORING,
+                optimistic_revision=4,
+            ),
+            completed_workspace=SimpleNamespace(
+                workspace_id=workspace_id,
+                project_id=IDS[1],
+                data_version_id=IDS[8],
+                migration_run_id=run_id,
+                optimistic_revision=6,
+            ),
+            mapping=SimpleNamespace(
+                mapping_id=snapshot.mapping_id,
+                version=snapshot.mapping_version,
+                definition=SimpleNamespace(
+                    content_hash=snapshot.mapping_content_hash
                 ),
             ),
+            prepared_snapshots=(prepared,),
+            execution_snapshot=snapshot,
+            execution=execution,
+            reconciliation=reconciliation,
+            target_records=SimpleNamespace(
+                fingerprint=SimpleNamespace(target_hash=snapshot.target_hash),
+                content_hash=snapshot.record_snapshot_hash,
+                complete=True,
+                records={"product.template": (SimpleNamespace(odoo_id=701),)},
+            ),
+        )
+        publisher = CorrectionOriginPublisher(bindings, protected)
+        publication = publisher.publish(
+            request,
             actor=ACTOR,
         )
 
@@ -222,6 +224,43 @@ class CorrectionOriginPublisherTests(unittest.TestCase):
         self.assertEqual(artifact.parquet_sha256, prepared.parquet_sha256)
         self.assertFalse(hasattr(artifact, "values"))
         self.assertNotIn(b"row_hash", publication.target_index.protected_json())
+
+        with self.assertRaises(CorrectionOriginError) as missing:
+            publisher.publish(
+                replace(request, prepared_snapshots=()),
+                actor=ACTOR,
+            )
+        self.assertEqual(
+            missing.exception.failure_code,
+            "CORRECTION_ORIGIN_PREPARED_MISSING",
+        )
+
+        with self.assertRaises(CorrectionOriginError) as dataset_mismatch:
+            publisher.publish(
+                replace(
+                    request,
+                    prepared_snapshots=(
+                        PreparedSnapshot.create(
+                            workspace_id=workspace_id,
+                            dataset_id=DATASET_ID,
+                            dataset_name="Other dataset",
+                            source_snapshot_hash=HASHES[6],
+                            mapping_hash=snapshot.mapping_content_hash,
+                            schema_hash=HASHES[7],
+                            transformation_program_hash=HASHES[8],
+                            row_count=1,
+                            physical_schema_hash=HASHES[9],
+                            parquet_sha256=HASHES[10],
+                            created_at=NOW,
+                        ),
+                    ),
+                ),
+                actor=ACTOR,
+            )
+        self.assertEqual(
+            dataset_mismatch.exception.failure_code,
+            "CORRECTION_ORIGIN_DATASET_SET_MISMATCH",
+        )
 
 
 if __name__ == "__main__":
