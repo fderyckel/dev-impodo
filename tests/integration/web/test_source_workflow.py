@@ -393,6 +393,45 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             completed_schema_page.text,
         )
 
+        replaced_key = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-read-credential",
+            {
+                "csrf_token": self.csrf,
+                "read_api_key": "replacement-read-secret",
+            },
+        )
+        self.assertEqual(replaced_key.status_code, 303)
+        credential_mismatch_page = self.client.get(
+            f"/workspaces/{workspace_id}/sources#selection-saved"
+        )
+        self.assertIn(
+            "Refresh Odoo details and continue",
+            credential_mismatch_page.text,
+        )
+        self.assertIn(
+            f'action="/workspaces/{workspace_id}/schema/capture"',
+            credential_mismatch_page.text,
+        )
+        refreshed_binding = self._post(
+            f"/workspaces/{workspace_id}/schema/capture",
+            {
+                "csrf_token": self.csrf,
+                "return_to_sources": "1",
+            },
+        )
+        self.assertEqual(refreshed_binding.status_code, 303)
+        self.assertEqual(
+            refreshed_binding.headers["location"],
+            f"/workspaces/{workspace_id}/sources#selection-saved",
+        )
+        refreshed_source_page = self.client.get(
+            refreshed_binding.headers["location"]
+        )
+        self.assertIn(
+            "Check matching records and continue",
+            refreshed_source_page.text,
+        )
+
         context = self.app.state.context
         schema = context.queries.get_odoo_schema_catalog(workspace_id)
         self.assertIsNotNone(schema)

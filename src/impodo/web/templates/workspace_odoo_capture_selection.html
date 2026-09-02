@@ -218,7 +218,11 @@
           <strong>Refresh the saved Odoo details once.</strong>
           Your capture plan and frozen evidence have not been changed.
         </div>
-        <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo details</a></p>
+        <form method="post" action="/workspaces/{{ workspace_id }}/schema/capture">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="return_to_sources" value="1">
+          <button class="button primary" type="submit">Refresh Odoo details and continue</button>
+        </form>
       {% elif capture_ready_to_assess %}
         <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -227,7 +231,17 @@
           <button class="button primary" type="submit">Check matching records</button>
         </form>
       {% else %}
-        <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">{% if schema and schema.pending_refresh %}Review Odoo changes{% else %}Refresh credential-bound Odoo details{% endif %}</a></p>
+        {% if schema and schema.pending_refresh %}
+          <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema#odoo-schema-changes">Review Odoo changes</a></p>
+        {% elif not read_credential_present %}
+          <p><a class="button primary" href="#capture-credential">Save read-only Odoo key</a></p>
+        {% else %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/schema/capture">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="return_to_sources" value="1">
+            <button class="button primary" type="submit">Refresh Odoo details and continue</button>
+          </form>
+        {% endif %}
       {% endif %}
       {% if plans_complete %}
         <details class="technical-evidence">

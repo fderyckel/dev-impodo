@@ -570,7 +570,12 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Capture first metadata or compare a refresh with current evidence."""
 
         form = await request.form()
-        _secure_form(request, form, {"csrf_token"})
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "return_to_sources"},
+        )
+        return_to_sources = _checked(form, "return_to_sources")
         workspace_state = context.queries.get(workspace_id)
         test_setup = context.test_runs.setup_binding_for_workspace(
             workspace_id,
@@ -621,6 +626,15 @@ def build_schema_router(context: WebContext) -> APIRouter:
             )
         else:
             _flash(request, "Odoo data is ready.")
+        if (
+            return_to_sources
+            and schema.pending_refresh is None
+            and workspace_state.source_mode is SourceMode.ODOO
+        ):
+            return RedirectResponse(
+                _odoo_source_capture_location(context, workspace_state, schema),
+                status_code=303,
+            )
         if (
             schema.pending_refresh is None
             and not (

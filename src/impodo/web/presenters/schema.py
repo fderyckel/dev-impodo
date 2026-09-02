@@ -10,6 +10,7 @@ from uuid import uuid4
 from fastapi import Request
 from starlette.datastructures import FormData
 
+from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.business_keys import (
     describe_business_key,
     recommend_business_key,
@@ -34,6 +35,10 @@ from ..constants import (
 )
 from ..context import WebContext
 from ..forms import _text
+from ..target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+)
 from .common import _render
 
 
@@ -429,6 +434,20 @@ def _render_schema(
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     model_choices = _schema_model_choices(workspace_state, model_catalog)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    try:
+        read_credential = get_target_credential(
+            context.secret_store,
+            workspace_state,
+            TargetCredentialRole.READ,
+        )
+    except SecretStoreError:
+        read_credential = None
+    read_credential_present = read_credential is not None
+    schema_credential_current = bool(
+        schema is not None
+        and read_credential is not None
+        and schema.read_credential_binding_hash == read_credential.binding_hash
+    )
     current_capture_plans = (
         context.queries.get_current_odoo_capture_selections(workspace_id)
         if schema is not None
@@ -529,6 +548,8 @@ def _render_schema(
             1 for choice in model_choices if choice["in_focus"]
         ),
         schema=schema,
+        read_credential_present=read_credential_present,
+        schema_credential_current=schema_credential_current,
         capture_plans_complete=capture_plans_complete,
         schema_field_count=(
             sum(len(model.fields) for model in schema.models)

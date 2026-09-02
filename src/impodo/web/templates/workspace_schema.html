@@ -25,10 +25,16 @@
   </div>
 
   {% if schema and not schema.pending_refresh and schema.origin.value != 'LOCAL_MANUAL' and not is_recipe_run_setup and workspace_state.source_mode.value == 'ODOO' and not selection %}
-    <section class="next-action-card ready" id="schema-next-action">
+    <section class="next-action-card {% if schema_credential_current %}ready{% else %}attention{% endif %}" id="schema-next-action">
       <div>
-        <p class="eyebrow">Stage 1 complete</p>
-        {% if capture_plans_complete %}
+        <p class="eyebrow">{% if schema_credential_current %}Stage 1 complete{% else %}One Odoo check required{% endif %}</p>
+        {% if not read_credential_present %}
+          <h2>Save the read-only Odoo key to continue</h2>
+          <p>The saved field list cannot authorize a record capture until the read-only key is available again.</p>
+        {% elif not schema_credential_current %}
+          <h2>Refresh the Odoo details for the current key</h2>
+          <p>This is the missing step. Impodo will verify the saved record types and fields with the current read-only key, then return directly to the record-count check.</p>
+        {% elif capture_plans_complete %}
           <h2>All Odoo capture plans are ready</h2>
           <p>
             Fields and limits are saved for all {{ schema.models|length }} selected record types.
@@ -43,7 +49,15 @@
         {% endif %}
       </div>
       <div class="next-action-buttons">
-        {% if capture_plans_complete %}
+        {% if not read_credential_present %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#capture-credential">Save read-only key</a>
+        {% elif not schema_credential_current %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/schema/capture">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="return_to_sources" value="1">
+            <button class="button primary" type="submit">Refresh Odoo details and continue</button>
+          </form>
+        {% elif capture_plans_complete %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#selection-saved">Continue to record count check</a>
         {% else %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#capture-plan">Continue to capture plans</a>
