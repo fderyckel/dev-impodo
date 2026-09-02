@@ -937,7 +937,13 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             read_permission_hash=content_hash({"permissions": 1}),
             context_hash=content_hash({"context": 1}),
         )
-        dataset_id = "dataset:" + "a" * 24
+        dataset_id = "dataset:" + "b" * 24
+        uom_dataset_id = "dataset:" + "a" * 24
+        uom_source = replace(
+            source,
+            capture_selection_hash=content_hash({"capture": "uom", "workspace": workspace_id}),
+            model="uom.uom",
+        )
         columns = (
             SourceDatasetColumn(
                 ordinal=1,
@@ -960,6 +966,20 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
                     source=source,
                     row_count=2,
                     columns=columns,
+                ),
+                SourceDataset(
+                    dataset_id=uom_dataset_id,
+                    name="Units of Measure",
+                    source=uom_source,
+                    row_count=1,
+                    columns=(
+                        SourceDatasetColumn(
+                            ordinal=1,
+                            source_name="name",
+                            stable_key="odoo:uom.uom:name",
+                            candidate_type="string",
+                        ),
+                    ),
                 ),
             ),
             content_hash=content_hash({"selection": workspace_id}),
@@ -986,6 +1006,27 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             parquet_sha256=content_hash({"parquet": 1}),
             created_at=utc_now(),
         )
+        uom_snapshot = SourceSnapshot.create(
+            data_version_id=data_version_id,
+            dataset_id=uom_dataset_id,
+            dataset_name="Units of Measure",
+            source=uom_source,
+            physical_selection_hash=selection.content_hash,
+            schema=SourceSnapshotSchema.create(
+                (
+                    SourceSnapshotColumn.create(
+                        ordinal=1,
+                        source_name="name",
+                        stable_key="odoo:uom.uom:name",
+                        candidate_type="string",
+                    ),
+                )
+            ),
+            row_count=1,
+            data_logical_hash=content_hash({"rows": ("Units",)}),
+            parquet_sha256=content_hash({"parquet": 2}),
+            created_at=utc_now(),
+        )
         manifest = SimpleNamespace(
             data_version_id=data_version_id,
             dataset_id=dataset_id,
@@ -1002,12 +1043,28 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             provenance_size_bytes=128,
             provenance_storage_key="captures/origins.iprv",
         )
+        uom_manifest = SimpleNamespace(
+            data_version_id=data_version_id,
+            dataset_id=uom_dataset_id,
+            dataset_name="Units of Measure",
+            row_count=1,
+            data_logical_hash=uom_snapshot.data_logical_hash,
+            data_sha256=uom_snapshot.parquet_sha256,
+            data_storage_key=uom_snapshot.parquet_storage_key,
+            data_size_bytes=256,
+            manifest_id=str(uuid4()),
+            content_hash=content_hash({"manifest": "uom", "workspace": workspace_id}),
+            provenance_logical_hash=content_hash({"origins": 2}),
+            provenance_sha256=content_hash({"encrypted": 2}),
+            provenance_size_bytes=64,
+            provenance_storage_key="captures/uom-origins.iprv",
+        )
 
         projection = context.data_version_source_projection.accept_odoo_capture(
             workspace_id,
             selection,
-            snapshot,
-            manifest,
+            (snapshot, uom_snapshot),
+            (manifest, uom_manifest),
             actor=context.actor,
         )
         data_version = context.data_versions.get(
@@ -1021,11 +1078,18 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
 
         self.assertIs(data_version.state, DataVersionState.FROZEN)
         self.assertEqual(package.origin.value, "ODOO")
+        self.assertEqual(len(package.datasets), 2)
         self.assertEqual(projection.package_hash, package.content_hash)
         self.assertEqual(package.datasets[0].source_file_ids, ())
         self.assertEqual(
-            package.datasets[0].manifest["capture_manifest_hash"],
-            manifest.content_hash,
+            {
+                item.dataset_id: item.manifest["capture_manifest_hash"]
+                for item in package.datasets
+            },
+            {
+                dataset_id: manifest.content_hash,
+                uom_dataset_id: uom_manifest.content_hash,
+            },
         )
 
 

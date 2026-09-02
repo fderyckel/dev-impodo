@@ -164,6 +164,14 @@ class SourceWorkspaceRepository(Protocol):
 
         ...
 
+    def get_current_odoo_capture_selections(
+        self,
+        workspace_id: str,
+    ) -> tuple[OdooCaptureSelection, ...]:
+        """Return every current protected Odoo capture selection by model."""
+
+        ...
+
     def save_odoo_capture_selection(
         self,
         workspace_id: str,
@@ -298,7 +306,25 @@ class SourceWorkspaceService:
             raise WorkspaceError(
                 "Odoo capture batch size must be 10, 100, or 500 records"
             )
-        current = self.sources.get_current_odoo_capture_selection(workspace_id)
+        current_selections = self.sources.get_current_odoo_capture_selections(
+            workspace_id
+        )
+        current = next(
+            (item for item in current_selections if item.model == model),
+            None,
+        )
+        duplicate_dataset = next(
+            (
+                item
+                for item in current_selections
+                if item.model != model and item.dataset_name == dataset_name.strip()
+            ),
+            None,
+        )
+        if duplicate_dataset is not None:
+            raise WorkspaceError(
+                "Give each Odoo record type a different dataset name"
+            )
         try:
             selection = OdooCaptureSelection.create(
                 selection_id=(current.selection_id if current else str(uuid4())),

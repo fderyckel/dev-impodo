@@ -826,6 +826,90 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             2,
         )
 
+    def test_odoo_capture_keeps_one_current_plan_per_model(self) -> None:
+        odoo_project = replace(
+            self.workspace_state,
+            source_mode=SourceMode.ODOO,
+            intended_models=("product.template", "uom.uom"),
+            revision=self.workspace_state.revision + 1,
+        )
+        self.workspace_state_repository.save(
+            odoo_project,
+            expected_revision=self.workspace_state.revision,
+            event_type="TEST_ODOO_SOURCE_MODE",
+            event_detail="",
+            actor=LOCAL_ACTOR,
+        )
+        self.workspace_state = odoo_project
+        snapshot = _odoo_capture_metadata_snapshot()
+        base_model = snapshot.models["res.partner"]
+        models = {
+            "product.template": replace(
+                base_model,
+                model="product.template",
+                description="Product",
+            ),
+            "uom.uom": replace(
+                base_model,
+                model="uom.uom",
+                description="Unit of Measure",
+            ),
+        }
+        schema = self.schemas.capture(
+            self.workspace_state.workspace_id,
+            replace(snapshot, models=models),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            read_identity=_read_identity(tuple(sorted(models))),
+            actor=LOCAL_ACTOR,
+        )
+
+        product = self.sources.define_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            dataset_name="products",
+            model="product.template",
+            field_names=("name",),
+            include_archived=False,
+            page_size=100,
+            actor=LOCAL_ACTOR,
+        )
+        uom = self.sources.define_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            dataset_name="units_of_measure",
+            model="uom.uom",
+            field_names=("active", "name"),
+            include_archived=True,
+            page_size=10,
+            actor=LOCAL_ACTOR,
+        )
+        product_v2 = self.sources.define_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            dataset_name="products",
+            model="product.template",
+            field_names=("active", "name"),
+            include_archived=False,
+            page_size=500,
+            actor=LOCAL_ACTOR,
+        )
+
+        current = self.source_repository.get_current_odoo_capture_selections(
+            self.workspace_state.workspace_id
+        )
+        self.assertEqual(current, (product_v2, uom))
+        self.assertEqual(product_v2.selection_id, product.selection_id)
+        self.assertEqual(product_v2.version, 2)
+        self.assertEqual(uom.version, 1)
+        self.assertEqual(product_v2.schema_scope_hash, schema.content_hash)
+        with self.assertRaisesRegex(WorkspaceError, "different dataset name"):
+            self.sources.define_odoo_capture_selection(
+                self.workspace_state.workspace_id,
+                dataset_name="products",
+                model="uom.uom",
+                field_names=("name",),
+                include_archived=False,
+                page_size=100,
+                actor=LOCAL_ACTOR,
+            )
+
     def test_confirm_freeze_capture_and_mapping_are_versioned_and_persisted(
         self,
     ) -> None:

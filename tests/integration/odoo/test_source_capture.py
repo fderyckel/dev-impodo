@@ -495,6 +495,79 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
         self.assertEqual(gateway.count_calls, 1)
         self.assertEqual(gateway.open_calls, 0)
 
+    def test_set_assessment_shares_identity_and_schema_verification(self) -> None:
+        service, schema = self._multi_model_service()
+        gateway = _Gateway(schema, matching_rows=205)
+
+        assessment = service.assess_all(
+            self.workspace_id,
+            gateway,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(len(assessment.items), 2)
+        self.assertEqual(assessment.matching_rows, 410)
+        self.assertEqual(gateway.identity_calls, 1)
+        self.assertEqual(gateway.schema_calls, 1)
+        self.assertEqual(gateway.count_calls, 2)
+        self.assertEqual(gateway.open_calls, 0)
+
+    def test_set_capture_shares_start_and_end_verification(self) -> None:
+        service, schema = self._multi_model_service()
+        gateway = _Gateway(schema)
+
+        results = service.capture_all(
+            self.workspace_id,
+            gateway,
+            consume_page_factory=lambda request, selection: lambda page: None,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(gateway.identity_calls, 2)
+        self.assertEqual(gateway.schema_calls, 2)
+        self.assertEqual(gateway.open_calls, 2)
+
+    def _multi_model_service(
+        self,
+    ) -> tuple[OdooSourceCaptureService, OdooSchemaCatalog]:
+        product = replace(
+            self.schema.models[0],
+            name="product.template",
+            label="Product",
+        )
+        schema = replace(
+            self.schema,
+            models=tuple(
+                sorted(
+                    (*self.schema.models, product),
+                    key=lambda item: item.name,
+                )
+            ),
+        )
+        selections = _SelectionReader(
+            _selection(self.workspace_id, schema),
+            _selection(
+                self.workspace_id,
+                schema,
+                selection_id="00000000-0000-0000-0000-000000000003",
+                dataset_name="products",
+                model="product.template",
+            ),
+        )
+        service = OdooSourceCaptureService(
+            _WorkspaceStateReader(
+                replace(
+                    self.workspace_state,
+                    intended_models=("product.template", "res.partner"),
+                )
+            ),
+            selections,
+            _SchemaReader(schema),
+            workspace_access_service(),
+        )
+        return service, schema
+
     def test_service_rejects_end_identity_drift(self) -> None:
         gateway = _Gateway(self.schema, drift_identity=True)
 
@@ -538,11 +611,14 @@ class _WorkspaceStateReader:
 
 
 class _SelectionReader:
-    def __init__(self, selection):
-        self.selection = selection
+    def __init__(self, *selections):
+        self.selections = tuple(selections)
 
     def get_current_odoo_capture_selection(self, workspace_id):
-        return self.selection
+        return self.selections[0] if self.selections else None
+
+    def get_current_odoo_capture_selections(self, workspace_id):
+        return self.selections
 
 
 class _SchemaReader:
@@ -585,7 +661,9 @@ class _Gateway:
                 principal_hash=principal_hash,
                 permission_hash=self.schema.read_permission_hash,
                 context_hash=self.context_hash,
-                readable_models=("res.partner",),
+                readable_models=tuple(
+                    sorted(item.name for item in self.schema.models)
+                ),
                 observed_at="2026-08-12T10:00:00Z",
             ),
             self.context,
@@ -593,30 +671,6 @@ class _Gateway:
 
     def probe_schema(self, request, context, *, cancellation=None):
         self.schema_calls += 1
-        fields = {
-            field.name: FieldMetadata(
-                name=field.name,
-                type=field.type,
-                label=field.label,
-                required=field.required,
-                readonly=field.readonly,
-                relation=field.relation,
-                relation_field=field.relation_field,
-                selection=field.selection,
-                stored=field.stored,
-                computed=field.computed,
-                has_inverse=field.has_inverse,
-                related=field.related,
-                translated=field.translated,
-                company_dependent=field.company_dependent,
-                searchable=field.searchable,
-                sortable=field.sortable,
-                exportable=field.exportable,
-                digits=field.digits,
-                currency_field=field.currency_field,
-            )
-            for field in self.schema.models[0].fields
-        }
         return MetadataSnapshot(
             fingerprint=TargetFingerprint(
                 target_hash=self.schema.connection_target_hash,
@@ -626,11 +680,35 @@ class _Gateway:
                 snapshot_timestamp="2026-08-12T10:00:00Z",
             ),
             models={
-                "res.partner": ModelMetadata(
-                    model="res.partner",
-                    description="Contact",
-                    fields=fields,
+                model.name: ModelMetadata(
+                    model=model.name,
+                    description=model.label,
+                    fields={
+                        field.name: FieldMetadata(
+                            name=field.name,
+                            type=field.type,
+                            label=field.label,
+                            required=field.required,
+                            readonly=field.readonly,
+                            relation=field.relation,
+                            relation_field=field.relation_field,
+                            selection=field.selection,
+                            stored=field.stored,
+                            computed=field.computed,
+                            has_inverse=field.has_inverse,
+                            related=field.related,
+                            translated=field.translated,
+                            company_dependent=field.company_dependent,
+                            searchable=field.searchable,
+                            sortable=field.sortable,
+                            exportable=field.exportable,
+                            digits=field.digits,
+                            currency_field=field.currency_field,
+                        )
+                        for field in model.fields
+                    },
                 )
+                for model in self.schema.models
             },
         )
 
@@ -735,13 +813,17 @@ def _schema(workspace_id: str) -> OdooSchemaCatalog:
 def _selection(
     workspace_id: str,
     schema: OdooSchemaCatalog,
+    *,
+    selection_id: str = "00000000-0000-0000-0000-000000000002",
+    dataset_name: str = "contacts",
+    model: str = "res.partner",
 ) -> OdooCaptureSelection:
     return OdooCaptureSelection.create(
-        selection_id="00000000-0000-0000-0000-000000000002",
+        selection_id=selection_id,
         version=1,
         data_version_id=data_version_id(workspace_id),
-        dataset_name="contacts",
-        model="res.partner",
+        dataset_name=dataset_name,
+        model=model,
         field_names=("name",),
         filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
         max_rows=10_000,

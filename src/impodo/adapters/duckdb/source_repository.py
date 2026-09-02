@@ -350,20 +350,31 @@ class SourceRepository(DuckDbRepository):
         self,
         workspace_id: str,
     ) -> OdooCaptureSelection | None:
-        """Return the current bounded Odoo capture plan without target I/O."""
+        """Return the first current plan for legacy single-model callers."""
 
-        value = self._read_singleton_json(
-            workspace_id,
-            """
-            SELECT revision.selection_json
-              FROM odoo_capture_selection_current AS current
-              JOIN odoo_capture_selection_revision AS revision
-                ON revision.selection_id = current.selection_id
-               AND revision.version = current.version
-             WHERE current.singleton_id = 1
-            """,
+        selections = self.get_current_odoo_capture_selections(workspace_id)
+        return selections[0] if selections else None
+
+    def get_current_odoo_capture_selections(
+        self,
+        workspace_id: str,
+    ) -> tuple[OdooCaptureSelection, ...]:
+        """Return current bounded plans in deterministic model order."""
+
+        return tuple(
+            OdooCaptureSelection.from_json(value)
+            for value in self._read_json_rows(
+                workspace_id,
+                """
+                SELECT revision.selection_json
+                  FROM odoo_capture_selection_current AS current_selection
+                  JOIN odoo_capture_selection_revision AS revision
+                    ON revision.selection_id = current_selection.selection_id
+                   AND revision.version = current_selection.version
+                 ORDER BY current_selection.model
+                """,
+            )
         )
-        return OdooCaptureSelection.from_json(value) if value else None
 
     def get_odoo_capture_selection_history(
         self,
@@ -429,8 +440,9 @@ class SourceRepository(DuckDbRepository):
                 """
                 SELECT selection_id, version
                   FROM odoo_capture_selection_current
-                 WHERE singleton_id = 1
-                """
+                 WHERE model = ?
+                """,
+                [selection.model],
             ).fetchone()
             expected_version = int(current[1]) + 1 if current else 1
             expected_id = str(current[0]) if current else selection.selection_id
@@ -461,9 +473,9 @@ class SourceRepository(DuckDbRepository):
                 connection.execute(
                     """
                     INSERT OR REPLACE INTO odoo_capture_selection_current
-                    VALUES (1, ?, ?)
+                    VALUES (?, ?, ?)
                     """,
-                    [selection.selection_id, selection.version],
+                    [selection.model, selection.selection_id, selection.version],
                 )
                 connection.execute("DELETE FROM odoo_capture_manifest_current")
                 connection.execute("DELETE FROM source_selection")

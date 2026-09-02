@@ -64,6 +64,9 @@ class SourceQueryRepository(Protocol):
     def get_current_odoo_capture_selection(
         self, workspace_id: str
     ) -> OdooCaptureSelection | None: ...
+    def get_current_odoo_capture_selections(
+        self, workspace_id: str
+    ) -> tuple[OdooCaptureSelection, ...]: ...
 
 
 class MappingSourceQueryRepository(Protocol):
@@ -220,6 +223,11 @@ class BrowserQueryService:
         self, workspace_id: str
     ) -> OdooCaptureSelection | None:
         return self._sources.get_current_odoo_capture_selection(workspace_id)
+
+    def get_current_odoo_capture_selections(
+        self, workspace_id: str
+    ) -> tuple[OdooCaptureSelection, ...]:
+        return self._sources.get_current_odoo_capture_selections(workspace_id)
 
     def get_derived_entity_plan(
         self, workspace_id: str

@@ -26,6 +26,7 @@ from .source_binding import OdooSourceBinding, SourceOriginKind
 ODOO_CAPTURE_CONTRACT_VERSION = 4
 MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
 MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
+MAX_ODOO_CAPTURE_DATASETS = 10
 # The policy value remains the maximum request size for saved-policy
 # compatibility. Each selection binds its exact approved size in its own hash.
 ODOO_CAPTURE_PAGE_SIZE = CURRENT_ODOO_SOURCE_POLICY.page_size
@@ -453,6 +454,54 @@ def odoo_column_stable_key(model: str, field_name: str) -> str:
         {"field": field_name, "kind": SourceOriginKind.ODOO.value, "model": model}
     ).removeprefix("sha256:")
     return f"odoo-column:{digest[:24]}"
+
+
+def odoo_capture_selection_set_hash(
+    selections: tuple[OdooCaptureSelection, ...],
+) -> str:
+    """Bind the exact current per-model plans without inventing a parent row."""
+
+    ordered = require_consistent_odoo_capture_selection_set(selections)
+    return content_hash(
+        {
+            "kind": "ODOO_CAPTURE_SELECTION_SET",
+            "data_version_id": ordered[0].data_version_id,
+            "selections": [
+                {
+                    "model": item.model,
+                    "selection_id": item.selection_id,
+                    "version": item.version,
+                    "content_hash": item.content_hash,
+                }
+                for item in ordered
+            ],
+        }
+    )
+
+
+def require_consistent_odoo_capture_selection_set(
+    selections: tuple[OdooCaptureSelection, ...],
+) -> tuple[OdooCaptureSelection, ...]:
+    """Validate and order a capture set without computing a content digest."""
+
+    ordered = tuple(sorted(selections, key=lambda item: item.model))
+    if (
+        not ordered
+        or len(ordered) > MAX_ODOO_CAPTURE_DATASETS
+        or len({item.model for item in ordered}) != len(ordered)
+        or len({item.dataset_name for item in ordered}) != len(ordered)
+        or len({item.data_version_id for item in ordered}) != 1
+        or len({item.connection_target_hash for item in ordered}) != 1
+        or len({item.schema_scope_hash for item in ordered}) != 1
+        or len({item.read_principal_hash for item in ordered}) != 1
+        or len({item.read_permission_hash for item in ordered}) != 1
+        or len({item.context_hash for item in ordered}) != 1
+        or len({item.policy_hash for item in ordered}) != 1
+    ):
+        raise OdooCaptureContractError(
+            "Odoo capture selection set is incomplete or inconsistent"
+        )
+    return ordered
 
 
 def _require_hash(value: str, label: str) -> None:

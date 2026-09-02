@@ -53,10 +53,19 @@ evidence boundary. Before a selection exists,
 form; after the save, that route presents the saved-table result and the next
 action.
 
-For Odoo mode, schema capture occurs first. The source routes then save a
-bounded capture selection, hold the read credential in session state, run the
-capture job, and publish frozen Odoo records through
-`OdooSourceCaptureService`.
+For Odoo mode, schema capture occurs first. The source routes then save one
+bounded capture selection for each selected model. A model-keyed current
+pointer lets the data manager switch between Product and Unit of Measure
+without displaying or replacing the other model's fields. The route holds the
+read credential in session state, counts every complete plan, runs one capture
+job, and publishes all frozen datasets through `OdooSourceCaptureService`.
+
+`OdooCapturePublicationService` creates one tagged Parquet snapshot and one
+protected origin sidecar per model. `OdooProvenanceRepository` advances the
+complete manifest set, source selection, and snapshot pointers in one DuckDB
+transaction. `WorkspaceDataVersionSourceService` accepts the same complete set
+as the Data version's source evidence. A failed capture or publication leaves
+the previous complete set current.
 
 `derived_entities.py` routes optional lookup extraction and parent/child split
 rules through `DerivedEntityWorkspaceService`. These rules remain plans until
@@ -81,12 +90,23 @@ physical tables and dataset names, but it still calls the ordinary confirmation,
 freeze, and DataVersion projection services. Ordinary Authoring retains its
 detailed table review; there is no second validation or snapshot implementation.
 
-An Odoo capture selection is append-only and bound to the current target
-identity. Saving the selection does not contact Odoo. Current policy permits
-at most 50 closed scalar fields and 10,000 rows, which the reader fetches in
-500-row keyset pages. The live reader accepts only service-generated requests.
-It exposes no raw domain, arbitrary context, generic method, or caller-selected
-field path.
+Each Odoo capture selection is append-only and bound to the current target
+identity. Saving one model's selection does not contact Odoo and does not
+replace another model's current selection. The complete set must contain one
+plan for every model in the current schema, with distinct dataset names and at
+most ten datasets. Current policy permits at most 50 closed scalar fields and
+10,000 rows per model. The reader fetches 10, 100, or 500-row keyset pages as
+the saved plan specifies. It shares the start and end identity and schema
+checks across the set, but opens one bounded value stream per model. The live
+reader accepts only service-generated requests. It exposes no raw domain,
+arbitrary context, generic method, or caller-selected field path.
+
+Each identity check computes one small company-scope fingerprint from the
+primary and available company IDs. Assessment performs one identity and schema
+check for the complete set. Capture performs one pair before and after the
+complete set. Record pages are neither rescanned nor hashed, and consistency
+validation does not compute a digest unless the workflow needs an evidence or
+form token.
 
 ## Code references
 
@@ -96,6 +116,9 @@ field path.
 | Isolated source workers | [`source_worker.py`](../../../src/impodo/application/data_version/source_worker.py) |
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
+| Atomic Odoo capture-set publication | [`OdooCapturePublicationService`](../../../src/impodo/application/odoo_capture_publication_service.py) |
+| Protected Odoo origin evidence | [`OdooProvenanceService`](../../../src/impodo/application/odoo_provenance_service.py) |
+| Data-version source acceptance | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
 | Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/application/workspace/derived_entities.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
@@ -107,8 +130,11 @@ The draft DataVersion package stores file references, content hashes, bounded
 catalogues, and chosen physical-table configuration. The frozen
 `SourceSelection` binds stable
 dataset IDs, physical schema, row counts, source evidence hashes, and Parquet
-storage. Odoo capture adds selection, provenance, and target bindings without
-using numeric Odoo IDs as portable business values.
+storage. Odoo capture adds one selection, provenance sidecar, and target
+binding per dataset without using numeric Odoo IDs as portable business
+values. The model-keyed selection pointers and dataset-keyed manifest pointers
+identify the exact current set. The `SourceSelection` binds all datasets as
+one atomic source version.
 
 Related-dataset rules are versioned workspace-owned evidence and must retain
 complete source lineage when materialized later.
@@ -155,12 +181,14 @@ falling back to unbounded Python work.
 - [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)
 - [`tests/domain/data_version/test_source_snapshot.py`](../../../tests/domain/data_version/test_source_snapshot.py)
 - [`tests/integration/odoo/test_source_capture.py`](../../../tests/integration/odoo/test_source_capture.py)
+- [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)
 - [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 - [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
 
 Cover file hashing, configuration, pre-freeze replacement, post-freeze refusal,
-Odoo capture bounds, cancellation, lineage, and both navigation variants.
+per-model Odoo plans, complete-set capture, atomic publication, capture bounds,
+cancellation, lineage, and both navigation variants.
 
 ## Related documentation
 

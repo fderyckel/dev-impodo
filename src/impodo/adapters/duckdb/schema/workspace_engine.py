@@ -78,6 +78,15 @@ _MAPPING_MUTATION_RECEIPT_COLUMNS = (
     "actor_issuer",
     "actor_subject",
 )
+_ODOO_CAPTURE_SELECTION_CURRENT_COLUMNS = (
+    "model",
+    "selection_id",
+    "version",
+)
+_ODOO_CAPTURE_MANIFEST_CURRENT_COLUMNS = (
+    "dataset_id",
+    "manifest_id",
+)
 _SCHEMA_MIGRATION_COLUMNS = SCHEMA_MIGRATION_COLUMNS
 _WORKSPACE_ENGINE_TABLES = frozenset(
     {
@@ -211,7 +220,7 @@ class WorkspaceEngineSchemaMixin:
             );
 
             CREATE TABLE odoo_capture_selection_current (
-                singleton_id INTEGER PRIMARY KEY,
+                model VARCHAR PRIMARY KEY,
                 selection_id VARCHAR NOT NULL,
                 version INTEGER NOT NULL
             );
@@ -232,7 +241,7 @@ class WorkspaceEngineSchemaMixin:
             );
 
             CREATE TABLE odoo_capture_manifest_current (
-                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                dataset_id VARCHAR PRIMARY KEY,
                 manifest_id VARCHAR NOT NULL
             );
 
@@ -777,6 +786,14 @@ class WorkspaceEngineSchemaMixin:
                 "mapping_mutation_receipt",
                 _MAPPING_MUTATION_RECEIPT_COLUMNS,
             ),
+            (
+                "odoo_capture_selection_current",
+                _ODOO_CAPTURE_SELECTION_CURRENT_COLUMNS,
+            ),
+            (
+                "odoo_capture_manifest_current",
+                _ODOO_CAPTURE_MANIFEST_CURRENT_COLUMNS,
+            ),
         ):
             try:
                 columns = tuple(
@@ -827,6 +844,45 @@ def _upgrade_workspace_engine_v2_to_v3(
     )
 
 
+def _upgrade_workspace_engine_v3_to_v4(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Turn the two Odoo capture singleton pointers into dataset-keyed sets."""
+
+    connection.execute(
+        """
+        ALTER TABLE odoo_capture_selection_current
+        RENAME TO odoo_capture_selection_current_v3;
+        CREATE TABLE odoo_capture_selection_current (
+            model VARCHAR PRIMARY KEY,
+            selection_id VARCHAR NOT NULL,
+            version INTEGER NOT NULL
+        );
+        INSERT INTO odoo_capture_selection_current
+        SELECT revision.model, current_selection.selection_id,
+               current_selection.version
+          FROM odoo_capture_selection_current_v3 AS current_selection
+          JOIN odoo_capture_selection_revision AS revision
+            ON revision.selection_id = current_selection.selection_id
+           AND revision.version = current_selection.version;
+        DROP TABLE odoo_capture_selection_current_v3;
+
+        ALTER TABLE odoo_capture_manifest_current
+        RENAME TO odoo_capture_manifest_current_v3;
+        CREATE TABLE odoo_capture_manifest_current (
+            dataset_id VARCHAR PRIMARY KEY,
+            manifest_id VARCHAR NOT NULL
+        );
+        INSERT INTO odoo_capture_manifest_current
+        SELECT revision.dataset_id, current_manifest.manifest_id
+          FROM odoo_capture_manifest_current_v3 AS current_manifest
+          JOIN odoo_capture_manifest_revision AS revision
+            ON revision.manifest_id = current_manifest.manifest_id;
+        DROP TABLE odoo_capture_manifest_current_v3;
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -835,5 +891,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     2: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v2-to-v3-mapping-mutation-receipts",
         apply=_upgrade_workspace_engine_v2_to_v3,
+    ),
+    3: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v3-to-v4-odoo-capture-sets",
+        apply=_upgrade_workspace_engine_v3_to_v4,
     ),
 }

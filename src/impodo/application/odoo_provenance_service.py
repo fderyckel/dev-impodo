@@ -33,6 +33,11 @@ class OdooProvenanceStore(Protocol):
 
     def get_current(self, workspace_id: str) -> OdooCaptureManifest | None: ...
 
+    def get_currents(
+        self,
+        workspace_id: str,
+    ) -> tuple[OdooCaptureManifest, ...]: ...
+
     def history(self, workspace_id: str) -> tuple[OdooCaptureManifest, ...]: ...
 
     def read_encrypted(
@@ -63,6 +68,11 @@ class OdooCaptureSelectionReader(Protocol):
         self,
         workspace_id: str,
     ) -> OdooCaptureSelection | None: ...
+
+    def get_current_odoo_capture_selections(
+        self,
+        workspace_id: str,
+    ) -> tuple[OdooCaptureSelection, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +127,7 @@ class OdooProvenanceService:
         data_size_bytes: int,
         capture_started_at: datetime,
         capture_finished_at: datetime,
+        selection: OdooCaptureSelection | None = None,
     ) -> OdooCaptureProvenanceCandidate:
         """Encode origins once and return a candidate for atomic publication."""
 
@@ -127,10 +138,21 @@ class OdooProvenanceService:
         )
         workspace = self._workspaces.get(workspace_id)
         self._require_odoo_workspace(workspace)
-        selection = self._selections.get_current_odoo_capture_selection(workspace_id)
-        if selection is None:
+        current_selections = self._current_selections(workspace_id)
+        selected = selection
+        if selected is None:
+            if len(current_selections) != 1:
+                raise WorkspaceError(
+                    "Choose the Odoo dataset for protected provenance"
+                )
+            selected = current_selections[0]
+        if not any(
+            item.model == selected.model
+            and item.content_hash == selected.content_hash
+            for item in current_selections
+        ):
             raise WorkspaceError("Current Odoo capture selection is missing")
-        if row_count < 0 or row_count > selection.max_rows:
+        if row_count < 0 or row_count > selected.max_rows:
             raise WorkspaceError("Odoo capture row count exceeds its selection")
         if capture_started_at.tzinfo is None or capture_finished_at.tzinfo is None:
             raise WorkspaceError("Odoo capture times must be timezone-aware")
@@ -139,19 +161,19 @@ class OdooProvenanceService:
 
         # Derive the bounded dataset/field identities once per manifest. They
         # are never evaluated inside the origin batch encoder.
-        dataset_id = selection.dataset_id
-        column_stable_keys = selection.column_stable_keys
+        dataset_id = selected.dataset_id
+        column_stable_keys = selected.column_stable_keys
         manifest_id = str(uuid4())
         binding = OdooProvenanceBinding(
             manifest_id=manifest_id,
             data_version_id=context.data_version_id,
-            selection_hash=selection.content_hash,
+            selection_hash=selected.content_hash,
             dataset_id=dataset_id,
-            model=selection.model,
-            connection_target_hash=selection.connection_target_hash,
-            schema_scope_hash=selection.schema_scope_hash,
-            read_principal_hash=selection.read_principal_hash,
-            context_hash=selection.context_hash,
+            model=selected.model,
+            connection_target_hash=selected.connection_target_hash,
+            schema_scope_hash=selected.schema_scope_hash,
+            read_principal_hash=selected.read_principal_hash,
+            context_hash=selected.context_hash,
         )
         key = self._data_version_key(context.data_version_id, create=True)
         encoded = self._provenance_codec.encode_capture(
@@ -168,7 +190,7 @@ class OdooProvenanceService:
         storage_key = f"captures/{encoded.artifact_hash.removeprefix('sha256:')}.iprv"
         manifest = OdooCaptureManifest.create(
             manifest_id=manifest_id,
-            selection=selection,
+            selection=selected,
             dataset_id=dataset_id,
             column_stable_keys=column_stable_keys,
             row_count=row_count,
@@ -195,13 +217,33 @@ class OdooProvenanceService:
         workspace_id: str,
         *,
         actor: Actor,
+        dataset_id: str | None = None,
     ) -> OdooCaptureManifest | None:
         self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_READ,
             workspace_id=workspace_id,
         )
-        return self._provenance.get_current(workspace_id)
+        manifests = self._provenance.get_currents(workspace_id)
+        if dataset_id is not None:
+            return next(
+                (item for item in manifests if item.dataset_id == dataset_id),
+                None,
+            )
+        return manifests[0] if manifests else None
+
+    def current_manifests(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[OdooCaptureManifest, ...]:
+        self._authorization.require(
+            actor,
+            Capability.PROTECTED_EVIDENCE_READ,
+            workspace_id=workspace_id,
+        )
+        return self._provenance.get_currents(workspace_id)
 
     def history(
         self,
@@ -222,6 +264,7 @@ class OdooProvenanceService:
         *,
         actor: Actor,
         now: datetime | None = None,
+        dataset_id: str | None = None,
     ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]] | None:
         """Decrypt an authorized, unexpired current sidecar with bounded output."""
 
@@ -230,7 +273,15 @@ class OdooProvenanceService:
             Capability.PROTECTED_EVIDENCE_READ,
             workspace_id=workspace_id,
         )
-        manifest = self._provenance.get_current(workspace_id)
+        manifests = self._provenance.get_currents(workspace_id)
+        manifest = (
+            next(
+                (item for item in manifests if item.dataset_id == dataset_id),
+                None,
+            )
+            if dataset_id is not None
+            else (manifests[0] if manifests else None)
+        )
         if manifest is None:
             return None
         current_time = now or datetime.now(timezone.utc)
@@ -247,6 +298,20 @@ class OdooProvenanceService:
             expected_row_count=manifest.row_count,
             key=self._data_version_key(context.data_version_id, create=False),
         )
+
+    def _current_selections(
+        self,
+        workspace_id: str,
+    ) -> tuple[OdooCaptureSelection, ...]:
+        reader = getattr(
+            self._selections,
+            "get_current_odoo_capture_selections",
+            None,
+        )
+        if reader is not None:
+            return tuple(reader(workspace_id))
+        current = self._selections.get_current_odoo_capture_selection(workspace_id)
+        return (current,) if current is not None else ()
 
     def protect_comparison(
         self,

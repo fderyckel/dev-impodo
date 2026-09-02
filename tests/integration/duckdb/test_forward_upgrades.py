@@ -298,7 +298,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
             _restore_v1_shape(connection)
             self.assertEqual(
                 _schema_fingerprint(connection),
-                "007e5e77cd02b8c762900d1d73b7a47ad94bc1cfc885ebf3bdd92f748dd6e000",
+                "c6b9e0481b2d0e8126515a6900062a71b634d19808e17e744b9746b98c2ff532",
             )
 
             schema._ensure_workspace_database_schema(connection)
@@ -322,7 +322,30 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         3,
                         "workspace-engine-v2-to-v3-mapping-mutation-receipts",
                     ),
+                    (
+                        3,
+                        4,
+                        "workspace-engine-v3-to-v4-odoo-capture-sets",
+                    ),
                 ],
+            )
+            self.assertEqual(
+                tuple(
+                    row[1]
+                    for row in connection.execute(
+                        "PRAGMA table_info('odoo_capture_selection_current')"
+                    ).fetchall()
+                ),
+                ("model", "selection_id", "version"),
+            )
+            self.assertEqual(
+                tuple(
+                    row[1]
+                    for row in connection.execute(
+                        "PRAGMA table_info('odoo_capture_manifest_current')"
+                    ).fetchall()
+                ),
+                ("dataset_id", "manifest_id"),
             )
         finally:
             connection.close()

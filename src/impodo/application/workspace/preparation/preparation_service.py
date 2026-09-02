@@ -73,6 +73,7 @@ class PreparationOdooProvenance(Protocol):
         workspace_id: str,
         *,
         actor: Actor,
+        dataset_id: str | None = None,
     ) -> OdooCaptureManifest | None: ...
 
     def read_current_origins(
@@ -80,6 +81,7 @@ class PreparationOdooProvenance(Protocol):
         workspace_id: str,
         *,
         actor: Actor,
+        dataset_id: str | None = None,
     ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]] | None: ...
 from .normalization_service import NormalizationService
 from .preparation_capability import compile_preparation_capability
@@ -485,61 +487,68 @@ def _verify_odoo_preparation_evidence(
         "Impodo could not verify the protected Odoo capture. "
         "Refresh the captured records before preparing data."
     )
-    if (
-        len(datasets) != 1
-        or origins[0] is not SourceOriginKind.ODOO
-        or provenance is None
-    ):
-        raise ReadinessError(invalid_message)
-    dataset = datasets[0]
-    binding = dataset.source
-    if not isinstance(binding, OdooSourceBinding):
+    if any(origin is not SourceOriginKind.ODOO for origin in origins) or provenance is None:
         raise ReadinessError(invalid_message)
     snapshot_by_dataset = {item.dataset_id: item for item in snapshots}
-    snapshot = snapshot_by_dataset.get(dataset.dataset_id)
-    if snapshot is None or len(snapshot_by_dataset) != 1:
-        raise ReadinessError(invalid_message)
-    try:
-        validate_snapshot_for_dataset(selection, dataset, snapshot)
-        manifest = provenance.current_manifest(workspace_id, actor=actor)
-        protected = provenance.read_current_origins(workspace_id, actor=actor)
-    except (WorkspaceError, ArtifactStoreError, ValueError) as error:
-        raise ReadinessError(invalid_message) from error
-    if manifest is None or protected is None:
-        raise ReadinessError(invalid_message)
-    _header, batches = protected
-    if any(
-        (
-            manifest.data_version_id != selection.data_version_id,
-            manifest.selection_hash != binding.capture_selection_hash,
-            manifest.policy_hash != binding.policy_hash,
-            manifest.dataset_id != dataset.dataset_id,
-            manifest.dataset_name != dataset.name,
-            manifest.model != binding.model,
-            manifest.field_names
-            != tuple(sorted(column.source_name for column in dataset.columns)),
-            manifest.column_stable_keys
-            != tuple(column.stable_key for column in dataset.columns),
-            manifest.connection_target_hash != binding.connection_target_hash,
-            manifest.schema_scope_hash != binding.schema_scope_hash,
-            manifest.read_principal_hash != binding.read_principal_hash,
-            manifest.read_permission_hash != binding.read_permission_hash,
-            manifest.context_hash != binding.context_hash,
-            manifest.row_count != dataset.row_count,
-            manifest.row_count != snapshot.row_count,
-            manifest.data_logical_hash != snapshot.data_logical_hash,
-            manifest.data_sha256 != snapshot.parquet_sha256,
-            manifest.data_storage_key != snapshot.parquet_storage_key,
-        )
+    if (
+        len(snapshot_by_dataset) != len(datasets)
+        or set(snapshot_by_dataset) != {item.dataset_id for item in datasets}
     ):
         raise ReadinessError(invalid_message)
-    expected_ordinal = 1
-    for batch in batches:
-        if batch.first_row_ordinal != expected_ordinal:
+    for dataset in datasets:
+        binding = dataset.source
+        snapshot = snapshot_by_dataset[dataset.dataset_id]
+        if not isinstance(binding, OdooSourceBinding):
             raise ReadinessError(invalid_message)
-        expected_ordinal += batch.row_count
-    if expected_ordinal - 1 != manifest.row_count:
-        raise ReadinessError(invalid_message)
+        try:
+            validate_snapshot_for_dataset(selection, dataset, snapshot)
+            manifest = provenance.current_manifest(
+                workspace_id,
+                actor=actor,
+                dataset_id=dataset.dataset_id,
+            )
+            protected = provenance.read_current_origins(
+                workspace_id,
+                actor=actor,
+                dataset_id=dataset.dataset_id,
+            )
+        except (WorkspaceError, ArtifactStoreError, ValueError) as error:
+            raise ReadinessError(invalid_message) from error
+        if manifest is None or protected is None:
+            raise ReadinessError(invalid_message)
+        _header, batches = protected
+        if any(
+            (
+                manifest.data_version_id != selection.data_version_id,
+                manifest.selection_hash != binding.capture_selection_hash,
+                manifest.policy_hash != binding.policy_hash,
+                manifest.dataset_id != dataset.dataset_id,
+                manifest.dataset_name != dataset.name,
+                manifest.model != binding.model,
+                manifest.field_names
+                != tuple(sorted(column.source_name for column in dataset.columns)),
+                manifest.column_stable_keys
+                != tuple(column.stable_key for column in dataset.columns),
+                manifest.connection_target_hash != binding.connection_target_hash,
+                manifest.schema_scope_hash != binding.schema_scope_hash,
+                manifest.read_principal_hash != binding.read_principal_hash,
+                manifest.read_permission_hash != binding.read_permission_hash,
+                manifest.context_hash != binding.context_hash,
+                manifest.row_count != dataset.row_count,
+                manifest.row_count != snapshot.row_count,
+                manifest.data_logical_hash != snapshot.data_logical_hash,
+                manifest.data_sha256 != snapshot.parquet_sha256,
+                manifest.data_storage_key != snapshot.parquet_storage_key,
+            )
+        ):
+            raise ReadinessError(invalid_message)
+        expected_ordinal = 1
+        for batch in batches:
+            if batch.first_row_ordinal != expected_ordinal:
+                raise ReadinessError(invalid_message)
+            expected_ordinal += batch.row_count
+        if expected_ordinal - 1 != manifest.row_count:
+            raise ReadinessError(invalid_message)
 
 
 def stage_browser_mapping(

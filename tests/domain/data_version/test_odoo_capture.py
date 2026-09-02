@@ -13,6 +13,7 @@ from impodo.domain.odoo_capture import (
     OdooCaptureSelection,
     odoo_column_stable_key,
     odoo_dataset_id,
+    require_consistent_odoo_capture_selection_set,
 )
 from impodo.domain.odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
@@ -163,6 +164,15 @@ class OdooCaptureContractTests(unittest.TestCase):
 
         self.assertRegex(selection.content_hash, r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(hash_manifest.call_count, 1)
+
+    def test_selection_set_consistency_check_does_not_hash(self) -> None:
+        selection = self._selection()
+
+        with patch("impodo.domain.odoo_capture.content_hash") as hash_content:
+            ordered = require_consistent_odoo_capture_selection_set((selection,))
+
+        self.assertEqual(ordered, (selection,))
+        hash_content.assert_not_called()
 
     @staticmethod
     def _selection(*, page_size: int = 500) -> OdooCaptureSelection:

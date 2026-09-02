@@ -8,9 +8,9 @@
     <div>
       <p class="eyebrow">Stage 2 of 6 · Odoo source data</p>
       <h1>Define a bounded Odoo capture</h1>
-      <p>Choose one record type, a small field surface, and how many records Odoo should return per request.</p>
+      <p>Choose a small field surface for each selected record type, then freeze all datasets as one source version.</p>
     </div>
-    {% if current %}<span class="status registered">Plan v{{ current.version }} saved</span>{% endif %}
+    {% if current_selections %}<span class="status registered">{{ current_selections|length }} of {{ models|length }} plans saved</span>{% endif %}
   </div>
 
   <div class="notice warning">
@@ -22,6 +22,13 @@
     <strong>Production updates are disabled.</strong>
     Native JSON-2 currently proves the configured connection, not a restored or cloned database instance, and does not provide Impodo's required atomic compare-and-write transaction.
   </div>
+
+  {% if 'product.template' in current_by_model and 'uom.uom' in current_by_model %}
+    <div class="notice">
+      <strong>Product and Unit of Measure will be frozen together, not imported in screen order.</strong>
+      A future cross-instance load must match or create Units of Measure before Products and bind each Product relationship to the destination record. That load path remains disabled; this capture alone is not yet ready to write into another Odoo instance.
+    </div>
+  {% endif %}
 
   {% if not read_credential_present %}
     <section class="form-card" id="capture-credential">
@@ -72,17 +79,16 @@
       </div>
 
       {% if models|length > 1 %}
-        <form method="get" action="/workspaces/{{ workspace_id }}/sources">
-          <label>
-            Odoo record type
-            <select name="model" onchange="this.form.submit()">
-              {% for item in models %}
-                <option value="{{ item.name }}" {% if selected_model and selected_model.name == item.name %}selected{% endif %}>{{ item.label }} ({{ item.name }})</option>
-              {% endfor %}
-            </select>
-          </label>
-          <noscript><button class="button secondary" type="submit">Show fields</button></noscript>
-        </form>
+        <p><strong>Odoo record type</strong></p>
+        <nav class="actions" aria-label="Odoo record types">
+          {% for item in models %}
+            <a class="button {% if selected_model and selected_model.name == item.name %}primary{% else %}secondary{% endif %}" href="/workspaces/{{ workspace_id }}/sources?model={{ item.name }}#capture-plan">
+              {{ item.label }} ({{ item.name }})
+              {% if item.name in current_by_model %} · saved{% endif %}
+            </a>
+          {% endfor %}
+        </nav>
+        <p class="muted">Choose a record type above. Its own eligible fields and saved plan are shown below.</p>
       {% endif %}
 
       {% if selected_model %}
@@ -133,20 +139,38 @@
     </section>
   {% endif %}
 
-  {% if current %}
+  {% if current_selections %}
     <section class="form-card" id="selection-saved">
       <div class="page-heading compact">
         <div>
           <p class="eyebrow">Current protected evidence</p>
-          <h2>Capture plan version {{ current.version }}</h2>
+          {% if current_selections|length == 1 %}
+            <h2>Capture plan version {{ current_selections[0].version }}</h2>
+          {% else %}
+            <h2>{{ current_selections|length }} Odoo capture plans</h2>
+          {% endif %}
         </div>
-        <span class="status registered">Plan saved</span>
+        <span class="status registered">{{ current_selections|length }} of {{ models|length }} saved</span>
       </div>
-      <p><strong>{{ current.dataset_name }}</strong> will read all matching {{ current.model }} records in batches of up to {{ current.page_size }}, using {{ current.field_names|length }} selected field(s). Impodo stops before downloading values if more than {{ "{:,}".format(capture_policy.max_rows) }} records match.</p>
-      {% if current_plan_error %}
+      <div class="capture-history-list">
+        {% for plan in current_selections %}
+          <details class="technical-evidence" {% if current and plan.model == current.model %}open{% endif %}>
+            <summary>{{ plan.dataset_name }} · {{ plan.model }} · {{ plan.field_names|length }} fields</summary>
+            <p>This dataset will read all matching records in batches of up to {{ plan.page_size }}. Impodo stops before downloading its values if more than {{ "{:,}".format(capture_policy.max_rows) }} records match.</p>
+            <p>Selection version {{ plan.version }} · <code>{{ plan.content_hash }}</code></p>
+            <p>Source-binding hash: <code>{{ plan.source_binding.source_evidence_hash }}</code></p>
+          </details>
+        {% endfor %}
+      </div>
+      {% if not plans_complete %}
+        <div class="notice warning" role="alert">
+          <strong>Save the remaining record type plans.</strong>
+          Product and UoM are separate datasets. Select each record type above and save its own eligible fields before checking or freezing records.
+        </div>
+      {% elif capture_plan_errors %}
         <div class="notice warning" role="alert">
           <strong>This capture plan needs review.</strong>
-          The saved plan uses an earlier capture workflow or no longer matches the bounded Odoo fields Impodo can capture. Review and save the plan before freezing records.
+          One or more saved plans use an earlier capture workflow or no longer match the bounded Odoo fields Impodo can capture. Review and save the affected record type before freezing records.
         </div>
         <p><a class="button primary" href="#capture-plan">Review and save capture plan</a></p>
       {% elif access_refresh_required %}
@@ -158,22 +182,21 @@
       {% elif schema and not schema.pending_refresh and schema.origin.value == 'LIVE_API' and schema.connection_target_hash and schema.read_principal_hash and schema.read_permission_hash and schema.read_context_hash and read_credential_matches_schema %}
         <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="selection_id" value="{{ current.selection_id }}">
-          <input type="hidden" name="selection_hash" value="{{ current.content_hash }}">
+          <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
+          <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
           <button class="button primary" type="submit">Check matching records</button>
         </form>
       {% else %}
         <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema">{% if schema and schema.pending_refresh %}Review Odoo changes{% else %}Refresh credential-bound Odoo details{% endif %}</a></p>
       {% endif %}
-      <details class="technical-evidence">
-        <summary>Support details</summary>
-        <p>Selection hash: <code>{{ current.content_hash }}</code></p>
-        <p>Source-binding hash: <code>{{ current.source_binding.source_evidence_hash }}</code></p>
-        <p>Consistency contract: <code>{{ current.consistency.value }}</code> with batches of up to {{ current.page_size }}.</p>
-        <p>Source policy: <code>{{ current.policy_hash }}</code>.</p>
-        <p>Target identity assurance: <code>{{ capture_policy.target_instance_assurance.value }}</code>.</p>
-        <p>Production write disposition: <code>{{ capture_policy.production_write_disposition.value }}</code>.</p>
-      </details>
+      {% if plans_complete %}
+        <details class="technical-evidence">
+          <summary>Capture-set support details</summary>
+          <p>Selection-set hash: <code>{{ selection_set_hash }}</code></p>
+          <p>Target identity assurance: <code>{{ capture_policy.target_instance_assurance.value }}</code>.</p>
+          <p>Production write disposition: <code>{{ capture_policy.production_write_disposition.value }}</code>.</p>
+        </details>
+      {% endif %}
     </section>
 
     {% if assessment %}
@@ -198,6 +221,13 @@
           </div>
         {% else %}
           <p>Impodo will make {{ assessment.batch_count }} data request{% if assessment.batch_count != 1 %}s{% endif %}, each containing up to {{ assessment.page_size }} records.</p>
+          {% if assessment.items|length > 1 %}
+            <dl class="definition-list capture-summary">
+              {% for plan, item in assessment.items %}
+                <div><dt>{{ plan.dataset_name }} ({{ plan.model }})</dt><dd>{{ "{:,}".format(item.matching_rows) }} records · {{ item.batch_count }} request{% if item.batch_count != 1 %}s{% endif %}</dd></div>
+              {% endfor %}
+            </dl>
+          {% endif %}
           <p>The count is a current estimate. Impodo will fix the capture boundary and check the safety ceiling again before downloading business values.</p>
           <div class="notice warning">
             <strong>{% if current_manifest %}This creates a replacement frozen version.{% else %}This creates the first frozen version.{% endif %}</strong>
@@ -205,8 +235,8 @@
           </div>
           <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-capture" class="capture-confirmation">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="selection_id" value="{{ current.selection_id }}">
-            <input type="hidden" name="selection_hash" value="{{ current.content_hash }}">
+            <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
+            <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
             <label class="checkbox">
               <input type="checkbox" name="confirm_capture" value="1" required>
               I confirm that Impodo may make these bounded read-only requests to this Odoo target
@@ -221,15 +251,17 @@
     {% endif %}
   {% endif %}
 
-  {% if current_manifest %}
+  {% if current_manifests %}
     <section class="form-card" id="current-capture">
       <div class="page-heading compact">
         <div>
           <p class="eyebrow">Current frozen Odoo source</p>
-          <h2>{{ current_manifest.dataset_name }}</h2>
+          <h2>{% if current_manifests|length == 1 %}{{ current_manifests[0].dataset_name }}{% else %}{{ current_manifests|length }} datasets frozen together{% endif %}</h2>
         </div>
         <span class="status ready">Current</span>
       </div>
+      {% for current_manifest in current_manifests %}
+      <h3>{{ current_manifest.dataset_name }}</h3>
       <dl class="definition-list capture-summary">
         <div><dt>Records</dt><dd>{{ "{:,}".format(current_manifest.row_count) }}</dd></div>
         <div><dt>Record type</dt><dd>{{ current_manifest.model }}</dd></div>
@@ -245,6 +277,7 @@
         <p>Captured value bytes {{ "{:,}".format(current_manifest.data_size_bytes) }} · protected origin bytes {{ "{:,}".format(current_manifest.provenance_size_bytes) }}</p>
         <p>Retained until <time datetime="{{ current_manifest.retention_until.isoformat() }}">{{ current_manifest.retention_until.strftime('%Y-%m-%d') }}</time></p>
       </details>
+      {% endfor %}
     </section>
   {% endif %}
 
@@ -257,7 +290,7 @@
           <details class="technical-evidence">
             <summary>
               {{ manifest.dataset_name }} · {{ "{:,}".format(manifest.row_count) }} records · {{ manifest.capture_finished_at.strftime('%Y-%m-%d %H:%M UTC') }}
-              {% if current_manifest and manifest.manifest_id == current_manifest.manifest_id %}<small>Current</small>{% endif %}
+              {% if manifest.manifest_id in current_manifest_ids %}<small>Current</small>{% endif %}
             </summary>
             <p>Manifest <code>{{ manifest.manifest_id }}</code></p>
             <p>{{ manifest.model }} · {{ manifest.field_names|length }} fields · selection version {{ manifest.selection_version }}</p>

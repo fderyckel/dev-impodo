@@ -681,8 +681,8 @@ def create_local_app(
                 data_version_source_projection.accept_odoo_capture(
                     workspace_id,
                     publication.source_selection,
-                    publication.source_snapshot,
-                    publication.manifest,
+                    publication.source_snapshots,
+                    publication.manifests,
                     actor=actor,
                 )
             ),

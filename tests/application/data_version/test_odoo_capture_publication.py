@@ -3,6 +3,7 @@ from __future__ import annotations
 from tests.support.paths import REPOSITORY_ROOT
 
 from collections import namedtuple
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import shutil
@@ -192,7 +193,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
-        self.assertEqual(encode_cell.call_count, 2)
+            self.assertEqual(encode_cell.call_count, 2)
         self.assertEqual(
             gateway.calls, ["identity", "schema", "open", "identity", "schema"]
         )
@@ -233,6 +234,83 @@ class OdooCapturePublicationTests(unittest.TestCase):
         )
         self.assertIsNotNone(origins)
         self.assertEqual((origins or (None, ()))[1][0].odoo_ids, (41, 42))
+
+    def test_two_model_capture_promotes_one_atomic_source_set(self) -> None:
+        base_model = self.schema.models[0]
+        multi_schema = replace(
+            self.schema,
+            models=(
+                replace(base_model, name="product.template", label="Product"),
+                replace(base_model, name="uom.uom", label="Unit of Measure"),
+            ),
+            content_hash=HASHES[6],
+        )
+        self.schemas.save_odoo_schema_catalog(
+            self.workspace_state.workspace_id,
+            multi_schema,
+            actor=LOCAL_ACTOR,
+        )
+        product = _selection(
+            self.workspace_state.workspace_id,
+            multi_schema,
+            self.now,
+            model="product.template",
+            dataset_name="products",
+        )
+        uom = _selection(
+            self.workspace_state.workspace_id,
+            multi_schema,
+            self.now,
+            model="uom.uom",
+            dataset_name="units_of_measure",
+        )
+        self.sources.save_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            product,
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.save_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            uom,
+            actor=LOCAL_ACTOR,
+        )
+
+        gateway = _Gateway(multi_schema, self.now)
+        publication = self.service.publish(
+            self.workspace_state.workspace_id,
+            gateway,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(
+            gateway.calls,
+            ["identity", "schema", "open", "open", "identity", "schema"],
+        )
+        self.assertEqual(
+            tuple(item.model for item in publication.manifests),
+            ("product.template", "uom.uom"),
+        )
+        self.assertEqual(len(publication.source_selection.datasets), 2)
+        self.assertEqual(
+            self.repository.get_currents(self.workspace_state.workspace_id),
+            publication.manifests,
+        )
+        self.assertEqual(
+            {
+                item.dataset_id: item
+                for item in self.sources.get_current_source_snapshots(
+                    self.workspace_state.workspace_id
+                )
+            },
+            {item.dataset_id: item for item in publication.source_snapshots},
+        )
+        _verify_odoo_preparation_evidence(
+            self.workspace_state.workspace_id,
+            publication.source_selection,
+            publication.source_snapshots,
+            self.provenance,
+            actor=LOCAL_ACTOR,
+        )
 
     def test_protected_origins_can_follow_data_version_artifact_ownership(
         self,
@@ -565,7 +643,9 @@ class _Gateway:
                 principal_hash=self.schema.read_principal_hash,
                 permission_hash=self.schema.read_permission_hash,
                 context_hash=self.schema.read_context_hash,
-                readable_models=("res.partner",),
+                readable_models=tuple(
+                    sorted(item.name for item in self.schema.models)
+                ),
                 observed_at=self.now.isoformat(),
             ),
             self.context,
@@ -573,7 +653,6 @@ class _Gateway:
 
     def probe_schema(self, request, context, *, cancellation=None):
         self.calls.append("schema")
-        model = self.schema.models[0]
         return MetadataSnapshot(
             fingerprint=TargetFingerprint(
                 target_hash=self.schema.connection_target_hash,
@@ -611,6 +690,7 @@ class _Gateway:
                         for field in model.fields
                     },
                 )
+                for model in self.schema.models
             },
         )
 
@@ -751,13 +831,16 @@ def _selection(
     workspace_id: str,
     schema: OdooSchemaCatalog,
     now: datetime,
+    *,
+    model: str = "res.partner",
+    dataset_name: str = "contacts",
 ) -> OdooCaptureSelection:
     return OdooCaptureSelection.create(
         selection_id=str(uuid4()),
         version=1,
         data_version_id=_data_version_id(workspace_id),
-        dataset_name="contacts",
-        model="res.partner",
+        dataset_name=dataset_name,
+        model=model,
         field_names=("name",),
         filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
         max_rows=10_000,

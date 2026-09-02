@@ -40,12 +40,22 @@ version.
 ### Odoo source
 
 1. Open **Freeze Odoo records** after eligible fields have been captured.
-2. Define a bounded selection for the intended Odoo record type.
-3. Review the capture estimate and selection rules.
-4. Run the capture and wait for the frozen source result.
+2. Choose each **Odoo record type** in turn. The page shows that record
+   type's eligible fields and its own saved plan.
+3. Save one bounded plan for every selected record type. For example, save a
+   Product plan and then a Unit of Measure plan.
+4. Select **Check matching records**. Impodo shows the count and request
+   estimate for each dataset and for the complete capture.
+5. Confirm the read-only action and wait while Impodo freezes every dataset as
+   one source version. A failure leaves the previous complete version current.
 
 The Odoo-source route reads selected business records; it does not authorize a
 write back to Odoo.
+
+For a Product and Unit of Measure example, the two record types remain separate
+datasets. Capturing both gives Match data both field lists. It does not by
+itself define the relationship between them or authorize recreating records in
+another Odoo instance.
 
 ![Current source inspection inside a fictional data project workspace.](../../images/user/04-source-inspection.png)
 
@@ -64,7 +74,7 @@ Recipes; it still never reuses the Authoring rows as current Test evidence.
 
 ## What to check
 
-- Counts and headings match the governed export or Odoo selection.
+- Counts and headings match the governed export or every Odoo selection.
 - Preview values belong to the intended business population.
 - Stable business identities are present.
 - Warnings are understood before freezing.
@@ -73,9 +83,9 @@ Recipes; it still never reuses the Authoring rows as current Test evidence.
 
 ## What Complete means
 
-Impodo shows the source stage as frozen or complete and the next stage becomes
-available. Every selected dataset is bound to protected evidence for this
-data version.
+Impodo shows the source stage as frozen or complete only after every selected
+Odoo record type has a saved plan and the complete set has been captured.
+Every selected dataset is bound to protected evidence for this data version.
 
 ## What changes and what does not
 
@@ -105,9 +115,10 @@ them. Earlier data-version evidence remains protected history.
 ## Next stage
 
 For a file source, continue to [Odoo data](02-odoo-data.md). For an Odoo
-source, freezing the records completes the currently implemented source-capture
-workflow. Match, preparation, and round-trip update remain planned and are not
-yet available for that source mode.
+source, continue to Match data after the complete capture is frozen. The
+current Odoo-source update workflow remains bound to the same configured
+database. Moving Product and Unit of Measure records into another Odoo
+instance is not yet an authorized load path.
 
 ## Related documentation
 

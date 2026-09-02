@@ -171,6 +171,11 @@ class Json2ConnectorTests(unittest.TestCase):
             transport=transport,
             now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
         ).probe_read_identity(("product.template", "res.partner"))
+        archived_identity = Json2ReadConnector(
+            self.config(context={"active_test": False}),
+            transport=transport,
+            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+        ).probe_read_identity(("product.template", "res.partner"))
         company_rows[:] = [{"id": 9}, {"id": 3}]
         changed_company_identity = Json2ReadConnector(
             self.config(),
@@ -187,6 +192,7 @@ class Json2ConnectorTests(unittest.TestCase):
         )
         self.assertEqual(identity, rotated_identity)
         self.assertEqual(bangkok_identity, brussels_identity)
+        self.assertEqual(identity.context_hash, archived_identity.context_hash)
         self.assertEqual(
             identity.principal_hash,
             changed_company_identity.principal_hash,
@@ -222,7 +228,7 @@ class Json2ConnectorTests(unittest.TestCase):
         )
         self.assertEqual(company_call[2]["fields"], ["id"])
         access_calls = [call for call in calls if call[0].endswith("/has_access")]
-        self.assertEqual(len(access_calls), 10)
+        self.assertEqual(len(access_calls), 12)
         self.assertTrue(all(call[2]["ids"] == [] for call in access_calls))
         self.assertTrue(
             all(call[2]["operation"] == "read" for call in access_calls)

@@ -47,7 +47,10 @@ from ...domain.odoo_source_capture import (
 )
 from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
-from ...domain.odoo_capture import ODOO_CAPTURE_PAGE_SIZES
+from ...domain.odoo_capture import (
+    ODOO_CAPTURE_PAGE_SIZES,
+    odoo_capture_selection_set_hash,
+)
 from ...domain.data_version.models import DataVersionState
 from impodo.application.data_version.inspection import SourceInspectionError, SourceInspectionOptions
 from impodo.domain.project.foundation import MigrationFoundationError
@@ -276,7 +279,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
             f"Saved Odoo capture plan version {selection.version}. No rows were read.",
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/sources#selection-saved",
+            f"/workspaces/{workspace_id}/sources?model={selection.model}"
+            "#selection-saved",
             status_code=303,
         )
 
@@ -305,21 +309,37 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "This DataVersion already has accepted source evidence. "
                     "Start a new run with a new DataVersion for another capture."
                 )
-            selection = context.queries.get_current_odoo_capture_selection(
+            selections = context.queries.get_current_odoo_capture_selections(
                 workspace_id
             )
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
             if (
-                selection is None
-                or selection.selection_id != _text(form, "selection_id")
-                or selection.content_hash != _text(form, "selection_hash")
+                not selections
+                or schema is None
+                or {item.model for item in selections}
+                != {item.name for item in schema.models}
             ):
                 raise WorkspaceError(
-                    "This page is out of date. Reload and check the current "
-                    "Odoo capture plan."
+                    "Save a capture plan for every selected Odoo record type "
+                    "before checking matching records."
                 )
-            if selection.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows:
+            selection_set_hash = odoo_capture_selection_set_hash(selections)
+            submitted_hash = _text(form, "selection_hash")
+            legacy_selection = selections[0] if len(selections) == 1 else None
+            if submitted_hash not in {
+                selection_set_hash,
+                legacy_selection.content_hash if legacy_selection else "",
+            }:
                 raise WorkspaceError(
-                    "Review and save this capture plan before checking "
+                    "This page is out of date. Reload and check the current "
+                    "Odoo capture plans."
+                )
+            if any(
+                selection.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows
+                for selection in selections
+            ):
+                raise WorkspaceError(
+                    "Review and save these capture plans before checking "
                     "matching records."
                 )
             credential = get_target_credential(
@@ -331,10 +351,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError(
                     "Save a read-only Odoo API key before checking matching records."
                 )
-            schema = context.queries.get_odoo_schema_catalog(workspace_id)
             if (
-                schema is None
-                or schema.read_credential_binding_hash != credential.binding_hash
+                schema.read_credential_binding_hash != credential.binding_hash
             ):
                 raise WorkspaceError(
                     "The Odoo read credential changed. Refresh the record "
@@ -349,7 +367,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 credential.secret,
             )
             assessment = await run_in_threadpool(
-                context.odoo_source_capture.assess,
+                context.odoo_source_capture.assess_all,
                 workspace_id,
                 gateway,
                 actor=context.actor,
@@ -358,7 +376,15 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 "workspace_id": workspace_id,
                 "selection_hash": assessment.selection_hash,
                 "matching_rows": assessment.matching_rows,
-                "page_size": assessment.page_size,
+                "items": [
+                    {
+                        "model": selection.model,
+                        "selection_hash": selection.content_hash,
+                        "matching_rows": item.matching_rows,
+                        "page_size": item.page_size,
+                    }
+                    for selection, item in assessment.items
+                ],
             }
         except (
             ConnectorError,
@@ -473,14 +499,29 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "This DataVersion already has accepted source evidence. "
                     "Start a new run with a new DataVersion for another capture."
                 )
-            selection = context.queries.get_current_odoo_capture_selection(workspace_id)
+            selections = context.queries.get_current_odoo_capture_selections(
+                workspace_id
+            )
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
             if (
-                selection is None
-                or selection.selection_id != _text(form, "selection_id")
-                or selection.content_hash != _text(form, "selection_hash")
+                not selections
+                or schema is None
+                or {item.model for item in selections}
+                != {item.name for item in schema.models}
             ):
                 raise WorkspaceError(
-                    "This page is out of date. Reload and confirm the current Odoo capture plan."
+                    "Save a capture plan for every selected Odoo record type "
+                    "before freezing records."
+                )
+            selection_set_hash = odoo_capture_selection_set_hash(selections)
+            submitted_hash = _text(form, "selection_hash")
+            legacy_selection = selections[0] if len(selections) == 1 else None
+            if submitted_hash not in {
+                selection_set_hash,
+                legacy_selection.content_hash if legacy_selection else "",
+            }:
+                raise WorkspaceError(
+                    "This page is out of date. Reload and confirm the current Odoo capture plans."
                 )
             if _text(form, "confirm_capture") != "1":
                 raise WorkspaceError(
@@ -495,10 +536,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError(
                     "Save a read-only Odoo API key before freezing source records."
                 )
-            schema = context.queries.get_odoo_schema_catalog(workspace_id)
             if (
-                schema is None
-                or schema.read_credential_binding_hash != credential.binding_hash
+                schema.read_credential_binding_hash != credential.binding_hash
             ):
                 raise WorkspaceError(
                     "The Odoo read credential changed. Refresh the record types "
@@ -509,21 +548,53 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "Odoo fields changed. Review the checked Odoo changes before "
                     "freezing another source version."
                 )
-            plan_odoo_source_capture(selection, schema)
+            for selection in selections:
+                plan_odoo_source_capture(selection, schema)
             assessment_evidence = request.session.get(
                 _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY
+            )
+            expected_assessment_items = [
+                {
+                    "model": item.model,
+                    "selection_hash": item.content_hash,
+                }
+                for item in selections
+            ]
+            evidence_items = (
+                assessment_evidence.get("items")
+                if isinstance(assessment_evidence, dict)
+                else None
             )
             if (
                 not isinstance(assessment_evidence, dict)
                 or assessment_evidence.get("workspace_id") != workspace_id
                 or assessment_evidence.get("selection_hash")
-                != selection.content_hash
-                or assessment_evidence.get("page_size") != selection.page_size
+                != selection_set_hash
                 or isinstance(assessment_evidence.get("matching_rows"), bool)
                 or not isinstance(assessment_evidence.get("matching_rows"), int)
                 or not 0
                 <= assessment_evidence["matching_rows"]
-                <= selection.max_rows
+                <= sum(item.max_rows for item in selections)
+                or not isinstance(evidence_items, list)
+                or [
+                    {
+                        "model": item.get("model"),
+                        "selection_hash": item.get("selection_hash"),
+                    }
+                    for item in evidence_items
+                    if isinstance(item, dict)
+                ]
+                != expected_assessment_items
+                or any(
+                    not isinstance(item, dict)
+                    or isinstance(item.get("matching_rows"), bool)
+                    or not isinstance(item.get("matching_rows"), int)
+                    or item["matching_rows"] < 0
+                    or item["matching_rows"]
+                    > selections[index].max_rows
+                    or item.get("page_size") != selections[index].page_size
+                    for index, item in enumerate(evidence_items or ())
+                )
             ):
                 raise WorkspaceError(
                     "Check the current number of matching records before freezing them."
@@ -955,9 +1026,10 @@ def _render_odoo_capture_selection(
     """
 
     schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
-    current = context.queries.get_current_odoo_capture_selection(
+    current_selections = context.queries.get_current_odoo_capture_selections(
         workspace_state.workspace_id
     )
+    current_by_model = {item.model: item for item in current_selections}
     models = tuple(schema.models) if schema is not None else ()
     requested_model = request.query_params.get("model", "").strip()
     selected_model = next(
@@ -967,10 +1039,19 @@ def _render_odoo_capture_selection(
             if item.name
             == (
                 requested_model
-                or (current.model if current is not None else models[0].name)
+                or (
+                    current_selections[0].model
+                    if current_selections
+                    else models[0].name
+                )
             )
         ),
         models[0] if models else None,
+    )
+    current = (
+        current_by_model.get(selected_model.name)
+        if selected_model is not None
+        else None
     )
     fields = tuple(
         sorted(
@@ -997,19 +1078,31 @@ def _render_odoo_capture_selection(
             else ""
         )
     )
-    current_plan_error = None
-    if current is not None and schema is not None:
-        try:
-            plan_odoo_source_capture(current, schema)
-            if (
-                current.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows
-                or current.page_size not in ODOO_CAPTURE_PAGE_SIZES
-            ):
-                raise OdooSourceCaptureConfigurationError(
-                    "The saved capture plan uses the earlier row-limit workflow"
-                )
-        except OdooSourceCaptureConfigurationError as plan_error:
-            current_plan_error = str(plan_error)
+    capture_plan_errors: dict[str, str] = {}
+    if schema is not None:
+        for saved_selection in current_selections:
+            try:
+                plan_odoo_source_capture(saved_selection, schema)
+                if (
+                    saved_selection.max_rows
+                    != CURRENT_ODOO_SOURCE_POLICY.max_rows
+                    or saved_selection.page_size not in ODOO_CAPTURE_PAGE_SIZES
+                ):
+                    raise OdooSourceCaptureConfigurationError(
+                        "The saved capture plan uses the earlier row-limit workflow"
+                    )
+            except OdooSourceCaptureConfigurationError as plan_error:
+                capture_plan_errors[saved_selection.model] = str(plan_error)
+    current_plan_error = (
+        capture_plan_errors.get(current.model) if current is not None else None
+    )
+    required_models = {item.name for item in models}
+    plans_complete = bool(required_models) and set(current_by_model) == required_models
+    selection_set_hash = (
+        odoo_capture_selection_set_hash(current_selections)
+        if plans_complete
+        else ""
+    )
     try:
         read_credential = get_target_credential(
             context.secret_store,
@@ -1023,10 +1116,11 @@ def _render_odoo_capture_selection(
         if error is None:
             error = str(credential_error)
             status_code = 422
-    current_manifest = context.odoo_provenance.current_manifest(
+    current_manifests = context.odoo_provenance.current_manifests(
         workspace_state.workspace_id,
         actor=context.actor,
     )
+    current_manifest = current_manifests[0] if current_manifests else None
     capture_history = tuple(
         reversed(
             context.odoo_provenance.history(
@@ -1046,8 +1140,17 @@ def _render_odoo_capture_selection(
         selected_field_names=selected_field_names,
         dataset_name_default=dataset_name_default,
         current=current,
+        current_selections=current_selections,
+        current_by_model=current_by_model,
+        plans_complete=plans_complete,
+        selection_set_hash=selection_set_hash,
+        capture_plan_errors=capture_plan_errors,
         current_plan_error=current_plan_error,
         current_manifest=current_manifest,
+        current_manifests=current_manifests,
+        current_manifest_ids=frozenset(
+            item.manifest_id for item in current_manifests
+        ),
         capture_history=capture_history,
         read_credential_present=read_credential_present,
         read_credential_matches_schema=bool(

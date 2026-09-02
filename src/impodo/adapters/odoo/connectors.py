@@ -640,19 +640,12 @@ class Json2ReadConnector:
                 "share": share,
             }
         )
-        access_context = {
-            key: value
-            for key, value in self._config.context.items()
-            if key not in {"lang", "tz"}
-        }
         context_hash = _content_hash(
             {
-                "contract_version": 3,
-                "kind": "ODOO_ACCESS_SCOPE",
+                "contract_version": 4,
+                "kind": "ODOO_AVAILABLE_COMPANY_SCOPE",
                 "primary_company_id": primary_company_id,
                 "allowed_company_ids": effective_company_ids,
-                "active_test": bool(self._config.context.get("active_test", True)),
-                "request_context": portable_value(access_context),
             }
         )
         return (

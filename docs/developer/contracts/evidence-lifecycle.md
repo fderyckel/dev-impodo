@@ -25,6 +25,12 @@ Every dataset uses one discriminated source binding:
 
 There are no placeholder files or alternate historical JSON shapes.
 
+When an Odoo source includes several selected models, each dataset keeps its
+own `ODOO` binding, selection, snapshot, and protected origin sidecar. One
+`SourceSelection` binds the complete dataset set. Current selection pointers
+are keyed by model, current manifest pointers are keyed by dataset, and the
+complete set advances atomically.
+
 ## Current evidence chains
 
 The implemented Project lineage is:
@@ -96,6 +102,11 @@ Live target schema evidence binds the target identity to the permitted models,
 effective fields, relationship and selection metadata, and read-credential
 provenance. A local manual draft remains unverified and cannot authorize
 mapping submission.
+
+Read access evidence identifies the authenticated principal, readable models,
+and effective available company IDs. Its company-scope fingerprint excludes
+language, timezone, archived-record visibility, and other read-operation flags;
+those settings describe the governed read, not a change in company access.
 
 A later target-schema check first compares a validated candidate with the
 current semantic evidence. Capture/check times, actors, credential generations,
@@ -203,7 +214,7 @@ portable source or relationship identities.
 | Change source/target structure or credential generation during application | Current application or TargetBinding; the immutable Recipe revision remains unchanged |
 | Reinspect or reconfirm a file | Frozen source selection, snapshots, derived plans, mapping, and downstream evidence |
 | Freeze a new source selection | Derived plans, mapping, and downstream evidence |
-| Change an Odoo capture plan | Prior current Odoo snapshot, mapping, and downstream evidence |
+| Change one Odoo capture plan | The complete current Odoo snapshot set, mapping, and downstream evidence |
 | Check target schema and find no semantic change | No invalidation; update freshness and access provenance only |
 | Detect a target-schema change | No invalidation; preserve current evidence, mark Odoo data **Needs attention**, and block a new Odoo source freeze |
 | Confirm a detected target-schema change | Schema governance, Odoo capture selection and snapshot pointers, mapping, and downstream evidence |

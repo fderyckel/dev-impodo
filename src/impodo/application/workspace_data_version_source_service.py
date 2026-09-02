@@ -141,42 +141,60 @@ class WorkspaceDataVersionSourceService:
         self,
         workspace_id: str,
         selection: SourceSelection,
-        snapshot: SourceSnapshot,
-        manifest: OdooCaptureManifest,
+        snapshots: SourceSnapshot | tuple[SourceSnapshot, ...],
+        manifests: OdooCaptureManifest | tuple[OdooCaptureManifest, ...],
         *,
         actor: Actor,
     ) -> WorkspaceSourceProjection:
-        """Freeze one complete Odoo capture and expose only its references."""
+        """Freeze one complete Odoo capture set and expose only its references."""
 
         workspace = self.migration_workspaces.get(workspace_id, actor=actor)
         data_version = self.data_versions.get(workspace.data_version_id, actor=actor)
+        snapshot_set = (
+            tuple(snapshots) if isinstance(snapshots, tuple) else (snapshots,)
+        )
+        manifest_set = (
+            tuple(manifests) if isinstance(manifests, tuple) else (manifests,)
+        )
+        snapshot_by_dataset = {item.dataset_id: item for item in snapshot_set}
+        manifest_by_dataset = {item.dataset_id: item for item in manifest_set}
+        dataset_by_id = {item.dataset_id: item for item in selection.datasets}
         if (
             selection.data_version_id != workspace.data_version_id
-            or snapshot.data_version_id != workspace.data_version_id
-            or manifest.data_version_id != workspace.data_version_id
-            or len(selection.datasets) != 1
+            or not dataset_by_id
+            or len(dataset_by_id) != len(selection.datasets)
+            or len(snapshot_by_dataset) != len(snapshot_set)
+            or len(manifest_by_dataset) != len(manifest_set)
+            or set(snapshot_by_dataset) != set(dataset_by_id)
+            or set(manifest_by_dataset) != set(dataset_by_id)
+            or any(
+                item.data_version_id != workspace.data_version_id
+                for item in (*snapshot_set, *manifest_set)
+            )
         ):
             raise MigrationFoundationError(
                 "The Odoo capture belongs to another DataVersion"
             )
-        dataset = selection.datasets[0]
-        if (
-            dataset.dataset_id != snapshot.dataset_id
-            or dataset.name != snapshot.dataset_name
-            or dataset.source != snapshot.source
-            or dataset.row_count != snapshot.row_count
-            or tuple(item.stable_key for item in dataset.columns)
-            != tuple(item.stable_key for item in snapshot.schema.columns)
-            or manifest.dataset_id != dataset.dataset_id
-            or manifest.dataset_name != dataset.name
-            or manifest.row_count != dataset.row_count
-            or manifest.data_logical_hash != snapshot.data_logical_hash
-            or manifest.data_sha256 != snapshot.parquet_sha256
-            or manifest.data_storage_key != snapshot.parquet_storage_key
-        ):
-            raise MigrationFoundationError(
-                "The Odoo capture does not match its frozen dataset snapshot"
-            )
+        for dataset in selection.datasets:
+            snapshot = snapshot_by_dataset[dataset.dataset_id]
+            manifest = manifest_by_dataset[dataset.dataset_id]
+            if (
+                dataset.dataset_id != snapshot.dataset_id
+                or dataset.name != snapshot.dataset_name
+                or dataset.source != snapshot.source
+                or dataset.row_count != snapshot.row_count
+                or tuple(item.stable_key for item in dataset.columns)
+                != tuple(item.stable_key for item in snapshot.schema.columns)
+                or manifest.dataset_id != dataset.dataset_id
+                or manifest.dataset_name != dataset.name
+                or manifest.row_count != dataset.row_count
+                or manifest.data_logical_hash != snapshot.data_logical_hash
+                or manifest.data_sha256 != snapshot.parquet_sha256
+                or manifest.data_storage_key != snapshot.parquet_storage_key
+            ):
+                raise MigrationFoundationError(
+                    "The Odoo capture does not match its frozen dataset snapshot"
+                )
         current = self.packages.repository.get_source_package(
             data_version.data_version_id
         )
@@ -200,7 +218,7 @@ class WorkspaceDataVersionSourceService:
                 files=(),
                 catalogs=(),
                 configurations=(),
-                datasets=(
+                datasets=tuple(
                     SourcePackageDataset(
                         dataset_id=dataset.dataset_id,
                         display_name=dataset.name,
@@ -234,7 +252,10 @@ class WorkspaceDataVersionSourceService:
                                 snapshot.reader_contract_version
                             ),
                         },
-                    ),
+                    )
+                    for dataset in selection.datasets
+                    for snapshot in (snapshot_by_dataset[dataset.dataset_id],)
+                    for manifest in (manifest_by_dataset[dataset.dataset_id],)
                 ),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -274,7 +295,10 @@ class WorkspaceDataVersionSourceService:
             sorted(selection.datasets, key=lambda item: item.dataset_id)
         )
         packaged_datasets = tuple(
-            item.to_mapping_dataset() for item in package.datasets
+            sorted(
+                (item.to_mapping_dataset() for item in package.datasets),
+                key=lambda item: item.dataset_id,
+            )
         )
         if selected_ids != packaged_ids or selected_datasets != packaged_datasets:
             raise MigrationFoundationError(

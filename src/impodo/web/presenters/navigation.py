@@ -226,13 +226,16 @@ def _build_six_stage_workspace_navigation(
             current_workspace_state.workspace_id
         )
         schema_attention = bool(schema and schema.pending_refresh)
-        capture_selection = (
-            context.queries.get_current_odoo_capture_selection(
+        capture_selections = (
+            context.queries.get_current_odoo_capture_selections(
                 current_workspace_state.workspace_id
             )
             if schema is not None
-            else None
+            else ()
         )
+        capture_plans_complete = bool(schema) and {
+            item.model for item in capture_selections
+        } == {item.name for item in schema.models}
         try:
             frozen_source = context.queries.get_source_selection(
                 current_workspace_state.workspace_id
@@ -299,7 +302,7 @@ def _build_six_stage_workspace_navigation(
                         if schema_attention
                         else (
                             "Ready to freeze"
-                            if capture_selection is not None
+                            if capture_plans_complete
                             else "Define capture plan"
                             if schema is not None
                             else "Capture Odoo fields first"
@@ -312,7 +315,7 @@ def _build_six_stage_workspace_navigation(
                         "odoo-capture-selection",
                         "Define bounded capture",
                         "/sources",
-                        complete=capture_selection is not None,
+                        complete=capture_plans_complete,
                     ),
                     _page(
                         current_workspace_state.workspace_id,

@@ -62,6 +62,318 @@ class OdooProvenanceRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Backward-compatible one-dataset entrypoint."""
+
+        self.publish_complete_captures(
+            workspace_id,
+            ((manifest, encrypted_candidate),),
+            source_selection,
+            (source_snapshot,),
+            actor=actor,
+        )
+
+    def publish_complete_captures(
+        self,
+        workspace_id: str,
+        protected_candidates: tuple[tuple[OdooCaptureManifest, bytes], ...],
+        source_selection: SourceSelection,
+        source_snapshots: tuple[SourceSnapshot, ...],
+        *,
+        actor: Actor,
+    ) -> None:
+        """Promote a complete multi-model values/provenance set atomically."""
+
+        self._assert_workspace_mutable(workspace_id)
+        manifests = tuple(item[0] for item in protected_candidates)
+        encrypted = {item[0].manifest_id: item[1] for item in protected_candidates}
+        _validate_complete_captures(
+            workspace_id,
+            manifests,
+            source_selection,
+            source_snapshots,
+        )
+        if len(encrypted) != len(manifests):
+            raise WorkspaceError("Odoo provenance candidates are duplicated")
+        now = datetime.now(timezone.utc)
+        for manifest in manifests:
+            value = encrypted[manifest.manifest_id]
+            if len(value) != manifest.provenance_size_bytes:
+                raise WorkspaceError(
+                    "Odoo provenance candidate size is inconsistent"
+                )
+            if "sha256:" + sha256(value).hexdigest() != manifest.provenance_sha256:
+                raise WorkspaceError(
+                    "Odoo provenance candidate hash is inconsistent"
+                )
+            if manifest.retention_until <= now:
+                raise WorkspaceError(
+                    "Odoo provenance candidate is already expired"
+                )
+        snapshot_by_id = {item.dataset_id: item for item in source_snapshots}
+        for manifest in manifests:
+            snapshot = snapshot_by_id[manifest.dataset_id]
+            if (
+                self._artifacts.source_snapshot_size(
+                    snapshot.data_version_id,
+                    snapshot.parquet_storage_key,
+                )
+                != manifest.data_size_bytes
+            ):
+                raise WorkspaceError("Odoo values artifact size is inconsistent")
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        paths = tuple(
+            (
+                manifest,
+                self._candidate_path(workspace_id, manifest.manifest_id),
+                self._artifact_path(
+                    workspace_id,
+                    manifest.provenance_storage_key,
+                ),
+            )
+            for manifest in manifests
+        )
+        if any(candidate.exists() or final.exists() for _, candidate, final in paths):
+            raise WorkspaceError("Odoo provenance artifact already exists")
+        for manifest, candidate, _ in paths:
+            self._write_candidate(candidate, encrypted[manifest.manifest_id])
+        published_paths: list[Path] = []
+        try:
+            with self._connect(database_path) as connection:
+                self._ensure_workspace_database_schema(connection)
+                workspace_projection = connection.execute(
+                    "SELECT source_mode, status, revision "
+                    "FROM workspace_projection_cache"
+                ).fetchone()
+                if workspace_projection is None:
+                    raise WorkspaceStateNotFoundError(
+                        "Workspace engine state not found"
+                    )
+                if (
+                    str(workspace_projection[0]) != SourceMode.ODOO.value
+                    or str(workspace_projection[1])
+                    != WorkspaceStatus.REGISTERED.value
+                ):
+                    raise WorkspaceError(
+                        "Only registered Odoo-source workspaces can publish a capture"
+                    )
+                current_selection_rows = connection.execute(
+                    """
+                    SELECT revision.selection_json
+                      FROM odoo_capture_selection_current AS current_selection
+                      JOIN odoo_capture_selection_revision AS revision
+                        ON revision.selection_id = current_selection.selection_id
+                       AND revision.version = current_selection.version
+                     ORDER BY current_selection.model
+                    """
+                ).fetchall()
+                current_selections = tuple(
+                    OdooCaptureSelection.from_json(str(row[0]))
+                    for row in current_selection_rows
+                )
+                selection_by_dataset = {
+                    item.dataset_id: item for item in current_selections
+                }
+                if (
+                    set(selection_by_dataset)
+                    != {item.dataset_id for item in manifests}
+                    or any(
+                        not manifest.binds_selection(
+                            selection_by_dataset[manifest.dataset_id]
+                        )
+                        for manifest in manifests
+                    )
+                ):
+                    raise WorkspaceError(
+                        "Odoo capture manifests do not bind the current selections"
+                    )
+                current_source_row = connection.execute(
+                    "SELECT selection_json FROM source_selection WHERE singleton_id = 1"
+                ).fetchone()
+                current_source = (
+                    SourceSelection.from_json(str(current_source_row[0]))
+                    if current_source_row is not None
+                    else None
+                )
+                expected_source_version = (
+                    current_source.version + 1 if current_source is not None else 1
+                )
+                if source_selection.version != expected_source_version:
+                    raise WorkspaceError(
+                        "Source selection was modified by another publication"
+                    )
+                retained_provenance = connection.execute(
+                    """
+                    SELECT COALESCE(SUM(provenance_size_bytes), 0)
+                      FROM odoo_capture_manifest_revision
+                    """
+                ).fetchone()
+                retained_data_rows = connection.execute(
+                    """
+                    SELECT data_storage_key, MIN(data_size_bytes), MAX(data_size_bytes)
+                      FROM odoo_capture_manifest_revision
+                     GROUP BY data_storage_key
+                    """
+                ).fetchall()
+                if any(int(row[1]) != int(row[2]) for row in retained_data_rows):
+                    raise WorkspaceError(
+                        "Stored Odoo values artifact accounting is inconsistent"
+                    )
+                retained_data = {
+                    str(row[0]): int(row[1]) for row in retained_data_rows
+                }
+                candidate_data: dict[str, int] = {}
+                for manifest in manifests:
+                    existing = retained_data.get(manifest.data_storage_key)
+                    if existing is not None and existing != manifest.data_size_bytes:
+                        raise WorkspaceError(
+                            "Odoo values artifact accounting is inconsistent"
+                        )
+                    previous = candidate_data.setdefault(
+                        manifest.data_storage_key,
+                        manifest.data_size_bytes,
+                    )
+                    if previous != manifest.data_size_bytes:
+                        raise WorkspaceError(
+                            "Odoo values candidates have inconsistent accounting"
+                        )
+                retained_bytes = (
+                    int(retained_provenance[0]) if retained_provenance else 0
+                ) + sum(retained_data.values())
+                candidate_bytes = sum(
+                    item.provenance_size_bytes for item in manifests
+                ) + sum(
+                    size
+                    for key, size in candidate_data.items()
+                    if key not in retained_data
+                )
+                if retained_bytes + candidate_bytes > self._history_quota_bytes:
+                    raise WorkspaceError(
+                        "Odoo capture history quota would be exceeded"
+                    )
+                for _, candidate, final in paths:
+                    _mkdir_private(final.parent, parents=True)
+                    candidate.replace(final)
+                    published_paths.append(final)
+
+                connection.begin()
+                try:
+                    for snapshot in source_snapshots:
+                        connection.execute(
+                            """
+                            INSERT OR IGNORE INTO source_snapshot_manifest
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            [
+                                snapshot.content_hash,
+                                snapshot.dataset_id,
+                                snapshot.logical_hash,
+                                snapshot.parquet_sha256,
+                                snapshot.parquet_storage_key,
+                                snapshot.created_at.isoformat(),
+                                snapshot.to_json(),
+                            ],
+                        )
+                        registered_snapshot = connection.execute(
+                            """
+                            SELECT dataset_id, logical_hash, parquet_sha256,
+                                   parquet_storage_key
+                              FROM source_snapshot_manifest
+                             WHERE content_hash = ?
+                            """,
+                            [snapshot.content_hash],
+                        ).fetchone()
+                        if registered_snapshot != (
+                            snapshot.dataset_id,
+                            snapshot.logical_hash,
+                            snapshot.parquet_sha256,
+                            snapshot.parquet_storage_key,
+                        ):
+                            raise WorkspaceError(
+                                "Stored source snapshot manifest is inconsistent"
+                            )
+                    connection.execute(
+                        "INSERT OR REPLACE INTO source_selection VALUES (1, ?)",
+                        [source_selection.to_json()],
+                    )
+                    connection.execute("DELETE FROM source_snapshot_current")
+                    connection.executemany(
+                        "INSERT INTO source_snapshot_current VALUES (?, ?)",
+                        [
+                            [snapshot.dataset_id, snapshot.content_hash]
+                            for snapshot in source_snapshots
+                        ],
+                    )
+                    for manifest in manifests:
+                        connection.execute(
+                            """
+                            INSERT INTO odoo_capture_manifest_revision
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            [
+                                manifest.manifest_id,
+                                manifest.content_hash,
+                                manifest.selection_hash,
+                                manifest.dataset_id,
+                                manifest.row_count,
+                                manifest.data_storage_key,
+                                manifest.data_size_bytes,
+                                manifest.provenance_size_bytes,
+                                manifest.provenance_storage_key,
+                                manifest.retention_until.isoformat(),
+                                manifest.capture_finished_at.isoformat(),
+                                manifest.to_json(),
+                            ],
+                        )
+                    connection.execute("DELETE FROM odoo_capture_manifest_current")
+                    connection.executemany(
+                        "INSERT INTO odoo_capture_manifest_current VALUES (?, ?)",
+                        [
+                            [manifest.dataset_id, manifest.manifest_id]
+                            for manifest in manifests
+                        ],
+                    )
+                    connection.execute("DELETE FROM derived_entity_plan_current")
+                    connection.execute("DELETE FROM mapping_current")
+                    self._invalidate_canonical_staging(
+                        connection,
+                        reason="ODOO_CAPTURE_PUBLISHED",
+                    )
+                    self._insert_workspace_audit(
+                        connection,
+                        revision=int(workspace_projection[2]),
+                        event_type="ODOO_SOURCE_CAPTURE_PUBLISHED",
+                        detail=(
+                            f"{len(manifests)} dataset(s); "
+                            f"{sum(item.row_count for item in manifests)} row(s); "
+                            f"{sum(item.data_size_bytes for item in manifests)} "
+                            "value byte(s)"
+                        ),
+                        actor=actor,
+                    )
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+        except Exception:
+            for final in published_paths:
+                final.unlink(missing_ok=True)
+            for _, candidate, _ in paths:
+                candidate.unlink(missing_ok=True)
+            raise
+
+    def _publish_complete_capture_legacy(
+        self,
+        workspace_id: str,
+        manifest: OdooCaptureManifest,
+        encrypted_candidate: bytes,
+        source_selection: SourceSelection,
+        source_snapshot: SourceSnapshot,
+        *,
+        actor: Actor,
+    ) -> None:
         """Promote values, origins, and all current pointers as one publication."""
 
         self._assert_workspace_mutable(workspace_id)
@@ -307,19 +619,31 @@ class OdooProvenanceRepository(DuckDbRepository):
             raise
 
     def get_current(self, workspace_id: str) -> OdooCaptureManifest | None:
-        """Restore and verify the one current protected manifest contract."""
+        """Return the first current manifest for legacy single-dataset callers."""
 
-        value = self._read_singleton_json(
-            workspace_id,
-            """
-            SELECT revision.manifest_json
-              FROM odoo_capture_manifest_current AS current
-              JOIN odoo_capture_manifest_revision AS revision
-                ON revision.manifest_id = current.manifest_id
-             WHERE current.singleton_id = 1
-            """,
+        manifests = self.get_currents(workspace_id)
+        return manifests[0] if manifests else None
+
+    def get_currents(
+        self,
+        workspace_id: str,
+    ) -> tuple[OdooCaptureManifest, ...]:
+        """Restore current protected manifests in deterministic model order."""
+
+        manifests = tuple(
+            OdooCaptureManifest.from_json(value)
+            for value in self._read_json_rows(
+                workspace_id,
+                """
+                SELECT revision.manifest_json
+                  FROM odoo_capture_manifest_current AS current_manifest
+                  JOIN odoo_capture_manifest_revision AS revision
+                    ON revision.manifest_id = current_manifest.manifest_id
+                 ORDER BY current_manifest.dataset_id
+                """,
+            )
         )
-        return OdooCaptureManifest.from_json(value) if value else None
+        return tuple(sorted(manifests, key=lambda item: item.model))
 
     def history(self, workspace_id: str) -> tuple[OdooCaptureManifest, ...]:
         """Restore immutable capture manifests without opening protected files."""
@@ -432,7 +756,7 @@ class OdooProvenanceRepository(DuckDbRepository):
                 """
                 SELECT manifest_id
                   FROM odoo_capture_manifest_current
-                 WHERE singleton_id = 1
+                 LIMIT 1
                 """
             ).fetchone()
             if exists is None:
@@ -614,9 +938,38 @@ def _validate_complete_capture(
     selection: SourceSelection,
     snapshot: SourceSnapshot,
 ) -> None:
+    _validate_complete_captures(
+        workspace_id,
+        (manifest,),
+        selection,
+        (snapshot,),
+    )
+
+
+def _validate_complete_captures(
+    workspace_id: str,
+    manifests: tuple[OdooCaptureManifest, ...],
+    selection: SourceSelection,
+    snapshots: tuple[SourceSnapshot, ...],
+) -> None:
+    """Require one internally consistent publication set for every dataset."""
+
+    if not manifests or not snapshots or not selection.datasets:
+        raise WorkspaceError("Odoo capture publication is empty")
+    manifest_by_dataset = {item.dataset_id: item for item in manifests}
+    snapshot_by_dataset = {item.dataset_id: item for item in snapshots}
+    dataset_by_id = {item.dataset_id: item for item in selection.datasets}
+    dataset_ids = set(dataset_by_id)
     if (
-        manifest.data_version_id != selection.data_version_id
-        or len(selection.datasets) != 1
+        len(manifest_by_dataset) != len(manifests)
+        or len(snapshot_by_dataset) != len(snapshots)
+        or len(dataset_by_id) != len(selection.datasets)
+        or set(manifest_by_dataset) != dataset_ids
+        or set(snapshot_by_dataset) != dataset_ids
+        or any(
+            item.data_version_id != selection.data_version_id
+            for item in (*manifests, *snapshots)
+        )
     ):
         raise WorkspaceError(
             "Odoo capture publication belongs to another DataVersion"
@@ -629,46 +982,51 @@ def _validate_complete_capture(
             "datasets": [item.to_dict() for item in selection.datasets],
         }
     )
-    dataset = selection.datasets[0]
-    expected_source = OdooSourceBinding(
-        capture_selection_hash=manifest.selection_hash,
-        model=manifest.model,
-        policy_hash=manifest.policy_hash,
-        connection_target_hash=manifest.connection_target_hash,
-        schema_scope_hash=manifest.schema_scope_hash,
-        read_principal_hash=manifest.read_principal_hash,
-        read_permission_hash=manifest.read_permission_hash,
-        context_hash=manifest.context_hash,
-    )
-    expected_schema = SourceSnapshotSchema.create(
-        SourceSnapshotColumn.create(
-            ordinal=column.ordinal,
-            stable_key=column.stable_key,
-            source_name=column.source_name,
-            candidate_type=column.candidate_type,
-        )
-        for column in dataset.columns
-    )
-    if (
-        selection.content_hash != expected_selection_hash
-        or dataset.source != expected_source
-        or dataset.dataset_id != manifest.dataset_id
-        or dataset.name != manifest.dataset_name
-        or dataset.row_count != manifest.row_count
-        or tuple(item.source_name for item in dataset.columns) != manifest.field_names
-        or tuple(item.stable_key for item in dataset.columns)
-        != manifest.column_stable_keys
-        or snapshot.data_version_id != selection.data_version_id
-        or snapshot.dataset_id != dataset.dataset_id
-        or snapshot.dataset_name != dataset.name
-        or snapshot.source != dataset.source
-        or snapshot.physical_selection_hash != selection.content_hash
-        or snapshot.schema != expected_schema
-        or snapshot.row_count != dataset.row_count
-        or snapshot.data_logical_hash != manifest.data_logical_hash
-        or snapshot.parquet_sha256 != manifest.data_sha256
-        or snapshot.parquet_storage_key != manifest.data_storage_key
-    ):
+    if selection.content_hash != expected_selection_hash:
         raise WorkspaceError(
             "Odoo values, provenance, and source snapshot bindings are inconsistent"
         )
+    for dataset in selection.datasets:
+        manifest = manifest_by_dataset[dataset.dataset_id]
+        snapshot = snapshot_by_dataset[dataset.dataset_id]
+        expected_source = OdooSourceBinding(
+            capture_selection_hash=manifest.selection_hash,
+            model=manifest.model,
+            policy_hash=manifest.policy_hash,
+            connection_target_hash=manifest.connection_target_hash,
+            schema_scope_hash=manifest.schema_scope_hash,
+            read_principal_hash=manifest.read_principal_hash,
+            read_permission_hash=manifest.read_permission_hash,
+            context_hash=manifest.context_hash,
+        )
+        expected_schema = SourceSnapshotSchema.create(
+            SourceSnapshotColumn.create(
+                ordinal=column.ordinal,
+                stable_key=column.stable_key,
+                source_name=column.source_name,
+                candidate_type=column.candidate_type,
+            )
+            for column in dataset.columns
+        )
+        if (
+            dataset.source != expected_source
+            or dataset.dataset_id != manifest.dataset_id
+            or dataset.name != manifest.dataset_name
+            or dataset.row_count != manifest.row_count
+            or tuple(item.source_name for item in dataset.columns)
+            != manifest.field_names
+            or tuple(item.stable_key for item in dataset.columns)
+            != manifest.column_stable_keys
+            or snapshot.dataset_id != dataset.dataset_id
+            or snapshot.dataset_name != dataset.name
+            or snapshot.source != dataset.source
+            or snapshot.physical_selection_hash != selection.content_hash
+            or snapshot.schema != expected_schema
+            or snapshot.row_count != dataset.row_count
+            or snapshot.data_logical_hash != manifest.data_logical_hash
+            or snapshot.parquet_sha256 != manifest.data_sha256
+            or snapshot.parquet_storage_key != manifest.data_storage_key
+        ):
+            raise WorkspaceError(
+                "Odoo values, provenance, and source snapshot bindings are inconsistent"
+            )
