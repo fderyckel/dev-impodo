@@ -26,6 +26,9 @@ from uuid import UUID
 
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.run.setup import OdooConnectionMode, validate_odoo_base_url
+from impodo.domain.shared.models import target_identity_hash
+from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.transfer_order import TransferOrderPlan
 
 
 class WorkspaceStateError(ValueError):
@@ -133,6 +136,16 @@ class WorkspaceState:
     odoo_connection_mode: OdooConnectionMode | None = None
     odoo_base_url: str = ""
     odoo_database: str = ""
+    destination_odoo_connection_mode: OdooConnectionMode | None = None
+    destination_odoo_base_url: str = ""
+    destination_odoo_database: str = ""
+    destination_verified_target_hash: str = ""
+    destination_verified_credential_binding_hash: str = ""
+    destination_verified_read_principal_hash: str = ""
+    destination_verified_odoo_version: str = ""
+    destination_verified_at: datetime | None = None
+    destination_match_plan: DestinationMatchPlan | None = None
+    transfer_order_plan: TransferOrderPlan | None = None
     intended_applications: tuple[str, ...] = ()
     intended_models: tuple[str, ...] = ()
     source_files: tuple[SourceFile, ...] = ()
@@ -147,10 +160,126 @@ class WorkspaceState:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_mode", SourceMode(self.source_mode))
+        if self.destination_odoo_connection_mode is not None:
+            object.__setattr__(
+                self,
+                "destination_odoo_connection_mode",
+                OdooConnectionMode(self.destination_odoo_connection_mode),
+            )
         object.__setattr__(
             self,
             "approval_status",
             ApprovalStatus(self.approval_status),
+        )
+
+    @property
+    def destination_configured(self) -> bool:
+        """Whether a separate Odoo destination identity is configured."""
+
+        return bool(
+            self.destination_odoo_connection_mode
+            and self.destination_odoo_base_url
+            and self.destination_odoo_database
+        )
+
+    @property
+    def destination_verified(self) -> bool:
+        """Whether current destination details match durable read evidence."""
+
+        return bool(
+            self.destination_configured
+            and not transfer_destination_matches_source(self)
+            and self.destination_verified_target_hash
+            == transfer_destination_identity_hash(self)
+            and self.destination_verified_credential_binding_hash
+            and self.destination_verified_read_principal_hash
+            and self.destination_verified_odoo_version.startswith("19.")
+            and self.destination_verified_at is not None
+        )
+
+    def destination_match_current(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether Stage 5 evidence matches every current upstream binding."""
+
+        plan = self.destination_match_plan
+        return bool(
+            self.destination_verified
+            and plan is not None
+            and plan.workspace_id == self.workspace_id
+            and plan.source_selection_hash == source_selection_hash
+            and plan.source_schema_hash == source_schema_hash
+            and plan.destination_target_hash
+            == transfer_destination_identity_hash(self)
+            and plan.destination_credential_binding_hash
+            == self.destination_verified_credential_binding_hash
+            and plan.destination_read_principal_hash
+            == self.destination_verified_read_principal_hash
+            and self.destination_verified_at is not None
+            and plan.recorded_at >= self.destination_verified_at
+        )
+
+    def destination_match_ready(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether current Stage 5 evidence has no matching blockers."""
+
+        return bool(
+            self.destination_match_current(
+                source_selection_hash=source_selection_hash,
+                source_schema_hash=source_schema_hash,
+            )
+            and self.destination_match_plan is not None
+            and self.destination_match_plan.ready
+        )
+
+    def transfer_order_current(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether Stage 6 is bound to the exact current Stage 5 decision."""
+
+        plan = self.transfer_order_plan
+        match_plan = self.destination_match_plan
+        return bool(
+            self.destination_match_ready(
+                source_selection_hash=source_selection_hash,
+                source_schema_hash=source_schema_hash,
+            )
+            and plan is not None
+            and match_plan is not None
+            and plan.workspace_id == self.workspace_id
+            and plan.destination_match_plan_hash == match_plan.content_hash
+            and plan.source_selection_hash == source_selection_hash
+            and plan.source_schema_hash == source_schema_hash
+            and plan.destination_target_hash
+            == transfer_destination_identity_hash(self)
+            and plan.recorded_at >= match_plan.recorded_at
+        )
+
+    def transfer_order_ready(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether current Stage 6 evidence has no dependency blockers."""
+
+        return bool(
+            self.transfer_order_current(
+                source_selection_hash=source_selection_hash,
+                source_schema_hash=source_schema_hash,
+            )
+            and self.transfer_order_plan is not None
+            and self.transfer_order_plan.ready
         )
 
 
@@ -356,6 +485,244 @@ class WorkspaceStateService:
             actor=actor,
         )
 
+    def configure_transfer_destination(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        odoo_connection_mode: str,
+        odoo_base_url: str,
+        odoo_database: str,
+    ) -> WorkspaceState:
+        """Save a destination without replacing the Odoo source identity."""
+
+        workspace = self._target_editable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        if workspace.source_mode is not SourceMode.ODOO:
+            raise WorkspaceStateError(
+                "A separate transfer destination is available only for Odoo source data"
+            )
+        if workspace.status is not WorkspaceStatus.REGISTERED:
+            raise WorkspaceStateError(
+                "Finish and register the Odoo source before connecting a destination"
+            )
+        try:
+            connection_mode = OdooConnectionMode(odoo_connection_mode)
+        except ValueError as error:
+            raise WorkspaceStateError("Choose Local Odoo or Remote Odoo") from error
+        try:
+            base_url = validate_odoo_base_url(odoo_base_url, connection_mode)
+        except ValueError as error:
+            raise WorkspaceStateError(str(error)) from error
+        database = _required_text(odoo_database, "Destination Odoo database")
+        destination_hash = target_identity_hash(
+            connection_mode=connection_mode.value,
+            base_url=base_url,
+            database=database,
+        )
+        source_hash = target_identity_hash(
+            connection_mode=(
+                workspace.odoo_connection_mode.value
+                if workspace.odoo_connection_mode is not None
+                else ""
+            ),
+            base_url=workspace.odoo_base_url,
+            database=workspace.odoo_database,
+        )
+        candidate = replace(
+            workspace,
+            destination_odoo_connection_mode=connection_mode,
+            destination_odoo_base_url=base_url,
+            destination_odoo_database=database,
+        )
+        same_database = transfer_destination_matches_source(candidate)
+        if destination_hash == source_hash or same_database:
+            raise WorkspaceStateError(
+                "Choose a different Odoo database for the destination"
+            )
+        changed = (
+            workspace.destination_odoo_connection_mode is not connection_mode
+            or workspace.destination_odoo_base_url != base_url
+            or workspace.destination_odoo_database != database
+        )
+        updated = replace(
+            workspace,
+            destination_odoo_connection_mode=connection_mode,
+            destination_odoo_base_url=base_url,
+            destination_odoo_database=database,
+            destination_verified_target_hash=(
+                "" if changed else workspace.destination_verified_target_hash
+            ),
+            destination_verified_credential_binding_hash=(
+                ""
+                if changed
+                else workspace.destination_verified_credential_binding_hash
+            ),
+            destination_verified_read_principal_hash=(
+                "" if changed else workspace.destination_verified_read_principal_hash
+            ),
+            destination_verified_odoo_version=(
+                "" if changed else workspace.destination_verified_odoo_version
+            ),
+            destination_verified_at=(
+                None if changed else workspace.destination_verified_at
+            ),
+            destination_match_plan=(
+                None if changed else workspace.destination_match_plan
+            ),
+            transfer_order_plan=(
+                None if changed else workspace.transfer_order_plan
+            ),
+        )
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_TRANSFER_DESTINATION_UPDATED",
+            actor=actor,
+            detail=f"target={destination_hash}",
+        )
+
+    def verify_transfer_destination(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        target_hash: str,
+        credential_binding_hash: str,
+        read_principal_hash: str,
+        odoo_version: str,
+    ) -> WorkspaceState:
+        """Bind successful read-only evidence to the configured destination."""
+
+        workspace = self._target_editable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        expected_target_hash = transfer_destination_identity_hash(workspace)
+        if not expected_target_hash or target_hash != expected_target_hash:
+            raise WorkspaceStateError(
+                "The checked Odoo destination no longer matches the saved destination"
+            )
+        if not odoo_version.startswith("19."):
+            raise WorkspaceStateError("The destination must run Odoo 19")
+        updated = replace(
+            workspace,
+            destination_verified_target_hash=target_hash,
+            destination_verified_credential_binding_hash=_required_text(
+                credential_binding_hash,
+                "Destination credential binding",
+            ),
+            destination_verified_read_principal_hash=_required_text(
+                read_principal_hash,
+                "Destination read principal",
+            ),
+            destination_verified_odoo_version=odoo_version,
+            destination_verified_at=_now(),
+        )
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_TRANSFER_DESTINATION_VERIFIED",
+            actor=actor,
+            detail=f"target={target_hash}",
+        )
+
+    def save_destination_match_plan(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        plan: DestinationMatchPlan,
+    ) -> WorkspaceState:
+        """Publish current Stage 5 evidence after its bounded destination read."""
+
+        workspace = self._target_editable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        if not workspace.destination_verified:
+            raise WorkspaceStateError("Verify the destination Odoo connection first")
+        if plan.workspace_id != workspace.workspace_id:
+            raise WorkspaceStateError("Destination matching changed workspace identity")
+        if (
+            plan.destination_target_hash
+            != transfer_destination_identity_hash(workspace)
+            or plan.destination_credential_binding_hash
+            != workspace.destination_verified_credential_binding_hash
+            or plan.destination_read_principal_hash
+            != workspace.destination_verified_read_principal_hash
+        ):
+            raise WorkspaceStateError(
+                "Destination matching does not match the verified destination"
+            )
+        updated = replace(
+            workspace,
+            destination_match_plan=plan,
+            transfer_order_plan=None,
+        )
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_DESTINATION_MATCH_CHECKED",
+            actor=actor,
+            detail=(
+                f"plan={plan.content_hash}; models={len(plan.model_matches)}; "
+                f"ready={'yes' if plan.ready else 'no'}"
+            ),
+        )
+
+    def save_transfer_order_plan(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        plan: TransferOrderPlan,
+    ) -> WorkspaceState:
+        """Publish Stage 6 ordering derived from current Stage 5 evidence."""
+
+        workspace = self._target_editable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        match_plan = workspace.destination_match_plan
+        if (
+            match_plan is None
+            or not workspace.destination_match_ready(
+                source_selection_hash=plan.source_selection_hash,
+                source_schema_hash=plan.source_schema_hash,
+            )
+            or plan.workspace_id != workspace.workspace_id
+            or plan.destination_match_plan_hash != match_plan.content_hash
+            or plan.source_selection_hash != match_plan.source_selection_hash
+            or plan.source_schema_hash != match_plan.source_schema_hash
+            or plan.destination_target_hash != match_plan.destination_target_hash
+        ):
+            raise WorkspaceStateError(
+                "Transfer order does not match current destination matching"
+            )
+        updated = replace(workspace, transfer_order_plan=plan)
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_TRANSFER_ORDER_PLANNED",
+            actor=actor,
+            detail=(
+                f"plan={plan.content_hash}; waves={len(plan.waves)}; "
+                f"deferred={plan.deferred_dependency_count}; "
+                f"ready={'yes' if plan.ready else 'no'}"
+            ),
+        )
+
     def _target_editable(
         self,
         workspace_id: str,
@@ -459,7 +826,7 @@ class WorkspaceStateService:
         canonical_workspace_id = _canonical_workspace_id(workspace_id)
         normalized_role = role.strip().upper()
         normalized_action = action.strip().upper()
-        if normalized_role not in {"READ", "WRITE"}:
+        if normalized_role not in {"READ", "WRITE", "DESTINATION_READ"}:
             raise WorkspaceStateError("Credential audit role is invalid")
         if normalized_action not in {"STORED", "REPLACED"}:
             raise WorkspaceStateError("Credential audit action is invalid")
@@ -469,7 +836,7 @@ class WorkspaceStateService:
             actor,
             (
                 Capability.SCHEMA_DISCOVER
-                if normalized_role == "READ"
+                if normalized_role in {"READ", "DESTINATION_READ"}
                 else Capability.EXPORT_PLAN_EXECUTE
             ),
             workspace_id=canonical_workspace_id,
@@ -505,7 +872,7 @@ class WorkspaceStateService:
         normalized_role = role.strip().upper()
         normalized_reason = reason.strip().upper()
         normalized_storage = storage_class.strip().upper()
-        if normalized_role not in {"READ", "WRITE"}:
+        if normalized_role not in {"READ", "WRITE", "DESTINATION_READ"}:
             raise WorkspaceStateError("Credential removal role is invalid")
         if normalized_reason not in {
             "TARGET_CHANGED",
@@ -734,6 +1101,48 @@ class WorkspaceStateService:
             actor=actor,
         )
         return saved
+
+
+def transfer_destination_identity_hash(workspace: WorkspaceState) -> str:
+    """Return the exact configured destination identity, or an empty value."""
+
+    if not workspace.destination_configured:
+        return ""
+    assert workspace.destination_odoo_connection_mode is not None
+    return target_identity_hash(
+        connection_mode=workspace.destination_odoo_connection_mode.value,
+        base_url=workspace.destination_odoo_base_url,
+        database=workspace.destination_odoo_database,
+    )
+
+
+def transfer_destination_matches_source(workspace: WorkspaceState) -> bool:
+    """Whether source and destination identify the same Odoo database."""
+
+    return bool(
+        workspace.destination_configured
+        and workspace.odoo_base_url
+        and workspace.odoo_database
+        and workspace.destination_odoo_base_url.rstrip("/").casefold()
+        == workspace.odoo_base_url.rstrip("/").casefold()
+        and workspace.destination_odoo_database.casefold()
+        == workspace.odoo_database.casefold()
+    )
+
+
+def transfer_destination_workspace(workspace: WorkspaceState) -> WorkspaceState:
+    """Project the destination through existing bounded Odoo read ports."""
+
+    if not workspace.destination_configured:
+        raise WorkspaceStateError("Configure the Odoo destination first")
+    return replace(
+        workspace,
+        odoo_connection_mode=workspace.destination_odoo_connection_mode,
+        odoo_base_url=workspace.destination_odoo_base_url,
+        odoo_database=workspace.destination_odoo_database,
+        intended_applications=(),
+        intended_models=(),
+    )
 
 
 def workspace_setup_requirements(

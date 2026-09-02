@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Connect destination Odoo · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 4 of 8 · Connect destination Odoo</p>
+      <h1>Connect the Odoo instance that will receive the data</h1>
+      <p>Save and verify a destination that is separate from the frozen Odoo source. This stage performs read-only identity and access checks.</p>
+    </div>
+    <span class="status {% if workspace_state.destination_verified %}ready{% else %}review{% endif %}">
+      {% if workspace_state.destination_verified %}Connected{% else %}Connection required{% endif %}
+    </span>
+  </div>
+
+  <div class="notice warning">
+    <strong>Nothing will be written to either Odoo instance.</strong>
+    This stage checks the destination server, database, Odoo 19 version, and authenticated read access. Field matching and loading remain separate later stages.
+  </div>
+
+  <section class="form-card" aria-labelledby="source-destination-title">
+    <p class="eyebrow">Transfer boundary</p>
+    <h2 id="source-destination-title">Source and destination stay separate</h2>
+    <dl class="definition-list capture-summary">
+      <div><dt>Frozen source</dt><dd>{{ workspace_state.odoo_database }} · {{ workspace_state.odoo_base_url }}</dd></div>
+      <div>
+        <dt>Destination</dt>
+        <dd>
+          {% if workspace_state.destination_configured %}
+            {{ workspace_state.destination_odoo_database }} · {{ workspace_state.destination_odoo_base_url }}
+          {% else %}
+            Not configured
+          {% endif %}
+        </dd>
+      </div>
+      <div>
+        <dt>Key 1</dt>
+        <dd>Source fetch API key &middot; read-only and source-bound</dd>
+      </div>
+      <div>
+        <dt>Key 2</dt>
+        <dd>Destination transfer API key &middot; destination-bound; read for checks, write only during an authorized load</dd>
+      </div>
+    </dl>
+  </section>
+
+  {% if workspace_state.destination_verified %}
+    <section class="next-action-card ready" id="destination-connected">
+      <div>
+        <p class="eyebrow">Destination connection complete</p>
+        <h2>The destination identity and read access are verified</h2>
+        <p>
+          Verified Odoo {{ workspace_state.destination_verified_odoo_version }}
+          at {{ workspace_state.destination_verified_at.strftime('%Y-%m-%d %H:%M UTC') }}.
+          Rechecking the form below remains read-only.
+        </p>
+        <div class="notice">
+          <strong>Next: match destination data.</strong>
+          Choose the stable fields used to find existing Product, Unit of Measure, and other selected records. The next stage remains read-only.
+        </div>
+      </div>
+      <div class="next-action-buttons">
+        <span class="status ready">Stage 4 complete</span>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/destination-matching">Match destination data</a>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="form-card" id="destination-connection">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Read-only destination check</p>
+        <h2>{% if workspace_state.destination_configured %}Check or change the destination{% else %}Enter destination details{% endif %}</h2>
+      </div>
+      <span class="status {% if destination_credential_status.available %}registered{% else %}review{% endif %}">
+        Key: {{ destination_credential_status.label }}
+      </span>
+    </div>
+
+    <form method="post" action="/workspaces/{{ workspace_id }}/transfer-destination">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+
+      <fieldset>
+        <legend>Where is the destination Odoo running?</legend>
+        <div class="mode-grid">
+          <label class="mode-card">
+            <input type="radio" name="odoo_connection_mode" value="LOCAL"
+              {% if workspace_state.destination_odoo_connection_mode and workspace_state.destination_odoo_connection_mode.value == 'LOCAL' %}checked{% endif %}>
+            <span><strong>On this computer</strong><small>Use a loopback Odoo web address.</small></span>
+          </label>
+          <label class="mode-card">
+            <input type="radio" name="odoo_connection_mode" value="REMOTE"
+              {% if not workspace_state.destination_odoo_connection_mode or workspace_state.destination_odoo_connection_mode.value == 'REMOTE' %}checked{% endif %}>
+            <span><strong>Managed elsewhere</strong><small>Use the destination server's HTTPS address.</small></span>
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="form-grid">
+        <label>
+          Destination Odoo web address
+          <input type="url" name="odoo_base_url" required placeholder="For example: https://destination.example.com" value="{{ workspace_state.destination_odoo_base_url }}">
+        </label>
+        <label>
+          Destination database name
+          <input name="odoo_database" maxlength="200" required placeholder="For example: odoo19_destination" value="{{ workspace_state.destination_odoo_database }}">
+        </label>
+        <label>
+          {% if destination_credential_status.available %}Replace the destination transfer API key{% else %}Destination transfer API key{% endif %}
+          <input type="password" name="read_api_key" autocomplete="off" {% if not destination_credential_status.available %}required{% endif %}>
+          <small>This is the second of two keys: it is bound only to the destination, used read-only for matching and preflight, then used for writes only after load authorization. It is never reused as the source-fetch key.</small>
+        </label>
+      </div>
+
+      <fieldset class="credential-storage-choice compact">
+        <legend>How long should Impodo keep a newly entered destination key?</legend>
+        <div class="mode-grid compact">
+          <label class="mode-card">
+            <input type="radio" name="read_api_key_storage" value="vault" checked>
+            <span><strong>Keep it on this computer</strong><small>Save securely in Windows Credential Manager.</small></span>
+          </label>
+          <label class="mode-card">
+            <input type="radio" name="read_api_key_storage" value="session">
+            <span><strong>Until Impodo closes</strong><small>Forget the key when this Impodo process ends.</small></span>
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="actions">
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/sources#download-complete">Back to frozen source</a>
+        <button class="button primary" type="submit">Check and save destination</button>
+      </div>
+    </form>
+  </section>
+
+  {% if destination_connection %}
+    <section class="form-card connection-state-{{ destination_connection.state }}" id="destination-check-result" aria-live="polite">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Latest destination check</p>
+          <h2>{{ destination_connection.heading }}</h2>
+          <p>{{ destination_connection.guidance }}</p>
+        </div>
+        <span class="status {% if destination_connection.ready %}ready{% elif destination_connection.has_error %}blocked{% else %}review{% endif %}">{{ destination_connection.state_label }}</span>
+      </div>
+      <ul class="connection-check-list">
+        {% for check in destination_connection.checks %}
+          <li class="{{ check.level.value }}"><strong>{{ check.label }}</strong><span>{{ check.message }}</span></li>
+        {% endfor %}
+      </ul>
+      {% if destination_connection.support_code %}
+        <details class="technical-details"><summary>Support details</summary><code>{{ destination_connection.support_code }}</code></details>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

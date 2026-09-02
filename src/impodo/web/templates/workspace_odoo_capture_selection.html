@@ -345,12 +345,25 @@
           {% if 'product.template' in current_models and 'uom.uom' in current_models %}—including Product and Unit of Measure—{% endif %}
           are stored as one protected source version. Reopening this page does not contact Odoo.
         </p>
-        <div class="notice warning">
-          <strong>There is no destination transfer step in this version yet.</strong>
-          Connecting a second Odoo instance, matching its records, validating Unit of Measure before Product, reviewing the transfer, and loading the destination remain unavailable. No destination records will be written.
-        </div>
+        {% if workspace_state.destination_verified %}
+          <div class="notice">
+            <strong>The destination connection is verified.</strong>
+            Next, choose how the frozen source records match existing destination records. This check remains read-only.
+          </div>
+        {% else %}
+          <div class="notice">
+            <strong>Next: connect the destination Odoo instance.</strong>
+            Impodo will perform a bounded read-only identity and access check. It will not discover business fields or write destination records at this stage.
+          </div>
+        {% endif %}
       </div>
-      <span class="status warning">Destination unavailable</span>
+      <div class="next-action-buttons">
+        {% if workspace_state.destination_verified %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/destination-matching">Match destination data</a>
+        {% else %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-destination">Connect destination Odoo</a>
+        {% endif %}
+      </div>
     </section>
   {% endif %}
 

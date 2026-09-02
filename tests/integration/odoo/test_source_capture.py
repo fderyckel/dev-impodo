@@ -22,6 +22,7 @@ from impodo.domain.odoo_capture import (
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCaptureFieldProjection,
+    OdooCaptureRelationshipProjection,
     OdooSourceCaptureAccessRefreshRequired,
     OdooSourceCaptureCancelled,
     OdooSourceCaptureConfigurationError,
@@ -128,6 +129,48 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
                     ([1, 501] if count == 501 else ([1] if count else [])),
                 )
                 self.assertTrue(all(len(page.odoo_ids) <= 500 for page in pages))
+
+    def test_relationship_ids_are_kept_in_protected_page_columns(self) -> None:
+        rows = [
+            {
+                **_row(1),
+                "category_id": [7, "Retail"],
+                "category_ids": [7, 8],
+            },
+            {
+                **_row(2),
+                "category_id": False,
+                "category_ids": [],
+            },
+        ]
+        request = _request(
+            schema_model_names=("res.partner", "res.partner.category"),
+            relationship_projection=(
+                OdooCaptureRelationshipProjection(
+                    name="category_id",
+                    kind="many2one",
+                    relation_model="res.partner.category",
+                ),
+                OdooCaptureRelationshipProjection(
+                    name="category_ids",
+                    kind="many2many",
+                    relation_model="res.partner.category",
+                ),
+            ),
+        )
+
+        page = next(
+            iter(self._adapter(DatasetTransport(rows)).open_capture(
+                request,
+                _context(),
+            ).pages())
+        )
+
+        relationships = {item.field_name: item for item in page.relationships}
+        self.assertEqual(relationships["category_id"].values, ((7,), ()))
+        self.assertEqual(relationships["category_ids"].values, ((7, 8), ()))
+        protected = {item.field_name: item for item in page.origin_batch.relationships}
+        self.assertEqual(protected["category_id"].values, ((7,), ()))
 
     def test_maximum_plus_one_fails_closed(self) -> None:
         with self.assertRaisesRegex(OdooSourceCaptureLimitError, "More than 500"):

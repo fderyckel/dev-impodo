@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Match destination data · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 5 of 8 · Match destination data</p>
+      <h1>Decide how source records find destination records</h1>
+      <p>Choose one stable text field per Odoo record type. Impodo checks same-name destination fields and exact existing-record matches without writing anything.</p>
+    </div>
+    <span class="status {% if match_plan_ready %}ready{% elif match_plan %}review{% else %}review{% endif %}">
+      {% if match_plan_ready %}Matching ready{% elif match_plan %}Review required{% else %}Check required{% endif %}
+    </span>
+  </div>
+
+  <div class="notice warning">
+    <strong>This is a read-only destination check.</strong>
+    Raw matching values and destination numeric record IDs are not saved in this plan. Only technical field names, counts, and evidence hashes are retained.
+  </div>
+
+  {% if match_plan_stale %}
+    <div class="notice warning">
+      <strong>The saved matching check is no longer current.</strong>
+      The source selection, source fields, destination identity, credential generation, or authenticated principal changed. Check matching again.
+    </div>
+  {% endif %}
+
+  <section class="form-card">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Natural record identity</p>
+        <h2>Choose the field used to find each record</h2>
+        <p>Product Internal Reference is preferred when captured; Unit of Measure normally uses its captured Name unless your database provides a stable external code.</p>
+      </div>
+      <span class="status {% if destination_credential_status.available %}registered{% else %}blocked{% endif %}">Key: {{ destination_credential_status.label }}</span>
+    </div>
+
+    <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+      <div class="stacked-fields">
+        {% for row in matching_rows %}
+          <label>
+            {{ row.dataset.name }} <small>({{ row.model }}, {{ "{:,}".format(row.dataset.row_count) }} source records)</small>
+            {% if row.candidates %}
+              <select name="match_key" required>
+                {% for candidate in row.candidates %}
+                  <option value="{{ candidate.value }}" {% if candidate.stable_key == row.selected_key %}selected{% endif %}>
+                    {{ candidate.label }} ({{ candidate.field_name }})
+                  </option>
+                {% endfor %}
+              </select>
+            {% else %}
+              <span class="field-error">No captured text field is available. Return to the source selection and include a stable code or name.</span>
+            {% endif %}
+          </label>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/transfer-destination">Back to destination connection</a>
+        <button class="button primary" type="submit" {% if not destination_credential_status.available or not matching_can_check %}disabled{% endif %}>Check destination matches</button>
+      </div>
+      {% if not destination_credential_status.available %}
+        <p><a href="/workspaces/{{ workspace_id }}/transfer-destination#destination-connection">Enter or restore the destination transfer key</a> before checking matches.</p>
+      {% endif %}
+    </form>
+  </section>
+
+  {% if match_plan %}
+    <section class="form-card" id="matching-results">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Latest bounded check</p>
+          <h2>{% if match_plan_ready %}Destination matching is ready{% else %}Review destination matching{% endif %}</h2>
+          <p>Checked {{ match_plan.recorded_at.strftime('%Y-%m-%d %H:%M UTC') }}. No Odoo records were changed.</p>
+        </div>
+        <span class="status {% if match_plan_ready %}ready{% else %}blocked{% endif %}">{% if match_plan_ready %}Stage 5 complete{% else %}Blocked{% endif %}</span>
+      </div>
+
+      {% for row in matching_rows %}
+        {% if row.result %}
+          <article class="dataset-card">
+            <div class="page-heading compact">
+              <div>
+                <h3>{{ row.result.model_label }}</h3>
+                <p>{{ row.result.model }} · match by {{ row.result.key_field_label }} ({{ row.result.key_field }})</p>
+              </div>
+              <span class="status {% if row.result.ready %}ready{% else %}blocked{% endif %}">{% if row.result.ready %}Ready{% else %}Needs review{% endif %}</span>
+            </div>
+            <dl class="definition-list capture-summary">
+              <div><dt>Source records</dt><dd>{{ "{:,}".format(row.result.source_row_count) }}</dd></div>
+              <div><dt>Distinct source keys</dt><dd>{{ "{:,}".format(row.result.source_distinct_key_count) }}</dd></div>
+              <div><dt>Existing destination keys</dt><dd>{{ "{:,}".format(row.result.destination_existing_key_count) }}</dd></div>
+              <div><dt>New destination keys</dt><dd>{{ "{:,}".format(row.result.destination_create_key_count) }}</dd></div>
+              <div><dt>Compatible fields</dt><dd>{{ row.result.compatible_fields|length }}</dd></div>
+            </dl>
+            {% if not row.result.ready %}
+              <div class="notice warning">
+                <strong>This record type cannot advance yet.</strong>
+                <ul>
+                  {% if row.result.source_blank_row_count %}<li>{{ row.result.source_blank_row_count }} source record(s) have a blank matching field.</li>{% endif %}
+                  {% if row.result.source_duplicate_key_count %}<li>{{ row.result.source_duplicate_key_count }} source key(s) occur more than once.</li>{% endif %}
+                  {% if row.result.destination_duplicate_key_count %}<li>{{ row.result.destination_duplicate_key_count }} destination key(s) identify more than one record.</li>{% endif %}
+                  {% if row.result.destination_limit_reached %}<li>The bounded destination result limit was reached.</li>{% endif %}
+                  {% if row.result.missing_fields %}<li>Missing destination fields: {{ row.result.missing_fields|join(', ') }}.</li>{% endif %}
+                  {% if row.result.incompatible_fields %}<li>Incompatible destination fields: {{ row.result.incompatible_fields|join(', ') }}.</li>{% endif %}
+                </ul>
+              </div>
+            {% endif %}
+          </article>
+        {% endif %}
+      {% endfor %}
+
+      {% if match_plan.relationship_matches %}
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Portable relationships</p>
+            <h2>Related records resolve through their selected business keys</h2>
+            <p>Source Odoo IDs are used only inside protected evidence. They are translated to the related table's selected key before the transfer plan is retained.</p>
+          </div>
+        </div>
+        {% for relation in match_plan.relationship_matches %}
+          <article class="dataset-card">
+            <div class="page-heading compact">
+              <div>
+                <h3>{{ relation.model_label }} &middot; {{ relation.field_label }}</h3>
+                <p>
+                  {{ relation.model }}.{{ relation.field_name }} &rarr; {{ relation.related_model }}.{{ relation.related_key_field }}
+                  &middot; {{ relation.kind }} &middot; {{ relation.operation }}
+                  {% if relation.inverse_field %}&middot; inverse one2many {{ relation.related_model }}.{{ relation.inverse_field }}{% endif %}
+                </p>
+              </div>
+              <span class="status {% if relation.ready %}ready{% else %}blocked{% endif %}">{% if relation.ready %}Ready{% else %}Needs review{% endif %}</span>
+            </div>
+            {% if relation.source_evidence_available %}
+              <dl class="definition-list capture-summary">
+                <div><dt>Source links</dt><dd>{{ "{:,}".format(relation.source_link_count) }}</dd></div>
+                <div><dt>Reuse destination</dt><dd>{{ "{:,}".format(relation.destination_reused_link_count) }}</dd></div>
+                <div><dt>Resolve from incoming data</dt><dd>{{ "{:,}".format(relation.incoming_link_count) }}</dd></div>
+                <div><dt>Blank owners</dt><dd>{{ "{:,}".format(relation.source_blank_owner_count) }}</dd></div>
+              </dl>
+            {% endif %}
+            {% if not relation.ready %}
+              <div class="notice warning">
+                <strong>This relationship cannot advance yet.</strong>
+                <ul>
+                  {% if not relation.source_evidence_available %}<li>The current capture has no protected relationship evidence. Return to Stage 3 and recapture the selected tables.</li>{% endif %}
+                  {% if relation.required and relation.source_blank_owner_count %}<li>{{ relation.source_blank_owner_count }} owner record(s) have a blank required relationship.</li>{% endif %}
+                  {% if relation.missing_related_record_count %}<li>{{ relation.missing_related_record_count }} link(s) point outside the captured related table or to a blank related key.</li>{% endif %}
+                  {% if relation.ambiguous_destination_link_count %}<li>{{ relation.ambiguous_destination_link_count }} link(s) resolve to duplicate destination keys.</li>{% endif %}
+                </ul>
+              </div>
+            {% endif %}
+          </article>
+        {% endfor %}
+      {% endif %}
+
+      {% if match_plan_ready %}
+        <section class="next-action-card ready">
+          <div>
+            <p class="eyebrow">Destination matching complete</p>
+            <h2>Next: validate the transfer order</h2>
+            <p>Derive creation waves and safe post-create links from these generic relationships. No destination writes are enabled.</p>
+          </div>
+          <div class="next-action-buttons">
+            <span class="status ready">Stage 5 complete</span>
+            <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-order">Validate transfer order</a>
+          </div>
+        </section>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

@@ -29,6 +29,11 @@ class TargetCredentialRole(StrEnum):
 
     READ = "READ"
     WRITE = "WRITE"
+    # Keep the persisted value stable while naming its complete Odoo-to-Odoo
+    # responsibility. This is one credential: read for match/preflight, then
+    # write only after the later load authorization boundary.
+    DESTINATION_TRANSFER = "DESTINATION_READ"
+    DESTINATION_READ = "DESTINATION_READ"  # storage-compatible enum alias
 
 
 class TargetCredentialRemovalReason(StrEnum):
@@ -137,6 +142,21 @@ def target_write_credential_id(workspace_state: WorkspaceState) -> str:
     return _target_credential_id(workspace_state, TargetCredentialRole.WRITE)
 
 
+def destination_transfer_credential_id(workspace_state: WorkspaceState) -> str:
+    """Return the opaque vault ID for the separate transfer destination."""
+
+    return _target_credential_id(
+        workspace_state,
+        TargetCredentialRole.DESTINATION_TRANSFER,
+    )
+
+
+def destination_read_credential_id(workspace_state: WorkspaceState) -> str:
+    """Return the legacy-named alias for the destination transfer vault ID."""
+
+    return destination_transfer_credential_id(workspace_state)
+
+
 def store_target_credential(
     store: SecretStore,
     workspace_state: WorkspaceState,
@@ -153,7 +173,7 @@ def store_target_credential(
     credential_id = _target_credential_id(workspace_state, role)
     replaced = store.get(credential_id) is not None
     binding_id = str(uuid4())
-    target_hash = _target_hash(workspace_state)
+    target_hash = _target_hash(workspace_state, role)
     envelope = json.dumps(
         {
             "contract_version": TARGET_CREDENTIAL_CONTRACT_VERSION,
@@ -206,7 +226,7 @@ def get_target_credential(
         binding_id = str(UUID(str(payload["binding_id"])))
         secret = str(payload["secret"]).strip()
         storage_class = str(payload["storage_class"])
-        target_hash = _target_hash(workspace_state)
+        target_hash = _target_hash(workspace_state, role)
         valid = (
             payload["contract_version"] == TARGET_CREDENTIAL_CONTRACT_VERSION
             and payload["role"] == role.value
@@ -330,7 +350,7 @@ def _delete_target_credential(
         return None
     binding_hash: str | None = None
     storage_class = "UNKNOWN"
-    target_hash = _target_hash(workspace_state)
+    target_hash = _target_hash(workspace_state, role)
     try:
         payload = json.loads(encoded)
         binding_id = str(UUID(str(payload["binding_id"])))
@@ -405,7 +425,10 @@ def local_read_credential_binding_hash(workspace_state: WorkspaceState) -> str:
         {
             "credential_role": TargetCredentialRole.READ.value,
             "kind": "LOCAL_NO_KEY_METADATA",
-            "target_hash": _target_hash(workspace_state),
+            "target_hash": _target_hash(
+                workspace_state,
+                TargetCredentialRole.READ,
+            ),
         }
     )
 
@@ -414,13 +437,14 @@ def _target_credential_id(
     workspace_state: WorkspaceState,
     role: TargetCredentialRole,
 ) -> str:
+    connection_mode, base_url, database = _target_parts(workspace_state, role)
     target = "\0".join(
         (
             workspace_state.workspace_id,
             role.value,
-            _connection_mode(workspace_state),
-            workspace_state.odoo_base_url,
-            workspace_state.odoo_database,
+            connection_mode,
+            base_url,
+            database,
         )
     ).encode("utf-8")
     digest = hashlib.sha256(target).hexdigest()[:24]
@@ -441,17 +465,38 @@ def _binding_hash(
     )
 
 
-def _target_hash(workspace_state: WorkspaceState) -> str:
+def _target_hash(
+    workspace_state: WorkspaceState,
+    role: TargetCredentialRole,
+) -> str:
+    connection_mode, base_url, database = _target_parts(workspace_state, role)
     return target_identity_hash(
-        connection_mode=_connection_mode(workspace_state),
-        base_url=workspace_state.odoo_base_url,
-        database=workspace_state.odoo_database,
+        connection_mode=connection_mode,
+        base_url=base_url,
+        database=database,
     )
 
 
-def _connection_mode(workspace_state: WorkspaceState) -> str:
+def _target_parts(
+    workspace_state: WorkspaceState,
+    role: TargetCredentialRole,
+) -> tuple[str, str, str]:
+    if role is TargetCredentialRole.DESTINATION_TRANSFER:
+        return (
+            (
+                workspace_state.destination_odoo_connection_mode.value
+                if workspace_state.destination_odoo_connection_mode is not None
+                else ""
+            ),
+            workspace_state.destination_odoo_base_url,
+            workspace_state.destination_odoo_database,
+        )
     return (
-        workspace_state.odoo_connection_mode.value
-        if workspace_state.odoo_connection_mode is not None
-        else ""
+        (
+            workspace_state.odoo_connection_mode.value
+            if workspace_state.odoo_connection_mode is not None
+            else ""
+        ),
+        workspace_state.odoo_base_url,
+        workspace_state.odoo_database,
     )

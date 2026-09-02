@@ -191,6 +191,21 @@ def _read_schema(workspace_state: WorkspaceState, api_key: str) -> MetadataSnaps
     )
 
 
+def _read_destination_match(
+    workspace_state: WorkspaceState,
+    api_key: str,
+    metadata_requests: tuple[MetadataRequest, ...],
+    record_requests: tuple[RecordRequest, ...],
+) -> tuple[MetadataSnapshot, RecordSnapshot]:
+    """Read only the destination fields and natural-key rows planned by Stage 5."""
+
+    connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
+    return (
+        connector.get_model_metadata(metadata_requests),
+        connector.get_records(record_requests),
+    )
+
+
 def _read_model_catalog(
     workspace_state: WorkspaceState,
     api_key: str,

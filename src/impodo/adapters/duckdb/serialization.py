@@ -23,9 +23,8 @@ from impodo.domain.workspace.workbench import (
     SourceMode,
     SourceFile,
 )
-
-
-
+from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.transfer_order import TransferOrderPlan
 
 
 def _workspace_values(workspace: WorkspaceState) -> list[object]:
@@ -55,7 +54,34 @@ def _workspace_values(workspace: WorkspaceState) -> list[object]:
         workspace.mapping_version,
         workspace.current_run_id,
         workspace.approval_status.value,
+        (
+            workspace.destination_odoo_connection_mode.value
+            if workspace.destination_odoo_connection_mode
+            else None
+        ),
+        workspace.destination_odoo_base_url,
+        workspace.destination_odoo_database,
+        workspace.destination_verified_target_hash,
+        workspace.destination_verified_credential_binding_hash,
+        workspace.destination_verified_read_principal_hash,
+        workspace.destination_verified_odoo_version,
+        (
+            workspace.destination_verified_at.isoformat()
+            if workspace.destination_verified_at
+            else None
+        ),
+        (
+            workspace.destination_match_plan.to_json()
+            if workspace.destination_match_plan is not None
+            else None
+        ),
+        (
+            workspace.transfer_order_plan.to_json()
+            if workspace.transfer_order_plan is not None
+            else None
+        ),
     ]
+
 
 def _workspace_from_rows(
     data: dict[str, object],
@@ -73,6 +99,11 @@ def _workspace_from_rows(
         if data.get("odoo_connection_mode")
         else None
     )
+    destination_connection_mode = (
+        OdooConnectionMode(str(data["destination_odoo_connection_mode"]))
+        if data.get("destination_odoo_connection_mode")
+        else None
+    )
     return WorkspaceState(
         workspace_id=workspace_id,
         name=str(data["name"]),
@@ -85,6 +116,36 @@ def _workspace_from_rows(
         odoo_connection_mode=connection_mode,
         odoo_base_url=str(data["odoo_base_url"]),
         odoo_database=str(data["odoo_database"]),
+        destination_odoo_connection_mode=destination_connection_mode,
+        destination_odoo_base_url=str(data["destination_odoo_base_url"]),
+        destination_odoo_database=str(data["destination_odoo_database"]),
+        destination_verified_target_hash=str(
+            data["destination_verified_target_hash"]
+        ),
+        destination_verified_credential_binding_hash=str(
+            data["destination_verified_credential_binding_hash"]
+        ),
+        destination_verified_read_principal_hash=str(
+            data["destination_verified_read_principal_hash"]
+        ),
+        destination_verified_odoo_version=str(
+            data["destination_verified_odoo_version"]
+        ),
+        destination_verified_at=(
+            datetime.fromisoformat(str(data["destination_verified_at"]))
+            if data.get("destination_verified_at")
+            else None
+        ),
+        destination_match_plan=(
+            DestinationMatchPlan.from_json(str(data["destination_match_plan_json"]))
+            if data.get("destination_match_plan_json")
+            else None
+        ),
+        transfer_order_plan=(
+            TransferOrderPlan.from_json(str(data["transfer_order_plan_json"]))
+            if data.get("transfer_order_plan_json")
+            else None
+        ),
         intended_applications=tuple(json.loads(str(data["intended_applications"]))),
         intended_models=tuple(json.loads(str(data["intended_models"]))),
         source_files=tuple(

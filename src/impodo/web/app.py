@@ -201,6 +201,7 @@ from impodo.application.shared.secrets import SecretStore, SecretStoreError
 from .context import (
     BrowserReadinessReader,
     ConnectionTester,
+    DestinationMatchingReader,
     ModelCatalogReader,
     OdooWriteExecutorFactory,
     OdooReadbackReaderFactory,
@@ -216,6 +217,7 @@ from .capability_builders import (
 )
 from .presenters.common import _render
 from impodo.web.composition.target_readers import (
+    _read_destination_match,
     _read_model_catalog,
     _read_schema,
     _probe_read_identity,
@@ -228,6 +230,7 @@ from .target_credentials import (
 )
 from impodo.web.composition.target_writers import _probe_write_identity, _readback_reader, _write_executor
 from .routers.derived_entities import build_derived_entities_router
+from .routers.destination_matching import build_destination_matching_router
 from .routers.concepts import build_concepts_router
 from .routers.lifecycle import build_lifecycle_router
 from .routers.mapping import build_mapping_router
@@ -247,6 +250,8 @@ from .routers.schema import build_schema_router
 from .routers.sources import build_sources_router
 from .routers.summary import build_summary_router
 from .routers.target import build_target_router
+from .routers.transfer_destination import build_transfer_destination_router
+from .routers.transfer_order import build_transfer_order_router
 from .remote_connection import RemoteConnectionStatusService
 from .run_review import publish_load_progress, publish_preparation_progress
 from .security import (
@@ -279,6 +284,7 @@ def create_local_app(
     schema_reader: SchemaReader | None = None,
     model_catalog_reader: ModelCatalogReader | None = None,
     readiness_reader: BrowserReadinessReader | None = None,
+    destination_match_reader: DestinationMatchingReader | None = None,
     source_capture_factory: OdooSourceCaptureFactory | None = None,
     write_executor_factory: OdooWriteExecutorFactory | None = None,
     readback_reader_factory: OdooReadbackReaderFactory | None = None,
@@ -875,6 +881,23 @@ def create_local_app(
         reconciliations=reconciliation_repository,
     )
     correction_jobs = CorrectionJobManager()
+    resolved_destination_match_reader = destination_match_reader
+    if resolved_destination_match_reader is None and readiness_reader is not None:
+
+        def injected_destination_match_reader(
+            workspace_state,
+            _api_key,
+            metadata_requests,
+            record_requests,
+        ):
+            return readiness_reader(
+                workspace_state,
+                metadata_requests,
+                record_requests,
+            )
+
+        resolved_destination_match_reader = injected_destination_match_reader
+
     context = WebContext(
         queries=BrowserQueryService(
             workspace_state_repository,
@@ -973,6 +996,9 @@ def create_local_app(
         schema_reader=schema_reader or _read_schema,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
         readiness_reader=readiness_reader,
+        destination_match_reader=(
+            resolved_destination_match_reader or _read_destination_match
+        ),
         source_capture_factory=source_capture_factory or local_source_capture_factory,
         write_executor_factory=write_executor_factory or _write_executor,
         readback_reader_factory=resolved_readback_reader_factory,
@@ -1242,6 +1268,9 @@ def create_local_app(
         build_production_runs_router(context),
         build_workspace_setup_router(context),
         build_target_router(context),
+        build_transfer_destination_router(context),
+        build_destination_matching_router(context),
+        build_transfer_order_router(context),
         build_sources_router(context),
         build_schema_router(context),
         build_derived_entities_router(context),

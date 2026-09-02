@@ -6,6 +6,8 @@ from typing import Protocol
 
 
 READ_SERVICE_NAME = "Impodo Odoo read-only"
+DESTINATION_TRANSFER_SERVICE_NAME = "Impodo destination Odoo transfer"
+DESTINATION_READ_SERVICE_NAME = DESTINATION_TRANSFER_SERVICE_NAME
 WRITE_SERVICE_NAME = "Impodo Odoo write"
 PROTECTED_EVIDENCE_SERVICE_NAME = "Impodo protected Odoo evidence"
 

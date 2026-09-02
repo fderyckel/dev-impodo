@@ -12,6 +12,7 @@ import keyring
 from keyring.errors import KeyringError
 
 from impodo.application.shared.secrets import (
+    DESTINATION_READ_SERVICE_NAME,
     PROTECTED_EVIDENCE_SERVICE_NAME,
     READ_SERVICE_NAME,
     WRITE_SERVICE_NAME,
@@ -116,6 +117,8 @@ def _service_name(credential_id: str) -> str:
         return WRITE_SERVICE_NAME
     if parts[1] == "read":
         return READ_SERVICE_NAME
+    if parts[1] == "destination_read":
+        return DESTINATION_READ_SERVICE_NAME
     if parts[1] == "protected":
         return PROTECTED_EVIDENCE_SERVICE_NAME
     raise SecretStoreError("Odoo credential role is invalid")

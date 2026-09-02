@@ -9,12 +9,15 @@ from keyring.errors import KeyringError
 
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
 from impodo.adapters.protected_evidence.credential_vault import CredentialVault, MemorySecretStore, PROTECTED_EVIDENCE_SERVICE_NAME, READ_SERVICE_NAME, WRITE_SERVICE_NAME
+from impodo.application.shared.secrets import DESTINATION_READ_SERVICE_NAME
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     TargetCredentialRemovalReason,
     delete_target_credential,
     delete_target_credentials,
+    destination_read_credential_id,
+    destination_transfer_credential_id,
     get_target_credential,
     get_target_credential_status,
     local_read_credential_binding_hash,
@@ -173,6 +176,46 @@ class TargetCredentialTests(unittest.TestCase):
             )
         )
 
+    def test_destination_read_credential_is_separate_from_source_read(self) -> None:
+        destination = replace(
+            self.workspace_state,
+            destination_odoo_connection_mode=OdooConnectionMode.REMOTE,
+            destination_odoo_base_url="https://destination.example.com",
+            destination_odoo_database="destination",
+        )
+        source = store_target_credential(
+            self.store,
+            destination,
+            TargetCredentialRole.READ,
+            "source-secret",
+            persistent=False,
+        )
+        target = store_target_credential(
+            self.store,
+            destination,
+            TargetCredentialRole.DESTINATION_READ,
+            "destination-secret",
+            persistent=False,
+        )
+
+        self.assertNotEqual(source.binding_hash, target.binding_hash)
+        self.assertEqual(
+            get_target_credential(
+                self.store,
+                destination,
+                TargetCredentialRole.READ,
+            ).secret,
+            "source-secret",
+        )
+        self.assertEqual(
+            get_target_credential(
+                self.store,
+                destination,
+                TargetCredentialRole.DESTINATION_READ,
+            ).secret,
+            "destination-secret",
+        )
+
     def test_invalid_role_envelope_is_rejected(self) -> None:
         write = store_target_credential(
             self.store,
@@ -281,15 +324,28 @@ class TargetCredentialTests(unittest.TestCase):
         vault = CredentialVault()
         read_id = target_read_credential_id(self.workspace_state)
         write_id = target_write_credential_id(self.workspace_state)
+        destination_workspace = replace(
+            self.workspace_state,
+            destination_odoo_connection_mode=OdooConnectionMode.REMOTE,
+            destination_odoo_base_url="https://destination.example.com",
+            destination_odoo_database="destination",
+        )
+        destination_id = destination_read_credential_id(destination_workspace)
+        self.assertEqual(
+            destination_id,
+            destination_transfer_credential_id(destination_workspace),
+        )
         protected_id = f"{self.workspace_state.workspace_id}:protected:origin-v1"
 
         with patch("impodo.adapters.protected_evidence.credential_vault.keyring") as keyring:
             vault.set(read_id, "read-secret", persistent=True)
             vault.set(write_id, "write-secret", persistent=True)
+            vault.set(destination_id, "destination-secret", persistent=True)
             vault.set(protected_id, "protected-key", persistent=True)
             fresh_vault = CredentialVault()
             fresh_vault.get(read_id)
             fresh_vault.get(write_id)
+            fresh_vault.get(destination_id)
             fresh_vault.get(protected_id)
 
         keyring.set_password.assert_any_call(
@@ -302,8 +358,17 @@ class TargetCredentialTests(unittest.TestCase):
             write_id,
             "write-secret",
         )
+        keyring.set_password.assert_any_call(
+            DESTINATION_READ_SERVICE_NAME,
+            destination_id,
+            "destination-secret",
+        )
         keyring.get_password.assert_any_call(READ_SERVICE_NAME, read_id)
         keyring.get_password.assert_any_call(WRITE_SERVICE_NAME, write_id)
+        keyring.get_password.assert_any_call(
+            DESTINATION_READ_SERVICE_NAME,
+            destination_id,
+        )
         keyring.set_password.assert_any_call(
             PROTECTED_EVIDENCE_SERVICE_NAME,
             protected_id,

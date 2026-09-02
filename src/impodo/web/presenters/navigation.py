@@ -110,6 +110,18 @@ _TEMPLATE_LOCATION = {
         "source",
         "Freeze Odoo records",
     ),
+    "workspace_transfer_destination.html": (
+        "destination",
+        "Connect destination Odoo",
+    ),
+    "workspace_destination_matching.html": (
+        "destination-match",
+        "Match destination data",
+    ),
+    "workspace_transfer_order.html": (
+        "transfer-order",
+        "Validate transfer order",
+    ),
     "workspace_datasets.html": ("source", "Saved source tables"),
     "workspace_derived_entities.html": (
         "source",
@@ -219,9 +231,9 @@ def _build_authoring_workspace_navigation(
         )
 
     if current_workspace_state.source_mode is SourceMode.ODOO:
-        # This journey ends at a protected source download until a separately
-        # bound destination contract exists.  Legacy same-database pinned-update
-        # evidence must not make cross-instance transfer stages look available.
+        # Cross-instance transfers advance only through separately bound source
+        # and destination evidence. Legacy same-database pinned-update evidence
+        # must not make transfer stages look available.
         model_catalog = context.queries.get_odoo_model_catalog(
             current_workspace_state.workspace_id
         )
@@ -247,6 +259,22 @@ def _build_authoring_workspace_navigation(
             frozen_source = None
         workspace_id = current_workspace_state.workspace_id
         select_complete = capture_plans_complete and not schema_attention
+        destination_match_ready = bool(
+            frozen_source is not None
+            and schema is not None
+            and current_workspace_state.destination_match_ready(
+                source_selection_hash=frozen_source.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        )
+        transfer_order_ready = bool(
+            frozen_source is not None
+            and schema is not None
+            and current_workspace_state.transfer_order_ready(
+                source_selection_hash=frozen_source.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        )
         if template_name == "workspace_target.html":
             viewed_stage_id = "connection"
             viewed_page_label = "Source connection"
@@ -372,25 +400,142 @@ def _build_authoring_workspace_navigation(
                 stage_id="destination",
                 number=4,
                 label="Connect destination Odoo",
-                href=None,
-                status="locked",
-                status_label="Not yet available",
+                href=(
+                    f"/workspaces/{workspace_id}/transfer-destination"
+                    if frozen_source is not None
+                    else None
+                ),
+                status=(
+                    "complete"
+                    if current_workspace_state.destination_verified
+                    else ("current" if frozen_source is not None else "locked")
+                ),
+                status_label=(
+                    "Connected"
+                    if current_workspace_state.destination_verified
+                    else (
+                        "Current"
+                        if frozen_source is not None
+                        else "Download source first"
+                    )
+                ),
+                pages=(
+                    _page(
+                        workspace_id,
+                        "transfer-destination",
+                        "Connect destination Odoo",
+                        "/transfer-destination",
+                        complete=current_workspace_state.destination_verified,
+                    ),
+                )
+                if frozen_source is not None
+                else (),
             ),
             WorkflowStage(
                 stage_id="destination-match",
                 number=5,
                 label="Match destination data",
-                href=None,
-                status="locked",
-                status_label="Destination required",
+                href=(
+                    f"/workspaces/{workspace_id}/destination-matching"
+                    if current_workspace_state.destination_verified
+                    and frozen_source is not None
+                    else None
+                ),
+                status=(
+                    "complete"
+                    if destination_match_ready
+                    else (
+                        "attention"
+                        if current_workspace_state.destination_match_plan is not None
+                        and current_workspace_state.destination_verified
+                        else (
+                            "current"
+                            if current_workspace_state.destination_verified
+                            and frozen_source is not None
+                            else "locked"
+                        )
+                    )
+                ),
+                status_label=(
+                    "Matching ready"
+                    if destination_match_ready
+                    else (
+                        "Review matching"
+                        if current_workspace_state.destination_match_plan is not None
+                        and current_workspace_state.destination_verified
+                        else (
+                            "Current"
+                            if current_workspace_state.destination_verified
+                            and frozen_source is not None
+                            else "Destination required"
+                        )
+                    )
+                ),
+                pages=(
+                    _page(
+                        workspace_id,
+                        "destination-matching",
+                        "Match destination data",
+                        "/destination-matching",
+                        complete=destination_match_ready,
+                        attention=(
+                            current_workspace_state.destination_match_plan is not None
+                            and not destination_match_ready
+                        ),
+                    ),
+                )
+                if current_workspace_state.destination_verified
+                and frozen_source is not None
+                else (),
             ),
             WorkflowStage(
                 stage_id="transfer-order",
                 number=6,
                 label="Validate transfer order",
-                href=None,
-                status="locked",
-                status_label="Destination matching required",
+                href=(
+                    f"/workspaces/{workspace_id}/transfer-order"
+                    if destination_match_ready
+                    else None
+                ),
+                status=(
+                    "complete"
+                    if transfer_order_ready
+                    else (
+                        "attention"
+                        if current_workspace_state.transfer_order_plan is not None
+                        and destination_match_ready
+                        else ("current" if destination_match_ready else "locked")
+                    )
+                ),
+                status_label=(
+                    "Order ready"
+                    if transfer_order_ready
+                    else (
+                        "Review order"
+                        if current_workspace_state.transfer_order_plan is not None
+                        and destination_match_ready
+                        else (
+                            "Current"
+                            if destination_match_ready
+                            else "Destination matching required"
+                        )
+                    )
+                ),
+                pages=(
+                    _page(
+                        workspace_id,
+                        "transfer-order",
+                        "Validate transfer order",
+                        "/transfer-order",
+                        complete=transfer_order_ready,
+                        attention=(
+                            current_workspace_state.transfer_order_plan is not None
+                            and not transfer_order_ready
+                        ),
+                    ),
+                )
+                if destination_match_ready
+                else (),
             ),
             WorkflowStage(
                 stage_id="transfer-review",
@@ -398,7 +543,11 @@ def _build_authoring_workspace_navigation(
                 label="Review transfer",
                 href=None,
                 status="locked",
-                status_label="Transfer plan required",
+                status_label=(
+                    "Not yet available"
+                    if transfer_order_ready
+                    else "Transfer order required"
+                ),
             ),
             WorkflowStage(
                 stage_id="destination-load",

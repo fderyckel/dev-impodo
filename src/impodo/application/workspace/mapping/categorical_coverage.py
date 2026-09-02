@@ -159,6 +159,44 @@ class CategoricalCoverageService:
             )
         )
 
+    def source_key_rows(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_key: str,
+    ) -> tuple[str | None, ...]:
+        """Return one bounded key column in immutable source-row order.
+
+        This row-aligned projection is used only inside the protected Odoo
+        relationship resolver. Callers must not persist the returned values.
+        """
+
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen source evidence is incomplete")
+        dataset = next(
+            (item for item in selection.datasets if item.dataset_id == dataset_id),
+            None,
+        )
+        if dataset is None or source_column_key not in {
+            item.stable_key for item in dataset.columns
+        }:
+            raise WorkspaceError("Choose one current source matching column")
+        frame = self._scan_dataset(
+            workspace_id,
+            selection,
+            dataset_id,
+            (source_column_key,),
+        )
+        values: list[str | None] = []
+        for raw in frame.get_column(source_column_key).to_list():
+            if raw is None or raw is False:
+                values.append(None)
+                continue
+            value = str(raw).strip()
+            values.append(value or None)
+        return tuple(values)
+
     def collect(
         self,
         workspace_id: str,

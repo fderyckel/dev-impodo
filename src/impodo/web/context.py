@@ -123,6 +123,16 @@ BrowserReadinessReader = Callable[
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
 
+DestinationMatchingReader = Callable[
+    [
+        WorkspaceState,
+        str,
+        tuple[MetadataRequest, ...],
+        tuple[RecordRequest, ...],
+    ],
+    tuple[MetadataSnapshot, RecordSnapshot],
+]
+
 OdooWriteExecutorFactory = Callable[
     [WorkspaceState, str, OdooApiScope], OdooWriteExecutor
 ]
@@ -214,6 +224,7 @@ class WebContext:
     schema_reader: SchemaReader
     model_catalog_reader: ModelCatalogReader
     readiness_reader: BrowserReadinessReader | None
+    destination_match_reader: DestinationMatchingReader
     source_capture_factory: OdooSourceCaptureFactory
     write_executor_factory: OdooWriteExecutorFactory
     readback_reader_factory: OdooReadbackReaderFactory

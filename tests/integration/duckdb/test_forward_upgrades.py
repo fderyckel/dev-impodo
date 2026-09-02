@@ -97,6 +97,23 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
+    tables = {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()}
+    if "workspace_projection_cache" in tables:
+        for column in (
+            "destination_odoo_connection_mode",
+            "destination_odoo_base_url",
+            "destination_odoo_database",
+            "destination_verified_target_hash",
+            "destination_verified_credential_binding_hash",
+            "destination_verified_read_principal_hash",
+            "destination_verified_odoo_version",
+            "destination_verified_at",
+            "destination_match_plan_json",
+            "transfer_order_plan_json",
+        ):
+            connection.execute(
+                f"ALTER TABLE workspace_projection_cache DROP COLUMN {column}"
+            )
     connection.execute("UPDATE schema_version SET version = 1")
 
 
@@ -326,6 +343,21 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         3,
                         4,
                         "workspace-engine-v3-to-v4-odoo-capture-sets",
+                    ),
+                    (
+                        4,
+                        5,
+                        "workspace-engine-v4-to-v5-transfer-destination",
+                    ),
+                    (
+                        5,
+                        6,
+                        "workspace-engine-v5-to-v6-destination-matching",
+                    ),
+                    (
+                        6,
+                        7,
+                        "workspace-engine-v6-to-v7-transfer-order",
                     ),
                 ],
             )

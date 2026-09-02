@@ -23,7 +23,7 @@ from .odoo_capture import (
     OdooCaptureFilterPolicy,
     OdooCaptureSelection,
 )
-from .odoo_provenance import OdooOriginBatch
+from .odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
 from .odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
     ODOO_SOURCE_POLICY_HASH,
@@ -120,6 +120,32 @@ class OdooCaptureFieldProjection:
 
 
 @dataclass(frozen=True, slots=True)
+class OdooCaptureRelationshipProjection:
+    """One protected relational projection between captured Odoo models."""
+
+    name: str
+    kind: str
+    relation_model: str
+    inverse_field: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            _FIELD_NAME.fullmatch(self.name) is None
+            or self.name in {"id", "write_date"}
+            or self.kind
+            not in CURRENT_ODOO_SOURCE_POLICY.capture_relationship_types
+            or _MODEL_NAME.fullmatch(self.relation_model) is None
+            or (
+                self.inverse_field is not None
+                and _FIELD_NAME.fullmatch(self.inverse_field) is None
+            )
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo relationship projection is invalid"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class OdooSourceCaptureRequest:
     """Service-generated, immutable request accepted by the capture port."""
 
@@ -148,6 +174,7 @@ class OdooSourceCaptureRequest:
     expected_context_hash: str
     consistency: OdooCaptureConsistency
     target_instance_assurance: TargetInstanceAssurance
+    relationship_projection: tuple[OdooCaptureRelationshipProjection, ...] = ()
 
     def __post_init__(self) -> None:
         policy = CURRENT_ODOO_SOURCE_POLICY
@@ -230,6 +257,22 @@ class OdooSourceCaptureRequest:
             raise OdooSourceCaptureConfigurationError(
                 "Odoo capture projection must be sorted and unique"
             )
+        relationships = tuple(self.relationship_projection)
+        if (
+            len(relationships) > policy.max_relationship_fields
+            or any(
+                not isinstance(item, OdooCaptureRelationshipProjection)
+                for item in relationships
+            )
+            or tuple(item.name for item in relationships)
+            != tuple(sorted({item.name for item in relationships}))
+            or set(item.name for item in relationships)
+            & set(item.name for item in projection)
+            or any(item.relation_model not in self.schema_model_names for item in relationships)
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture relationship projection must be scoped and unique"
+            )
         clauses = tuple(self.filter_clauses)
         if (
             len(clauses) > policy.max_filter_clauses
@@ -260,12 +303,26 @@ class OdooSourceCaptureRequest:
                 "Odoo capture schema scope is invalid"
             )
         object.__setattr__(self, "projection", projection)
+        object.__setattr__(self, "relationship_projection", relationships)
         object.__setattr__(self, "filter_clauses", clauses)
         object.__setattr__(self, "schema_model_names", schema_model_names)
 
     @property
     def field_names(self) -> tuple[str, ...]:
         return tuple(item.name for item in self.projection)
+
+    @property
+    def read_field_names(self) -> tuple[str, ...]:
+        """Return the exact scalar and protected relational read projection."""
+
+        return tuple(
+            sorted(
+                {
+                    *(item.name for item in self.projection),
+                    *(item.name for item in self.relationship_projection),
+                }
+            )
+        )
 
 @dataclass(frozen=True, slots=True)
 class OdooCaptureValueColumn:
@@ -292,6 +349,30 @@ class OdooCaptureValueColumn:
 
 
 @dataclass(frozen=True, slots=True)
+class OdooCaptureRelationshipColumn:
+    """One page-sized protected relationship identifier column."""
+
+    field_name: str
+    kind: str
+    relation_model: str
+    values: tuple[tuple[int, ...], ...]
+
+    def __post_init__(self) -> None:
+        try:
+            validated = OdooRelationshipOriginColumn(
+                field_name=self.field_name,
+                kind=self.kind,
+                relation_model=self.relation_model,
+                values=tuple(self.values),
+            )
+        except ValueError as error:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture relationship column is invalid"
+            ) from error
+        object.__setattr__(self, "values", validated.values)
+
+
+@dataclass(frozen=True, slots=True)
 class OdooCapturePage:
     """Validated page with protected origins separated from value columns."""
 
@@ -301,6 +382,7 @@ class OdooCapturePage:
     columns: tuple[OdooCaptureValueColumn, ...]
     response_bytes: int
     normalized_bytes: int
+    relationships: tuple[OdooCaptureRelationshipColumn, ...] = ()
 
     def __post_init__(self) -> None:
         row_count = len(self.odoo_ids)
@@ -308,8 +390,10 @@ class OdooCapturePage:
             raise OdooSourceCaptureConsistencyError(
                 "Odoo capture page is empty or exceeds the fixed page size"
             )
+        relationships = tuple(self.relationships)
         if len(self.write_dates) != row_count or any(
-            len(column.values) != row_count for column in self.columns
+            len(column.values) != row_count
+            for column in (*self.columns, *relationships)
         ):
             raise OdooSourceCaptureConsistencyError(
                 "Odoo capture page columns have different lengths"
@@ -319,12 +403,27 @@ class OdooCapturePage:
             raise OdooSourceCaptureConsistencyError(
                 "Odoo capture page value columns are invalid"
             )
+        relationship_names = tuple(column.field_name for column in relationships)
+        if relationship_names != tuple(sorted(set(relationship_names))):
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture relationship columns are invalid"
+            )
         # Reuse the protected provenance contract for the exact origin checks.
         OdooOriginBatch(
             first_row_ordinal=self.first_row_ordinal,
             odoo_ids=self.odoo_ids,
             write_dates=self.write_dates,
+            relationships=tuple(
+                OdooRelationshipOriginColumn(
+                    field_name=column.field_name,
+                    kind=column.kind,
+                    relation_model=column.relation_model,
+                    values=column.values,
+                )
+                for column in relationships
+            ),
         )
+        object.__setattr__(self, "relationships", relationships)
         if self.response_bytes < 1 or self.normalized_bytes < 1:
             raise OdooSourceCaptureConsistencyError(
                 "Odoo capture page accounting is invalid"
@@ -340,6 +439,15 @@ class OdooCapturePage:
             first_row_ordinal=self.first_row_ordinal,
             odoo_ids=self.odoo_ids,
             write_dates=self.write_dates,
+            relationships=tuple(
+                OdooRelationshipOriginColumn(
+                    field_name=column.field_name,
+                    kind=column.kind,
+                    relation_model=column.relation_model,
+                    values=column.values,
+                )
+                for column in self.relationships
+            ),
         )
 
 
@@ -433,6 +541,23 @@ def plan_odoo_source_capture(
             )
         assert field is not None
         projection.append(OdooCaptureFieldProjection(name, field.type))
+    selected_models = {item.name for item in schema.models}
+    relationships = tuple(
+        OdooCaptureRelationshipProjection(
+            name=field.name,
+            kind=field.type,
+            relation_model=str(field.relation),
+            inverse_field=field.relation_field,
+        )
+        for field in sorted(schema_model.fields, key=lambda item: item.name)
+        if is_odoo_capture_relationship_field(
+            field,
+            selected_models=selected_models,
+        )
+        # One2many is represented by its inverse many2one whenever both
+        # captured models are present. This prevents two writers for one link.
+        and field.type != "one2many"
+    )
     if selection.filter_policy is not OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS:
         active = fields.get("active")
         if not is_odoo_capture_filter_field(active) or active.type != "boolean":
@@ -474,6 +599,7 @@ def plan_odoo_source_capture(
         expected_context_hash=selection.context_hash,
         consistency=selection.consistency,
         target_instance_assurance=policy.target_instance_assurance,
+        relationship_projection=relationships,
     )
 
 
@@ -507,6 +633,23 @@ def is_odoo_capture_filter_field(field: SchemaField | None) -> bool:
     """Return whether a capturable value may also bound record membership."""
 
     return bool(is_odoo_capture_value_field(field) and field.searchable is True)
+
+
+def is_odoo_capture_relationship_field(
+    field: SchemaField | None,
+    *,
+    selected_models: set[str] | frozenset[str],
+) -> bool:
+    """Return whether a relation may enter protected capture provenance."""
+
+    return bool(
+        field is not None
+        and field.type in CURRENT_ODOO_SOURCE_POLICY.capture_relationship_types
+        and field.relation in selected_models
+        and field.related is not True
+        and field.company_dependent is False
+        and field.exportable is True
+    )
 
 
 def is_odoo_capture_write_date_field(field: SchemaField | None) -> bool:

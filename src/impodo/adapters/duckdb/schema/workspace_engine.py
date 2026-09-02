@@ -50,6 +50,16 @@ _WORKSPACE_PROJECTION_COLUMNS = (
     "mapping_version",
     "current_run_id",
     "approval_status",
+    "destination_odoo_connection_mode",
+    "destination_odoo_base_url",
+    "destination_odoo_database",
+    "destination_verified_target_hash",
+    "destination_verified_credential_binding_hash",
+    "destination_verified_read_principal_hash",
+    "destination_verified_odoo_version",
+    "destination_verified_at",
+    "destination_match_plan_json",
+    "transfer_order_plan_json",
 )
 _AUDIT_EVENT_COLUMNS = (
     "event_id",
@@ -176,7 +186,17 @@ class WorkspaceEngineSchemaMixin:
                 registered_at VARCHAR,
                 mapping_version VARCHAR,
                 current_run_id VARCHAR,
-                approval_status VARCHAR NOT NULL
+                approval_status VARCHAR NOT NULL,
+                destination_odoo_connection_mode VARCHAR,
+                destination_odoo_base_url VARCHAR NOT NULL,
+                destination_odoo_database VARCHAR NOT NULL,
+                destination_verified_target_hash VARCHAR NOT NULL,
+                destination_verified_credential_binding_hash VARCHAR NOT NULL,
+                destination_verified_read_principal_hash VARCHAR NOT NULL,
+                destination_verified_odoo_version VARCHAR NOT NULL,
+                destination_verified_at VARCHAR,
+                destination_match_plan_json VARCHAR,
+                transfer_order_plan_json VARCHAR
             );
 
             CREATE TABLE source_file (
@@ -883,6 +903,59 @@ def _upgrade_workspace_engine_v3_to_v4(
     )
 
 
+def _upgrade_workspace_engine_v4_to_v5(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add a separate, verified destination for Odoo-source transfers."""
+
+    connection.execute(
+        """
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_odoo_connection_mode VARCHAR;
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_odoo_base_url VARCHAR DEFAULT '';
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_odoo_database VARCHAR DEFAULT '';
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_verified_target_hash VARCHAR DEFAULT '';
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_verified_credential_binding_hash VARCHAR DEFAULT '';
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_verified_read_principal_hash VARCHAR DEFAULT '';
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_verified_odoo_version VARCHAR DEFAULT '';
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_verified_at VARCHAR;
+        """
+    )
+
+
+def _upgrade_workspace_engine_v5_to_v6(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add current destination matching evidence."""
+
+    connection.execute(
+        """
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN destination_match_plan_json VARCHAR;
+        """
+    )
+
+
+def _upgrade_workspace_engine_v6_to_v7(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add current Stage 6 transfer-order evidence."""
+
+    connection.execute(
+        """
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN transfer_order_plan_json VARCHAR;
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -895,5 +968,17 @@ WORKSPACE_ENGINE_UPGRADES = {
     3: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v3-to-v4-odoo-capture-sets",
         apply=_upgrade_workspace_engine_v3_to_v4,
+    ),
+    4: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v4-to-v5-transfer-destination",
+        apply=_upgrade_workspace_engine_v4_to_v5,
+    ),
+    5: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v5-to-v6-destination-matching",
+        apply=_upgrade_workspace_engine_v5_to_v6,
+    ),
+    6: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v6-to-v7-transfer-order",
+        apply=_upgrade_workspace_engine_v6_to_v7,
     ),
 }

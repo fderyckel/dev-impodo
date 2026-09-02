@@ -47,6 +47,7 @@ from impodo.domain.odoo_provenance import (
     OdooExecutionOriginManifest,
     OdooOriginBatch,
     OdooProvenanceError,
+    OdooRelationshipOriginColumn,
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from impodo.domain.serialization import content_hash
@@ -278,7 +279,7 @@ class OdooProvenanceTests(unittest.TestCase):
         origin_fields = {item.name for item in fields(OdooOriginBatch)}
         self.assertEqual(
             origin_fields,
-            {"first_row_ordinal", "odoo_ids", "write_dates"},
+            {"first_row_ordinal", "odoo_ids", "write_dates", "relationships"},
         )
         self.assertFalse(any("hash" in item for item in origin_fields))
 
@@ -725,11 +726,39 @@ class OdooProvenanceTests(unittest.TestCase):
                 first_row_ordinal=1,
                 odoo_ids=(41, 42),
                 write_dates=(self.now, self.now + timedelta(seconds=1)),
+                relationships=(
+                    OdooRelationshipOriginColumn(
+                        field_name="category_id",
+                        kind="many2one",
+                        relation_model="res.partner.category",
+                        values=((7,), (8,)),
+                    ),
+                    OdooRelationshipOriginColumn(
+                        field_name="category_ids",
+                        kind="many2many",
+                        relation_model="res.partner.category",
+                        values=((7, 8), (8,)),
+                    ),
+                ),
             ),
             OdooOriginBatch(
                 first_row_ordinal=3,
                 odoo_ids=(99,),
                 write_dates=(None,),
+                relationships=(
+                    OdooRelationshipOriginColumn(
+                        field_name="category_id",
+                        kind="many2one",
+                        relation_model="res.partner.category",
+                        values=((),),
+                    ),
+                    OdooRelationshipOriginColumn(
+                        field_name="category_ids",
+                        kind="many2many",
+                        relation_model="res.partner.category",
+                        values=((),),
+                    ),
+                ),
             ),
         )
 

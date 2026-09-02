@@ -14,7 +14,7 @@ from enum import StrEnum
 from .serialization import content_hash
 
 
-ODOO_SOURCE_POLICY_CONTRACT_VERSION = 2
+ODOO_SOURCE_POLICY_CONTRACT_VERSION = 3
 
 
 class TargetInstanceAssurance(StrEnum):
@@ -45,8 +45,11 @@ class OdooSourcePolicy:
     source_target_rule: str
     round_trip_rule: str
     capture_field_types: tuple[str, ...]
+    capture_relationship_types: tuple[str, ...]
     writable_field_types: tuple[str, ...]
     max_fields: int
+    max_relationship_fields: int
+    max_relationship_members_per_row: int
     max_rows: int
     page_size: int
     max_filter_clauses: int
@@ -87,6 +90,7 @@ CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
         "selection",
         "text",
     ),
+    capture_relationship_types=("many2one", "many2many", "one2many"),
     writable_field_types=(
         "boolean",
         "char",
@@ -97,6 +101,8 @@ CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
         "text",
     ),
     max_fields=50,
+    max_relationship_fields=50,
+    max_relationship_members_per_row=10_000,
     max_rows=10_000,
     page_size=500,
     max_filter_clauses=8,

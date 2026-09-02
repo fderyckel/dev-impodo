@@ -24,6 +24,7 @@ from ..application.protected_evidence_codecs import (
 from ..domain.odoo_provenance import (
     OdooCaptureOriginHeader,
     OdooOriginBatch,
+    OdooRelationshipOriginColumn,
     OdooProvenanceBinding,
     OdooProvenanceError,
 )
@@ -32,12 +33,14 @@ from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 
 _ENVELOPE_MAGIC = b"IPRVCP01"
 _PLAIN_MAGIC = b"IPODOO01"
-_CODEC_VERSION = 1
+_CODEC_VERSION = 2
 _NONCE_BYTES = 12
 _BATCH_MARKER = 1
 _END_MARKER = 0
 _MISSING_TIMESTAMP = -(2**63)
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_RELATION_KIND_TO_CODE = {"many2one": 1, "one2many": 2, "many2many": 3}
+_RELATION_CODE_TO_KIND = {value: key for key, value in _RELATION_KIND_TO_CODE.items()}
 
 
 class ProtectedOdooProvenanceError(OdooProvenanceError):
@@ -75,6 +78,7 @@ def encode_capture_provenance(
     row_count = 0
     next_ordinal = 1
     previous_id = 0
+    relationship_contract: tuple[tuple[str, str, str], ...] | None = None
     for batch in batches:
         if batch.first_row_ordinal != next_ordinal:
             raise ProtectedOdooProvenanceError(
@@ -94,7 +98,23 @@ def encode_capture_provenance(
         encoded_ids = struct.pack(f">{count}Q", *batch.odoo_ids)
         timestamps = tuple(_timestamp_micros(value) for value in batch.write_dates)
         encoded_dates = struct.pack(f">{count}q", *timestamps)
-        for encoded_column in (batch_header, encoded_ids, encoded_dates):
+        encoded_relationships = _encode_relationship_columns(batch.relationships)
+        current_contract = tuple(
+            (column.field_name, column.kind, column.relation_model)
+            for column in batch.relationships
+        )
+        if relationship_contract is None:
+            relationship_contract = current_contract
+        elif current_contract != relationship_contract:
+            raise ProtectedOdooProvenanceError(
+                "Odoo origin relationship columns changed between batches"
+            )
+        for encoded_column in (
+            batch_header,
+            encoded_ids,
+            encoded_dates,
+            encoded_relationships,
+        ):
             payload.extend(encoded_column)
             logical_digest.update(encoded_column)
         row_count += count
@@ -224,7 +244,7 @@ def _decode_plaintext(
     if len(plaintext) < header_size + struct.calcsize(">BQ"):
         raise ProtectedOdooProvenanceError("Odoo provenance payload is truncated")
     magic, version, high_water_id = struct.unpack_from(">8sIQ", plaintext, 0)
-    if magic != _PLAIN_MAGIC or version != _CODEC_VERSION:
+    if magic != _PLAIN_MAGIC or version not in {1, _CODEC_VERSION}:
         raise ProtectedOdooProvenanceError("Odoo provenance payload version is invalid")
     offset = header_size
     batches: list[OdooOriginBatch] = []
@@ -262,11 +282,19 @@ def _decode_plaintext(
         offset += ids_size
         timestamps = struct.unpack_from(f">{count}q", plaintext, offset)
         offset += dates_size
+        relationships: tuple[OdooRelationshipOriginColumn, ...] = ()
+        if version >= 2:
+            relationships, offset = _decode_relationship_columns(
+                plaintext,
+                offset=offset,
+                row_count=count,
+            )
         batches.append(
             OdooOriginBatch(
                 first_row_ordinal=first_ordinal,
                 odoo_ids=tuple(ids),
                 write_dates=tuple(_datetime_from_micros(value) for value in timestamps),
+                relationships=relationships,
             )
         )
         row_count += count
@@ -286,6 +314,130 @@ def _timestamp_micros(value: datetime | None) -> int:
         + delta.seconds * 1_000_000
         + delta.microseconds
     )
+
+
+def _encode_relationship_columns(
+    columns: tuple[OdooRelationshipOriginColumn, ...],
+) -> bytes:
+    payload = bytearray(struct.pack(">H", len(columns)))
+    for column in columns:
+        field_name = column.field_name.encode("utf-8")
+        relation_model = column.relation_model.encode("utf-8")
+        if len(field_name) > 255 or len(relation_model) > 255:
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship contract name is oversized"
+            )
+        flattened = tuple(member for row in column.values for member in row)
+        offsets = [0]
+        for row in column.values:
+            offsets.append(offsets[-1] + len(row))
+        payload.extend(
+            struct.pack(
+                ">BB",
+                len(field_name),
+                _RELATION_KIND_TO_CODE[column.kind],
+            )
+        )
+        payload.extend(field_name)
+        payload.extend(struct.pack(">B", len(relation_model)))
+        payload.extend(relation_model)
+        payload.extend(struct.pack(">I", len(flattened)))
+        payload.extend(struct.pack(f">{len(offsets)}I", *offsets))
+        if flattened:
+            payload.extend(struct.pack(f">{len(flattened)}Q", *flattened))
+    return bytes(payload)
+
+
+def _decode_relationship_columns(
+    plaintext: bytes,
+    *,
+    offset: int,
+    row_count: int,
+) -> tuple[tuple[OdooRelationshipOriginColumn, ...], int]:
+    if offset + 2 > len(plaintext):
+        raise ProtectedOdooProvenanceError(
+            "Odoo relationship column count is truncated"
+        )
+    (column_count,) = struct.unpack_from(">H", plaintext, offset)
+    offset += 2
+    if column_count > CURRENT_ODOO_SOURCE_POLICY.max_relationship_fields:
+        raise ProtectedOdooProvenanceError(
+            "Odoo relationship column count exceeds policy"
+        )
+    columns: list[OdooRelationshipOriginColumn] = []
+    for _ in range(column_count):
+        if offset + 2 > len(plaintext):
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship contract is truncated"
+            )
+        field_size, kind_code = struct.unpack_from(">BB", plaintext, offset)
+        offset += 2
+        if offset + field_size + 1 > len(plaintext):
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship field is truncated"
+            )
+        try:
+            field_name = plaintext[offset : offset + field_size].decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship field is invalid"
+            ) from error
+        offset += field_size
+        relation_size = plaintext[offset]
+        offset += 1
+        if offset + relation_size + 4 > len(plaintext):
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship model is truncated"
+            )
+        try:
+            relation_model = plaintext[
+                offset : offset + relation_size
+            ].decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship model is invalid"
+            ) from error
+        offset += relation_size
+        (member_count,) = struct.unpack_from(">I", plaintext, offset)
+        offset += 4
+        offsets_size = (row_count + 1) * 4
+        ids_size = member_count * 8
+        if offset + offsets_size + ids_size > len(plaintext):
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship values are truncated"
+            )
+        offsets = struct.unpack_from(f">{row_count + 1}I", plaintext, offset)
+        offset += offsets_size
+        if offsets[0] != 0 or offsets[-1] != member_count or any(
+            current < previous
+            for previous, current in zip(offsets, offsets[1:])
+        ):
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship offsets are invalid"
+            )
+        members = (
+            struct.unpack_from(f">{member_count}Q", plaintext, offset)
+            if member_count
+            else ()
+        )
+        offset += ids_size
+        kind = _RELATION_CODE_TO_KIND.get(kind_code)
+        if kind is None:
+            raise ProtectedOdooProvenanceError(
+                "Odoo relationship kind is invalid"
+            )
+        columns.append(
+            OdooRelationshipOriginColumn(
+                field_name=field_name,
+                kind=kind,
+                relation_model=relation_model,
+                values=tuple(
+                    tuple(members[offsets[index] : offsets[index + 1]])
+                    for index in range(row_count)
+                ),
+            )
+        )
+    return tuple(columns), offset
 
 
 def _datetime_from_micros(value: int) -> datetime | None:
@@ -308,6 +460,4 @@ def _require_key(key: bytes) -> None:
 def _maximum_encrypted_bytes() -> int:
     # Fixed-width origin columns plus bounded frame/header overhead. Keep a
     # conservative ceiling so malformed files are rejected before decryption.
-    rows = CURRENT_ODOO_SOURCE_POLICY.max_rows
-    batches = (rows + CURRENT_ODOO_SOURCE_POLICY.page_size - 1) // CURRENT_ODOO_SOURCE_POLICY.page_size
-    return 64 + rows * 16 + batches * 32
+    return CURRENT_ODOO_SOURCE_POLICY.max_snapshot_bytes

@@ -30,12 +30,58 @@ ODOO_ORIGIN_BATCH_MAX_ROWS = ODOO_CAPTURE_PAGE_SIZE
 
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _MODEL = re.compile(r"[a-z_][a-z0-9_.]{0,127}")
+_FIELD = re.compile(r"[a-z_][a-z0-9_]{0,127}")
 _STORAGE_KEY = re.compile(r"[a-z0-9][a-z0-9_./-]{0,511}")
 _MAX_ODOO_ID = 2**63 - 1
 
 
 class OdooProvenanceError(ValueError):
     """Raised when protected Odoo provenance is malformed or inconsistent."""
+
+
+@dataclass(frozen=True, slots=True)
+class OdooRelationshipOriginColumn:
+    """Protected source identifiers for one governed relational field.
+
+    These identifiers are capture-local evidence only. Stage 5 joins them to
+    another captured dataset's governed business key before any portable
+    relationship contract is created.
+    """
+
+    field_name: str
+    kind: str
+    relation_model: str
+    values: tuple[tuple[int, ...], ...]
+
+    def __post_init__(self) -> None:
+        if _FIELD.fullmatch(self.field_name) is None:
+            raise OdooProvenanceError("Relationship origin field is invalid")
+        if self.kind not in CURRENT_ODOO_SOURCE_POLICY.capture_relationship_types:
+            raise OdooProvenanceError("Relationship origin kind is invalid")
+        if _MODEL.fullmatch(self.relation_model) is None:
+            raise OdooProvenanceError("Relationship origin model is invalid")
+        normalized: list[tuple[int, ...]] = []
+        for raw_members in self.values:
+            members = tuple(int(value) for value in raw_members)
+            if (
+                len(members)
+                > CURRENT_ODOO_SOURCE_POLICY.max_relationship_members_per_row
+            ):
+                raise OdooProvenanceError(
+                    "Relationship origin exceeds the per-row member limit"
+                )
+            if any(not 1 <= value <= _MAX_ODOO_ID for value in members):
+                raise OdooProvenanceError("Relationship origin ID is invalid")
+            if self.kind == "many2one" and len(members) > 1:
+                raise OdooProvenanceError(
+                    "Many2one relationship origin has multiple members"
+                )
+            if members != tuple(sorted(set(members))):
+                raise OdooProvenanceError(
+                    "Relationship origin members must be sorted and unique"
+                )
+            normalized.append(members)
+        object.__setattr__(self, "values", tuple(normalized))
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,16 +95,27 @@ class OdooOriginBatch:
     first_row_ordinal: int
     odoo_ids: tuple[int, ...]
     write_dates: tuple[datetime | None, ...]
+    relationships: tuple[OdooRelationshipOriginColumn, ...] = ()
 
     def __post_init__(self) -> None:
         ids = tuple(int(value) for value in self.odoo_ids)
         dates = tuple(self.write_dates)
+        relationships = tuple(self.relationships)
         if not 1 <= self.first_row_ordinal <= MAX_ODOO_CAPTURE_ROWS:
             raise OdooProvenanceError("Origin batch ordinal must be positive")
         if not ids or len(ids) > ODOO_ORIGIN_BATCH_MAX_ROWS:
             raise OdooProvenanceError("Origin batch is empty or exceeds the page limit")
         if len(dates) != len(ids):
             raise OdooProvenanceError("Origin batch columns have different lengths")
+        if (
+            len(relationships) > CURRENT_ODOO_SOURCE_POLICY.max_relationship_fields
+            or any(len(column.values) != len(ids) for column in relationships)
+            or tuple(column.field_name for column in relationships)
+            != tuple(sorted({column.field_name for column in relationships}))
+        ):
+            raise OdooProvenanceError(
+                "Origin relationship columns are inconsistent"
+            )
         if any(not 1 <= value <= _MAX_ODOO_ID for value in ids) or any(
             current <= previous for previous, current in zip(ids, ids[1:])
         ):
@@ -77,6 +134,7 @@ class OdooOriginBatch:
             normalized_dates.append(value.astimezone(timezone.utc))
         object.__setattr__(self, "odoo_ids", ids)
         object.__setattr__(self, "write_dates", tuple(normalized_dates))
+        object.__setattr__(self, "relationships", relationships)
 
     @property
     def row_count(self) -> int:

@@ -41,6 +41,7 @@ def _render(
     if (
         isinstance(workspace_state, WorkspaceState)
         and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+        and not context.get("disable_default_read_credential_prompt")
     ):
         credential_owner = application.target_credential_workspace(
             workspace_state.workspace_id,

@@ -30,6 +30,7 @@ from ..domain.odoo_source_capture import (
     CaptureScalar,
     OdooCaptureAccounting,
     OdooCapturePage,
+    OdooCaptureRelationshipColumn,
     OdooCaptureSample,
     OdooCaptureValueColumn,
     OdooSourceCaptureConfigurationError,
@@ -40,6 +41,7 @@ from ..domain.odoo_source_capture import (
     require_not_cancelled,
 )
 from impodo.domain.shared.models import OdooReadIdentity, ProtectedOdooReadContext
+from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..domain.serialization import canonical_json
 
 
@@ -232,7 +234,7 @@ class Json2OdooSourceCapture:
             request,
             context,
             domain=_base_domain(request),
-            fields=("id", "write_date", *request.field_names),
+            fields=("id", "write_date", *request.read_field_names),
             limit=limit,
             order="id asc",
             cancellation=cancellation,
@@ -538,7 +540,7 @@ class _Json2CaptureSession:
                     ["id", ">", last_id],
                     ["id", "<=", self._high_water_id],
                 ],
-                fields=("id", "write_date", *self._request.field_names),
+                fields=("id", "write_date", *self._request.read_field_names),
                 limit=limit,
                 order="id asc",
                 cancellation=self._cancellation,
@@ -617,13 +619,24 @@ def _decode_page(
     upper_inclusive: int,
     response_bytes: int,
 ) -> OdooCapturePage:
-    expected = {"id", "write_date", *request.field_names}
+    expected = {"id", "write_date", *request.read_field_names}
     identifiers: list[int] = []
     write_dates: list[datetime | None] = []
     value_columns: dict[str, list[CaptureScalar]] = {
         name: [] for name in request.field_names
     }
-    normalized_bytes = 0
+    relationship_columns: dict[str, list[tuple[int, ...]]] = {
+        item.name: [] for item in request.relationship_projection
+    }
+    # Reserve the per-page binary contract and envelope overhead up front.
+    # Scalar values also consume this shared capture budget, so the protected
+    # sidecar can never outgrow the manifest's artifact-size contract.
+    normalized_bytes = 64 + sum(
+        len(item.name.encode("utf-8"))
+        + len(item.relation_model.encode("utf-8"))
+        + 11
+        for item in request.relationship_projection
+    )
     previous = lower_exclusive
     for row in rows:
         if set(row) != expected:
@@ -648,6 +661,28 @@ def _decode_page(
             )
             value_columns[projection.name].append(value)
             row_bytes += value_bytes
+        for projection in request.relationship_projection:
+            members = _decode_relationship(
+                projection.kind,
+                row[projection.name],
+                maximum_members=(
+                    request.max_snapshot_bytes // 8
+                    if projection.kind != "many2one"
+                    else 1
+                ),
+            )
+            if (
+                len(members)
+                > CURRENT_ODOO_SOURCE_POLICY.max_relationship_members_per_row
+            ):
+                raise OdooSourceCaptureLimitError(
+                    "Odoo relationship exceeds the per-row member limit"
+                )
+            relationship_columns[projection.name].append(members)
+            # Account for the protected column offset plus fixed-width IDs so
+            # the later binary provenance envelope stays within the same
+            # bounded snapshot budget.
+            row_bytes += 4 + len(members) * 8
         if row_bytes > request.max_row_bytes:
             raise OdooSourceCaptureLimitError(
                 "Odoo capture row exceeds the fixed byte limit"
@@ -671,7 +706,50 @@ def _decode_page(
         ),
         response_bytes=response_bytes,
         normalized_bytes=normalized_bytes,
+        relationships=tuple(
+            OdooCaptureRelationshipColumn(
+                field_name=projection.name,
+                kind=projection.kind,
+                relation_model=projection.relation_model,
+                values=tuple(relationship_columns[projection.name]),
+            )
+            for projection in request.relationship_projection
+        ),
     )
+
+
+def _decode_relationship(
+    kind: str,
+    raw: Any,
+    *,
+    maximum_members: int,
+) -> tuple[int, ...]:
+    """Decode Odoo relation values into protected, sorted identifiers."""
+
+    if raw is False or raw is None:
+        return ()
+    if kind == "many2one":
+        candidate = raw[0] if isinstance(raw, (list, tuple)) and raw else raw
+        return (_require_id(candidate),)
+    if kind not in {"many2many", "one2many"} or not isinstance(raw, (list, tuple)):
+        raise OdooSourceCaptureConsistencyError(
+            "Odoo returned an invalid relationship value"
+        )
+    if len(raw) > maximum_members:
+        raise OdooSourceCaptureLimitError(
+            "Odoo relationship exceeds the bounded capture size"
+        )
+    try:
+        members = tuple(sorted({_require_id(value) for value in raw}))
+    except TypeError as error:
+        raise OdooSourceCaptureConsistencyError(
+            "Odoo returned an invalid relationship value"
+        ) from error
+    if len(members) != len(raw):
+        raise OdooSourceCaptureConsistencyError(
+            "Odoo returned duplicate relationship identifiers"
+        )
+    return members
 
 
 def _decode_value(

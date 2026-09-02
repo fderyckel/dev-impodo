@@ -45,7 +45,6 @@ from ..target_credentials import (
     audit_removed_target_credentials,
     audit_stored_target_credential,
     delete_target_credential,
-    delete_target_credentials,
     get_target_credential,
     store_target_credential,
     target_read_credential_id,
@@ -537,10 +536,21 @@ def build_target_router(context: WebContext) -> APIRouter:
                 != target_write_credential_id(workspace_state)
             )
             if target_changed:
-                removal_receipts = delete_target_credentials(
-                    context.secret_store,
-                    previous_workspace_state,
-                    reason=TargetCredentialRemovalReason.TARGET_CHANGED,
+                removal_receipts = tuple(
+                    receipt
+                    for role in (
+                        TargetCredentialRole.READ,
+                        TargetCredentialRole.WRITE,
+                    )
+                    if (
+                        receipt := delete_target_credential(
+                            context.secret_store,
+                            previous_workspace_state,
+                            role,
+                            reason=TargetCredentialRemovalReason.TARGET_CHANGED,
+                        )
+                    )
+                    is not None
                 )
                 audit_removed_target_credentials(
                     context.workspace_states,

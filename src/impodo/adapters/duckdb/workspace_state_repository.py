@@ -462,9 +462,10 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         connection.execute(
             f"INSERT INTO workspace_projection_cache VALUES "
-            f"({', '.join('?' for _ in range(19))})",
+            f"({', '.join('?' for _ in range(29))})",
             _workspace_values(workspace),
         )
+
     def _update_workspace(
         self,
         connection: duckdb.DuckDBPyConnection,
@@ -490,7 +491,17 @@ class WorkspaceStateRepository(DuckDbRepository):
                 registered_at = ?,
                 mapping_version = ?,
                 current_run_id = ?,
-                approval_status = ?
+                approval_status = ?,
+                destination_odoo_connection_mode = ?,
+                destination_odoo_base_url = ?,
+                destination_odoo_database = ?,
+                destination_verified_target_hash = ?,
+                destination_verified_credential_binding_hash = ?,
+                destination_verified_read_principal_hash = ?,
+                destination_verified_odoo_version = ?,
+                destination_verified_at = ?,
+                destination_match_plan_json = ?,
+                transfer_order_plan_json = ?
             WHERE singleton_id = 1
             """,
             _workspace_values(workspace)[1:],

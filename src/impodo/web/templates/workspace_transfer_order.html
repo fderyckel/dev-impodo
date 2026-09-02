@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Validate transfer order · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 6 of 8 · Validate transfer order</p>
+      <h1>Put related Odoo records in a safe transfer order</h1>
+      <p>
+        Impodo derives creation waves and any post-create relationship pass from
+        the current Stage 5 evidence. This stage is local and does not contact or
+        write to either Odoo instance.
+      </p>
+    </div>
+    <span class="status {% if transfer_order_ready %}ready{% elif transfer_order_plan %}blocked{% else %}review{% endif %}">
+      {% if transfer_order_ready %}
+        Order ready
+      {% elif transfer_order_plan %}
+        Review required
+      {% else %}
+        Plan required
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="notice warning">
+    <strong>No Odoo writes are enabled.</strong>
+    Required relationships determine hard ordering. Optional relationships may be
+    deferred to a post-create link pass only when needed to break a cycle.
+  </div>
+
+  {% if transfer_order_stale %}
+    <div class="notice warning">
+      <strong>The saved order is no longer current.</strong>
+      Source evidence, destination matching, or destination identity changed.
+      Build the order again from the current Stage 5 plan.
+    </div>
+  {% endif %}
+
+  <section class="form-card">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Dependency planning</p>
+        <h2>Derive the order from every incoming relationship</h2>
+        <p>
+          Existing destination records do not create an incoming dependency. New
+          related records are scheduled before their owners unless the relationship
+          is safely deferred.
+        </p>
+      </div>
+    </div>
+    <form method="post" action="/workspaces/{{ workspace_id }}/transfer-order">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+      <div class="actions">
+        <a
+          class="button secondary"
+          href="/workspaces/{{ workspace_id }}/destination-matching#matching-results"
+        >Back to destination matching</a>
+        <button class="button primary" type="submit">
+          {% if transfer_order_plan %}Rebuild transfer order{% else %}Build transfer order{% endif %}
+        </button>
+      </div>
+    </form>
+  </section>
+
+  {% if transfer_order_plan %}
+    <section class="form-card" id="transfer-order-results">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Current ordering decision</p>
+          <h2>
+            {% if transfer_order_ready %}Transfer order is ready{% else %}Transfer order is blocked{% endif %}
+          </h2>
+          <p>
+            Planned {{ transfer_order_plan.recorded_at.strftime('%Y-%m-%d %H:%M UTC') }}
+            from the current destination-matching evidence.
+          </p>
+        </div>
+        <span class="status {% if transfer_order_ready %}ready{% else %}blocked{% endif %}">
+          {% if transfer_order_ready %}Stage 6 complete{% else %}Blocked{% endif %}
+        </span>
+      </div>
+
+      {% if transfer_order_waves %}
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Create pass</p>
+            <h2>{{ transfer_order_waves|length }} deterministic wave(s)</h2>
+          </div>
+        </div>
+        {% for row in transfer_order_waves %}
+          <article class="dataset-card">
+            <div class="page-heading compact">
+              <div>
+                <h3>Wave {{ row.wave.sequence }}</h3>
+                <p>These record types may run together after all earlier waves complete.</p>
+              </div>
+            </div>
+            <dl class="definition-list capture-summary">
+              {% for dataset in row.datasets %}
+                <div>
+                  <dt>{{ dataset.model_label }}</dt>
+                  <dd>
+                    {{ dataset.model }} &middot;
+                    {{ "{:,}".format(dataset.destination_create_key_count) }} create,
+                    {{ "{:,}".format(dataset.destination_existing_key_count) }} reuse
+                  </dd>
+                </div>
+              {% endfor %}
+            </dl>
+          </article>
+        {% endfor %}
+      {% endif %}
+
+      {% if transfer_order_dependencies %}
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Relationship dependencies</p>
+            <h2>Why record types are ordered</h2>
+          </div>
+        </div>
+        {% for row in transfer_order_dependencies %}
+          <article class="dataset-card">
+            <div class="page-heading compact">
+              <div>
+                <h3>{{ row.owner.model_label }} depends on {{ row.required.model_label }}</h3>
+                <p>
+                  {{ row.dependency.owner_model }}.{{ row.dependency.field_name }}
+                  &rarr; {{ row.dependency.dependency_model }}
+                  &middot; {{ row.dependency.kind }}
+                  &middot; {{ row.dependency.strength }}
+                </p>
+              </div>
+              <span class="status {% if row.dependency.deferred %}review{% else %}ready{% endif %}">
+                {% if row.dependency.deferred %}Post-create pass{% else %}Ordered create{% endif %}
+              </span>
+            </div>
+            <p>
+              {{ "{:,}".format(row.dependency.incoming_link_count) }} link(s)
+              resolve to records arriving in this transfer.
+            </p>
+          </article>
+        {% endfor %}
+      {% else %}
+        <div class="notice">
+          <strong>No incoming ordering edges are needed.</strong>
+          Every relationship is either empty or resolves only to an existing destination record.
+        </div>
+      {% endif %}
+
+      {% if transfer_order_blockers %}
+        <div class="notice warning">
+          <strong>The create pass contains a required dependency cycle.</strong>
+          <ul>
+            {% for row in transfer_order_blockers %}
+              {% if row.blocker.code == 'HARD_DEPENDENCY_CYCLE' %}
+                <li>
+                  {{ row.dataset.model_label }} participates in a required cycle{% if row.blocker.field_name %}
+                    through {{ row.blocker.field_name }}{% endif %}.
+                  A required relationship cannot be deferred automatically.
+                </li>
+              {% else %}
+                <li>
+                  {{ row.dataset.model_label }} depends on a blocked record type{% if row.dependency %}:
+                    {{ row.dependency.model_label }}{% endif %}.
+                </li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% if transfer_order_ready %}
+        <div class="notice">
+          <strong>Next planned stage: review the complete transfer.</strong>
+          Stage 7 is not available yet. It will combine matching, creation waves,
+          deferred links, field writes, and control totals into an approval package.
+          Destination writes remain disabled.
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

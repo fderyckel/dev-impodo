@@ -617,7 +617,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Frozen versions", frozen_page.text)
         self.assertIn("Source download complete", frozen_page.text)
         self.assertIn("The frozen Odoo source is ready", frozen_page.text)
-        self.assertIn("Destination unavailable", frozen_page.text)
+        self.assertIn("Next: connect the destination Odoo instance", frozen_page.text)
         self.assertIn("Connect source Odoo", frozen_page.text)
         self.assertIn("Select data to download", frozen_page.text)
         self.assertIn("Download and freeze", frozen_page.text)
@@ -626,6 +626,152 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Validate transfer order", frozen_page.text)
         self.assertIn("Review transfer", frozen_page.text)
         self.assertIn("Load destination Odoo", frozen_page.text)
+
+        destination_page = self.client.get(
+            f"/workspaces/{workspace_id}/transfer-destination"
+        )
+        self.assertEqual(destination_page.status_code, 200)
+        self.assertIn("Stage 4 of 8", destination_page.text)
+        self.assertIn(
+            "Connect the Odoo instance that will receive the data",
+            destination_page.text,
+        )
+        self.assertIn("Source and destination stay separate", destination_page.text)
+        current = self.app.state.context.queries.get(workspace_id)
+        same_database = self._post(
+            f"/workspaces/{workspace_id}/transfer-destination",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(current.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.test",
+                "odoo_database": "odoo_review",
+                "read_api_key": "destination-read-secret",
+                "read_api_key_storage": "session",
+            },
+        )
+        self.assertEqual(same_database.status_code, 422)
+        self.assertIn(
+            "Choose a different Odoo database for the destination",
+            same_database.text,
+        )
+
+        current = self.app.state.context.queries.get(workspace_id)
+        destination_checked = self._post(
+            f"/workspaces/{workspace_id}/transfer-destination",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(current.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://destination.example.test",
+                "odoo_database": "odoo_destination",
+                "read_api_key": "destination-read-secret",
+                "read_api_key_storage": "session",
+            },
+        )
+        self.assertEqual(destination_checked.status_code, 303)
+        self.assertEqual(
+            destination_checked.headers["location"],
+            f"/workspaces/{workspace_id}/transfer-destination",
+        )
+        destination_state = self.app.state.context.queries.get(workspace_id)
+        self.assertTrue(destination_state.destination_verified)
+        self.assertEqual(
+            destination_state.destination_odoo_base_url,
+            "https://destination.example.test",
+        )
+        self.assertEqual(
+            destination_state.destination_odoo_database,
+            "odoo_destination",
+        )
+        self.assertEqual(
+            destination_state.odoo_base_url,
+            "https://odoo.example.test",
+        )
+        self.assertEqual(destination_state.odoo_database, "odoo_review")
+        connected_page = self.client.get(destination_checked.headers["location"])
+        self.assertIn("Destination connection complete", connected_page.text)
+        self.assertIn("Stage 4 complete", connected_page.text)
+        self.assertIn("Match destination data", connected_page.text)
+        self.assertIn("Not yet available", connected_page.text)
+        connected_source_page = self.client.get(
+            f"/workspaces/{workspace_id}/sources#download-complete"
+        )
+        self.assertIn("The destination connection is verified", connected_source_page.text)
+        self.assertIn("Match destination data", connected_source_page.text)
+
+        matching_page = self.client.get(
+            f"/workspaces/{workspace_id}/destination-matching"
+        )
+        self.assertEqual(matching_page.status_code, 200)
+        self.assertIn("Stage 5 of 8", matching_page.text)
+        self.assertIn(
+            "Decide how source records find destination records",
+            matching_page.text,
+        )
+        frozen_selection = self.app.state.context.queries.get_source_selection(
+            workspace_id
+        )
+        self.assertIsNotNone(frozen_selection)
+        assert frozen_selection is not None
+        frozen_dataset = frozen_selection.datasets[0]
+        matching_checked = self._post(
+            f"/workspaces/{workspace_id}/destination-matching",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(destination_state.revision),
+                "match_key": (
+                    f"{frozen_dataset.dataset_id}::"
+                    f"{frozen_dataset.columns[0].stable_key}"
+                ),
+            },
+        )
+        self.assertEqual(matching_checked.status_code, 303, matching_checked.text)
+        self.assertEqual(
+            matching_checked.headers["location"],
+            f"/workspaces/{workspace_id}/destination-matching#matching-results",
+        )
+        matched_state = self.app.state.context.queries.get(workspace_id)
+        self.assertIsNotNone(matched_state.destination_match_plan)
+        self.assertTrue(matched_state.destination_match_plan.ready)
+        matched_page = self.client.get(matching_checked.headers["location"])
+        self.assertIn("Destination matching is ready", matched_page.text)
+        self.assertIn("Stage 5 complete", matched_page.text)
+        self.assertIn("Existing destination keys", matched_page.text)
+        self.assertIn("New destination keys", matched_page.text)
+        self.assertIn("Next: validate the transfer order", matched_page.text)
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/transfer-order"',
+            matched_page.text,
+        )
+        self.assertIn("Not yet available", matched_page.text)
+
+        order_page = self.client.get(
+            f"/workspaces/{workspace_id}/transfer-order"
+        )
+        self.assertEqual(order_page.status_code, 200)
+        self.assertIn("Stage 6 of 8", order_page.text)
+        self.assertIn("Put related Odoo records in a safe transfer order", order_page.text)
+        order_checked = self._post(
+            f"/workspaces/{workspace_id}/transfer-order",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(matched_state.revision),
+            },
+        )
+        self.assertEqual(order_checked.status_code, 303, order_checked.text)
+        self.assertEqual(
+            order_checked.headers["location"],
+            f"/workspaces/{workspace_id}/transfer-order#transfer-order-results",
+        )
+        ordered_state = self.app.state.context.queries.get(workspace_id)
+        self.assertIsNotNone(ordered_state.transfer_order_plan)
+        self.assertTrue(ordered_state.transfer_order_plan.ready)
+        ordered_page = self.client.get(order_checked.headers["location"])
+        self.assertIn("Transfer order is ready", ordered_page.text)
+        self.assertIn("Stage 6 complete", ordered_page.text)
+        self.assertIn("Wave 1", ordered_page.text)
+        self.assertIn("Next planned stage: review the complete transfer", ordered_page.text)
 
         mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)
@@ -724,6 +870,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Compare the approved data with Odoo", approved_page.text)
         self.assertIn("approved data with Odoo", approved_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
+        readiness_calls_before_comparison = len(self.readiness_calls)
 
         def pinned_reader(
             selected_workspace_state,
@@ -823,8 +970,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             portable_manifest = manifest_path.read_text("utf-8")
         self.assertNotIn('"odoo_id"', portable_manifest)
         self.assertNotIn("Alice", portable_manifest)
-        self.assertEqual(len(self.readiness_calls), 1)
-        _workspace_id, _metadata_requests, record_requests = self.readiness_calls[0]
+        self.assertEqual(
+            len(self.readiness_calls),
+            readiness_calls_before_comparison + 1,
+        )
+        _workspace_id, _metadata_requests, record_requests = self.readiness_calls[-1]
         self.assertEqual(len(record_requests), 1)
         self.assertEqual(record_requests[0].fields, ("name", "write_date"))
         self.assertEqual(record_requests[0].domain, (["id", "in", [11, 12]],))
