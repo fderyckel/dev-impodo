@@ -145,7 +145,7 @@ def build_workspace_navigation(
 ) -> WorkspaceNavigation:
     """Return the one user journey allowed by canonical workspace ownership."""
 
-    navigation = _build_six_stage_workspace_navigation(
+    navigation = _build_authoring_workspace_navigation(
         context,
         workspace_state,
         template_name,
@@ -173,7 +173,7 @@ def build_workspace_navigation(
     )
 
 
-def _build_six_stage_workspace_navigation(
+def _build_authoring_workspace_navigation(
     context: WebContext,
     workspace_state: WorkspaceState,
     template_name: str,
@@ -181,7 +181,7 @@ def _build_six_stage_workspace_navigation(
     current_path: str = "",
     migration_project_name: str | None = None,
 ) -> WorkspaceNavigation:
-    """Build the normal six-stage Authoring evidence projection."""
+    """Build the source-mode-specific Authoring evidence projection."""
 
     current_workspace_state = context.queries.get(workspace_state.workspace_id)
     navigation_name = migration_project_name or current_workspace_state.name
@@ -219,6 +219,9 @@ def _build_six_stage_workspace_navigation(
         )
 
     if current_workspace_state.source_mode is SourceMode.ODOO:
+        # This journey ends at a protected source download until a separately
+        # bound destination contract exists.  Legacy same-database pinned-update
+        # evidence must not make cross-instance transfer stages look available.
         model_catalog = context.queries.get_odoo_model_catalog(
             current_workspace_state.workspace_id
         )
@@ -242,271 +245,170 @@ def _build_six_stage_workspace_navigation(
             )
         except WorkspaceError:
             frozen_source = None
+        workspace_id = current_workspace_state.workspace_id
+        select_complete = capture_plans_complete and not schema_attention
+        if template_name == "workspace_target.html":
+            viewed_stage_id = "connection"
+            viewed_page_label = "Source connection"
+        elif template_name == "workspace_odoo_capture_selection.html":
+            viewed_stage_id = (
+                "download"
+                if select_complete or frozen_source is not None
+                else "select"
+            )
+            viewed_page_label = (
+                "Freeze source datasets"
+                if select_complete or frozen_source is not None
+                else "Define capture plans"
+            )
+        elif template_name == "workspace_odoo_capture_progress.html":
+            viewed_stage_id = "download"
+            viewed_page_label = "Freeze source datasets"
+        elif template_name == "workspace_schema.html":
+            viewed_stage_id = "select"
+            viewed_page_label = "Choose record types and fields"
+        elif template_name == "mapping/page.html":
+            viewed_stage_id = "destination-match"
+
         stages = [
             _stage(
-                current_workspace_state.workspace_id,
-                "odoo",
+                workspace_id,
+                "connection",
                 1,
-                "Odoo source data",
+                "Connect source Odoo",
+                "/target",
+                status="complete",
+                status_label="Connected",
+                pages=(
+                    _page(
+                        workspace_id,
+                        "source-connection",
+                        "Source connection",
+                        "/target",
+                        complete=True,
+                    ),
+                ),
+            ),
+            _stage(
+                workspace_id,
+                "select",
+                2,
+                "Select data to download",
                 "/schema",
                 status=(
                     "attention"
                     if schema_attention
-                    else ("complete" if schema is not None else "current")
+                    else ("complete" if select_complete else "current")
                 ),
                 status_label=(
-                    "Needs attention"
+                    "Review Odoo changes"
                     if schema_attention
-                    else ("Complete" if schema is not None else "Current")
+                    else ("Selection complete" if select_complete else "Current")
                 ),
                 pages=(
                     _page(
-                        current_workspace_state.workspace_id,
-                        "odoo-models",
-                        "Choose Odoo record type",
-                        "/schema",
-                        complete=model_catalog is not None,
-                    ),
-                    _page(
-                        current_workspace_state.workspace_id,
+                        workspace_id,
                         "odoo-fields",
-                        "Capture eligible fields",
-                        "/schema#odoo-details",
-                        complete=schema is not None,
+                        "Choose record types and fields",
+                        "/schema",
+                        complete=(
+                            model_catalog is not None
+                            and schema is not None
+                            and not schema_attention
+                        ),
+                        attention=schema_attention,
                     ),
+                )
+                + (
+                    (
+                        _page(
+                            workspace_id,
+                            "odoo-capture-selection",
+                            "Define capture plans",
+                            "/sources",
+                            complete=capture_plans_complete,
+                        ),
+                    )
+                    if schema is not None
+                    else ()
                 ),
             ),
             WorkflowStage(
-                stage_id="source",
-                number=2,
-                label="Freeze Odoo records",
+                stage_id="download",
+                number=3,
+                label="Download and freeze",
                 href=(
-                    f"/workspaces/{current_workspace_state.workspace_id}/sources"
-                    if schema is not None
+                    f"/workspaces/{workspace_id}/sources"
+                    if select_complete or frozen_source is not None
                     else None
                 ),
                 status=(
                     "complete"
                     if frozen_source is not None
-                    else (
-                        "attention"
-                        if schema_attention
-                        else ("current" if schema is not None else "locked")
-                    )
+                    else ("current" if select_complete else "locked")
                 ),
                 status_label=(
-                    "Frozen"
+                    "Download complete"
                     if frozen_source is not None
                     else (
-                        "Review Odoo changes"
-                        if schema_attention
-                        else (
-                            "Ready to freeze"
-                            if capture_plans_complete
-                            else "Define capture plan"
-                            if schema is not None
-                            else "Capture Odoo fields first"
-                        )
+                        "Ready to download"
+                        if select_complete
+                        else "Finish data selection first"
                     )
                 ),
                 pages=(
                     _page(
-                        current_workspace_state.workspace_id,
-                        "odoo-capture-selection",
-                        "Define bounded capture",
-                        "/sources",
-                        complete=capture_plans_complete,
-                    ),
-                    _page(
-                        current_workspace_state.workspace_id,
+                        workspace_id,
                         "odoo-capture",
-                        "Freeze Odoo records",
+                        "Freeze source datasets",
                         "/sources#current-capture",
                         complete=frozen_source is not None,
                     ),
-                ) if schema is not None else (),
+                )
+                if capture_plans_complete
+                else (),
             ),
-        ]
-        if frozen_source is None:
-            stages.extend(_locked_stages(current_workspace_state.workspace_id, after="source"))
-            return _navigation(
-                current_workspace_state,
-                template_name,
-                viewed_stage_id,
-                viewed_page_label,
-                stages,
-                migration_project_name=navigation_name,
-            )
-
-        workspace_id = current_workspace_state.workspace_id
-        revision = context.queries.get_mapping_revision(workspace_id)
-        submission = (
-            context.queries.get_mapping_submission(workspace_id, revision.version)
-            if revision is not None
-            else None
-        )
-        mapping_complete = bool(
-            revision is not None
-            and revision.definition.source_selection_hash == frozen_source.content_hash
-            and revision.definition.datasets
-            and all(
-                item.mode.value == "odoo_pinned_update"
-                for item in revision.definition.datasets
-            )
-            and submission is not None
-            and submission.mapping_id == revision.mapping_id
-            and submission.mapping_content_hash == revision.definition.content_hash
-        )
-        stages.append(
-            _stage(
-                workspace_id,
-                "match",
-                3,
-                "Match data",
-                "/mapping",
-                status=("complete" if mapping_complete else "current"),
-                status_label=("Complete" if mapping_complete else "Current"),
-                pages=(
-                    _page(
-                        workspace_id,
-                        "mapping",
-                        "Choose and approve update fields",
-                        "/mapping",
-                        complete=mapping_complete,
-                    ),
-                ),
-            )
-        )
-        if not mapping_complete:
-            stages.extend(_locked_stages(workspace_id, after="match"))
-            return _navigation(
-                current_workspace_state,
-                template_name,
-                viewed_stage_id,
-                viewed_page_label,
-                stages,
-                migration_project_name=navigation_name,
-            )
-
-        active_job = (
-            context.preparation_jobs.active(workspace_id)
-            if context.preparation_jobs is not None
-            else None
-        )
-        staging = context.preflight.current_staging(workspace_id)
-        quality = context.quality.current_summary(workspace_id) if staging else None
-        if quality is not None and quality.staging_run_id != staging.run_id:
-            quality = None
-        normalization = context.normalization.current_summary(workspace_id) if quality else None
-        if normalization is not None and (
-            normalization.staging_run_id != staging.run_id
-            or normalization.quality_run_id != quality.run_id
-        ):
-            normalization = None
-        preparation_complete = bool(normalization and normalization.frozen)
-        preparation_attention = bool(
-            normalization
-            and not normalization.frozen
-            and normalization.decisions_left
-        )
-        preparation_status = (
-            "complete"
-            if preparation_complete
-            else (
-                "attention"
-                if preparation_attention
-                else "current"
-            )
-        )
-        preparation_label = (
-            "Complete"
-            if preparation_complete
-            else (
-                "Needs attention"
-                if preparation_attention
-                else ("In progress" if active_job is not None else "Current")
-            )
-        )
-        stages.append(
-            _stage(
-                workspace_id,
-                "prepare",
-                4,
-                "Prepare data",
-                "/prepare",
-                status=preparation_status,
-                status_label=preparation_label,
-                pages=(
-                    _page(
-                        workspace_id,
-                        "prepare",
-                        "Prepare captured records",
-                        "/prepare",
-                        complete=staging is not None,
-                    ),
-                    _page(
-                        workspace_id,
-                        "normalization",
-                        "Review prepared changes",
-                        "/normalization",
-                        complete=preparation_complete,
-                    ),
-                ),
-            )
-        )
-        report = context.preflight.current_report(workspace_id) if preparation_complete else None
-        review_status = (
-            "complete"
-            if report is not None and report.status == "READY"
-            else (
-                "attention"
-                if report is not None
-                else ("current" if preparation_complete else "locked")
-            )
-        )
-        stages.append(
-            _stage(
-                workspace_id,
-                "review",
-                5,
-                "Final review",
-                "/summary" if preparation_complete else None,
-                status=review_status,
-                status_label=(
-                    "Complete"
-                    if review_status == "complete"
-                    else (
-                        "Refresh needed"
-                        if review_status == "attention"
-                        else (
-                            "Current"
-                            if review_status == "current"
-                            else "Prepare data first"
-                        )
-                    )
-                ),
-                pages=(
-                    _page(
-                        workspace_id,
-                        "summary",
-                        "Compare with Odoo",
-                        "/summary",
-                        complete=review_status == "complete",
-                        attention=review_status == "attention",
-                    ),
-                ) if preparation_complete else (),
-            )
-        )
-        stages.append(
             WorkflowStage(
-                stage_id="load",
-                number=6,
-                label="Load into Odoo",
+                stage_id="destination",
+                number=4,
+                label="Connect destination Odoo",
                 href=None,
                 status="locked",
                 status_label="Not yet available",
-            )
-        )
+            ),
+            WorkflowStage(
+                stage_id="destination-match",
+                number=5,
+                label="Match destination data",
+                href=None,
+                status="locked",
+                status_label="Destination required",
+            ),
+            WorkflowStage(
+                stage_id="transfer-order",
+                number=6,
+                label="Validate transfer order",
+                href=None,
+                status="locked",
+                status_label="Destination matching required",
+            ),
+            WorkflowStage(
+                stage_id="transfer-review",
+                number=7,
+                label="Review transfer",
+                href=None,
+                status="locked",
+                status_label="Transfer plan required",
+            ),
+            WorkflowStage(
+                stage_id="destination-load",
+                number=8,
+                label="Load destination Odoo",
+                href=None,
+                status="locked",
+                status_label="Not yet available",
+            ),
+        ]
         return _navigation(
             current_workspace_state,
             template_name,

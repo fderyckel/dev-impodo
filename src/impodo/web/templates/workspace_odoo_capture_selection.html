@@ -4,9 +4,10 @@
   <script src="{{ url_for('static', path='/source-workflow.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% set download_stage = current_manifests or (plans_complete and schema and not schema.pending_refresh) %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 2 of 6 · Odoo source data</p>
+      <p class="eyebrow">Stage {% if download_stage %}3{% else %}2{% endif %} of 8 · {% if download_stage %}Download and freeze{% else %}Select data to download{% endif %}</p>
       {% if plans_complete and not show_capture_plan_editor %}
         <h1>Review and freeze the Odoo source</h1>
         <p>The capture plans are saved. Check the matching records, then freeze all datasets as one source version.</p>
@@ -306,6 +307,7 @@
   {% endif %}
 
   {% if current_manifests %}
+    {% set current_models = current_manifests | map(attribute='model') | list %}
     <section class="form-card" id="current-capture">
       <div class="page-heading compact">
         <div>
@@ -332,6 +334,23 @@
         <p>Retained until <time datetime="{{ current_manifest.retention_until.isoformat() }}">{{ current_manifest.retention_until.strftime('%Y-%m-%d') }}</time></p>
       </details>
       {% endfor %}
+    </section>
+
+    <section class="next-action-card ready" id="download-complete">
+      <div>
+        <p class="eyebrow">Source download complete</p>
+        <h2>The frozen Odoo source is ready</h2>
+        <p>
+          {{ current_manifests|length }} dataset{% if current_manifests|length != 1 %}s{% endif %}
+          {% if 'product.template' in current_models and 'uom.uom' in current_models %}—including Product and Unit of Measure—{% endif %}
+          are stored as one protected source version. Reopening this page does not contact Odoo.
+        </p>
+        <div class="notice warning">
+          <strong>There is no destination transfer step in this version yet.</strong>
+          Connecting a second Odoo instance, matching its records, validating Unit of Measure before Product, reviewing the transfer, and loading the destination remain unavailable. No destination records will be written.
+        </div>
+      </div>
+      <span class="status warning">Destination unavailable</span>
     </section>
   {% endif %}
 

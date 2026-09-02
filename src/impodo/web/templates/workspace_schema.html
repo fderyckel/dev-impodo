@@ -13,7 +13,7 @@
   {% set odoo_check_disabled = (workspace_state.source_mode.value == 'FILE' and not selection) or (not is_recipe_run_setup and not workspace_state.intended_models) or (is_recipe_run_setup and (not odoo_check_models or (schema and schema.pending_refresh))) or not local_reader_ready %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">{% if is_recipe_run_setup %}Check Odoo · Target requirements{% else %}Stage {% if workspace_state.source_mode.value == 'ODOO' %}1{% else %}2{% endif %} of 6 · Odoo data{% endif %}</p>
+      <p class="eyebrow">{% if is_recipe_run_setup %}Check Odoo · Target requirements{% elif workspace_state.source_mode.value == 'ODOO' %}Stage 2 of 8 · Select data to download{% else %}Stage 2 of 6 · Odoo data{% endif %}</p>
       <h1>{% if is_recipe_run_recovery %}Check whether Odoo can supply the missing values{% elif is_recipe_run_setup %}Review the Odoo requirements for this {{ run_kind }}{% elif workspace_state.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
       <p>{% if is_recipe_run_recovery %}Installed Odoo apps added required fields after this Recipe was saved. Check their current create defaults to continue this run.{% elif is_recipe_run_setup %}Impodo selected the Odoo information required by the saved Recipe versions. Review it, then check the current fields once for this {{ run_kind }}.{% else %}Choose the kinds of Odoo information needed for this workspace.{% endif %}</p>
     </div>
@@ -27,7 +27,7 @@
   {% if schema and not schema.pending_refresh and schema.origin.value != 'LOCAL_MANUAL' and not is_recipe_run_setup and workspace_state.source_mode.value == 'ODOO' and not selection %}
     <section class="next-action-card {% if schema_credential_current %}ready{% else %}attention{% endif %}" id="schema-next-action">
       <div>
-        <p class="eyebrow">{% if schema_credential_current %}Stage 1 complete{% else %}One Odoo check required{% endif %}</p>
+        <p class="eyebrow">{% if schema_credential_current %}Odoo fields checked{% else %}One Odoo check required{% endif %}</p>
         {% if not read_credential_present %}
           <h2>Save the read-only Odoo key to continue</h2>
           <p>The saved field list cannot authorize a record capture until the read-only key is available again.</p>

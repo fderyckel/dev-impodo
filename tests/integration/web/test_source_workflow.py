@@ -210,6 +210,8 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "Moving records between two Odoo databases is not available yet.",
             target_page.text,
         )
+        self.assertIn("Source access only", target_page.text)
+        self.assertNotIn('name="keep_api_key_for_loading"', target_page.text)
         self.assertIn("It does not discover models or fields", target_page.text)
         files = self.client.get(
             f"/workspaces/{workspace_id}/files",
@@ -272,8 +274,8 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(workspace_state.source_files, ())
 
         schema_page = self.client.get(f"/workspaces/{workspace_id}/schema")
-        self.assertIn("Stage 1 of 6", schema_page.text)
-        self.assertIn("Odoo data", schema_page.text)
+        self.assertIn("Stage 2 of 8", schema_page.text)
+        self.assertIn("Select data to download", schema_page.text)
         self.assertIn("Choose the Odoo source record type", schema_page.text)
 
         refreshed = self._post(
@@ -299,6 +301,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         source_page = self.client.get(f"/workspaces/{workspace_id}/sources")
         self.assertEqual(source_page.status_code, 200)
+        self.assertIn("Stage 2 of 8", source_page.text)
         self.assertIn("Define a bounded Odoo capture", source_page.text)
         self.assertIn("Freezing is read-only", source_page.text)
         render_schema = self.app.state.context.queries.get_odoo_schema_catalog(
@@ -375,12 +378,13 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Capture plan version 1", saved_page.text)
         self.assertIn("Check matching records", saved_page.text)
         self.assertIn("Capture plans complete", saved_page.text)
+        self.assertIn("Stage 3 of 8", saved_page.text)
         self.assertIn("Check matching records and continue", saved_page.text)
         self.assertIn("Review and freeze the Odoo source", saved_page.text)
         self.assertIn("Edit saved capture plans", saved_page.text)
         self.assertNotIn("Eligible fields from", saved_page.text)
         self.assertNotIn("Freeze these Odoo records", saved_page.text)
-        self.assertIn("Ready to freeze", saved_page.text)
+        self.assertIn("Ready to download", saved_page.text)
         completed_schema_page = self.client.get(
             f"/workspaces/{workspace_id}/schema"
         )
@@ -607,9 +611,21 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         frozen_page = self.client.get(finished["redirect_url"])
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         self.assertIn("Current frozen Odoo source", frozen_page.text)
+        self.assertIn("Stage 3 of 8", frozen_page.text)
         self.assertIn("2</dd>", frozen_page.text)
         self.assertIn("Protected history", frozen_page.text)
         self.assertIn("Frozen versions", frozen_page.text)
+        self.assertIn("Source download complete", frozen_page.text)
+        self.assertIn("The frozen Odoo source is ready", frozen_page.text)
+        self.assertIn("Destination unavailable", frozen_page.text)
+        self.assertIn("Connect source Odoo", frozen_page.text)
+        self.assertIn("Select data to download", frozen_page.text)
+        self.assertIn("Download and freeze", frozen_page.text)
+        self.assertIn("Connect destination Odoo", frozen_page.text)
+        self.assertIn("Match destination data", frozen_page.text)
+        self.assertIn("Validate transfer order", frozen_page.text)
+        self.assertIn("Review transfer", frozen_page.text)
+        self.assertIn("Load destination Odoo", frozen_page.text)
 
         mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)
@@ -689,7 +705,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         normalization_page = self.client.get(f"/workspaces/{workspace_id}/normalization")
         self.assertEqual(normalization_page.status_code, 200)
-        self.assertIn("Review prepared changes", normalization_page.text)
+        self.assertIn("Review what Impodo prepared", normalization_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         approved = self._post(
             f"/workspaces/{workspace_id}/normalization/approve",
@@ -706,8 +722,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         approved_page = self.client.get(approved.headers["location"])
         self.assertIn("Compare the approved data with Odoo", approved_page.text)
-        self.assertIn("Compare with Odoo", approved_page.text)
-        self.assertIn("Final review", approved_page.text)
+        self.assertIn("approved data with Odoo", approved_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
 
         def pinned_reader(
@@ -776,7 +791,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("2 records ready to update", comparison_page.text)
         self.assertNotIn("New in Odoo", comparison_page.text)
         self.assertNotIn("Create review workbook", comparison_page.text)
-        self.assertIn("Load into Odoo", comparison_page.text)
+        self.assertIn("Load destination Odoo", comparison_page.text)
         self.assertIn("Not yet available", comparison_page.text)
         report = self.app.state.context.preflight.current_report(workspace_id)
         self.assertIsNotNone(report)
