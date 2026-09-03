@@ -33,6 +33,12 @@ become silent exclusions. Identity collisions set aside the complete collision
 group. A relation to a set-aside incoming record propagates a safe outcome
 without an Odoo call.
 
+When an incoming record forms part of a dependent record's target identity,
+Impodo treats that parent and its dependent records as one update group. If one
+dependent record is set aside, Impodo also sets aside the identity parent and
+the remaining dependent records. This produces `QUARANTINE` evidence rather
+than a run-level `BLOCK`, so unrelated record groups can continue to review.
+
 ## Complete accounting
 
 Every canonical row has exactly one quality result. Every physical source row

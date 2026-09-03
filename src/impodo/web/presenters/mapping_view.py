@@ -1535,6 +1535,9 @@ def _mapping_dataset_views(
                 "index": field_index,
                 "metadata": field,
                 "mapping": scalar_by_target.get(field.name),
+                "concatenation": _scalar_concatenation_view(
+                    scalar_by_target.get(field.name)
+                ),
                 "disposition": disposition_by_target.get(field.name),
                 "value_mappings_json": _value_mappings_json(
                     scalar_by_target[field.name].value_mappings
@@ -2157,6 +2160,18 @@ def _scalar_mapping_preview(
     if mapping.value_source is ScalarValueSource.CONSTANT:
         raw = mapping.literal_value
     elif (
+        mapping.value_source is ScalarValueSource.CONCATENATE
+        and mapping.concatenation is not None
+    ):
+        raw = " | ".join(
+            _display_mapping_value(
+                source_samples.get(key, (None,))[0]
+                if source_samples.get(key)
+                else None
+            )
+            for key in mapping.concatenation.source_column_keys
+        )
+    elif (
         mapping.value_source is ScalarValueSource.CONDITIONAL_RULES
         and mapping.selection_rules is not None
     ):
@@ -2202,6 +2217,34 @@ def _scalar_mapping_preview(
         "raw": _display_mapping_value(raw),
         "proposed": _display_mapping_value(proposed),
         "status": "ok",
+    }
+
+
+def _scalar_concatenation_view(
+    mapping: ScalarFieldMapping | None,
+) -> dict[str, object]:
+    configuration = mapping.concatenation if mapping is not None else None
+    separator = configuration.separator if configuration is not None else " "
+    separator_choice = {
+        "": "nothing",
+        " ": "space",
+        ", ": "comma_space",
+        "-": "hyphen",
+    }.get(separator, "custom")
+    source_keys = (
+        configuration.source_column_keys if configuration is not None else ()
+    )
+    return {
+        "source_keys": source_keys,
+        "active_count": max(2, len(source_keys)),
+        "separator_choice": separator_choice,
+        "custom_separator": separator if separator_choice == "custom" else "",
+        "blank_handling": (
+            configuration.blank_handling.value
+            if configuration is not None
+            else "skip_blank"
+        ),
+        "trim_parts": configuration.trim_parts if configuration is not None else True,
     }
 
 

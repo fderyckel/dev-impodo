@@ -31,8 +31,8 @@ from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 
-COLUMNAR_PROGRAM_CONTRACT_VERSION = 4
-COLUMNAR_COMPILER_VERSION = 5
+COLUMNAR_PROGRAM_CONTRACT_VERSION = 5
+COLUMNAR_COMPILER_VERSION = 6
 
 
 def _optional_string(value: object) -> str | None:
@@ -82,6 +82,7 @@ class ColumnarOperationKind(StrEnum):
     READ_SOURCE = "read_source"
     USE_CONSTANT = "use_constant"
     SOURCE_FALLBACK = "source_fallback"
+    CONCATENATE_SOURCE_COLUMNS = "concatenate_source_columns"
     CONDITIONAL_SELECTION = "conditional_selection"
     OMIT_ODOO_DEFAULT = "omit_odoo_default"
     OMIT_ODOO_MANAGED = "omit_odoo_managed"
@@ -180,6 +181,7 @@ COLUMNAR_CAPABILITY_MATRIX = (
     _native(ColumnarOperationKind.READ_SOURCE),
     _native(ColumnarOperationKind.USE_CONSTANT),
     _native(ColumnarOperationKind.SOURCE_FALLBACK),
+    _native(ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS),
     _native(ColumnarOperationKind.CONDITIONAL_SELECTION),
     _native(ColumnarOperationKind.OMIT_ODOO_DEFAULT),
     _native(ColumnarOperationKind.OMIT_ODOO_MANAGED),
@@ -364,6 +366,10 @@ class ColumnarValueProviderProgram:
     source: ColumnarInputColumn | None
     literal_value: str | None
     value_mappings: tuple[tuple[str, str], ...]
+    sources: tuple[ColumnarInputColumn, ...] = ()
+    separator: str = ""
+    blank_handling: str = "skip_blank"
+    trim_parts: bool = True
     fallback_probe_steps: tuple[ColumnarExpressionStep, ...] = ()
     value_mapping_bypasses_transforms: bool = True
     selection_rules: tuple[ColumnarSelectionRuleProgram, ...] = ()
@@ -595,6 +601,13 @@ class ColumnarTransformationProgram:
                     (str(pair[0]), str(pair[1]))
                     for pair in cast(Sequence[Sequence[object]], item["value_mappings"])
                 ),
+                sources=tuple(
+                    input_column(source)
+                    for source in cast(Sequence[object], item.get("sources", ()))
+                ),
+                separator=str(item.get("separator", "")),
+                blank_handling=str(item.get("blank_handling", "skip_blank")),
+                trim_parts=bool(item.get("trim_parts", True)),
                 fallback_probe_steps=tuple(
                     step(item_step)
                     for item_step in cast(
@@ -1292,6 +1305,7 @@ def _scalar_field_program(
         ScalarValueSource.SOURCE: ColumnarOperationKind.READ_SOURCE,
         ScalarValueSource.CONSTANT: ColumnarOperationKind.USE_CONSTANT,
         ScalarValueSource.SOURCE_WITH_FALLBACK: ColumnarOperationKind.SOURCE_FALLBACK,
+        ScalarValueSource.CONCATENATE: ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS,
         ScalarValueSource.CONDITIONAL_RULES: ColumnarOperationKind.CONDITIONAL_SELECTION,
     }[field.value_source]
     draft.use(provider_operation, f"{path}/provider", target_field=field.target_field)
@@ -1345,6 +1359,29 @@ def _scalar_field_program(
         value_mappings=tuple(
             (item.source_value, item.target_value)
             for item in field.value_mappings
+        ),
+        sources=(
+            tuple(
+                _require_column(key, columns, draft)
+                for key in field.concatenation.source_column_keys
+            )
+            if field.concatenation is not None
+            else ()
+        ),
+        separator=(
+            field.concatenation.separator
+            if field.concatenation is not None
+            else ""
+        ),
+        blank_handling=(
+            field.concatenation.blank_handling.value
+            if field.concatenation is not None
+            else "skip_blank"
+        ),
+        trim_parts=(
+            field.concatenation.trim_parts
+            if field.concatenation is not None
+            else True
         ),
         fallback_probe_steps=fallback_probe,
         selection_rules=selection_rule_programs,
@@ -1417,6 +1454,9 @@ def _scalar_field_program(
             source.source_name
             if source is not None
             else (
+                " + ".join(item.source_name for item in provider.sources)
+                if provider.sources
+                else
                 " + ".join(
                     dict.fromkeys(
                         condition.source.source_name
@@ -1557,7 +1597,11 @@ def _transform_steps(
             f"{path}/transform/{case_operation.value}",
             target_field=field.target_field,
         )
-    if policy.configured_text_steps or policy.formula:
+    if (
+        policy.configured_text_steps
+        or policy.formula
+        or field.value_source is ScalarValueSource.CONCATENATE
+    ):
         result.append(
             ColumnarExpressionStep(
                 ColumnarOperationKind.VALIDATE_RULE_OUTPUT_LENGTH,

@@ -340,6 +340,97 @@ class QualityEvaluationTests(unittest.TestCase):
             {item.reason_code for item in run.issues},
         )
 
+    def test_unready_component_sets_aside_its_bom_identity_group(self) -> None:
+        bom = _canonical_row(
+            "5",
+            2,
+            dataset="bom_headers",
+            source_identity=("BOM-001",),
+            target_identity=("BOM-001",),
+            physical_dataset_id="dataset:bom_versions",
+        )
+        ready_line = _canonical_row(
+            "6",
+            2,
+            dataset="bom_components",
+            source_identity=("BOM-001", "10"),
+            target_identity=(
+                LogicalReference(
+                    origin="incoming",
+                    key=("BOM-001",),
+                    dataset="bom_headers",
+                    target_fields=("code",),
+                ),
+                "10",
+            ),
+            physical_dataset_id="dataset:bom",
+        )
+        missing_component_line = replace(
+            _canonical_row(
+                "7",
+                3,
+                dataset="bom_components",
+                source_identity=("BOM-001", "20"),
+                target_identity=(
+                    LogicalReference(
+                        origin="incoming",
+                        key=("BOM-001",),
+                        dataset="bom_headers",
+                        target_fields=("code",),
+                    ),
+                    "20",
+                ),
+                physical_dataset_id="dataset:bom",
+            ),
+            references={
+                "product_id": LogicalReference(
+                    origin="incoming",
+                    key=("COMPONENT-MISSING",),
+                    dataset="articles",
+                    target_fields=("default_code",),
+                )
+            },
+        )
+        rows = (bom, ready_line, missing_component_line)
+        ruleset = default_quality_ruleset(
+            workspace_id=self.workspace_state.workspace_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("bom_headers", "bom_components", "articles"),
+        )
+
+        run = evaluate_quality(
+            workspace_state=self.workspace_state,
+            staging=_staging(self.workspace_state.workspace_id, rows),
+            physical_rows={
+                "dataset:bom_versions": (2,),
+                "dataset:bom": (2, 3),
+            },
+            ruleset=ruleset,
+        )
+
+        by_row_id = {item.row_id: item for item in run.row_results}
+        self.assertEqual(run.blocked_count, 0)
+        self.assertEqual(run.quarantined_count, 3)
+        self.assertEqual(run.ready_count, 0)
+        self.assertEqual(run.eligible_row_ids, frozenset())
+        self.assertEqual(
+            by_row_id[bom.row_id].effective_disposition,
+            QualityDisposition.QUARANTINED,
+        )
+        self.assertEqual(
+            by_row_id[ready_line.row_id].effective_disposition,
+            QualityDisposition.QUARANTINED,
+        )
+        self.assertEqual(
+            by_row_id[missing_component_line.row_id].effective_disposition,
+            QualityDisposition.QUARANTINED,
+        )
+        self.assertIn(
+            "INCOMING_IDENTITY_GROUP_NOT_READY",
+            {item.reason_code for item in run.issues},
+        )
+
     def test_relationship_readiness_propagates_through_a_long_chain(self) -> None:
         row_count = 64
         rows = tuple(

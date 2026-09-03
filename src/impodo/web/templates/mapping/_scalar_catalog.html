@@ -79,6 +79,7 @@
                         <option value="source" {% if value_source == 'source' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}Use or match one source column{% else %}Source value{% endif %}</option>
                         <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}One choice for every row{% else %}Same value for every row{% endif %}</option>
                         {% if row.metadata.type != 'selection' or value_source == 'source_with_fallback' %}<option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>{% endif %}
+                        {% if row.metadata.type in ('char', 'text') or value_source == 'concatenate' %}<option value="concatenate" {% if value_source == 'concatenate' %}selected{% endif %}>Combine source columns</option>{% endif %}
                         {% if row.metadata.type == 'selection' %}<option value="conditional_rules" {% if value_source == 'conditional_rules' %}selected{% endif %}>Decide using rules</option>{% endif %}
                         {% if not view.odoo_pinned and (row.metadata.create_default_present or value_source == 'odoo_default') %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
                       </select>
@@ -97,6 +98,65 @@
                               {% endif %}
                             {% endif %}
                           </select>
+                        </label>
+                      </div>
+                      <div class="provider-control" data-provider-concatenation {% if value_source != 'concatenate' %}hidden{% endif %}>
+                        <p><strong>Combine source columns</strong></p>
+                        <small>Choose 2 to 5 columns. Impodo joins them from top to bottom.</small>
+                        <div data-concatenation-source-list data-active-count="{{ row.concatenation.active_count }}">
+                          {% for slot in range(5) %}
+                            {% set selected_source_column = row.concatenation.source_keys[slot] if slot < row.concatenation.source_keys|length else '' %}
+                            <div class="mapping-condition-row" data-concatenation-source-row data-concatenation-slot="{{ slot }}" {% if slot >= row.concatenation.active_count %}hidden{% endif %}>
+                              <label>
+                                <span data-concatenation-source-label>Part {{ slot + 1 }}</span>
+                                <select
+                                  name="scalar_concat_source_{{ dataset_index }}_{{ field_index }}_{{ slot }}"
+                                  data-concatenation-source
+                                  data-lazy-source-column
+                                  {% if slot >= row.concatenation.active_count or disposition %}disabled{% endif %}
+                                >
+                                  <option value="">Choose source column</option>
+                                  {% if selected_source_column %}
+                                    {% set selected_column = view.source_by_key.get(selected_source_column) %}
+                                    {% set sample_values = row.source_samples.get(selected_source_column, ()) %}
+                                    {% if selected_column %}
+                                      <option value="{{ selected_column.stable_key }}" data-sample="{{ sample_values[0] if sample_values else '' }}" data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}" selected>
+                                        {{ selected_column.source_name }}
+                                      </option>
+                                    {% endif %}
+                                  {% endif %}
+                                </select>
+                              </label>
+                              <span>
+                                <button class="button secondary compact" type="button" data-move-concatenation-source="up" aria-label="Move source column up">Up</button>
+                                <button class="button secondary compact" type="button" data-move-concatenation-source="down" aria-label="Move source column down">Down</button>
+                                <button class="button secondary compact" type="button" data-remove-concatenation-source>Remove</button>
+                              </span>
+                            </div>
+                          {% endfor %}
+                        </div>
+                        <button class="button secondary compact" type="button" data-add-concatenation-source>Add source column</button>
+                        <label>Put between values
+                          <select name="scalar_concat_separator_{{ dataset_index }}_{{ field_index }}" data-concatenation-separator>
+                            <option value="space" {% if row.concatenation.separator_choice == 'space' %}selected{% endif %}>One space</option>
+                            <option value="nothing" {% if row.concatenation.separator_choice == 'nothing' %}selected{% endif %}>Nothing</option>
+                            <option value="comma_space" {% if row.concatenation.separator_choice == 'comma_space' %}selected{% endif %}>Comma and space</option>
+                            <option value="hyphen" {% if row.concatenation.separator_choice == 'hyphen' %}selected{% endif %}>Hyphen</option>
+                            <option value="custom" {% if row.concatenation.separator_choice == 'custom' %}selected{% endif %}>Custom text</option>
+                          </select>
+                        </label>
+                        <label data-concatenation-custom-separator {% if row.concatenation.separator_choice != 'custom' %}hidden{% endif %}>Custom separator
+                          <input name="scalar_concat_custom_separator_{{ dataset_index }}_{{ field_index }}" value="{{ row.concatenation.custom_separator }}" maxlength="20" data-concatenation-custom-separator-input>
+                        </label>
+                        <label>When one part is blank
+                          <select name="scalar_concat_blank_{{ dataset_index }}_{{ field_index }}" data-concatenation-blank>
+                            <option value="skip_blank" {% if row.concatenation.blank_handling == 'skip_blank' %}selected{% endif %}>Skip that part</option>
+                            <option value="block_row" {% if row.concatenation.blank_handling == 'block_row' %}selected{% endif %}>Block the row for review</option>
+                          </select>
+                        </label>
+                        <label class="checkbox">
+                          <input type="checkbox" name="scalar_concat_trim_{{ dataset_index }}_{{ field_index }}" value="1" data-concatenation-trim {% if row.concatenation.trim_parts %}checked{% endif %}>
+                          Remove outer spaces from each part
                         </label>
                       </div>
                       <div class="provider-control" data-provider-literal {% if value_source not in ('constant', 'source_with_fallback') %}hidden{% endif %}>
@@ -456,7 +516,7 @@
                             </details>
                           </div>
 
-                          <details class="advanced-rule" {% if formula_issue %}open{% endif %}>
+                          <details class="advanced-rule" {% if formula_issue %}open{% endif %} data-formula-control {% if value_source == 'concatenate' %}hidden{% endif %}>
                             <summary>Advanced: formula or custom calculation</summary>
                             <label>
                               Formula
@@ -469,6 +529,7 @@
                                 aria-invalid="{{ 'true' if formula_issue else 'false' }}"
                                 aria-describedby="formula-help-{{ dataset_index }}-{{ field_index }} formula-feedback-{{ dataset_index }}-{{ field_index }}"
                                 data-rule-formula
+                                {% if value_source == 'concatenate' %}disabled{% endif %}
                               >{{ transform.formula if transform else '' }}</textarea>
                             </label>
                             <p

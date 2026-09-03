@@ -378,14 +378,25 @@ def _field_provider(
         return f"{relation.kind} relationship", source
     if scalar is not None:
         source = (
-            source_labels.get(scalar.source_column_key, scalar.source_column_key)
-            if scalar.source_column_key
-            else ""
+            " + ".join(
+                source_labels.get(key, key)
+                for key in scalar.concatenation.source_column_keys
+            )
+            if scalar.concatenation is not None
+            else (
+                source_labels.get(
+                    scalar.source_column_key,
+                    scalar.source_column_key,
+                )
+                if scalar.source_column_key
+                else ""
+            )
         )
         provider = {
             ScalarValueSource.SOURCE: "Incoming value",
             ScalarValueSource.CONSTANT: "Fixed value",
             ScalarValueSource.SOURCE_WITH_FALLBACK: "Incoming value with backup",
+            ScalarValueSource.CONCATENATE: "Combined source columns",
             ScalarValueSource.CONDITIONAL_RULES: "Ordered choice rules",
             ScalarValueSource.ODOO_DEFAULT: "Odoo default",
         }[scalar.value_source]

@@ -55,6 +55,12 @@ cannot qualify the current one.
 - Prepared values still express the source meaning after cleanup.
 - Blocking findings are resolved rather than hidden.
 
+When a child record uses its parent as part of its business identity, Impodo
+keeps that complete record group together. For example, if a BoM component
+does not have a matching product, Impodo sets aside that BoM, its other
+component lines, and the missing component line. Other BoMs can still proceed
+to review. The source files and Odoo remain unchanged.
+
 ## What Complete means
 
 Impodo has a frozen, fully accounted prepared result for the current source,

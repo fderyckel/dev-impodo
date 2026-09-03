@@ -100,6 +100,18 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
+    if (
+        field_mapping.value_source is ScalarValueSource.CONCATENATE
+        and field_mapping.concatenation is not None
+    ):
+        for source_column_key in field_mapping.concatenation.source_column_keys:
+            _check_column(
+                dataset,
+                source_column_key,
+                f"{path}/concatenation/source_column_keys",
+                columns,
+                issues,
+            )
     if literal_required and field_mapping.literal_value is None:
         issues.append(
             _issue(
@@ -142,6 +154,29 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
+    if field_mapping.value_source is ScalarValueSource.CONCATENATE:
+        if metadata.type not in {"char", "text"}:
+            issues.append(
+                _issue(
+                    "MAPPING_CONCATENATION_TARGET_INVALID",
+                    path,
+                    "Combined source columns can only provide an Odoo text field.",
+                    "Choose a text field or use another value provider.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if field_mapping.value_type != "string":
+            issues.append(
+                _issue(
+                    "MAPPING_CONCATENATION_TYPE_INVALID",
+                    path,
+                    "Combined source columns must produce a text value.",
+                    "Choose Text as the value type.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
     _validate_categorical_policy(
         context,
         dataset,

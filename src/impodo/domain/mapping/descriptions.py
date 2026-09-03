@@ -13,6 +13,13 @@ def transformation_rule_summary(field: ScalarFieldMapping) -> str:
         rules.append("Constant")
     elif field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
         rules.append("Source + fallback")
+    elif field.value_source is ScalarValueSource.CONCATENATE:
+        count = (
+            len(field.concatenation.source_column_keys)
+            if field.concatenation is not None
+            else 0
+        )
+        rules.append(f"Combine {count} source columns")
     elif field.value_source is ScalarValueSource.CONDITIONAL_RULES:
         count = len(field.selection_rules.rules) if field.selection_rules else 0
         rules.append(f"{count} ordered choice rule(s)")

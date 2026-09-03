@@ -226,7 +226,12 @@ def browser_mapping_labels(
                 "",
             )
             field_labels[(dataset.name, synthetic_field(index))] = (
-                names.get(field.source_column_key or rule_source_key)
+                " + ".join(
+                    names.get(key, field.target_field)
+                    for key in field.concatenation.source_column_keys
+                )
+                if field.concatenation is not None
+                else names.get(field.source_column_key or rule_source_key)
                 or field.target_field
             )
         for relationship_index, relationship in enumerate(mapping.relationships):

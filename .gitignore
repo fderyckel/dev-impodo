@@ -29,6 +29,7 @@ outputs/
 
 # Local migration projects and customer data
 var/
+.codex-artifacts
 
 # OS and editor files
 .DS_Store

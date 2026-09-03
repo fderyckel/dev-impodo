@@ -8,13 +8,18 @@ import re
 from typing import Any, Callable, Mapping
 
 from impodo.domain.recipe.value_rules import (
+    MAX_RULE_OUTPUT_LENGTH,
     ScalarRuleError,
     ScalarTransformPolicy,
     prepare_rule_text,
     round_decimal_value,
     validate_scalar_value,
 )
-from .contracts import ScalarFieldMapping, ScalarValueSource
+from .contracts import (
+    ConcatenationBlankHandling,
+    ScalarFieldMapping,
+    ScalarValueSource,
+)
 from .contracts import (
     SelectionCondition,
     SelectionConditionOperator,
@@ -68,6 +73,11 @@ def evaluate_scalar_mapping_value(
             source_values_by_key or {},
             observer=selection_rule_observer,
         )
+    elif mapping.value_source is ScalarValueSource.CONCATENATE:
+        selected_value = _concatenate_source_values(
+            mapping,
+            source_values_by_key or {},
+        )
     return canonicalize_scalar_value(
         mapping,
         selected_value,
@@ -82,6 +92,46 @@ def evaluate_scalar_mapping_value(
         },
         text_step_observer=text_step_observer,
     )
+
+
+def _concatenate_source_values(
+    mapping: ScalarFieldMapping,
+    source_values_by_key: Mapping[str, Any],
+) -> str | None:
+    """Evaluate one guided ordered concatenation before later text rules."""
+
+    rule = mapping.concatenation
+    if rule is None:
+        raise ScalarValueRuleError(
+            "SOURCE_CONCATENATION_INVALID",
+            "The source-column combination is incomplete",
+        )
+    parts: list[str] = []
+    for source_column_key in rule.source_column_keys:
+        raw = source_values_by_key.get(source_column_key)
+        rendered = "" if raw is None else str(raw)
+        if rule.trim_parts:
+            rendered = rendered.strip()
+        if not rendered.strip():
+            if rule.blank_handling is ConcatenationBlankHandling.BLOCK_ROW:
+                raise ScalarValueRuleError(
+                    "SOURCE_CONCATENATION_PART_BLANK",
+                    "A required part of the combined value is blank",
+                )
+            continue
+        parts.append(rendered)
+    if not parts:
+        return None
+    combined = rule.separator.join(parts)
+    if len(combined) > MAX_RULE_OUTPUT_LENGTH:
+        raise ScalarValueRuleError(
+            "SOURCE_RULE_OUTPUT_TOO_LONG",
+            (
+                "A value rule produced more than "
+                f"{MAX_RULE_OUTPUT_LENGTH} characters"
+            ),
+        )
+    return combined
 
 
 def canonicalize_scalar_value(

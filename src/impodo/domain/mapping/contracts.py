@@ -30,8 +30,8 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 13
-SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({12, MAPPING_CONTRACT_VERSION})
+MAPPING_CONTRACT_VERSION = 14
+SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({12, 13, MAPPING_CONTRACT_VERSION})
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -78,8 +78,45 @@ class ScalarValueSource(StrEnum):
     SOURCE = "source"
     CONSTANT = "constant"
     SOURCE_WITH_FALLBACK = "source_with_fallback"
+    CONCATENATE = "concatenate"
     CONDITIONAL_RULES = "conditional_rules"
     ODOO_DEFAULT = "odoo_default"
+
+
+class ConcatenationBlankHandling(StrEnum):
+    """Choose whether a blank contributing value is skipped or blocks its row."""
+
+    SKIP_BLANK = "skip_blank"
+    BLOCK_ROW = "block_row"
+
+
+@dataclass(frozen=True, slots=True)
+class ScalarConcatenation:
+    """Build one text value from an ordered set of stable source columns."""
+
+    source_column_keys: tuple[str, ...]
+    separator: str = " "
+    blank_handling: ConcatenationBlankHandling = (
+        ConcatenationBlankHandling.SKIP_BLANK
+    )
+    trim_parts: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
+        if not 2 <= len(self.source_column_keys) <= 5:
+            raise ValueError("Concatenation requires two to five source columns")
+        if (
+            len(set(self.source_column_keys)) != len(self.source_column_keys)
+            or any(not key or len(key) > 500 for key in self.source_column_keys)
+        ):
+            raise ValueError("Concatenation source columns are invalid")
+        if len(self.separator) > 20:
+            raise ValueError("Concatenation separator is limited to 20 characters")
+        object.__setattr__(
+            self,
+            "blank_handling",
+            ConcatenationBlankHandling(self.blank_handling),
+        )
 
 
 class SelectionRuleJoin(StrEnum):
@@ -381,6 +418,7 @@ class ScalarFieldMapping:
     source_column_key: str | None = None
     value_source: ScalarValueSource = ScalarValueSource.SOURCE
     literal_value: str | None = None
+    concatenation: ScalarConcatenation | None = None
     transform: ScalarTransformPolicy = field(
         default_factory=ScalarTransformPolicy
     )
@@ -453,6 +491,24 @@ class ScalarFieldMapping:
         elif self.selection_rules is not None:
             raise ValueError(
                 "Selection rules require the conditional-rules value provider"
+            )
+        if self.value_source is ScalarValueSource.CONCATENATE:
+            if self.concatenation is None:
+                raise ValueError("Concatenation configuration is required")
+            if (
+                self.source_column_key is not None
+                or self.literal_value is not None
+                or self.value_mappings
+                or self.reference_lookup is not None
+                or self.selection_rules is not None
+                or self.transform.formula
+            ):
+                raise ValueError(
+                    "Concatenation cannot carry another value provider or formula"
+                )
+        elif self.concatenation is not None:
+            raise ValueError(
+                "Concatenation configuration requires the concatenate value provider"
             )
 
 
@@ -651,6 +707,15 @@ class MappingDefinition:
     def __post_init__(self) -> None:
         if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version < 14 and any(
+            field.value_source is ScalarValueSource.CONCATENATE
+            or field.concatenation is not None
+            for dataset in self.datasets
+            for field in dataset.fields
+        ):
+            raise ValueError(
+                f"Mapping contract v{self.contract_version} cannot contain concatenation"
+            )
         if self.contract_version == 12 and any(
             resolver.dataset_projection_field is not None
             for dataset in self.datasets
@@ -819,7 +884,10 @@ def _dataset_mapping_from_dict(
             for item in payload.get("target_scope", ())
         ),
         fields=tuple(
-            _scalar_field_mapping_from_dict(item)
+            _scalar_field_mapping_from_dict(
+                item,
+                contract_version=contract_version,
+            )
             for item in payload.get("fields", ())
         ),
         relationships=tuple(
@@ -851,9 +919,25 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 14:
+        payload = _without_scalar_concatenation(payload)
     if contract_version == 12:
         return _without_dataset_projection_field(payload)
     return payload
+
+
+def _without_scalar_concatenation(value: Any) -> Any:
+    """Reproduce the pre-v14 scalar field layout for hashes and round trips."""
+
+    if isinstance(value, dict):
+        return {
+            key: _without_scalar_concatenation(item)
+            for key, item in value.items()
+            if key != "concatenation"
+        }
+    if isinstance(value, list):
+        return [_without_scalar_concatenation(item) for item in value]
+    return value
 
 
 def _without_dataset_projection_field(value: Any) -> Any:
@@ -872,10 +956,15 @@ def _without_dataset_projection_field(value: Any) -> Any:
 
 def _scalar_field_mapping_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> ScalarFieldMapping:
+    expected_fields = _contract_fields(ScalarFieldMapping)
+    if contract_version < 14:
+        expected_fields.remove("concatenation")
     _require_contract_fields(
         payload,
-        _contract_fields(ScalarFieldMapping),
+        expected_fields,
         "Scalar mapping fields do not match the current contract",
     )
     transform_payload = payload.get("transform", {})
@@ -901,6 +990,11 @@ def _scalar_field_mapping_from_dict(
         literal_value=(
             str(payload["literal_value"])
             if payload.get("literal_value") is not None
+            else None
+        ),
+        concatenation=(
+            _scalar_concatenation_from_dict(payload["concatenation"])
+            if payload.get("concatenation") is not None
             else None
         ),
         transform=ScalarTransformPolicy(
@@ -985,6 +1079,27 @@ def _scalar_field_mapping_from_dict(
             if payload.get("selection_rules") is not None
             else None
         ),
+    )
+
+
+def _scalar_concatenation_from_dict(
+    payload: Mapping[str, Any],
+) -> ScalarConcatenation:
+    _require_contract_fields(
+        payload,
+        _contract_fields(ScalarConcatenation),
+        "Scalar concatenation fields do not match the current contract",
+    )
+    return ScalarConcatenation(
+        source_column_keys=tuple(payload.get("source_column_keys", ())),
+        separator=str(payload.get("separator", " ")),
+        blank_handling=ConcatenationBlankHandling(
+            payload.get(
+                "blank_handling",
+                ConcatenationBlankHandling.SKIP_BLANK.value,
+            )
+        ),
+        trim_parts=bool(payload.get("trim_parts", True)),
     )
 
 

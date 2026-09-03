@@ -18,6 +18,7 @@ from ...domain.mapping.contracts import (
     MAX_CONTROL_TOTALS_PER_DATASET,
     BusinessControlDefinition,
     CategoricalCoveragePolicy,
+    ConcatenationBlankHandling,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -27,6 +28,7 @@ from ...domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
+    ScalarConcatenation,
     ScalarFieldMapping,
     ScalarValueSource,
     SelectionCondition,
@@ -169,6 +171,60 @@ def _selection_rules_from_form(form, field_name: str) -> SelectionRuleSet:
     return SelectionRuleSet(tuple(rules), otherwise)
 
 
+def _scalar_concatenation_from_form(
+    form,
+    *,
+    dataset_index: int,
+    field_index: int,
+    source_columns: set[str],
+) -> ScalarConcatenation:
+    """Read one bounded, ordered guided source-column combination."""
+
+    source_keys = tuple(
+        key
+        for slot in range(5)
+        if (
+            key := _text(
+                form,
+                f"scalar_concat_source_{dataset_index}_{field_index}_{slot}",
+            )
+        )
+        and key in source_columns
+    )
+    choice = (
+        _text(form, f"scalar_concat_separator_{dataset_index}_{field_index}")
+        or "space"
+    )
+    separators = {
+        "nothing": "",
+        "space": " ",
+        "comma_space": ", ",
+        "hyphen": "-",
+    }
+    if choice == "custom":
+        separator = _text(
+            form,
+            f"scalar_concat_custom_separator_{dataset_index}_{field_index}",
+        )
+    elif choice in separators:
+        separator = separators[choice]
+    else:
+        raise ValueError("Combined source-column separator is invalid")
+    blank_handling = ConcatenationBlankHandling(
+        _text(form, f"scalar_concat_blank_{dataset_index}_{field_index}")
+        or ConcatenationBlankHandling.SKIP_BLANK.value
+    )
+    return ScalarConcatenation(
+        source_column_keys=source_keys,
+        separator=separator,
+        blank_handling=blank_handling,
+        trim_parts=_checked(
+            form,
+            f"scalar_concat_trim_{dataset_index}_{field_index}",
+        ),
+    )
+
+
 def _mapping_allowed_fields(form, selection, schema) -> set[str]:
     allowed = {
         "csrf_token",
@@ -217,6 +273,10 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_value_source_{dataset_index}_{field_index}",
                     f"scalar_source_{dataset_index}_{field_index}",
                     f"scalar_literal_{dataset_index}_{field_index}",
+                    f"scalar_concat_separator_{dataset_index}_{field_index}",
+                    f"scalar_concat_custom_separator_{dataset_index}_{field_index}",
+                    f"scalar_concat_blank_{dataset_index}_{field_index}",
+                    f"scalar_concat_trim_{dataset_index}_{field_index}",
                     f"scalar_type_{dataset_index}_{field_index}",
                     f"scalar_trim_{dataset_index}_{field_index}",
                     f"scalar_collapse_{dataset_index}_{field_index}",
@@ -243,6 +303,10 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_required_create_{dataset_index}_{field_index}",
                     f"scalar_null_{dataset_index}_{field_index}",
                 }
+            )
+            allowed.update(
+                f"scalar_concat_source_{dataset_index}_{field_index}_{slot}"
+                for slot in range(5)
             )
         for control_index in range(MAX_CONTROL_TOTALS_PER_DATASET):
             allowed.update(
@@ -409,6 +473,18 @@ def _mapping_datasets_from_form(
                 if value_source is ScalarValueSource.CONDITIONAL_RULES
                 else None
             )
+            concatenation = None
+            if value_source is ScalarValueSource.CONCATENATE:
+                if metadata.type not in {"char", "text"}:
+                    raise ValueError(
+                        "Source columns can only be combined into an Odoo text field"
+                    )
+                concatenation = _scalar_concatenation_from_form(
+                    form,
+                    dataset_index=dataset_index,
+                    field_index=field_index,
+                    source_columns=source_columns,
+                )
             categorical_policy = None
             if (
                 metadata.type == "selection"
@@ -449,6 +525,7 @@ def _mapping_datasets_from_form(
                         }
                         else None
                     ),
+                    concatenation=concatenation,
                     transform=(ScalarTransformPolicy() if selection_rules else ScalarTransformPolicy(
                         trim=_checked(
                             form,

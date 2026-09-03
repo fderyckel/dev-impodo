@@ -63,6 +63,13 @@ source-to-canonical lineage, control totals, quality findings, quarantine,
 resolution state, normalization decisions, and preparation-session status.
 Publication is project-scoped and hash-bound.
 
+When an incoming record supplies part of a dependent row's target identity,
+`evaluate_quality` treats the parent and its dependent rows as one update
+group. An unsafe component therefore quarantines the parent BoM and its other
+component rows without creating a run-level blocker. The bounded route defers
+identity-linked groups to the authoritative evaluator so it cannot publish a
+partial group result.
+
 For `odoo_pinned_update`, `PreparationService` verifies the one current
 protected manifest and bounded origin sidecar against the source binding and
 Parquet snapshot before it processes any rows. This verification requires a

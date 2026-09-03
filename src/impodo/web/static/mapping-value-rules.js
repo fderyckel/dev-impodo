@@ -801,6 +801,183 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   };
 
+  const initializeConcatenationBuilder = (row, updateScalarRow) => {
+    const control = row.querySelector("[data-provider-concatenation]");
+    const list = row.querySelector("[data-concatenation-source-list]");
+    if (!control || !list) {
+      return null;
+    }
+    const rows = () => Array.from(
+      list.querySelectorAll("[data-concatenation-source-row]")
+    );
+    let activeCount = Math.min(
+      5,
+      Math.max(2, Number.parseInt(list.dataset.activeCount || "2", 10) || 2)
+    );
+    let active = false;
+    const selectedSnapshot = (select) => ({
+      value: select?.value || "",
+      option: select?.selectedOptions[0]?.cloneNode(true) || null,
+    });
+    const applySnapshot = (select, snapshot) => {
+      if (!select) {
+        return;
+      }
+      if (
+        snapshot.value &&
+        !Array.from(select.options).some((option) => option.value === snapshot.value) &&
+        snapshot.option
+      ) {
+        select.append(snapshot.option.cloneNode(true));
+      }
+      select.value = snapshot.value;
+    };
+    const clearSelection = (select) => {
+      if (select) {
+        select.value = "";
+      }
+    };
+    const refresh = () => {
+      const currentRows = rows();
+      currentRows.forEach((sourceRow, index) => {
+        const visible = index < activeCount;
+        sourceRow.hidden = !visible;
+        const select = sourceRow.querySelector("[data-concatenation-source]");
+        if (select) {
+          select.disabled = !active || !visible;
+        }
+        const label = sourceRow.querySelector(
+          "[data-concatenation-source-label]"
+        );
+        if (label) {
+          label.textContent = `Part ${index + 1}`;
+        }
+        const moveUp = sourceRow.querySelector(
+          '[data-move-concatenation-source="up"]'
+        );
+        const moveDown = sourceRow.querySelector(
+          '[data-move-concatenation-source="down"]'
+        );
+        const remove = sourceRow.querySelector(
+          "[data-remove-concatenation-source]"
+        );
+        if (moveUp) {
+          moveUp.disabled = !active || !visible || index === 0;
+        }
+        if (moveDown) {
+          moveDown.disabled = !active || !visible || index === activeCount - 1;
+        }
+        if (remove) {
+          remove.disabled = !active || !visible || activeCount <= 2;
+        }
+      });
+      const add = control.querySelector("[data-add-concatenation-source]");
+      if (add) {
+        add.disabled = !active || activeCount >= 5;
+      }
+      for (const field of control.querySelectorAll(
+        "input:not([data-concatenation-source]), select:not([data-concatenation-source])"
+      )) {
+        field.disabled = !active;
+      }
+      const separator = control.querySelector("[data-concatenation-separator]");
+      const custom = control.querySelector(
+        "[data-concatenation-custom-separator]"
+      );
+      if (custom) {
+        custom.hidden = separator?.value !== "custom";
+      }
+      list.dataset.activeCount = String(activeCount);
+    };
+    control.addEventListener("click", (event) => {
+      const add = event.target.closest("[data-add-concatenation-source]");
+      if (add && activeCount < 5) {
+        activeCount += 1;
+        refresh();
+        updateScalarRow();
+        return;
+      }
+      const sourceRow = event.target.closest("[data-concatenation-source-row]");
+      if (!sourceRow) {
+        return;
+      }
+      const currentRows = rows();
+      const index = currentRows.indexOf(sourceRow);
+      const move = event.target.closest("[data-move-concatenation-source]")
+        ?.dataset.moveConcatenationSource;
+      if (move) {
+        const otherIndex = move === "up" ? index - 1 : index + 1;
+        if (otherIndex >= 0 && otherIndex < activeCount) {
+          const selected = sourceRow.querySelector(
+            "[data-concatenation-source]"
+          );
+          const other = currentRows[otherIndex].querySelector(
+            "[data-concatenation-source]"
+          );
+          const selectedState = selectedSnapshot(selected);
+          const otherState = selectedSnapshot(other);
+          applySnapshot(selected, otherState);
+          applySnapshot(other, selectedState);
+        }
+      } else if (
+        event.target.closest("[data-remove-concatenation-source]") &&
+        activeCount > 2
+      ) {
+        for (let slot = index; slot < activeCount - 1; slot += 1) {
+          const destination = currentRows[slot].querySelector(
+            "[data-concatenation-source]"
+          );
+          const next = currentRows[slot + 1].querySelector(
+            "[data-concatenation-source]"
+          );
+          applySnapshot(destination, selectedSnapshot(next));
+        }
+        clearSelection(
+          currentRows[activeCount - 1].querySelector(
+            "[data-concatenation-source]"
+          )
+        );
+        activeCount -= 1;
+      } else {
+        return;
+      }
+      refresh();
+      updateScalarRow();
+    });
+    control.addEventListener("change", refresh);
+    refresh();
+    return {
+      setActive(nextActive) {
+        active = nextActive;
+        control.hidden = !active;
+        refresh();
+      },
+      selectedParts() {
+        return rows()
+          .slice(0, activeCount)
+          .map((sourceRow) => sourceRow.querySelector(
+            "[data-concatenation-source]"
+          ));
+      },
+      separator() {
+        const choice = control.querySelector(
+          "[data-concatenation-separator]"
+        )?.value || "space";
+        if (choice === "custom") {
+          return control.querySelector(
+            "[data-concatenation-custom-separator-input]"
+          )?.value || "";
+        }
+        return {
+          nothing: "",
+          space: " ",
+          comma_space: ", ",
+          hyphen: "-",
+        }[choice] ?? " ";
+      },
+    };
+  };
+
   const initializeScalarRow = (row) => {
     if (row.dataset.scalarRowInitialized === "true") {
       return;
@@ -823,17 +1000,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const savedPreviewRaw = previewRaw?.textContent || "";
     const savedPreviewProposed = previewProposed?.textContent || "";
     let selectionRuleBuilder;
+    let concatenationBuilder;
     const updateScalarRow = () => {
       const mode = provider?.value || "";
       const usesSource = ["source", "source_with_fallback"].includes(mode);
       const usesLiteral = ["constant", "source_with_fallback"].includes(mode);
       const usesSelectionRules = mode === "conditional_rules";
+      const usesConcatenation = mode === "concatenate";
       if (sourceControl) {
         sourceControl.hidden = !usesSource;
       }
       if (literalControl) {
         literalControl.hidden = !usesLiteral;
       }
+      concatenationBuilder?.setActive(usesConcatenation);
       selectionRuleBuilder?.setActive(mode === "conditional_rules");
       const selectionTransformNote = row.querySelector(
         "[data-selection-rules-transform-note]"
@@ -845,6 +1025,18 @@ document.addEventListener("DOMContentLoaded", () => {
         ".transform-cell input, .transform-cell select, .transform-cell textarea, .transform-cell button"
       )) {
         control.disabled = usesSelectionRules;
+      }
+      const formulaControl = row.querySelector("[data-formula-control]");
+      const formulaInput = row.querySelector("[data-rule-formula]");
+      if (formulaControl) {
+        formulaControl.hidden = usesConcatenation;
+      }
+      if (formulaInput) {
+        formulaInput.disabled = usesSelectionRules || usesConcatenation;
+      }
+      if (canonicalType && usesConcatenation) {
+        canonicalType.value = "string";
+        canonicalType.disabled = true;
       }
       const valueMatch = row.querySelector("[data-open-value-match]");
       if (valueMatch) {
@@ -934,9 +1126,56 @@ document.addEventListener("DOMContentLoaded", () => {
       let missing =
         usesSource && selectedOption?.dataset.samplePresent !== "true";
       let raw = mode === "constant" ? literal?.value ?? "" : selectedOption?.dataset.sample;
-      previewRaw.textContent = displayPreviewValue(
-        usesSource ? selectedOption?.dataset.sample : raw
-      );
+      if (usesConcatenation) {
+        const partSelects = concatenationBuilder?.selectedParts() || [];
+        const selectedKeys = partSelects.map((part) => part?.value || "");
+        if (selectedKeys.some((key) => !key)) {
+          previewRaw.textContent = "Choose every source column";
+          previewProposed.textContent = "Complete the combined value";
+          previewProposed.classList.add("preview-error");
+          return;
+        }
+        if (new Set(selectedKeys).size !== selectedKeys.length) {
+          previewRaw.textContent = "A source column is repeated";
+          previewProposed.textContent = "Choose each source column once";
+          previewProposed.classList.add("preview-error");
+          return;
+        }
+        const rawParts = partSelects.map((part) => {
+          const option = part?.selectedOptions[0];
+          return option?.dataset.samplePresent === "true"
+            ? String(option.dataset.sample ?? "")
+            : null;
+        });
+        previewRaw.textContent = rawParts
+          .map((part) => displayPreviewValue(part))
+          .join(" | ");
+        const trimParts = row.querySelector("[data-concatenation-trim]")
+          ?.checked;
+        const blankParts = rawParts.map(
+          (part) => part === null || part.trim() === ""
+        );
+        if (
+          row.querySelector("[data-concatenation-blank]")?.value === "block_row" &&
+          blankParts.some(Boolean)
+        ) {
+          previewProposed.textContent =
+            "A required source part for this combined value is blank";
+          previewProposed.classList.add("preview-error");
+          return;
+        }
+        const parts = rawParts
+          .filter((_part, index) => !blankParts[index])
+          .map((part) => trimParts ? part.trim() : part);
+        raw = parts.length > 0
+          ? parts.join(concatenationBuilder?.separator() || "")
+          : null;
+        missing = raw === null;
+      } else {
+        previewRaw.textContent = displayPreviewValue(
+          usesSource ? selectedOption?.dataset.sample : raw
+        );
+      }
       try {
         let transformed = transformPreviewValue(row, raw, missing);
         if (mode === "source_with_fallback" && transformed === null) {
@@ -945,7 +1184,7 @@ document.addEventListener("DOMContentLoaded", () => {
           transformed = transformPreviewValue(row, raw, missing);
         }
         const formula = row.querySelector("[data-rule-formula]")?.value.trim();
-        if (formula) {
+        if (formula && !usesConcatenation) {
           throw new Error("Save to validate the formula");
         }
         const proposed = canonicalPreviewValue(row, transformed);
@@ -960,6 +1199,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
     selectionRuleBuilder = initializeSelectionRuleBuilder(row, updateScalarRow);
+    concatenationBuilder = initializeConcatenationBuilder(row, updateScalarRow);
     initializeTextStepBuilder(row, updateScalarRow);
     for (const control of row.querySelectorAll("select, input, textarea")) {
       control.addEventListener("change", updateScalarRow);

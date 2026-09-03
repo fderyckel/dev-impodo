@@ -517,7 +517,18 @@ def evaluate_browser_mapping(
         for index, field in enumerate(mapping.fields):
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
                 continue
+            concatenation_keys = (
+                field.concatenation.source_column_keys
+                if field.concatenation is not None
+                else ()
+            )
             source_labels[(effective.name, synthetic_field(index))] = (
+                " + ".join(
+                    column_name_by_key.get(key, field.target_field)
+                    for key in concatenation_keys
+                )
+                if concatenation_keys
+                else
                 column_name_by_key.get(field.source_column_key or "")
                 or field.target_field
             )
@@ -609,7 +620,11 @@ def _canonical_field_sources(
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
                 continue
             fields[field.target_field] = (
-                (field.source_column_key,) if field.source_column_key else ()
+                field.concatenation.source_column_keys
+                if field.concatenation is not None
+                else (
+                    (field.source_column_key,) if field.source_column_key else ()
+                )
             )
         for relationship in mapping.relationships:
             fields[relationship.target_field] = relationship.source_column_keys
@@ -682,7 +697,12 @@ def _compile_dataset_evaluation_plan(
             index=index,
             field=field,
             source_label=(
-                labels.get(field.source_column_key or "") or "Constant value"
+                " + ".join(
+                    labels.get(key, "Source field")
+                    for key in field.concatenation.source_column_keys
+                )
+                if field.concatenation is not None
+                else labels.get(field.source_column_key or "") or "Constant value"
             ),
             rules=transformation_rule_summary(field),
         )
@@ -1072,9 +1092,16 @@ def _apply_scalar_mappings(
     for field_plan in plan.scalar_fields:
         field = field_plan.field
         raw = (
-            source_values.get(field.source_column_key)
-            if field.source_column_key is not None
-            else None
+            tuple(
+                source_values.get(key)
+                for key in field.concatenation.source_column_keys
+            )
+            if field.concatenation is not None
+            else (
+                source_values.get(field.source_column_key)
+                if field.source_column_key is not None
+                else None
+            )
         )
         try:
             scalar_input = raw
@@ -1387,6 +1414,7 @@ def _transformation_outcome(
 ) -> str:
     if field.value_source in {
         ScalarValueSource.CONSTANT,
+        ScalarValueSource.CONCATENATE,
         ScalarValueSource.CONDITIONAL_RULES,
     }:
         return "provided"

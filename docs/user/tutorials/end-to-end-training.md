@@ -421,7 +421,9 @@ The owning inverse field is the child's Many2one mrp.bom.line.bom_id.
 ![Current source-identity and Odoo matching-rule controls used for each prepared table.](../../images/user/10-mapping-identity.png)
 
 If the parent BoM, finished product, or component variant is missing or
-ambiguous, the affected row is blocked. Never choose the first match.
+ambiguous, Impodo sets aside the affected BoM group. A missing component keeps
+its BoM and every component line for that BoM out of the update, while unrelated
+BoMs can continue to review. Never choose the first match.
 If line numbers can be reordered, use a stable source line reference as part
 of the identity; do not assume a display sequence is permanent.
 

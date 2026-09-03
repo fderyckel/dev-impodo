@@ -87,6 +87,7 @@ class NormalizationPolicyAction(StrEnum):
     """Stable semantic action used for review copy and rule identity."""
 
     IDENTITY = "IDENTITY"
+    CONCATENATE = "CONCATENATE"
     CONDITIONAL_CHOICE = "CONDITIONAL_CHOICE"
     VALUE_MATCH = "VALUE_MATCH"
     REFERENCE_LOOKUP = "REFERENCE_LOOKUP"
@@ -166,6 +167,7 @@ class NormalizationCandidate:
 _DECISION_CHANGE_KINDS = frozenset(
     {
         "constant",
+        "concatenate",
         "conditional_choice",
         "fallback",
         "value_match",
@@ -257,6 +259,8 @@ def _scalar_normalization_field_policy(
     change_kinds: list[str] = []
     if field.value_source is ScalarValueSource.CONSTANT:
         change_kinds.append("constant")
+    elif field.value_source is ScalarValueSource.CONCATENATE:
+        change_kinds.append("concatenate")
     elif field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
         change_kinds.append("fallback")
     elif field.value_source is ScalarValueSource.CONDITIONAL_RULES:
@@ -320,6 +324,7 @@ def _normalization_policy_action(
         ("reference_lookup", NormalizationPolicyAction.REFERENCE_LOOKUP),
         ("conditional_choice", NormalizationPolicyAction.CONDITIONAL_CHOICE),
         ("fallback", NormalizationPolicyAction.FALLBACK),
+        ("concatenate", NormalizationPolicyAction.CONCATENATE),
         ("constant", NormalizationPolicyAction.CONSTANT),
         ("formula", NormalizationPolicyAction.FORMULA),
         ("text_change", NormalizationPolicyAction.TEXT_CHANGE),
@@ -1117,6 +1122,10 @@ def normalization_change_language(
             "Review changes to record matching",
             "Impodo prepared a different value for a field used to match records.",
         ),
+        NormalizationPolicyAction.CONCATENATE: (
+            "Combine your selected source columns",
+            "Impodo joined the source values in the order and with the separator you confirmed.",
+        ),
         NormalizationPolicyAction.CONDITIONAL_CHOICE: (
             "Use your confirmed choice rules",
             "Impodo selected these Odoo values using the ordered conditions you confirmed.",
@@ -1193,6 +1202,11 @@ def _policy_manifest(mappings: Mapping[str, DatasetMapping]) -> list[dict[str, A
                     {
                         "field": item.target_field,
                         "value_source": item.value_source.value,
+                        "concatenation": (
+                            asdict(item.concatenation)
+                            if item.concatenation is not None
+                            else None
+                        ),
                         "transform": asdict(item.transform),
                         "validation": asdict(item.validation),
                         "value_mappings": [

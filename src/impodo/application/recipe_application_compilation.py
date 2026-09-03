@@ -16,6 +16,7 @@ from impodo.domain.workspace.derived_entities import (
 from ..domain.mapping.contracts import (
     BusinessControlDefinition,
     CategoricalCoveragePolicy,
+    ConcatenationBlankHandling,
     DatasetMapping,
     IdentityComponentMapping,
     MappingControlExpectation,
@@ -26,6 +27,7 @@ from ..domain.mapping.contracts import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ScalarConcatenation,
     ScalarValueSource,
     SelectionCondition,
     SelectionConditionOperator,
@@ -958,17 +960,28 @@ class RecipeApplicationCompiler:
                     else None
                 ),
             )
+        concatenation = None
+        if kind == "CONCATENATE":
+            concatenation = ScalarConcatenation(
+                source_column_keys=source_ids,
+                separator=str(provider.get("separator", " ")),
+                blank_handling=ConcatenationBlankHandling(
+                    str(provider.get("blank_handling", "skip_blank"))
+                ),
+                trim_parts=bool(provider.get("trim_parts", True)),
+            )
         transform = dict(item.get("transform", {}))
         validation = dict(item.get("validation", {}))
         return ScalarFieldMapping(
             target_field=str(item["target_field"]),
             source_column_key=(
                 source_ids[0]
-                if source_ids and kind != "CONDITIONAL_RULES"
+                if source_ids and kind not in {"CONDITIONAL_RULES", "CONCATENATE"}
                 else None
             ),
             value_source=value_source,
             literal_value=(str(provider["literal_value"]) if provider.get("literal_value") is not None else None),
+            concatenation=concatenation,
             transform=ScalarTransformPolicy(
                 **{key: value for key, value in transform.items() if key != "text_steps"},
                 text_steps=tuple(TextTransformStep(**dict(value)) for value in transform.get("text_steps", ())),

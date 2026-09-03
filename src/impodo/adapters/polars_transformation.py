@@ -802,6 +802,7 @@ def _compile_scalar(
         else None
     )
     provider, matched = _provider_expression(field)
+    provider_invalid = _provider_invalid_expression(field)
     transformed, output_too_long = _text_expression(
         provider,
         field.transform_steps,
@@ -814,7 +815,12 @@ def _compile_scalar(
         prepared_column,
         field.conversion_step,
     )
-    error = pl.when(output_too_long).then(pl.lit("SOURCE_RULE_OUTPUT_TOO_LONG"))
+    error = (
+        pl.when(provider_invalid)
+        .then(pl.lit("SOURCE_CONCATENATION_PART_BLANK"))
+        .when(output_too_long)
+        .then(pl.lit("SOURCE_RULE_OUTPUT_TOO_LONG"))
+    )
     if field.provider.operation is ColumnarOperationKind.CONDITIONAL_SELECTION:
         invalid_conditions = [
             _selection_condition_invalid_expression(condition)
@@ -885,6 +891,32 @@ def _provider_expression(
             .then(_bound_string_literal(provider.literal_value))
             .otherwise(probe)
         )
+    elif provider.operation is ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS:
+        parts: list[pl.Expr] = []
+        blank_parts: list[pl.Expr] = []
+        for source in provider.sources:
+            part = pl.col(source_value_column(source.ordinal)).cast(pl.String)
+            blank = part.is_null() | (part.str.strip_chars() == "")
+            blank_parts.append(blank.fill_null(True))
+            retained = part.str.strip_chars() if provider.trim_parts else part
+            parts.append(
+                pl.when(blank)
+                .then(pl.lit(None, dtype=pl.String))
+                .otherwise(retained)
+            )
+        all_blank = blank_parts[0]
+        for blank in blank_parts[1:]:
+            all_blank = all_blank & blank
+        joined = pl.concat_str(
+            parts,
+            separator=provider.separator,
+            ignore_nulls=True,
+        )
+        proposed = (
+            pl.when(all_blank)
+            .then(pl.lit(None, dtype=pl.String))
+            .otherwise(joined)
+        )
     elif provider.operation is ColumnarOperationKind.CONDITIONAL_SELECTION:
         proposed = _bound_string_literal(provider.selection_otherwise_value)
         for rule in reversed(provider.selection_rules):
@@ -915,6 +947,31 @@ def _provider_expression(
         ]
         matched = choice.is_in(source_values)
     return proposed, matched.fill_null(False)
+
+
+def _provider_invalid_expression(field: ColumnarScalarFieldProgram) -> pl.Expr:
+    provider = field.provider
+    if (
+        provider.operation is not ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS
+        or provider.blank_handling != "block_row"
+    ):
+        return pl.lit(False)
+    blank_parts = [
+        (
+            pl.col(source_value_column(source.ordinal)).is_null()
+            | (
+                pl.col(source_value_column(source.ordinal))
+                .cast(pl.String)
+                .str.strip_chars()
+                == ""
+            )
+        ).fill_null(True)
+        for source in provider.sources
+    ]
+    invalid = blank_parts[0]
+    for blank in blank_parts[1:]:
+        invalid = invalid | blank
+    return invalid.fill_null(False)
 
 
 def _selection_condition_expression(
@@ -2061,6 +2118,9 @@ def _scalar_error_messages(
     if error == "SOURCE_RULE_OUTPUT_TOO_LONG":
         message = "A value rule produced more than 1000000 characters"
         return error, message, message
+    if error == "SOURCE_CONCATENATION_PART_BLANK":
+        message = "A required source part for this combined value is blank."
+        return error, message, message
     if error == "SOURCE_SELECTION_RULE_UNRESOLVED":
         message = "No choice rule matched and no otherwise choice was set."
         return error, message, message
@@ -2165,7 +2225,15 @@ def _scalar_impact(
         if field.provider.source is not None
         else (None, int(SourceCellKind.NULL))
     )
-    raw_display = _source_display(*raw)
+    raw_display = (
+        " | ".join(
+            _source_display(*raw_by_ordinal[source.ordinal])
+            for source in field.provider.sources
+        )
+        if field.provider.operation
+        is ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS
+        else _source_display(*raw)
+    )
     error = errors.get(("scalar", index))
     if error is not None and error != _ERROR_PREPARED_REQUIRED:
         _issue_code, _issue_message, message = _scalar_error_messages(
@@ -2189,6 +2257,7 @@ def _scalar_impact(
         message = ""
         if field.provider.operation in {
             ColumnarOperationKind.USE_CONSTANT,
+            ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS,
             ColumnarOperationKind.CONDITIONAL_SELECTION,
         }:
             outcome = "provided"

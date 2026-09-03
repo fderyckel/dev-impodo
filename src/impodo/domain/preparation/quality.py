@@ -25,7 +25,7 @@ from impodo.domain.preparation.staging_contracts import CanonicalIssue, Canonica
 
 
 QUALITY_CONTRACT_VERSION = 3
-QUALITY_EVALUATOR_VERSION = 2
+QUALITY_EVALUATOR_VERSION = 3
 QUALITY_RULESET_CONTRACT_VERSION = 3
 MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
@@ -1329,6 +1329,7 @@ def evaluate_quality(
         for row in rows
     }
     dependents_by_parent: dict[str, str | list[str]] = {}
+    identity_parents_by_dependent: dict[str, str | list[str]] = {}
     unresolved_dependents: set[str] = set()
     relationship_rule_by_row: dict[str, QualityRule] = {}
     for row in rows:
@@ -1366,22 +1367,54 @@ def evaluate_quality(
             else:
                 dependents_by_parent[matches] = [existing, row.row_id]
 
+        for reference in _identity_logical_references(row):
+            if reference.origin != "incoming" or not reference.dataset:
+                continue
+            matches = source_index.get(
+                (
+                    reference.dataset,
+                    canonical_json_bytes(portable_value(reference.key)),
+                ),
+                (),
+            )
+            if not isinstance(matches, str):
+                continue
+            existing = identity_parents_by_dependent.get(row.row_id)
+            if existing is None:
+                identity_parents_by_dependent[row.row_id] = matches
+            elif isinstance(existing, list):
+                if matches not in existing:
+                    existing.append(matches)
+            elif matches != existing:
+                identity_parents_by_dependent[row.row_id] = [existing, matches]
+
     relationship_message = (
         "The linked incoming record is missing, ambiguous or set aside. "
         "This dependent record was also set aside."
     )
+    identity_group_message = (
+        "A dependent record that uses this incoming identity is missing, "
+        "ambiguous or set aside. This record and its dependent group were "
+        "also set aside."
+    )
 
-    def attach_relationship_issue(row_id: str) -> bool:
+    def attach_relationship_issue(
+        row_id: str,
+        reason_code: str = "INCOMING_RELATIONSHIP_NOT_READY",
+        message: str = relationship_message,
+    ) -> bool:
         """Attach one deterministic issue and report a safe-to-unsafe change."""
 
-        rule = relationship_rule_by_row[row_id]
+        rule = relationship_rule_by_row.get(row_id)
+        if rule is None:
+            return False
         row = rows_by_id[row_id]
         issue = _quality_issue(
             workspace_state,
             rule,
             row,
-            "INCOMING_RELATIONSHIP_NOT_READY",
-            relationship_message,
+            reason_code,
+            message,
             (),
             policy=rule.outcome,
         )
@@ -1420,6 +1453,22 @@ def evaluate_quality(
             became_unsafe = attach_relationship_issue(dependent_id)
             if became_unsafe:
                 queue.append(dependent_id)
+        identity_parents = identity_parents_by_dependent.get(parent_id)
+        identity_parent_ids = (
+            ()
+            if identity_parents is None
+            else identity_parents
+            if isinstance(identity_parents, list)
+            else (identity_parents,)
+        )
+        for identity_parent_id in identity_parent_ids:
+            became_unsafe = attach_relationship_issue(
+                identity_parent_id,
+                "INCOMING_IDENTITY_GROUP_NOT_READY",
+                identity_group_message,
+            )
+            if became_unsafe:
+                queue.append(identity_parent_id)
 
     row_results = tuple(
         sorted(
@@ -1889,6 +1938,28 @@ def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
                 collect(item)
 
     for value in (*row.target_identity, *row.target_scope, *row.references.values()):
+        collect(value)
+    return tuple(found)
+
+
+def _identity_logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
+    """Return incoming references that define a record's target identity.
+
+    A child record that cannot be prepared safely must also set aside the
+    parent record it uses as part of its identity. Ordinary relationship fields
+    remain one-way dependencies and therefore do not set aside lookup records.
+    """
+
+    found: list[LogicalReference] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, LogicalReference):
+            found.append(value)
+        elif isinstance(value, tuple):
+            for item in value:
+                collect(item)
+
+    for value in (*row.target_identity, *row.target_scope):
         collect(value)
     return tuple(found)
 

@@ -35,6 +35,7 @@ from impodo.domain.preparation.quality import (
     _effective_disposition,
     _family_for_issue,
     _hash,
+    _identity_logical_references,
     _logical_references,
     _quality_issue,
     _record_label,
@@ -423,6 +424,16 @@ def build_bounded_quality_run(
         or any(rule.source is not QualityRuleSource.MAPPING_DERIVED for rule in ruleset.rules)
     ):
         raise BoundedQualityUnsupported
+    # An unsafe record can set aside the incoming parent record that forms its
+    # business identity. That complete-group rule needs the full identity graph;
+    # use the authoritative evaluator rather than publishing a partial result.
+    if any(
+        reference.origin == "incoming" and reference.dataset
+        for row in staging.rows
+        for reference in _identity_logical_references(row)
+    ):
+        raise BoundedQualityUnsupported
+
     index_builder = getattr(staging.rows, "bounded_quality_index", None)
     if callable(index_builder):
         index = index_builder(physical_rows)

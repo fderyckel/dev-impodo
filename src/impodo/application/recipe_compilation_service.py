@@ -514,9 +514,22 @@ class RecipeCompiler:
             fields = []
             for field in sorted(dataset.fields, key=lambda item: item.target_field):
                 source_ids = (
-                    [self._column(dataset.dataset_id, field.source_column_key, columns)]
-                    if field.source_column_key is not None
-                    else []
+                    [
+                        self._column(dataset.dataset_id, key, columns)
+                        for key in field.concatenation.source_column_keys
+                    ]
+                    if field.concatenation is not None
+                    else (
+                        [
+                            self._column(
+                                dataset.dataset_id,
+                                field.source_column_key,
+                                columns,
+                            )
+                        ]
+                        if field.source_column_key is not None
+                        else []
+                    )
                 )
                 provider: dict[str, object] = {
                     "kind": field.value_source.value.upper(),
@@ -524,6 +537,16 @@ class RecipeCompiler:
                 }
                 if field.literal_value is not None:
                     provider["literal_value"] = field.literal_value
+                if field.concatenation is not None:
+                    provider.update(
+                        {
+                            "separator": field.concatenation.separator,
+                            "blank_handling": (
+                                field.concatenation.blank_handling.value
+                            ),
+                            "trim_parts": field.concatenation.trim_parts,
+                        }
+                    )
                 if field.selection_rules is not None:
                     rule_source_keys = tuple(
                         dict.fromkeys(
