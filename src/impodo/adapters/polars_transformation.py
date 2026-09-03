@@ -2226,7 +2226,7 @@ def _scalar_impact(
         else (None, int(SourceCellKind.NULL))
     )
     raw_display = (
-        " | ".join(
+        " / ".join(
             _source_display(*raw_by_ordinal[source.ordinal])
             for source in field.provider.sources
         )
