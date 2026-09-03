@@ -7,6 +7,7 @@ import unittest
 from uuid import uuid4
 
 from impodo.application.transfer_review_service import TransferReviewService
+from impodo.application.transfer_preflight_service import TransferPreflightService
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.transfer_review import TransferReviewApproval
 from impodo.web.presenters.navigation import build_workspace_navigation
@@ -20,6 +21,7 @@ from tests.application.workspace.test_transfer_order import (
     _model,
     _workspace,
 )
+from tests.application.workspace.test_transfer_preflight import _fresh
 
 
 class TransferOrderNavigationTests(unittest.TestCase):
@@ -86,9 +88,64 @@ class TransferOrderNavigationTests(unittest.TestCase):
         by_id = {stage.stage_id: stage for stage in navigation.stages}
         self.assertEqual(by_id["transfer-review"].status, "complete")
         self.assertEqual(by_id["transfer-review"].status_label, "Transfer approved")
-        self.assertEqual(by_id["destination-load"].status, "locked")
-        self.assertEqual(by_id["destination-load"].status_label, "Not yet available")
+        self.assertEqual(by_id["destination-load"].status, "current")
+        self.assertEqual(
+            by_id["destination-load"].status_label,
+            "Run read-only preflight",
+        )
+        self.assertEqual(
+            by_id["destination-load"].href,
+            f"/workspaces/{workspace.workspace_id}/transfer-preflight",
+        )
         self.assertEqual(navigation.viewed_stage_id, "transfer-review")
+
+    def test_passed_preflight_completes_8a_without_claiming_a_load(self) -> None:
+        workspace, selection, schema = _stage_six_state()
+        match = workspace.destination_match_plan
+        order = workspace.transfer_order_plan
+        assert match is not None and order is not None
+        package = TransferReviewService().build(
+            workspace,
+            match,
+            order,
+            run_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+        approval = TransferReviewApproval.approve(
+            package,
+            approval_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+        )
+        workspace = replace(
+            workspace,
+            transfer_review_package=package,
+            transfer_review_approval=approval,
+        )
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            _fresh(match),
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        workspace = replace(workspace, transfer_preflight_report=report)
+        context = SimpleNamespace(queries=_Queries(workspace, selection, schema))
+
+        navigation = build_workspace_navigation(
+            context,
+            workspace,
+            "workspace_transfer_preflight.html",
+        )
+
+        stage = next(
+            item for item in navigation.stages if item.stage_id == "destination-load"
+        )
+        self.assertEqual(stage.status, "current")
+        self.assertEqual(stage.status_label, "Preflight passed; load not started")
+        self.assertEqual(navigation.viewed_stage_id, "destination-load")
 
 
 def _stage_six_state():

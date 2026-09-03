@@ -112,6 +112,7 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
             "transfer_order_plan_json",
             "transfer_review_package_json",
             "transfer_review_approval_json",
+            "transfer_preflight_report_json",
         ):
             connection.execute(
                 f"ALTER TABLE workspace_projection_cache DROP COLUMN {column}"
@@ -365,6 +366,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         7,
                         8,
                         "workspace-engine-v7-to-v8-transfer-review",
+                    ),
+                    (
+                        8,
+                        9,
+                        "workspace-engine-v8-to-v9-transfer-preflight",
                     ),
                 ],
             )

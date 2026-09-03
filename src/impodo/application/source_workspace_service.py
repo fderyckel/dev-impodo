@@ -421,15 +421,18 @@ class SourceWorkspaceService:
         )
         if unsafe_cell_problem is not None:
             raise WorkspaceError(unsafe_cell_problem)
-        blocking = [
-            warning
-            for table in selected_tables
-            for warning in table.warnings
-            if "empty candidate header" in warning.casefold()
-            or "duplicate candidate header" in warning.casefold()
-        ]
-        if blocking:
-            raise WorkspaceError(blocking[0])
+        blocking_header_problem = next(
+            (
+                problem
+                for table in selected_tables
+                if (
+                    problem := _blocking_header_problem(catalog, table)
+                ) is not None
+            ),
+            None,
+        )
+        if blocking_header_problem is not None:
+            raise WorkspaceError(blocking_header_problem)
         warnings = [
             *catalog.warnings,
             *(
@@ -692,6 +695,73 @@ def _unsafe_cell_problem(
         f"This table contains {count} unsupported {noun}. Remove the formulas "
         "or errors, or replace them with fixed values before including this table."
     )
+
+
+def _blocking_header_problem(
+    catalog: SourceFileCatalog,
+    table: SourceTableCatalog,
+) -> str | None:
+    """Explain source-header defects before dataset freezing begins."""
+
+    location = f"Source file {catalog.display_name!r}"
+    if table.worksheet_name:
+        location += f", sheet {table.worksheet_name!r}"
+    for warning in table.warnings:
+        lowered = warning.casefold()
+        if "data row(s) contain cells beyond the candidate header" in lowered:
+            coordinate = re.search(
+                r"first value is at ([A-Z]+)(\d+)",
+                warning,
+            )
+            if coordinate is not None and table.header_row is not None:
+                column = coordinate.group(1)
+                header_cell = f"{column}{table.header_row}"
+                return (
+                    f"{location} has data in column {column}, but header cell "
+                    f"{header_cell} is empty. Add a name in {header_cell}, or "
+                    f"remove the unexpected data from column {column}, then "
+                    "update the preview."
+                )
+            return (
+                f"{location} has data in one or more columns without headers. "
+                "Add a name to each populated column, or remove the unexpected "
+                "data, then update the preview."
+            )
+        if "empty candidate header" in lowered:
+            column_number = re.search(r"column (\d+)", warning, re.IGNORECASE)
+            if (
+                column_number is not None
+                and table.worksheet_name
+                and table.header_row is not None
+            ):
+                column = _xlsx_column_name(int(column_number.group(1)))
+                header_cell = f"{column}{table.header_row}"
+                return (
+                    f"{location} has an empty column header at {header_cell}. "
+                    f"Add a name in {header_cell}, or remove the column if it "
+                    "is unused, then update the preview."
+                )
+            return (
+                f"{location} has an empty column header. Add a name to every "
+                "column before confirming this table."
+            )
+        if "duplicate candidate header" in lowered:
+            return (
+                f"{location} has duplicate column names. Give every column a "
+                "different name, then update the preview."
+            )
+    return None
+
+
+def _xlsx_column_name(column_number: int) -> str:
+    """Return the familiar Excel label for a one-based column number."""
+
+    letters = ""
+    current = column_number
+    while current:
+        current, remainder = divmod(current - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
 
 
 def _catalog(

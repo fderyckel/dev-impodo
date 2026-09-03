@@ -253,6 +253,7 @@ from .routers.target import build_target_router
 from .routers.transfer_destination import build_transfer_destination_router
 from .routers.transfer_order import build_transfer_order_router
 from .routers.transfer_review import build_transfer_review_router
+from .routers.transfer_preflight import build_transfer_preflight_router
 from .remote_connection import RemoteConnectionStatusService
 from .run_review import publish_load_progress, publish_preparation_progress
 from .security import (
@@ -1273,6 +1274,7 @@ def create_local_app(
         build_destination_matching_router(context),
         build_transfer_order_router(context),
         build_transfer_review_router(context),
+        build_transfer_preflight_router(context),
         build_sources_router(context),
         build_schema_router(context),
         build_derived_entities_router(context),

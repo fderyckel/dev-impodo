@@ -126,6 +126,10 @@ _TEMPLATE_LOCATION = {
         "transfer-review",
         "Review transfer",
     ),
+    "workspace_transfer_preflight.html": (
+        "destination-load",
+        "Read-only destination preflight",
+    ),
     "workspace_datasets.html": ("source", "Saved source tables"),
     "workspace_derived_entities.html": (
         "source",
@@ -291,6 +295,22 @@ def _build_authoring_workspace_navigation(
             frozen_source is not None
             and schema is not None
             and current_workspace_state.transfer_review_approved(
+                source_selection_hash=frozen_source.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        )
+        transfer_preflight_current = bool(
+            frozen_source is not None
+            and schema is not None
+            and current_workspace_state.transfer_preflight_current(
+                source_selection_hash=frozen_source.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        )
+        transfer_preflight_ready = bool(
+            frozen_source is not None
+            and schema is not None
+            and current_workspace_state.transfer_preflight_ready(
                 source_selection_hash=frozen_source.content_hash,
                 source_schema_hash=schema.content_hash,
             )
@@ -616,13 +636,44 @@ def _build_authoring_workspace_navigation(
                 stage_id="destination-load",
                 number=8,
                 label="Load destination Odoo",
-                href=None,
-                status="locked",
-                status_label=(
-                    "Not yet available"
+                href=(
+                    f"/workspaces/{workspace_id}/transfer-preflight"
                     if transfer_review_approved
-                    else "Transfer approval required"
+                    else None
                 ),
+                status=(
+                    "attention"
+                    if transfer_preflight_current and not transfer_preflight_ready
+                    else ("current" if transfer_review_approved else "locked")
+                ),
+                status_label=(
+                    "Preflight passed; load not started"
+                    if transfer_preflight_ready
+                    else (
+                        "Destination drift found"
+                        if transfer_preflight_current
+                        else (
+                            "Run read-only preflight"
+                            if transfer_review_approved
+                            else "Transfer approval required"
+                        )
+                    )
+                ),
+                pages=(
+                    _page(
+                        workspace_id,
+                        "transfer-preflight",
+                        "Read-only destination preflight",
+                        "/transfer-preflight",
+                        complete=transfer_preflight_ready,
+                        attention=(
+                            transfer_preflight_current
+                            and not transfer_preflight_ready
+                        ),
+                    ),
+                )
+                if transfer_review_approved
+                else (),
             ),
         ]
         return _navigation(

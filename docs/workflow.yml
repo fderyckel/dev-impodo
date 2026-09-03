@@ -239,7 +239,7 @@ stages:
         label: Odoo data
       odoo:
         order: 1
-        label: Odoo source data
+        label: Select data to download
     user_doc: docs/user/workflow/02-odoo-data.md
     developer_doc: docs/developer/workflow/02-odoo-data.md
     router_modules:
@@ -391,11 +391,21 @@ stages:
     router_modules:
       - src/impodo/web/routers/execution.py
       - src/impodo/web/routers/corrections.py
+      - src/impodo/web/routers/transfer_destination.py
+      - src/impodo/web/routers/destination_matching.py
+      - src/impodo/web/routers/transfer_order.py
+      - src/impodo/web/routers/transfer_review.py
+      - src/impodo/web/routers/transfer_preflight.py
     templates:
       - src/impodo/web/templates/workspace_load.html
       - src/impodo/web/templates/workspace_load_progress.html
       - src/impodo/web/templates/workspace_correction.html
       - src/impodo/web/templates/workspace_correction_progress.html
+      - src/impodo/web/templates/workspace_transfer_destination.html
+      - src/impodo/web/templates/workspace_destination_matching.html
+      - src/impodo/web/templates/workspace_transfer_order.html
+      - src/impodo/web/templates/workspace_transfer_review.html
+      - src/impodo/web/templates/workspace_transfer_preflight.html
     code_references:
       - src/impodo/application/workspace/execution/service.py::ExecutionService
       - src/impodo/application/workspace/execution/service.py::ExecutionPreview
@@ -425,6 +435,11 @@ stages:
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.assess_recovery
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_batch_started
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_recovery
+      - src/impodo/application/destination_matching_service.py::DestinationMatchingService
+      - src/impodo/application/transfer_order_service.py::TransferOrderService
+      - src/impodo/application/transfer_review_service.py::TransferReviewService
+      - src/impodo/application/transfer_preflight_service.py::TransferPreflightService
+      - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.save_transfer_preflight_report
     tests:
       - tests/application/workspace/execution/test_service.py
       - tests/integration/web/test_execution.py
@@ -443,6 +458,14 @@ stages:
       - tests/application/test_correction_execution.py
       - tests/integration/columnar/test_polars_correction.py
       - tests/performance/test_correction_qualification.py
+      - tests/application/workspace/test_destination_matching.py
+      - tests/application/workspace/test_transfer_order.py
+      - tests/application/workspace/test_transfer_review.py
+      - tests/application/workspace/test_transfer_preflight.py
+      - tests/integration/web/test_transfer_order_navigation.py
+      - tests/integration/web/test_transfer_review_routes.py
+      - tests/integration/web/test_transfer_preflight_routes.py
+      - tests/integration/duckdb/test_transfer_order_persistence.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md
     references:

@@ -195,6 +195,7 @@ def _model(
         destination_existing_key_count=existing,
         destination_duplicate_key_count=0,
         destination_create_key_count=create,
+        destination_key_binding_hash="sha256:" + "0" * 64,
         compatible_fields=("name",),
         missing_fields=(),
         incompatible_fields=(),

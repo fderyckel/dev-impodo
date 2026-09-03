@@ -1,6 +1,13 @@
+from datetime import datetime, timezone
 import unittest
 
+from impodo.application.data_version.inspection import (
+    CATALOG_CONTRACT_VERSION,
+    SourceFileCatalog,
+    SourceTableCatalog,
+)
 from impodo.application.source_workspace_service import (
+    _blocking_header_problem,
     _dataset_name_violations,
 )
 
@@ -34,6 +41,44 @@ class DatasetNameValidationTests(unittest.TestCase):
         self.assertEqual(
             _dataset_name_violations("product-with-uom"),
             ("Use only lowercase letters, numbers, and underscores.",),
+        )
+
+
+class SourceHeaderValidationTests(unittest.TestCase):
+    def test_data_beyond_headers_is_explained_during_source_review(self) -> None:
+        table = SourceTableCatalog(
+            table_key="sheet:PLW",
+            name="PLW",
+            kind="WORKSHEET",
+            hidden=False,
+            header_row=1,
+            row_count=1,
+            column_count=2,
+            columns=(),
+            preview_rows=(),
+            warnings=(
+                "1 data row(s) contain cells beyond the candidate header; "
+                "the first value is at C2",
+            ),
+        )
+        catalog = SourceFileCatalog(
+            contract_version=CATALOG_CONTRACT_VERSION,
+            file_id="stored-source-id",
+            display_name="PLW-Article.xlsx",
+            source_sha256="sha256:" + "a" * 64,
+            source_size_bytes=100,
+            format="XLSX",
+            inspected_at=datetime.now(timezone.utc),
+            encoding=None,
+            delimiter=None,
+            tables=(table,),
+        )
+
+        self.assertEqual(
+            _blocking_header_problem(catalog, table),
+            "Source file 'PLW-Article.xlsx', sheet 'PLW' has data in column C, "
+            "but header cell C1 is empty. Add a name in C1, or remove the "
+            "unexpected data from column C, then update the preview.",
         )
 
 

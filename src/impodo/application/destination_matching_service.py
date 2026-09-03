@@ -18,6 +18,7 @@ from impodo.domain.odoo.contracts import (
 from impodo.domain.serialization import content_hash
 from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.shared.models import OdooReadIdentity
+from impodo.domain.shared.models import target_record_binding_hash
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
@@ -365,6 +366,10 @@ class DestinationMatchingService:
                 1 for count in destination_counts.values() if count > 1
             ),
             destination_create_key_count=len(source_keys - matched_keys),
+            destination_key_binding_hash=_destination_key_binding_hash(
+                item,
+                target_rows,
+            ),
             compatible_fields=tuple(sorted(compatible)),
             missing_fields=tuple(sorted(missing)),
             incompatible_fields=tuple(sorted(incompatible)),
@@ -663,3 +668,38 @@ def _match_value(value: object) -> str:
     if value is None or value is False:
         return ""
     return str(value).strip()
+
+
+def _destination_key_binding_hash(
+    item: _PreparedModel,
+    target_rows,
+) -> str:
+    """Bind every source key to zero, one, or several destination records.
+
+    Business-key values and numeric Odoo identifiers exist only while this
+    one-way digest is calculated. The persisted match plan receives the digest
+    and cannot disclose either input.
+    """
+
+    bindings: dict[str, list[str]] = {
+        value: [] for value in sorted(item.source_counts)
+    }
+    for row in target_rows:
+        value = _match_value(row.values.get(item.key_field))
+        if value in bindings:
+            bindings[value].append(
+                target_record_binding_hash(item.model, row.odoo_id)
+            )
+    return content_hash(
+        {
+            "model": item.model,
+            "key_field": item.key_field,
+            "classifications": [
+                {
+                    "key": value,
+                    "target_bindings": sorted(bindings[value]),
+                }
+                for value in sorted(bindings)
+            ],
+        }
+    )

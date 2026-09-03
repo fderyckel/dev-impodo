@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Destination preflight &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 8A of 8 &middot; Read-only destination preflight</p>
+      <h1>Recheck the destination before loading</h1>
+      <p>
+        Read the approved matching scope again with the destination transfer key,
+        compare aggregate actions and relationships, and stop before any write.
+      </p>
+    </div>
+    <span class="status
+      {% if transfer_preflight_ready %}ready{% elif transfer_preflight_current %}blocked{% else %}review{% endif %}">
+      {% if transfer_preflight_ready %}
+        Preflight passed
+      {% elif transfer_preflight_current %}
+        Drift found
+      {% else %}
+        Preflight required
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="notice warning">
+    <strong>8A cannot write to Odoo.</strong>
+    It uses the second API key only for identity, metadata, matching-key, and
+    relationship-resolution reads. The future 8B load remains disabled.
+  </div>
+
+  {% if transfer_preflight_stale %}
+    <div class="notice warning">
+      <strong>The saved preflight is no longer current.</strong>
+      Return to the review stage and approve the current package before checking again.
+    </div>
+  {% endif %}
+
+  <section class="form-card">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Fresh credential-bound read</p>
+        <h2>Compare destination reality with the approval</h2>
+        <p>
+          A changed create/update classification, compatible field, permission
+          context, relationship scope, or relationship resolution blocks loading.
+        </p>
+      </div>
+      <span class="status {% if destination_credential_status.available %}registered{% else %}blocked{% endif %}">
+        Key: {{ destination_credential_status.label }}
+      </span>
+    </div>
+    <form method="post" action="/workspaces/{{ workspace_id }}/transfer-preflight">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+      <div class="actions">
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/transfer-review#review-package">Back to approved review</a>
+        <button class="button primary" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>
+          Run read-only preflight
+        </button>
+      </div>
+      {% if not destination_credential_status.available %}
+        <p>
+          <a href="/workspaces/{{ workspace_id }}/transfer-destination#destination-connection">Restore the destination transfer key</a>
+          before running preflight.
+        </p>
+      {% endif %}
+    </form>
+  </section>
+
+  {% if transfer_preflight_current %}
+    <section class="form-card" id="preflight-results">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Aggregate dry-run preview</p>
+          <h2>
+            {% if transfer_preflight_ready %}
+              The approved transfer still matches the destination
+            {% else %}
+              The destination changed after approval
+            {% endif %}
+          </h2>
+          <p>
+            Checked {{ transfer_preflight_report.recorded_at.strftime('%Y-%m-%d %H:%M UTC') }}
+            by {{ transfer_preflight_report.recorded_by.display_name }}.
+          </p>
+        </div>
+        <span class="status {% if transfer_preflight_ready %}ready{% else %}blocked{% endif %}">
+          {% if transfer_preflight_ready %}Ready for 8B{% else %}Load blocked{% endif %}
+        </span>
+      </div>
+
+      {% for blocker in transfer_preflight_blockers %}
+        <div class="notice warning"><strong>{{ blocker }}.</strong> Rebuild and reapprove the transfer before loading.</div>
+      {% endfor %}
+
+      <dl class="definition-list capture-summary">
+        <div>
+          <dt>Source records</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.source_record_count) }}</dd>
+        </div>
+        <div>
+          <dt>Would reuse/update</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.destination_existing_record_count) }}</dd>
+        </div>
+        <div>
+          <dt>Would create</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.destination_create_record_count) }}</dd>
+        </div>
+        <div>
+          <dt>Scalar field scope</dt>
+          <dd>{{ transfer_review_package.totals.scalar_write_field_count }}</dd>
+        </div>
+        <div>
+          <dt>Relationship fields</dt>
+          <dd>{{ transfer_review_package.totals.relationship_write_field_count }}</dd>
+        </div>
+        <div>
+          <dt>Relationship links</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.source_relationship_link_count) }}</dd>
+        </div>
+        <div>
+          <dt>Create waves</dt>
+          <dd>{{ transfer_review_package.totals.wave_count }}</dd>
+        </div>
+        <div>
+          <dt>Post-create links</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.post_create_link_count) }}</dd>
+        </div>
+      </dl>
+
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Record controls</p>
+          <h2>Approved versus freshly observed</h2>
+        </div>
+      </div>
+      {% for row in transfer_preflight_dataset_rows %}
+        <article class="dataset-card">
+          <div class="page-heading compact">
+            <div>
+              <h3>{{ row.approved.model_label }}</h3>
+              <p>{{ row.approved.model }} &middot; match by {{ row.approved.key_field }}</p>
+            </div>
+            <span class="status {% if row.result.ready %}ready{% else %}blocked{% endif %}">
+              {% if row.result.ready %}Unchanged{% else %}Changed{% endif %}
+            </span>
+          </div>
+          <dl class="definition-list capture-summary">
+            <div>
+              <dt>Approved reuse / observed</dt>
+              <dd>{{ row.result.approved_existing_record_count }} / {{ row.result.observed_existing_record_count }}</dd>
+            </div>
+            <div>
+              <dt>Approved create / observed</dt>
+              <dd>{{ row.result.approved_create_record_count }} / {{ row.result.observed_create_record_count }}</dd>
+            </div>
+            <div>
+              <dt>Approved fields</dt>
+              <dd>{{ row.result.approved_write_fields|join(', ') }}</dd>
+            </div>
+            <div>
+              <dt>Compatible now</dt>
+              <dd>{{ row.result.observed_compatible_fields|join(', ') }}</dd>
+            </div>
+          </dl>
+          {% for blocker in row.blockers %}
+            <div class="notice warning"><strong>{{ blocker }}.</strong></div>
+          {% endfor %}
+        </article>
+      {% endfor %}
+
+      {% if transfer_preflight_relationship_rows %}
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Relationship controls</p>
+            <h2>Generic many2one and many2many resolution</h2>
+          </div>
+        </div>
+        {% for row in transfer_preflight_relationship_rows %}
+          <article class="dataset-card">
+            <div class="page-heading compact">
+              <div>
+                <h3>{{ row.approved.owner_model }}.{{ row.approved.field_name }}</h3>
+                <p>
+                  {{ row.approved.operation }} {{ row.approved.kind }} links to
+                  {{ row.approved.related_model }} &middot; {{ row.approved.phase }} pass
+                </p>
+              </div>
+              <span class="status {% if row.result.ready %}ready{% else %}blocked{% endif %}">
+                {% if row.result.ready %}Unchanged{% else %}Changed{% endif %}
+              </span>
+            </div>
+            <dl class="definition-list capture-summary">
+              <div>
+                <dt>Approved / observed links</dt>
+                <dd>{{ row.result.approved_link_count }} / {{ row.result.observed_link_count }}</dd>
+              </div>
+              <div>
+                <dt>Approved / observed reused</dt>
+                <dd>{{ row.result.approved_reused_link_count }} / {{ row.result.observed_reused_link_count }}</dd>
+              </div>
+              <div>
+                <dt>Approved / observed incoming</dt>
+                <dd>{{ row.result.approved_incoming_link_count }} / {{ row.result.observed_incoming_link_count }}</dd>
+              </div>
+            </dl>
+            {% for blocker in row.blockers %}
+              <div class="notice warning"><strong>{{ blocker }}.</strong></div>
+            {% endfor %}
+          </article>
+        {% endfor %}
+      {% endif %}
+
+      {% if transfer_preflight_ready %}
+        <div class="notice">
+          <strong>8A passed; zero writes were attempted.</strong>
+          The exact approved counts, fields, and relationship resolutions still
+          match the destination. Stage 8B execution and final load confirmation
+          are intentionally not part of this implementation.
+        </div>
+      {% else %}
+        <div class="notice warning">
+          <strong>Loading is blocked.</strong>
+          Return to Stage 5, refresh destination matching, then rebuild the order,
+          review, and approval before running preflight again.
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

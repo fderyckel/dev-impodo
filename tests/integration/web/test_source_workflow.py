@@ -816,7 +816,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("Stage 7 complete", approved_transfer_page.text)
         self.assertIn("Exact transfer package approved", approved_transfer_page.text)
-        self.assertIn("Stage 8 is not available yet", approved_transfer_page.text)
+        self.assertIn("Continue to destination preflight", approved_transfer_page.text)
 
         mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)

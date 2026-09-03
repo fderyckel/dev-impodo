@@ -203,6 +203,19 @@ def _plain_ui_error(message: str) -> tuple[str, str | None]:
     elif any(item in lowered for item in ("mapping", "field", "business key")):
         plain = "Impodo could not check these data matches. Review the selected fields and try again."
     elif any(
+        marker in lowered
+        for marker in (
+            "has an empty column header at",
+            "has data in column",
+        )
+    ) and "source file" in lowered:
+        snapshot_prefix = "Impodo could not create the immutable source snapshot: "
+        plain = (
+            raw.removeprefix(snapshot_prefix)
+            if raw.startswith(snapshot_prefix)
+            else raw
+        )
+    elif any(
         item in lowered
         for item in (
             "artifact_path_too_long",

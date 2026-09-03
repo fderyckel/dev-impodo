@@ -11,6 +11,50 @@ status: current
 Explicitly load the exact reviewed plan for the current data version
 into its approved Odoo 19 target, then verify the recorded outcome.
 
+Impodo currently has two paths at this stage. A prepared-data workspace can
+continue through the existing load and verification steps. An Odoo-to-Odoo
+workspace can now complete the read-only destination preflight described
+below, but it cannot start the destination write yet.
+
+## Odoo-to-Odoo transfer through Stage 8A
+
+When you download records from one Odoo database for transfer to another,
+Impodo keeps the source-fetch key separate from the destination transfer key.
+The destination key is the second and final API key in this workflow. Impodo
+uses it for read-only matching and preflight now. A future load confirmation
+will be required before that key may be used for a write.
+
+1. Complete **Connect destination Odoo** with the destination transfer key.
+2. In **Match destination data**, choose the stable matching field for every
+   record type. Impodo classifies each unique source key as an existing record
+   to reuse or a missing record to create.
+3. Review **Validate transfer order**. Supporting records appear before the
+   records that refer to them, while safe optional cycles use a later
+   relationship pass.
+4. Build and approve the exact package in **Review transfer**.
+5. Select **Continue to destination preflight**, then select **Run read-only
+   preflight**.
+6. Compare the approved and freshly observed reuse, create, field, and
+   relationship totals. If the page shows **Preflight passed**, Stage 8A is
+   complete. No record has been written to Odoo.
+
+For example, a Product can refer to a Unit of Measure through a many-to-one
+field. Impodo first checks whether each Unit's chosen business key is unique
+in the destination. It then counts Product links that can reuse a destination
+Unit and links that will depend on an incoming Unit. The same rule applies to
+many-to-many fields and to inverse one-to-many metadata; it is not specific to
+Product and Unit of Measure.
+
+For you, this means that a new destination record matching an approved
+"create" key stops the transfer before loading, which protects against a
+duplicate. A changed field, permission context, or relationship resolution
+also stops the transfer. Return to **Match destination data**, rebuild the
+order and review, approve the new package, and run preflight again.
+
+Stage 8B execution is not implemented for this Odoo-to-Odoo path. A passed
+preflight therefore means that the destination still matches the approved
+plan; it does not mean that the records have been loaded.
+
 ## Before you start
 
 The current final review must be **Ready**. Confirm the data version purpose,
@@ -147,6 +191,10 @@ complete.
 Either the reviewed snapshot required no writes, or execution finished and
 reconciliation verified the expected Odoo state. A successful HTTP response
 alone is not completion evidence.
+
+For the Odoo-to-Odoo path, **Preflight passed** completes only Stage 8A. The
+sidebar keeps **Load destination Odoo** current because Stage 8B has not
+started and no destination record has changed.
 
 For a completed-load correction, Complete means its automatic exact-record
 read-back is verified. A submitted correction request or accepted API response

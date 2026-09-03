@@ -33,6 +33,7 @@ from impodo.domain.workspace.transfer_review import (
     TransferReviewApproval,
     TransferReviewPackage,
 )
+from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 
 
 class WorkspaceStateError(ValueError):
@@ -152,6 +153,7 @@ class WorkspaceState:
     transfer_order_plan: TransferOrderPlan | None = None
     transfer_review_package: TransferReviewPackage | None = None
     transfer_review_approval: TransferReviewApproval | None = None
+    transfer_preflight_report: TransferPreflightReport | None = None
     intended_applications: tuple[str, ...] = ()
     intended_models: tuple[str, ...] = ()
     source_files: tuple[SourceFile, ...] = ()
@@ -335,6 +337,59 @@ class WorkspaceState:
             and package is not None
             and approval is not None
             and approval.authorizes(package, at=_now())
+        )
+
+    def transfer_preflight_current(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether Stage 8A evidence checks the exact current approval."""
+
+        report = self.transfer_preflight_report
+        package = self.transfer_review_package
+        approval = self.transfer_review_approval
+        match_plan = self.destination_match_plan
+        return bool(
+            self.transfer_review_approved(
+                source_selection_hash=source_selection_hash,
+                source_schema_hash=source_schema_hash,
+            )
+            and report is not None
+            and package is not None
+            and approval is not None
+            and match_plan is not None
+            and report.workspace_id == self.workspace_id
+            and report.review_package_hash == package.content_hash
+            and report.review_approval_hash == approval.content_hash
+            and report.approved_match_plan_hash == match_plan.content_hash
+            and report.source_selection_hash == source_selection_hash
+            and report.source_schema_hash == source_schema_hash
+            and report.destination_target_hash
+            == transfer_destination_identity_hash(self)
+            and report.destination_credential_binding_hash
+            == self.destination_verified_credential_binding_hash
+            and report.destination_read_principal_hash
+            == self.destination_verified_read_principal_hash
+            and report.recorded_at >= approval.approved_at
+        )
+
+    def transfer_preflight_ready(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether current Stage 8A evidence found no destination drift."""
+
+        return bool(
+            self.transfer_preflight_current(
+                source_selection_hash=source_selection_hash,
+                source_schema_hash=source_schema_hash,
+            )
+            and self.transfer_preflight_report is not None
+            and self.transfer_preflight_report.ready
         )
 
 
@@ -638,6 +693,9 @@ class WorkspaceStateService:
             transfer_review_approval=(
                 None if changed else workspace.transfer_review_approval
             ),
+            transfer_preflight_report=(
+                None if changed else workspace.transfer_preflight_report
+            ),
         )
         return self._save(
             updated,
@@ -730,6 +788,7 @@ class WorkspaceStateService:
             transfer_order_plan=None,
             transfer_review_package=None,
             transfer_review_approval=None,
+            transfer_preflight_report=None,
         )
         return self._save(
             updated,
@@ -778,6 +837,7 @@ class WorkspaceStateService:
             transfer_order_plan=plan,
             transfer_review_package=None,
             transfer_review_approval=None,
+            transfer_preflight_report=None,
         )
         return self._save(
             updated,
@@ -828,6 +888,7 @@ class WorkspaceStateService:
             workspace,
             transfer_review_package=package,
             transfer_review_approval=None,
+            transfer_preflight_report=None,
         )
         return self._save(
             updated,
@@ -871,7 +932,11 @@ class WorkspaceStateService:
             raise WorkspaceStateError(
                 "Transfer approval does not match the current review package"
             )
-        updated = replace(workspace, transfer_review_approval=approval)
+        updated = replace(
+            workspace,
+            transfer_review_approval=approval,
+            transfer_preflight_report=None,
+        )
         return self._save(
             updated,
             workspace,
@@ -880,6 +945,64 @@ class WorkspaceStateService:
             detail=(
                 f"package={package.content_hash}; "
                 f"approval={approval.content_hash}"
+            ),
+        )
+
+    def save_transfer_preflight_report(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        report: TransferPreflightReport,
+    ) -> WorkspaceState:
+        """Publish Stage 8A read-only evidence without authorizing a write."""
+
+        workspace = self._target_editable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        package = workspace.transfer_review_package
+        approval = workspace.transfer_review_approval
+        match_plan = workspace.destination_match_plan
+        if (
+            package is None
+            or approval is None
+            or match_plan is None
+            or not workspace.transfer_review_approved(
+                source_selection_hash=report.source_selection_hash,
+                source_schema_hash=report.source_schema_hash,
+            )
+            or report.workspace_id != workspace.workspace_id
+            or report.review_package_hash != package.content_hash
+            or report.review_approval_hash != approval.content_hash
+            or report.approved_match_plan_hash != match_plan.content_hash
+            or report.destination_target_hash != match_plan.destination_target_hash
+            or report.destination_credential_binding_hash
+            != match_plan.destination_credential_binding_hash
+            or report.destination_read_principal_hash
+            != match_plan.destination_read_principal_hash
+            or report.recorded_by != actor.identity
+        ):
+            raise WorkspaceStateError(
+                "Destination preflight does not match the current approved transfer"
+            )
+        blocker_count = (
+            len(report.blocker_codes)
+            + sum(len(item.blocker_codes) for item in report.datasets)
+            + sum(len(item.blocker_codes) for item in report.relationships)
+        )
+        updated = replace(workspace, transfer_preflight_report=report)
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_TRANSFER_PREFLIGHT_CHECKED",
+            actor=actor,
+            detail=(
+                f"report={report.content_hash}; "
+                f"ready={'yes' if report.ready else 'no'}; "
+                f"blockers={blocker_count}"
             ),
         )
 

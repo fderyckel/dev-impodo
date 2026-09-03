@@ -205,11 +205,13 @@
             Note: {{ transfer_review_approval.reason }}
           {% endif %}
         </div>
-        <div class="notice warning">
-          <strong>Next planned stage: load destination Odoo.</strong>
-          Stage 8 is not available yet. Its preflight will revalidate the destination,
-          resolve protected keys, require final confirmation, journal writes, and
-          reconcile the outcome.
+        <div class="notice">
+          <strong>Next: run the read-only destination preflight.</strong>
+          Stage 8A will re-read matching keys, fields, permissions, and relationship
+          resolution with the destination transfer key. It cannot write to Odoo.
+        </div>
+        <div class="actions">
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-preflight">Continue to destination preflight</a>
         </div>
       {% else %}
         <form method="post" action="/workspaces/{{ workspace_id }}/transfer-review/approve">

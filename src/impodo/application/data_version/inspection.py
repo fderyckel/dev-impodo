@@ -33,7 +33,16 @@ from impodo.domain.shared.access import Actor, Capability
 from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.workspace.workbench import WorkspaceStateError, WorkspaceStatus, SourceFile
-from impodo.application.data_version.source_files import MAX_CELL_STRING_LENGTH, MAX_SOURCE_COLUMNS, MAX_SOURCE_ROWS, MAX_XLSX_METADATA_BYTES, MAX_XLSX_WORKSHEETS, validated_xlsx_table_bounds, validate_source_file
+from impodo.application.data_version.source_files import (
+    MAX_CELL_STRING_LENGTH,
+    MAX_SOURCE_COLUMNS,
+    MAX_SOURCE_ROWS,
+    MAX_XLSX_METADATA_BYTES,
+    MAX_XLSX_WORKSHEETS,
+    last_non_empty_header_index,
+    validated_xlsx_table_bounds,
+    validate_source_file,
+)
 from impodo.domain.preparation.source import SourceLoadError
 
 
@@ -738,7 +747,7 @@ def _inspect_worksheet(
                 f"Worksheet {worksheet.title!r} has no candidate header row "
                 f"{header_row}"
             ) from error
-    last_header_column = _last_non_empty_index(
+    last_header_column = last_non_empty_header_index(
         [cell.value for cell in header_cells]
     )
     if last_header_column > MAX_SOURCE_COLUMNS:
@@ -762,6 +771,7 @@ def _inspect_worksheet(
     first_error_cell: str | None = None
     first_error_column: str | None = None
     data_beyond_headers = 0
+    first_data_beyond_headers_cell: str | None = None
 
     for index, cell in enumerate(header_cells, start=1):
         column_name = headers[index - 1] if index <= len(headers) else None
@@ -791,8 +801,14 @@ def _inspect_worksheet(
                 if first_error_cell is None:
                     first_error_cell = cell.coordinate
                     first_error_column = column_name
-        if any(cell.value is not None for cell in overflow_cells):
+        first_overflow = next(
+            (cell for cell in overflow_cells if cell.value is not None),
+            None,
+        )
+        if first_overflow is not None:
             data_beyond_headers += 1
+            if first_data_beyond_headers_cell is None:
+                first_data_beyond_headers_cell = first_overflow.coordinate
         if not any(value is not None and value != "" for value in values):
             continue
         row_count += 1
@@ -816,9 +832,14 @@ def _inspect_worksheet(
     if merged_range_count:
         warnings.append(f"{merged_range_count} merged range(s) detected")
     if data_beyond_headers:
+        first_value = (
+            f"; the first value is at {first_data_beyond_headers_cell}"
+            if first_data_beyond_headers_cell
+            else ""
+        )
         warnings.append(
             f"{data_beyond_headers} data row(s) contain cells beyond the "
-            "candidate header"
+            f"candidate header{first_value}"
         )
     return SourceTableCatalog(
         table_key=f"sheet:{worksheet.title}",
@@ -1134,14 +1155,6 @@ def _range_start_row(cell_range: str) -> int:
     first_cell = cell_range.split(":", 1)[0].replace("$", "")
     matched = re.search(r"(\d+)$", first_cell)
     return int(matched.group(1)) if matched else 1
-
-
-def _last_non_empty_index(values: Iterable[Any]) -> int:
-    last = 0
-    for index, value in enumerate(values, start=1):
-        if value is not None and str(value).strip():
-            last = index
-    return last
 
 
 def _catalog_headers(values: Iterable[Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:

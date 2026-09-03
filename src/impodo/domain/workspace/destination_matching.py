@@ -16,8 +16,8 @@ from typing import Any
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 2
-_SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset({1, 2})
+DESTINATION_MATCH_CONTRACT_VERSION = 3
+_SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset({1, 2, 3})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
@@ -40,6 +40,7 @@ class DestinationModelMatch:
     destination_existing_key_count: int
     destination_duplicate_key_count: int
     destination_create_key_count: int
+    destination_key_binding_hash: str
     compatible_fields: tuple[str, ...]
     missing_fields: tuple[str, ...]
     incompatible_fields: tuple[str, ...]
@@ -74,6 +75,8 @@ class DestinationModelMatch:
             != self.source_distinct_key_count
         ):
             raise ValueError("Destination model matching totals are inconsistent")
+        if _HASH.fullmatch(self.destination_key_binding_hash) is None:
+            raise ValueError("Destination key classification binding is invalid")
         field_groups = (
             self.compatible_fields,
             self.missing_fields,
@@ -326,7 +329,15 @@ class DestinationMatchPlan:
             "destination_record_snapshot_hash": (
                 self.destination_record_snapshot_hash
             ),
-            "model_matches": [asdict(item) for item in self.model_matches],
+            "model_matches": [
+                {
+                    name: value
+                    for name, value in asdict(item).items()
+                    if self.contract_version >= 3
+                    or name != "destination_key_binding_hash"
+                }
+                for item in self.model_matches
+            ],
             "recorded_at": self.recorded_at.isoformat(),
             "recorded_by": self.recorded_by,
         }
@@ -396,6 +407,12 @@ class DestinationMatchPlan:
                         ),
                         destination_create_key_count=int(
                             item["destination_create_key_count"]
+                        ),
+                        destination_key_binding_hash=str(
+                            item.get(
+                                "destination_key_binding_hash",
+                                payload["destination_record_snapshot_hash"],
+                            )
                         ),
                         compatible_fields=tuple(item["compatible_fields"]),
                         missing_fields=tuple(item["missing_fields"]),

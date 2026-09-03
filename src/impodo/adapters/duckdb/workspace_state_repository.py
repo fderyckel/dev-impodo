@@ -462,7 +462,7 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         connection.execute(
             f"INSERT INTO workspace_projection_cache VALUES "
-            f"({', '.join('?' for _ in range(31))})",
+            f"({', '.join('?' for _ in range(32))})",
             _workspace_values(workspace),
         )
 
@@ -503,7 +503,8 @@ class WorkspaceStateRepository(DuckDbRepository):
                 destination_match_plan_json = ?,
                 transfer_order_plan_json = ?,
                 transfer_review_package_json = ?,
-                transfer_review_approval_json = ?
+                transfer_review_approval_json = ?,
+                transfer_preflight_report_json = ?
             WHERE singleton_id = 1
             """,
             _workspace_values(workspace)[1:],

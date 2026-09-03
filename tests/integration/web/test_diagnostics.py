@@ -21,6 +21,8 @@ from uuid import uuid4
 from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
+import h11
+from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
@@ -37,6 +39,7 @@ from impodo.web.diagnostics import (
 )
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.web.server_supervisor import (
+    ClosedConnectionSafeH11Protocol,
     ServerChildSettings,
     ServerSupervisionResult,
     bind_loopback_listener,
@@ -607,6 +610,37 @@ class _FakeServerChild:
     def terminate(self) -> None:
         self.exitcode = -15
         self.joined = True
+
+
+class ClosedConnectionSafeH11ProtocolTests(unittest.TestCase):
+    def test_late_bytes_are_ignored_after_h11_connection_closes(self) -> None:
+        protocol = object.__new__(ClosedConnectionSafeH11Protocol)
+        protocol.conn = h11.Connection(h11.SERVER)
+        protocol.conn.send(h11.ConnectionClosed())
+        protocol.transport = Mock()
+        keepalive = Mock()
+        protocol.timeout_keep_alive_task = keepalive
+
+        with patch.object(H11Protocol, "data_received", autospec=True) as receive:
+            protocol.data_received(b"GET /health HTTP/1.1\r\n\r\n")
+
+        receive.assert_not_called()
+        keepalive.cancel.assert_called_once_with()
+        self.assertIsNone(protocol.timeout_keep_alive_task)
+        protocol.transport.close.assert_called_once_with()
+
+    def test_live_connection_data_uses_uvicorn_h11_handling(self) -> None:
+        protocol = object.__new__(ClosedConnectionSafeH11Protocol)
+        protocol.conn = h11.Connection(h11.SERVER)
+        protocol.transport = Mock()
+        protocol.timeout_keep_alive_task = None
+        data = b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+
+        with patch.object(H11Protocol, "data_received", autospec=True) as receive:
+            protocol.data_received(data)
+
+        receive.assert_called_once_with(protocol, data)
+        protocol.transport.close.assert_not_called()
 
 
 class ServerSupervisorTests(unittest.TestCase):

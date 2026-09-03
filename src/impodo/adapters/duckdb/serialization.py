@@ -29,6 +29,7 @@ from impodo.domain.workspace.transfer_review import (
     TransferReviewApproval,
     TransferReviewPackage,
 )
+from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 
 
 def _workspace_values(workspace: WorkspaceState) -> list[object]:
@@ -92,6 +93,11 @@ def _workspace_values(workspace: WorkspaceState) -> list[object]:
         (
             workspace.transfer_review_approval.to_json()
             if workspace.transfer_review_approval is not None
+            else None
+        ),
+        (
+            workspace.transfer_preflight_report.to_json()
+            if workspace.transfer_preflight_report is not None
             else None
         ),
     ]
@@ -172,6 +178,13 @@ def _workspace_from_rows(
                 str(data["transfer_review_approval_json"])
             )
             if data.get("transfer_review_approval_json")
+            else None
+        ),
+        transfer_preflight_report=(
+            TransferPreflightReport.from_json(
+                str(data["transfer_preflight_report_json"])
+            )
+            if data.get("transfer_preflight_report_json")
             else None
         ),
         intended_applications=tuple(json.loads(str(data["intended_applications"]))),

@@ -62,6 +62,7 @@ _WORKSPACE_PROJECTION_COLUMNS = (
     "transfer_order_plan_json",
     "transfer_review_package_json",
     "transfer_review_approval_json",
+    "transfer_preflight_report_json",
 )
 _AUDIT_EVENT_COLUMNS = (
     "event_id",
@@ -200,7 +201,8 @@ class WorkspaceEngineSchemaMixin:
                 destination_match_plan_json VARCHAR,
                 transfer_order_plan_json VARCHAR,
                 transfer_review_package_json VARCHAR,
-                transfer_review_approval_json VARCHAR
+                transfer_review_approval_json VARCHAR,
+                transfer_preflight_report_json VARCHAR
             );
 
             CREATE TABLE source_file (
@@ -975,6 +977,19 @@ def _upgrade_workspace_engine_v7_to_v8(
     )
 
 
+def _upgrade_workspace_engine_v8_to_v9(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add immutable Stage 8A read-only preflight evidence."""
+
+    connection.execute(
+        """
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN transfer_preflight_report_json VARCHAR;
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1003,5 +1018,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     7: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v7-to-v8-transfer-review",
         apply=_upgrade_workspace_engine_v7_to_v8,
+    ),
+    8: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v8-to-v9-transfer-preflight",
+        apply=_upgrade_workspace_engine_v8_to_v9,
     ),
 }

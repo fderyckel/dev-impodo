@@ -129,7 +129,10 @@ class DestinationMatchingTests(unittest.TestCase):
         )
         legacy = replace(plan, contract_version=1, relationship_matches=())
         self.assertFalse(legacy.ready)
-        self.assertEqual(DestinationMatchPlan.from_json(legacy.to_json()), legacy)
+        self.assertEqual(
+            DestinationMatchPlan.from_json(legacy.to_json()).to_json(),
+            legacy.to_json(),
+        )
 
     def test_duplicate_source_keys_block_the_plan(self) -> None:
         self.source_values.values[(self.product.dataset_id, "product-code")] = (
@@ -159,6 +162,74 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertEqual(product.source_duplicate_key_count, 1)
         self.assertEqual(product.source_blank_row_count, 0)
         self.assertIn("SOURCE_KEY_DUPLICATE", product.blocking_reasons)
+
+    def test_equal_counts_still_bind_each_key_to_its_exact_destination_record(self) -> None:
+        service = DestinationMatchingService(self.source_values)
+        choices = (
+            DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+            DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+        )
+        base_reader = _destination_reader(self.workspace)
+        first = service.check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            choices,
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=base_reader,
+            recorded_by="Data manager",
+        )
+
+        def swapped_reader(*args):
+            metadata, records = base_reader(*args)
+            return metadata, replace(
+                records,
+                records={
+                    **records.records,
+                    "product.template": (
+                        TargetRecord(
+                            "product.template",
+                            52,
+                            {"default_code": "P002"},
+                        ),
+                    ),
+                },
+            )
+
+        second = service.check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            choices,
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=swapped_reader,
+            recorded_by="Data manager",
+        )
+
+        first_product = next(
+            item for item in first.model_matches if item.model == "product.template"
+        )
+        second_product = next(
+            item for item in second.model_matches if item.model == "product.template"
+        )
+        self.assertEqual(
+            (
+                first_product.destination_existing_key_count,
+                first_product.destination_create_key_count,
+            ),
+            (
+                second_product.destination_existing_key_count,
+                second_product.destination_create_key_count,
+            ),
+        )
+        self.assertNotEqual(
+            first_product.destination_key_binding_hash,
+            second_product.destination_key_binding_hash,
+        )
 
     def test_relations_resolve_generically_and_one2many_uses_its_inverse(self) -> None:
         product_model, uom_model = self.schema.models

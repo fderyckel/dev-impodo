@@ -13,6 +13,7 @@ dependencies = [
   "defusedxml>=0.7,<1",
   "duckdb>=1.4,<2",
   "fastapi>=0.115,<1",
+  "h11>=0.16,<1",
   "itsdangerous>=2.2,<3",
   "jinja2>=3.1,<4",
   "keyring>=25,<26",

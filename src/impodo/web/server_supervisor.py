@@ -10,13 +10,31 @@ from typing import Callable, Protocol
 from urllib.parse import quote
 import webbrowser
 
+import h11
 import uvicorn
+from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from .app import create_local_app
 from .diagnostics import LocalDiagnosticRecorder
 
 
 MAX_AUTOMATIC_RESTARTS = 1
+
+
+class ClosedConnectionSafeH11Protocol(H11Protocol):
+    """Ignore transport bytes delivered after h11 has completed a local close.
+
+    Windows can deliver already-queued bytes after the transport starts closing.
+    Uvicorn otherwise tries to answer them with a 400 that h11 cannot send from
+    its CLOSED state, turning a successful shutdown into a noisy traceback.
+    """
+
+    def data_received(self, data: bytes) -> None:
+        if self.conn.our_state is h11.CLOSED:
+            self._unset_keepalive_if_required()
+            self.transport.close()
+            return
+        super().data_received(data)
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +274,7 @@ def _serve_child_process(
             app,
             host="127.0.0.1",
             port=port,
+            http=ClosedConnectionSafeH11Protocol,
             access_log=False,
             proxy_headers=False,
             server_header=False,

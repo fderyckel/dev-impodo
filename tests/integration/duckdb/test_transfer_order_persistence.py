@@ -9,6 +9,7 @@ from uuid import uuid4
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.application.transfer_review_service import TransferReviewService
+from impodo.application.transfer_preflight_service import TransferPreflightService
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.transfer_order import (
     TransferOrderDataset,
@@ -108,6 +109,22 @@ class TransferOrderPersistenceTests(unittest.TestCase):
             transfer_review_package=package,
             transfer_review_approval=approval,
         )
+        fresh_match = replace(
+            match,
+            destination_schema_snapshot_hash="sha256:" + "7" * 64,
+            destination_record_snapshot_hash="sha256:" + "8" * 64,
+            recorded_at=datetime.now(UTC),
+            recorded_by="Stage 8A preflight",
+        )
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            fresh_match,
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        workspace = replace(workspace, transfer_preflight_report=report)
 
         (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / ".tmp") as directory:
@@ -120,6 +137,7 @@ class TransferOrderPersistenceTests(unittest.TestCase):
 
         self.assertEqual(restored.transfer_review_package, package)
         self.assertEqual(restored.transfer_review_approval, approval)
+        self.assertEqual(restored.transfer_preflight_report, report)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,22 @@ class CommonPresenterTests(unittest.TestCase):
         )
         self.assertEqual(support, raw)
 
+    def test_snapshot_empty_header_failure_identifies_the_source_and_cell(self) -> None:
+        detail = (
+            "Source file 'PLW-Article.xlsx', sheet 'PLW', has an empty column "
+            "header at G1. Add a name in G1, or remove the column if it is "
+            "unused, then replace the file in Source review."
+        )
+        raw = (
+            "Impodo could not create the immutable source snapshot: "
+            f"{detail}"
+        )
+
+        plain, support = _plain_ui_error(raw)
+
+        self.assertEqual(plain, detail)
+        self.assertEqual(support, raw)
+
 
 if __name__ == "__main__":
     unittest.main()

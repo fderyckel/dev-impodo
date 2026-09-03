@@ -15,6 +15,12 @@ read-back capability.
 
 It exposes no generic Odoo client and provides no whole-migration rollback.
 
+The Odoo-to-Odoo Stage 8A preflight is deliberately outside execution. It
+repeats bounded destination reads and records aggregate drift evidence for an
+approved transfer package. A ready Stage 8A report does not authorize a write,
+create an execution journal, or count as reconciliation. Stage 8B must define
+and enforce those boundaries before the Odoo-to-Odoo path can load records.
+
 ## Authorization and binding
 
 Execution requires a current `READY` report, execution snapshot, target

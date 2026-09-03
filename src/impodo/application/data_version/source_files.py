@@ -494,9 +494,23 @@ def _open_xlsx_rows(
             header_row,
             sheet=sheet,
         )
+        header_values = [cell.value for cell in header_cells]
+        if cell_range is None:
+            # Excel's physical worksheet dimension can include trailing cells
+            # that only carry formatting or stale used-range metadata. Source
+            # inspection deliberately excludes those cells, so the strict
+            # reader must use the same logical header boundary. The full row
+            # iterator remains intact so real values beyond that boundary are
+            # still rejected below.
+            header_values = header_values[
+                :last_non_empty_header_index(header_values)
+            ]
         headers = _validate_headers(
-            [cell.value for cell in header_cells],
-            f"{path.name}#{sheet}",
+            header_values,
+            source_label,
+            sheet=sheet,
+            header_row=header_row,
+            first_column=minimum_column,
         )
 
         def iter_rows() -> Iterator[SourceRow]:
@@ -511,13 +525,26 @@ def _open_xlsx_rows(
                     headers=headers,
                 )
                 values = [cell.value for cell in cells[: len(headers)]]
-                if cell_range is None and len(cells) > len(headers) and any(
-                    cell.value is not None for cell in cells[len(headers) :]
-                ):
-                    raise SourceLoadError(
-                        f"row {row_number} has data beyond the declared headers: "
-                        f"{path.name}#{sheet}"
+                if cell_range is None and len(cells) > len(headers):
+                    overflow = next(
+                        (
+                            cell
+                            for cell in cells[len(headers) :]
+                            if cell.value is not None
+                        ),
+                        None,
                     )
+                    if overflow is not None:
+                        column = _xlsx_column_name(overflow.column)
+                        header_cell = f"{column}{header_row}"
+                        raise SourceLoadError(
+                            f"Source file {source_label!r}, sheet {sheet!r}, has "
+                            f"data in column {column}, but header cell "
+                            f"{header_cell} is empty. Add a name in "
+                            f"{header_cell}, or remove the unexpected data from "
+                            f"column {column}, then replace the file in Source "
+                            "review."
+                        )
                 if not any(value is not None for value in values):
                     continue
                 if data_rows >= MAX_SOURCE_ROWS:
@@ -538,7 +565,35 @@ def _open_xlsx_rows(
         workbook.close()
 
 
-def _validate_headers(raw_headers: Iterable[Any], label: str) -> tuple[str, ...]:
+def last_non_empty_header_index(values: Iterable[Any]) -> int:
+    """Return the one-based boundary of meaningful worksheet headers."""
+
+    last = 0
+    for index, value in enumerate(values, start=1):
+        if value is not None and str(value).strip():
+            last = index
+    return last
+
+
+def _xlsx_column_name(column_number: int) -> str:
+    """Return an Excel column label without importing workbook machinery."""
+
+    letters = ""
+    current = column_number
+    while current:
+        current, remainder = divmod(current - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def _validate_headers(
+    raw_headers: Iterable[Any],
+    label: str,
+    *,
+    sheet: str | None = None,
+    header_row: int | None = None,
+    first_column: int = 1,
+) -> tuple[str, ...]:
     """Return string headers after enforcing presence, uniqueness, and limits."""
 
     values = list(raw_headers)
@@ -552,6 +607,15 @@ def _validate_headers(raw_headers: Iterable[Any], label: str) -> tuple[str, ...]
     headers: list[str] = []
     for index, value in enumerate(values, start=1):
         if value is None or str(value).strip() == "":
+            if sheet is not None and header_row is not None:
+                column = _xlsx_column_name(first_column + index - 1)
+                header_cell = f"{column}{header_row}"
+                raise SourceLoadError(
+                    f"Source file {label!r}, sheet {sheet!r}, has an empty "
+                    f"column header at {header_cell}. Add a name in "
+                    f"{header_cell}, or remove the column if it is unused, "
+                    "then replace the file in Source review."
+                )
             raise SourceLoadError(f"column {index} has an empty header: {label}")
         header = str(value)
         if len(header) > MAX_CELL_STRING_LENGTH:

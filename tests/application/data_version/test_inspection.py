@@ -12,6 +12,7 @@ import unittest
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 from openpyxl.worksheet.table import Table
 
 from impodo.application.data_version.inspection import (
@@ -20,6 +21,8 @@ from impodo.application.data_version.inspection import (
     SourceInspectionOptions,
     inspect_source_file,
 )
+from impodo.application.data_version.source_files import load_selected_source_table
+from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.workspace.workbench import SourceFile
 
 
@@ -181,6 +184,107 @@ class SourceInspectionTests(unittest.TestCase):
         self.assertEqual(catalog.tables[0].row_count, 2)
         self.assertEqual(catalog.tables[0].column_count, 2)
         self.assertEqual(catalog.tables[0].preview_rows[0], ("C001", "First customer"))
+
+    def test_xlsx_strict_reader_ignores_a_trailing_formatted_blank_column(self) -> None:
+        path = self.directory / "stored-source-id.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "PLW"
+        worksheet.append(["Code", "Name"])
+        worksheet.append(["A001", "First article"])
+        worksheet["C1"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+        workbook.save(path)
+        workbook.close()
+
+        catalog = inspect_source_file(
+            path,
+            source_file=_source_evidence(path),
+            options=SourceInspectionOptions(
+                worksheet_header_rows=(("sheet:PLW", 1),),
+            ),
+        )
+        loaded = load_selected_source_table(
+            path,
+            dataset="articles",
+            table_key="sheet:PLW",
+            encoding=None,
+            delimiter=None,
+            header_row=1,
+            source_display_name="PLW-Article.xlsx",
+        )
+
+        self.assertEqual(catalog.tables[0].column_count, 2)
+        self.assertEqual(loaded.headers, ("Code", "Name"))
+        self.assertEqual(len(loaded.rows), 1)
+
+    def test_xlsx_strict_reader_names_source_and_cell_for_empty_header(self) -> None:
+        path = self.directory / "stored-source-id.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "PLW"
+        worksheet.append(["Code", None, "Name"])
+        worksheet.append(["A001", None, "First article"])
+        workbook.save(path)
+        workbook.close()
+
+        with self.assertRaises(SourceLoadError) as raised:
+            load_selected_source_table(
+                path,
+                dataset="articles",
+                table_key="sheet:PLW",
+                encoding=None,
+                delimiter=None,
+                header_row=1,
+                source_display_name="PLW-Article.xlsx",
+            )
+
+        self.assertEqual(
+            str(raised.exception),
+            "Source file 'PLW-Article.xlsx', sheet 'PLW', has an empty column "
+            "header at B1. Add a name in B1, or remove the column if it is "
+            "unused, then replace the file in Source review.",
+        )
+
+    def test_xlsx_strict_reader_names_source_when_data_exceeds_headers(self) -> None:
+        path = self.directory / "stored-source-id.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "PLW"
+        worksheet.append(["Code", "Name"])
+        worksheet.append(["A001", "First article", "Unexpected"])
+        workbook.save(path)
+        workbook.close()
+
+        catalog = inspect_source_file(
+            path,
+            source_file=_source_evidence(path),
+            options=SourceInspectionOptions(
+                worksheet_header_rows=(("sheet:PLW", 1),),
+            ),
+        )
+        with self.assertRaises(SourceLoadError) as raised:
+            load_selected_source_table(
+                path,
+                dataset="articles",
+                table_key="sheet:PLW",
+                encoding=None,
+                delimiter=None,
+                header_row=1,
+                source_display_name="PLW-Article.xlsx",
+            )
+
+        self.assertIn(
+            "1 data row(s) contain cells beyond the candidate header; "
+            "the first value is at C2",
+            catalog.tables[0].warnings,
+        )
+        self.assertEqual(
+            str(raised.exception),
+            "Source file 'PLW-Article.xlsx', sheet 'PLW', has data in column "
+            "C, but header cell C1 is empty. Add a name in C1, or remove the "
+            "unexpected data from column C, then replace the file in Source "
+            "review.",
+        )
 
     def test_xlsx_inventory_keeps_a_distinct_named_table_as_an_option(self) -> None:
         path = self.directory / "distinct-table.xlsx"

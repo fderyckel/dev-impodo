@@ -142,17 +142,19 @@ complete source lineage when materialized later.
 ## Completion and navigation
 
 File mode completes when a source selection exists and then unlocks Odoo data.
-Odoo mode deliberately reverses the first two responsibilities: **Odoo source
-data** captures eligible fields, then **Freeze Odoo records** publishes the
-selection. It then unlocks Match data and offline preparation. Preparation
-verifies every protected capture sidecar and consumes the frozen snapshots
-without contacting Odoo. The current pinned comparison remains a
-single-dataset contract, so a multi-model Product and Unit of Measure source
-does not yet proceed to comparison or load.
+Odoo mode deliberately reverses the first two responsibilities. **Select data
+to download** captures eligible fields and model-specific plans, then
+**Download and freeze** publishes the selection. It then unlocks the separately
+bound cross-instance destination workflow. Stages 4 through 7 connect that
+destination, match every selected model, derive generic relationship order,
+and approve an exact aggregate transfer package. Stage 8A rechecks that
+package through a fresh read-only destination call. The path currently stops
+before Stage 8B writes.
 
-Odoo source mode is a pinned-update workflow for the same configured database.
-It is not a cross-database Recipe application, and current policy does not
-publish a loadable execution snapshot for those updates.
+The source capture and destination checks use two distinct credential roles.
+The source-fetch key cannot satisfy destination matching. The one destination
+transfer key supports Stage 5 and Stage 8A reads, but no current Odoo-to-Odoo
+route invokes it through a write-capable adapter.
 
 ## Invalidation and recovery
 

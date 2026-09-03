@@ -39,7 +39,7 @@ version.
 
 ### Odoo source
 
-1. Open **Freeze Odoo records** after eligible fields have been captured.
+1. Open **Download and freeze** after eligible fields have been captured.
 2. Choose each **Odoo record type** in turn. The page shows that record
    type's eligible fields and its own saved plan.
 3. Save one bounded plan for every selected record type. For example, save a
@@ -115,10 +115,10 @@ them. Earlier data-version evidence remains protected history.
 ## Next stage
 
 For a file source, continue to [Odoo data](02-odoo-data.md). For an Odoo
-source, continue to Match data after the complete capture is frozen. The
-current Odoo-source update workflow remains bound to the same configured
-database. Moving Product and Unit of Measure records into another Odoo
-instance is not yet an authorized load path.
+source, continue to **Connect destination Odoo** after the complete capture is
+frozen. You then match destination records, validate relationship order,
+approve the transfer, and run the read-only destination preflight. The current
+Odoo-to-Odoo path stops after that preflight and does not yet write records.
 
 ## Related documentation
 
