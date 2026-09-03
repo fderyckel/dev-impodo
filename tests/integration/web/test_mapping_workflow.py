@@ -79,7 +79,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("created with mapping contract v12", page.text)
-        self.assertIn("create a v13 successor revision", page.text)
+        self.assertIn("create a v14 successor revision", page.text)
 
     def test_unsupported_mapping_has_controlled_stage_and_project_pages(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(

@@ -84,8 +84,8 @@ applies those rules when documentation is created or rewritten.
 - [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
   delivery roadmap.
 - [Combine source columns into one Odoo field](plans/concatenate-source-columns-matching-rule.md)
-  — a proposal for a guided, reusable matching rule that joins two or more
-  source columns without changing the accepted workbook.
+  — the implemented design record for the guided, reusable matching rule that
+  joins two to five source columns without changing the accepted workbook.
 - [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
   the approved plan for applying an existing Recipe to fresh data and an Odoo
   target without repeating the six authoring stages.

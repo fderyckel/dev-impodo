@@ -161,6 +161,74 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace_id}/files",
         )
 
+    def test_source_page_distinguishes_confirmed_files_from_remaining_work(
+        self,
+    ) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "display_name": "Source confirmation states",
+                "source_mode": "FILE",
+            },
+        )
+        workspace_id = _created_workspace_id(self.app, created)
+        uploaded = self.client.post(
+            f"/workspaces/{workspace_id}/files",
+            data={"csrf_token": self.csrf, "revision": "1"},
+            files=[
+                (
+                    "source_file",
+                    ("customers.csv", b"code,name\nC001,Example\n", "text/csv"),
+                ),
+                (
+                    "source_file",
+                    ("products.csv", b"code,name\nP001,Example\n", "text/csv"),
+                ),
+            ],
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(uploaded.status_code, 303)
+
+        workspace_state = self.app.state.context.queries.get(workspace_id)
+        registered = self._post(
+            f"/workspaces/{workspace_id}/register",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(workspace_state.revision),
+            },
+        )
+        self.assertEqual(registered.status_code, 303)
+        source_page = self.client.get(registered.headers["location"])
+        self.assertEqual(source_page.status_code, 200)
+        self.assertIn("0 of 2 files confirmed", source_page.text)
+        self.assertEqual(source_page.text.count("Ready to confirm"), 6)
+        self.assertEqual(source_page.text.count("Confirm this file"), 2)
+
+        catalog = self.app.state.context.queries.get_source_catalogs(workspace_id)[0]
+        confirmed = self.client.post(
+            f"/workspaces/{workspace_id}/sources/{catalog.file_id}/configure",
+            data={
+                "csrf_token": self.csrf,
+                "action": "confirm",
+                "encoding": "utf-8",
+                "delimiter": ",",
+                "header_row_0": "1",
+                "selected_0": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(confirmed.status_code, 303)
+        confirmed_page = self.client.get(confirmed.headers["location"])
+        self.assertEqual(confirmed_page.status_code, 200)
+        self.assertIn("1 of 2 files confirmed", confirmed_page.text)
+        self.assertIn("Update confirmation", confirmed_page.text)
+        self.assertIn("Confirm this file", confirmed_page.text)
+        self.assertIn('data-source-review-confirmed="true"', confirmed_page.text)
+        self.assertIn('data-source-review-confirmed="false"', confirmed_page.text)
+
     def test_automatic_source_check_failure_keeps_the_retry_path(self) -> None:
         created = self._post(
             "/projects/new",

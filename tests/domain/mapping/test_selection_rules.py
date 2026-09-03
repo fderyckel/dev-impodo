@@ -236,7 +236,7 @@ class SelectionRuleTests(unittest.TestCase):
         self.assertEqual(zero_match.acknowledgement_reason, "zero_match")
         self.assertEqual(overlap.acknowledgement_reason, "overlap")
 
-    def test_contract_v13_round_trips_rules_without_changing_order(self) -> None:
+    def test_contract_v14_round_trips_rules_without_changing_order(self) -> None:
         definition = MappingDefinition(
             mapping_id=str(uuid4()),
             source_selection_hash=HASH_A,
@@ -253,13 +253,13 @@ class SelectionRuleTests(unittest.TestCase):
         restored = MappingDefinition.from_json(definition.to_json())
 
         self.assertEqual(restored, definition)
-        self.assertEqual(restored.contract_version, 13)
+        self.assertEqual(restored.contract_version, 14)
         legacy = MappingDefinition(
             mapping_id=definition.mapping_id,
             source_selection_hash=HASH_A,
             schema_hash=HASH_A,
             datasets=definition.datasets,
-            contract_version=12,
+            contract_version=13,
         )
         self.assertEqual(
             MappingDefinition.from_json(legacy.to_json()),

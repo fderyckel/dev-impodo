@@ -1296,10 +1296,18 @@ def _scalar_field_program(
     columns: Mapping[str, object],
     draft: _CompilationDraft,
 ) -> ColumnarScalarFieldProgram:
+    concatenation_sources = (
+        tuple(
+            _require_column(key, columns, draft)
+            for key in field.concatenation.source_column_keys
+        )
+        if field.concatenation is not None
+        else ()
+    )
     source = (
         _require_column(field.source_column_key, columns, draft)
         if field.source_column_key is not None
-        else None
+        else (concatenation_sources[0] if concatenation_sources else None)
     )
     provider_operation = {
         ScalarValueSource.SOURCE: ColumnarOperationKind.READ_SOURCE,
@@ -1360,14 +1368,7 @@ def _scalar_field_program(
             (item.source_value, item.target_value)
             for item in field.value_mappings
         ),
-        sources=(
-            tuple(
-                _require_column(key, columns, draft)
-                for key in field.concatenation.source_column_keys
-            )
-            if field.concatenation is not None
-            else ()
-        ),
+        sources=concatenation_sources,
         separator=(
             field.concatenation.separator
             if field.concatenation is not None
@@ -1451,7 +1452,9 @@ def _scalar_field_program(
         output_ordinal=output_ordinal,
         value_type=field.value_type,
         source_label=(
-            source.source_name
+            " + ".join(item.source_name for item in provider.sources)
+            if provider.operation is ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS
+            else source.source_name
             if source is not None
             else (
                 " + ".join(item.source_name for item in provider.sources)

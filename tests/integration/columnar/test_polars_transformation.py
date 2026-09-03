@@ -26,12 +26,14 @@ from impodo.domain.compiler.columnar_transformation import (
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
 from impodo.domain.mapping.contracts import (
     MAX_VALUE_MAPPINGS,
+    ConcatenationBlankHandling,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
+    ScalarConcatenation,
     ScalarFieldMapping,
     ScalarValueSource,
     ValueMapping,
@@ -220,6 +222,87 @@ class PolarsTransformationParityTests(unittest.TestCase):
                 batch.rule_impacts,
             )
         self.assertEqual(collector.report(), expected_report)
+
+    def test_combined_source_columns_match_python_oracle_for_both_blank_policies(
+        self,
+    ) -> None:
+        for blank_handling in ConcatenationBlankHandling:
+            with self.subTest(blank_handling=blank_handling.value):
+                combined = ScalarFieldMapping(
+                    target_field="display_name",
+                    value_source=ScalarValueSource.CONCATENATE,
+                    concatenation=ScalarConcatenation(
+                        source_column_keys=(
+                            "product.name",
+                            "product.category",
+                        ),
+                        separator=" / ",
+                        blank_handling=blank_handling,
+                        trim_parts=True,
+                    ),
+                )
+                definition = canonicalize_mapping_definition(
+                    MappingDefinition(
+                        mapping_id="mapping-concatenation",
+                        source_selection_hash=self.selection.content_hash,
+                        schema_hash=HASH_B,
+                        datasets=(
+                            DatasetMapping(
+                                dataset_id=DATASET_ID,
+                                target_model="product.template",
+                                source_identity_column_keys=("product.id",),
+                                target_identity=(
+                                    IdentityComponentMapping(
+                                        source_column_keys=("product.sku",),
+                                        target_fields=("default_code",),
+                                    ),
+                                ),
+                                fields=(combined,),
+                            ),
+                        ),
+                    )
+                )
+                expected_records, expected_report = _python_oracle(
+                    definition,
+                    self.selection,
+                    self.rows,
+                )
+                decision = compile_columnar_transformation_program(
+                    definition,
+                    self.selection,
+                    DATASET_ID,
+                )
+                self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+                assert decision.program is not None
+                policy_root = self.root / blank_handling.value
+                policy_root.mkdir()
+                destination, prepared = _write_prepared_snapshot(
+                    policy_root,
+                    self.path,
+                    self.snapshot,
+                    decision.program,
+                )
+                collector = _TransformationImpactCollector(
+                    mapping_content_hash=definition.content_hash,
+                    detail_limit=10_000,
+                )
+                records = []
+                for batch in iter_polars_prepared_batches(
+                    destination,
+                    prepared,
+                    self.snapshot,
+                    decision.program,
+                    batch_size=2,
+                ):
+                    records.extend(batch.records)
+                    collector.record_precomputed(
+                        batch.impact_counts,
+                        batch.impacts,
+                        batch.rule_impacts,
+                    )
+
+                self.assertEqual(tuple(records), expected_records)
+                self.assertEqual(collector.report(), expected_report)
 
     def test_incoming_relationship_keys_match_python_oracle_across_batches(
         self,

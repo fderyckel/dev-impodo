@@ -216,6 +216,75 @@ class OrderedTextStepFormTests(unittest.TestCase):
         )
         self.assertEqual(steps[1].characters, " .-")
 
+    def test_mapping_form_builds_an_ordered_combined_text_provider(self) -> None:
+        source = SourceDataset(
+            dataset_id="dataset:contacts",
+            name="Contacts",
+            source=FileSourceBinding(
+                file_id="file:contacts",
+                table_key="csv",
+                source_sha256="a" * 64,
+                catalog_hash="sha256:" + "b" * 64,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
+            row_count=2,
+            columns=(
+                SourceDatasetColumn(1, "First name", "contact.first", "string"),
+                SourceDatasetColumn(2, "Last name", "contact.last", "string"),
+            ),
+        )
+        schema = SimpleNamespace(
+            models=(
+                SchemaModel(
+                    "res.partner",
+                    "Contact",
+                    (
+                        SchemaField(
+                            name="name",
+                            label="Name",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                        ),
+                    ),
+                ),
+            )
+        )
+        form = FormData(
+            (
+                ("target_model_0", "res.partner"),
+                ("scalar_value_source_0_0", "concatenate"),
+                ("scalar_concat_source_0_0_0", "contact.last"),
+                ("scalar_concat_source_0_0_1", "contact.first"),
+                ("scalar_concat_separator_0_0", "comma_space"),
+                ("scalar_concat_blank_0_0", "skip_blank"),
+                ("scalar_concat_trim_0_0", "1"),
+                ("scalar_type_0_0", "string"),
+            )
+        )
+
+        datasets = _mapping_datasets_from_form(
+            form,
+            SimpleNamespace(datasets=(source,)),
+            schema,
+            SimpleNamespace(business_keys=()),
+        )
+
+        mapping = datasets[0].fields[0]
+        self.assertEqual(mapping.value_source.value, "concatenate")
+        assert mapping.concatenation is not None
+        self.assertEqual(
+            mapping.concatenation.source_column_keys,
+            ("contact.last", "contact.first"),
+        )
+        self.assertEqual(mapping.concatenation.separator, ", ")
+        self.assertTrue(mapping.concatenation.trim_parts)
+
     def test_rejects_tampered_or_oversized_step_payloads(self) -> None:
         valid = {
             "kind": "find_replace",
@@ -253,6 +322,9 @@ class OrderedTextStepFormTests(unittest.TestCase):
         allowed = _mapping_allowed_fields(form, selection, schema)
 
         self.assertIn("scalar_text_steps_0_0", allowed)
+        self.assertIn("scalar_concat_source_0_0_0", allowed)
+        self.assertIn("scalar_concat_source_0_0_4", allowed)
+        self.assertIn("scalar_concat_separator_0_0", allowed)
         self.assertNotIn("scalar_search_0_0", allowed)
         self.assertNotIn("scalar_replacement_0_0", allowed)
         self.assertNotIn("scalar_search_mode_0_0", allowed)

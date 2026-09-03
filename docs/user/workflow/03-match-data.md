@@ -24,8 +24,8 @@ record identity automatically.
 1. Open **Match data** and work through one table at a time.
 2. Choose whether the table is a reference, create, update, or upsert dataset.
 3. Match the source identity to the confirmed Odoo business key.
-4. For each writable field, choose its source value, a fixed value, or an
-   explicit Odoo decision. Use **Let Odoo choose** only when the target
+4. For each writable field, choose one source value, combine source columns,
+   supply a fixed value, or make an explicit Odoo decision. Use **Let Odoo choose** only when the target
    configuration supplies a default. Use **Odoo manages this field** only for
    a field Odoo creates or maintains itself. When you select **Let Odoo
    choose**, Impodo saves that decision and immediately checks the current
@@ -107,6 +107,32 @@ shared policy. It may show the bounded Odoo choices without asking you to add
 the supporting record type to the migration scope. A changed relationship,
 key, or Odoo field contract blocks the check and returns ownership to this
 stage.
+
+### Combine source columns into one text field
+
+For an Odoo text field, select **Combine source columns** when one target value
+is split across two to five columns. Choose the columns in the order Impodo
+should join them. Use **Up**, **Down**, **Remove**, and **Add source column** to
+make that order explicit.
+
+Under **Put between values**, choose a space, no separator, comma and space,
+hyphen, or custom text of up to 20 characters. **Remove outer spaces from each
+part** is selected by default. Under **When one part is blank**:
+
+- **Skip that part** removes blank parts before inserting separators. If every
+  part is blank, the result is blank.
+- **Block the row for review** prevents a partial value whenever any selected
+  part is blank.
+
+For example, combine `First name` and `Last name` with one space. `Ada` and
+`Mensah` becomes `Ada Mensah`; `Luis` and a blank last name becomes `Luis` when
+blank parts are skipped. The preview shows the first-row parts and result.
+Select **Save progress**, then **Check matches** to validate the complete
+frozen source. The advanced formula control is unavailable for this provider,
+but the normal text cleanup and final checks still run after the values are
+combined.
+
+![Current combined-source-column controls for a fictional Contact text field.](../../images/user/11e-mapping-combined-columns.png)
 
 ### Choose where a linked value comes from
 
@@ -213,6 +239,8 @@ Confirming these choices still does not contact or change Odoo.
   distinct incoming records.
 - Ordered choice rules use the intended source columns, and every row resolves
   to a current Odoo choice or is deliberately blocked for review.
+- Combined text fields use the intended column order, separator, trimming, and
+  blank-part decision.
 - Many2one, One2many, and Many2many relationships use portable keys.
 - Cleanup rules change only the intended values and run in the intended order.
 - When you use the optional rule-effects preview, choice rules show how many

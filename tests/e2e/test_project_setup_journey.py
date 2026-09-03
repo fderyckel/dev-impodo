@@ -138,7 +138,9 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Source data", source_discovery.text)
         self.assertIn('aria-current="step"', source_discovery.text)
         self.assertIn('aria-current="page"', source_discovery.text)
-        self.assertIn("2/2 checked", source_discovery.text)
+        self.assertIn("0 of 2 files confirmed", source_discovery.text)
+        self.assertIn("Ready to confirm", source_discovery.text)
+        self.assertIn("Confirm this file", source_discovery.text)
         self.assertIn("Check files again", source_discovery.text)
         self.assertNotIn("Your files have not been checked yet", source_discovery.text)
         self.assertIn("data-source-review-page", source_discovery.text)
@@ -192,6 +194,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         )
         configured_page = self.client.get(configured.headers["location"])
         self.assertIn("Confirmed customers.csv", configured_page.text)
+        self.assertIn("1 of 2 files confirmed", configured_page.text)
+        self.assertIn("Update confirmation", configured_page.text)
+        self.assertIn("Confirm this file", configured_page.text)
+        self.assertIn('data-source-review-confirmed="true"', configured_page.text)
 
         workbook_configured = self.client.post(
             f"/workspaces/{workspace_id}/sources/{product_catalog.file_id}/configure",
@@ -213,6 +219,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         )
         configured_page = self.client.get(workbook_configured.headers["location"])
         self.assertIn("Confirmed products.xlsx", configured_page.text)
+        self.assertIn("2 of 2 files confirmed", configured_page.text)
         self.assertIn("Save the tables for this data version", configured_page.text)
         self.assertIn(
             f'action="/workspaces/{workspace_id}/datasets/freeze"',
@@ -783,6 +790,9 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("rememberSourceReviewPosition", source_workflow_script)
         self.assertIn("restoreSourceReviewPosition", source_workflow_script)
         self.assertIn("data-source-review-form", source_workflow_script)
+        self.assertIn("markConfirmationDirty", source_workflow_script)
+        self.assertIn("Changes not confirmed", source_workflow_script)
+        self.assertIn("Confirm changes", source_workflow_script)
         self.assertIn("datasetNameViolations", source_workflow_script)
         self.assertIn("Give each table a different name", source_workflow_script)
         self.assertIn("scheduleScalarCatalogSearch", mapping_script)

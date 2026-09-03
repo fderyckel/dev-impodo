@@ -209,6 +209,44 @@ document.addEventListener("DOMContentLoaded", () => {
       rememberSourceReviewPosition(form);
     });
   }
+  for (const card of document.querySelectorAll(
+    '[data-source-review-card][data-source-review-confirmed="true"]'
+  )) {
+    const form = card.querySelector("form[data-source-review-form]");
+    const confirmationAction = form?.querySelector(
+      "[data-source-confirmation-action]"
+    );
+    const confirmationStatuses = Array.from(
+      card.querySelectorAll("[data-source-confirmation-status]")
+    );
+    const fileStatus = document.querySelector(
+      `[data-source-file-status="${card.dataset.sourceReviewCard}"]`
+    );
+    let confirmationIsDirty = false;
+    const markConfirmationDirty = () => {
+      if (confirmationIsDirty) {
+        return;
+      }
+      confirmationIsDirty = true;
+      card.classList.remove("is-confirmed");
+      card.classList.add("has-unconfirmed-changes");
+      for (const status of [...confirmationStatuses, fileStatus]) {
+        if (!status) {
+          continue;
+        }
+        status.classList.remove("complete");
+        status.classList.add("attention");
+        status.textContent = "Changes not confirmed";
+      }
+      if (confirmationAction) {
+        confirmationAction.classList.remove("secondary");
+        confirmationAction.classList.add("primary");
+        confirmationAction.textContent = "Confirm changes";
+      }
+    };
+    form?.addEventListener("input", markConfirmationDirty);
+    form?.addEventListener("change", markConfirmationDirty);
+  }
   for (const group of document.querySelectorAll("[data-source-choice-group]")) {
     const wholeWorksheet = group.querySelector("[data-source-whole]");
     const separateRegions = Array.from(

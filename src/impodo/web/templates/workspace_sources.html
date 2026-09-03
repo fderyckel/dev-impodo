@@ -10,7 +10,10 @@
       <h1>Check your source files</h1>
       <p>Confirm the tables and columns Impodo found in {{ migration_project.display_name }}.</p>
     </div>
-    <span class="status registered">{{ catalogs|length }}/{{ workspace_state.source_files|length }} checked</span>
+    <span class="status source-confirmation-status {% if workspace_state.source_files and configurations|length == workspace_state.source_files|length %}complete{% elif catalogs %}attention{% endif %}">
+      {% if workspace_state.source_files and configurations|length == workspace_state.source_files|length %}{{ app_icon("check-circle-fill", "source-confirmation-icon") }}{% endif %}
+      {{ configurations|length }} of {{ workspace_state.source_files|length }} file{% if workspace_state.source_files|length != 1 %}s{% endif %} confirmed
+    </span>
   </div>
 
   <section class="form-card" id="source-files">
@@ -18,17 +21,25 @@
     <p>Impodo checks each file without changing the original.</p>
     <div class="file-list">
       {% for file in workspace_state.source_files %}
+        {% set file_catalog = catalogs|selectattr("file_id", "equalto", file.file_id)|list %}
+        {% set file_configuration = configurations.get(file.file_id) %}
         <div class="file-row">
           <div>
             <strong>{{ file.display_name }}</strong>
             <span>{{ file.size_bytes }} bytes</span>
           </div>
           <div class="source-file-actions">
-            <span class="status">
-              {% if catalogs|selectattr("file_id", "equalto", file.file_id)|list %}
-                Checked
+            <span
+              class="status source-confirmation-status {% if file_configuration %}complete{% elif file_catalog %}attention{% endif %}"
+              data-source-file-status="{{ file.file_id }}"
+            >
+              {% if file_configuration %}
+                {{ app_icon("check-circle-fill", "source-confirmation-icon") }}
+                Confirmed
+              {% elif file_catalog %}
+                Ready to confirm
               {% else %}
-                Pending
+                Pending check
               {% endif %}
             </span>
             {% if can_remove_source_files %}
@@ -79,15 +90,28 @@
 
   {% for catalog in catalogs %}
     {% set configuration = configurations.get(catalog.file_id) %}
-    <section class="form-card catalog-card" id="source-{{ catalog.file_id }}" data-source-review-card="{{ catalog.file_id }}">
+    <section
+      class="form-card catalog-card {% if configuration %}is-confirmed{% else %}needs-confirmation{% endif %}"
+      id="source-{{ catalog.file_id }}"
+      data-source-review-card="{{ catalog.file_id }}"
+      data-source-review-confirmed="{{ 'true' if configuration else 'false' }}"
+    >
       <div class="catalog-heading">
         <div>
           <p class="eyebrow">{{ catalog.format }} source</p>
           <h2>{{ catalog.display_name }}</h2>
           <p class="muted">{{ catalog.source_size_bytes }} bytes · checked</p>
         </div>
-        <span class="status registered">
-          {% if configuration %}Confirmed{% else %}Ready to review{% endif %}
+        <span
+          class="status source-confirmation-status {% if configuration %}complete{% else %}attention{% endif %}"
+          data-source-confirmation-status
+        >
+          {% if configuration %}
+            {{ app_icon("check-circle-fill", "source-confirmation-icon") }}
+            Confirmed
+          {% else %}
+            Ready to confirm
+          {% endif %}
         </span>
       </div>
 
@@ -310,9 +334,28 @@
             I reviewed the warnings shown for the selected tables.
           </label>
         {% endif %}
-        <div class="actions">
+        <div class="actions source-confirmation-actions">
+          <span
+            class="status source-confirmation-status {% if configuration %}complete{% else %}attention{% endif %}"
+            data-source-confirmation-status
+            role="status"
+          >
+            {% if configuration %}
+              {{ app_icon("check-circle-fill", "source-confirmation-icon") }}
+              Confirmed
+            {% else %}
+              Ready to confirm
+            {% endif %}
+          </span>
           <button class="button secondary" type="submit" name="action" value="preview">Update preview</button>
-          <button class="button primary" type="submit" name="action" value="confirm" {% if not source_state.has_usable_table %}disabled{% endif %}>These tables look correct</button>
+          <button
+            class="button {% if configuration %}secondary{% else %}primary{% endif %}"
+            type="submit"
+            name="action"
+            value="confirm"
+            data-source-confirmation-action
+            {% if not source_state.has_usable_table %}disabled{% endif %}
+          >{% if configuration %}Update confirmation{% else %}Confirm this file{% endif %}</button>
         </div>
       </form>
     </section>

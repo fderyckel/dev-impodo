@@ -325,6 +325,14 @@
   padding-top: .65rem;
 }
 
+[data-concatenation-source-row][hidden] {
+  display: none;
+}
+
+[data-concatenation-custom-separator][hidden] {
+  display: none;
+}
+
 @media (max-width: 860px) {
   .mapping-table-fields-heading {
     align-items: stretch;

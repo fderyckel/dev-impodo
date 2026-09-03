@@ -1,9 +1,9 @@
 # Combine source columns into one Odoo field
 
-## Status and proposed decision
+## Status and implemented decision
 
-**Status:** Proposed. This feature is not implemented as a guided matching
-rule.
+**Status:** Implemented in the Match data stage with mapping contract version
+14.
 
 Add **Combine source columns** as a first-class value choice in **Match data**.
 The rule lets a data manager select two to five source columns, arrange their
@@ -23,11 +23,11 @@ Odoo expects one field. Common examples include:
 - `Street number` and `Street name` becoming Odoo `Street`; and
 - `Product family` and `Product code` becoming one display reference.
 
-Today, a data manager can edit the workbook before uploading it. That creates
+Before this delivery, a data manager could edit the workbook before uploading it. That creates
 another version of the source outside Impodo and makes the preparation rule
 harder to review and reuse.
 
-Impodo also has an advanced safe-formula control that can join columns. For
+Impodo also had an advanced safe-formula workaround that can join columns. For
 example, `strip(concat(column_2, " ", column_3))` can join two values. This
 keeps the change inside Impodo, but the data manager must identify columns by
 ordinal and author a formula. The rule is therefore difficult to discover,
@@ -59,7 +59,7 @@ the combination becomes visible, checked, and reusable as part of the
 mapping. The next action is **Save progress**, followed by the existing
 **Check matches** and **Confirm field matches** actions.
 
-## Proposed browser rule
+## Implemented browser rule
 
 ### Value choice
 
@@ -115,11 +115,10 @@ source columns**. This keeps one visible rule responsible for constructing the
 value. Existing casing, whole-value whitespace cleanup, find-and-replace, and
 final text validation remain available after the combination.
 
-## Proposed portable contract
+## Portable contract
 
-Increase the mapping contract version when this feature is implemented. Add
-`concatenate` to `ScalarValueSource` and add one closed configuration object to
-`ScalarFieldMapping`.
+Mapping contract version 14 adds `concatenate` to `ScalarValueSource` and one
+closed configuration object to `ScalarFieldMapping`.
 
 The portable meaning should be equivalent to:
 
@@ -156,7 +155,7 @@ The contract must enforce these rules:
   apply. A row that exceeds a limit receives a stable blocking issue rather
   than a truncated value.
 
-The provider should use stable source-column keys in portable evidence. Source
+The provider uses stable source-column keys in portable evidence. Source
 column names and ordinals remain display information and must not define the
 Recipe rule.
 
@@ -172,7 +171,7 @@ The existing mapping lifecycle remains unchanged:
 4. **Confirm field matches** binds the exact valid revision.
 5. Recipe publication stores the rule as portable reusable meaning.
 
-The optional effect report should distinguish these outcomes:
+The optional effect report distinguishes these outcomes:
 
 - all selected parts contributed;
 - one or more blank parts were skipped;
@@ -195,7 +194,7 @@ from a similar label.
 
 The feature belongs to the existing **Match data** stage.
 
-| Responsibility | Proposed owner |
+| Responsibility | Owner |
 | --- | --- |
 | Portable provider and serialization | `domain/mapping/contracts.py` |
 | Shared row semantics | `domain/mapping/scalar_values.py` |
@@ -208,47 +207,48 @@ The feature belongs to the existing **Match data** stage.
 | Optional rule-effect evidence | `domain/staging/transformation_impact.py` and `application/workspace/mapping/transformation_impact.py` |
 
 The shared scalar evaluator remains the row-level oracle. The columnar
-compiler must produce equivalent native expressions and must not use a Python
-user-defined function for the supported rule. No preview, validation, or
-preparation path may query Odoo or a repository once per source row.
+compiler produces equivalent native expressions without a Python user-defined
+function. No preview, validation, or preparation path queries Odoo or a
+repository once per source row.
 
-## Delivery sequence
+## Delivered slices
 
 ### Slice 1 — Contract and row semantics
 
-- Add the versioned portable provider and reject mixed provider shapes.
-- Implement ordered concatenation, blank handling, trimming, separator
+- Added the versioned portable provider and rejected mixed provider shapes.
+- Implemented ordered concatenation, blank handling, trimming, separator
   insertion, and stable row issues in the shared evaluator.
-- Add round-trip, hashing, invalidation, output-limit, and edge-case tests.
+- Added round-trip, hashing, invalidation, output-limit, and edge-case tests.
 
 ### Slice 2 — Native preparation and Recipe reuse
 
-- Compile the provider to a native columnar operation with parity against the
+- Compiled the provider to a native columnar operation with parity against the
   row oracle.
-- Carry all contributing source keys into source lineage and Recipe
+- Carried all contributing source keys into source lineage and Recipe
   requirements.
-- Verify the rule against later compatible Data versions and fail closed when
+- Verified the rule against later compatible Data versions and fail closed when
   a required column is missing or ambiguous.
 
 ### Slice 3 — Guided authoring and review
 
-- Add the ordered source-column control, separator choice, blank choice, and
+- Added the ordered source-column control, separator choice, blank choice, and
   bounded sample.
-- Extend the optional effect report with concatenation outcomes.
-- Preserve draft recovery, strict form-field allowlisting, and complete
+- Extended the optional effect report with concatenation outcomes.
+- Preserved draft recovery, strict form-field allowlisting, and complete
   off-screen validation blockers.
 
 ### Slice 4 — Documentation and browser verification
 
-- Update the paired user and developer **Match data** pages only after the
-  feature is implemented.
-- Update `docs/workflow.yml`, the Python code map, relevant docstrings, and the
+- Updated the paired user and developer **Match data** pages after the feature
+  was implemented.
+- Updated `docs/workflow.yml`, the Python code map, relevant docstrings, and the
   current screenshots when the browser decision point changes.
-- Verify the authenticated browser at 1440 by 1024 with fictional source data.
+- Verified the authenticated browser at 1440 by 1024 with fictional source
+  data.
 
 ## Acceptance criteria
 
-The feature is complete when all of these statements are true:
+The delivered feature satisfies these acceptance criteria:
 
 1. A data manager can combine two source columns without editing Excel and
    without writing a formula.
@@ -286,10 +286,10 @@ The first delivery does not:
 Those needs should be evaluated separately after the guided two-column use
 case has real usage evidence.
 
-## Interim Impodo workaround
+## Former Impodo workaround
 
-Until the guided rule is implemented, a data manager can keep the source file
-unchanged by using the current advanced formula control:
+Before the guided rule was implemented, a data manager could keep the source
+file unchanged by using the advanced formula control:
 
 1. Map either contributing column as the field's source value.
 2. Open **Advanced: formula or custom calculation**.
@@ -299,6 +299,5 @@ unchanged by using the current advanced formula control:
    empty** when the source can contain blank or space-only cells.
 5. Save, check, preview, and confirm the mapping through the normal workflow.
 
-This workaround is suitable only when the displayed column references and the
-preview have been checked carefully. The proposed guided rule removes that
-ordinal-based authoring burden.
+The guided **Combine source columns** provider now replaces this workaround for
+two-to-five-column text values and removes the ordinal-based authoring burden.

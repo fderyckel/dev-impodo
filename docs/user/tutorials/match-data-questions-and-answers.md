@@ -60,6 +60,7 @@ For each field, use the menu in **Use value from**. The available choices are:
 | Choice in Impodo | What it does | Good example |
 | --- | --- | --- |
 | **Source value** | Sends one selected source column. | `Name` becomes Contact Name. |
+| **Combine source columns** | Joins two to five source columns into one Odoo text value. | `First name` and `Last name` become Contact Name. |
 | **Same value for every row** | Sends one fixed value. | Every imported contact receives one agreed company. |
 | **Source value, or backup when blank** | Uses the source value unless it is blank, then uses the saved backup. | Use `Unnamed contact` only when a blank name is approved. |
 | **Let Odoo choose** | Leaves a required field for a captured, usable Odoo create default. | Odoo supplies an agreed default company type. |
@@ -74,6 +75,27 @@ missing required value.
 🟡 A backup is a business decision, not an automatic repair. For example, a
 blank email should not become a made-up address. Use a backup only when it is
 valid for every blank row.
+
+## How do I join First name and Last name?
+
+Find the Odoo **Name** field and select **Combine source columns** under **Use
+value from**. Choose `First name` as Part 1 and `Last name` as Part 2, then keep
+**One space** under **Put between values**.
+
+Choose what a blank part means:
+
+- **Skip that part** produces `Luis` when the last name is blank and avoids a
+  trailing space. If every part is blank, the combined value is blank.
+- **Block the row for review** is appropriate when a partial name is not
+  acceptable.
+
+Keep **Remove outer spaces from each part** selected unless spaces inside the
+source values are intentional. You can add up to five parts and use **Up** or
+**Down** to set their order. Check the preview, select **Save progress**, then
+select **Check matches** so the whole frozen source is checked. You do not need
+an advanced formula or an edited workbook for this rule.
+
+![Current Match data controls combining two fictional source columns into one Odoo text field.](../../images/user/11e-mapping-combined-columns.png)
 
 ## How do I convert a value without changing the source file?
 
@@ -335,7 +357,7 @@ confirmation no longer describe the current rule.
 | Two conditional rules both match | Reorder them deliberately and inspect **Review rule effects**. |
 | An advanced formula shows **Must fix** | Follow the correction beside the formula. Saving preserves the draft, but correct the issue before **Check matches**. |
 | A required field has no source value | Map it, use a verified Odoo default, or use an Odoo-managed disposition only when Impodo offers it. |
-| You need to join First name and Last name | This guided rule is **not yet available**. Keep the source prepared as one field or use the reviewed advanced calculation while the [combine-source-columns proposal](../../plans/concatenate-source-columns-matching-rule.md) remains a plan. |
+| You need to join First name and Last name | Choose **Combine source columns**, set their order and separator, and decide whether a blank part is skipped or blocks the row. |
 | You changed a confirmed rule | Save, check, review again if needed, and confirm the new exact revision. |
 
 ## Before I continue to Prepare data

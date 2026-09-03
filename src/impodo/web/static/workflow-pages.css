@@ -3,6 +3,34 @@
   margin-top: 1.25rem;
 }
 
+.catalog-card.is-confirmed {
+  border-left: 5px solid #4d7c5b;
+}
+
+.catalog-card.needs-confirmation,
+.catalog-card.has-unconfirmed-changes {
+  border-left: 5px solid #c08018;
+}
+
+.status.source-confirmation-status {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.source-confirmation-icon {
+  width: .9rem;
+  height: .9rem;
+}
+
+.source-confirmation-actions {
+  align-items: center;
+}
+
+.source-confirmation-actions .source-confirmation-status {
+  margin-right: auto;
+}
+
 .key-decision-summary {
   border: 1px solid var(--line);
   border-left: 3px solid var(--impodo-red);

@@ -8,11 +8,15 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.recipe_compilation_service import RecipeCompiler
+from impodo.application.recipe_application_compilation import (
+    RecipeApplicationCompiler,
+)
 from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan, RelatedDatasetRule
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
+    ConcatenationBlankHandling,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -20,7 +24,9 @@ from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
+    ScalarConcatenation,
     ScalarFieldMapping,
+    ScalarValueSource,
     ValueMapping,
 )
 from impodo.domain.recipe_parameters import (
@@ -202,6 +208,95 @@ def _publish(
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):
+    def test_combined_source_columns_keep_order_and_policy_in_recipe_reuse(
+        self,
+    ) -> None:
+        project_id = str(uuid4())
+        customers = _dataset(
+            "Customers",
+            (
+                ("customer_code", "string"),
+                ("first_name", "string"),
+                ("last_name", "string"),
+            ),
+            "6",
+        )
+        selection = SourceSelection(
+            str(uuid4()),
+            1,
+            project_id,
+            datetime.now(timezone.utc),
+            "Data manager",
+            (customers,),
+            "sha256:" + "6" * 64,
+        )
+        mapping = DatasetMapping(
+            dataset_id=customers.dataset_id,
+            target_model="res.partner",
+            source_identity_column_keys=(_column(customers, "customer_code"),),
+            target_identity=(
+                IdentityComponentMapping(
+                    (_column(customers, "customer_code"),),
+                    ("ref",),
+                ),
+            ),
+            fields=(
+                ScalarFieldMapping(
+                    target_field="name",
+                    value_source=ScalarValueSource.CONCATENATE,
+                    concatenation=ScalarConcatenation(
+                        source_column_keys=(
+                            _column(customers, "last_name"),
+                            _column(customers, "first_name"),
+                        ),
+                        separator=", ",
+                        blank_handling=ConcatenationBlankHandling.BLOCK_ROW,
+                        trim_parts=False,
+                    ),
+                ),
+            ),
+        )
+        recipe = _publish(
+            base_selection=selection,
+            mapping_selection=selection,
+            mappings=(mapping,),
+            models=(
+                SchemaModel(
+                    "res.partner",
+                    "Contact",
+                    (_field("ref"), _field("name")),
+                ),
+            ),
+            business_keys=(_key("res.partner", "ref"),),
+        )
+
+        field = recipe["mapping"]["datasets"][0]["fields"][0]
+        provider = field["provider"]
+        self.assertEqual(provider["kind"], "CONCATENATE")
+        self.assertEqual(provider["separator"], ", ")
+        self.assertEqual(provider["blank_handling"], "block_row")
+        self.assertFalse(provider["trim_parts"])
+        source_ids = tuple(provider["source_column_ids"])
+        rebound = RecipeApplicationCompiler()._field(
+            field,
+            {
+                source_ids[0]: "fresh.last_name",
+                source_ids[1]: "fresh.first_name",
+            },
+            {},
+        )
+        assert rebound.concatenation is not None
+        self.assertEqual(
+            rebound.concatenation.source_column_keys,
+            ("fresh.last_name", "fresh.first_name"),
+        )
+        self.assertEqual(rebound.concatenation.separator, ", ")
+        self.assertIs(
+            rebound.concatenation.blank_handling,
+            ConcatenationBlankHandling.BLOCK_ROW,
+        )
+        self.assertFalse(rebound.concatenation.trim_parts)
+
     def test_reviewed_country_reference_compiles_without_primary_schema_capture(
         self,
     ):
@@ -264,7 +359,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             mappings=(mapping,),
             models=(partner_model,),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=13,
+            mapping_contract_version=14,
         )
         with_related_capture = _publish(
             base_selection=selection,
@@ -282,7 +377,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                 ),
             ),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=13,
+            mapping_contract_version=14,
         )
 
         self.assertEqual(without_related_capture, with_related_capture)
@@ -319,7 +414,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                     ),
                 ),
                 business_keys=(_key("res.partner", "ref"),),
-                mapping_contract_version=13,
+                mapping_contract_version=14,
             )
 
     def test_product_recipe_compiles_scalar_and_target_reference_meaning(self):

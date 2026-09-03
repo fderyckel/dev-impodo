@@ -1193,6 +1193,7 @@ def _apply_scalar_mappings(
                     proposed_value=proposed,
                     rules=field_plan.rules,
                     outcome=outcome,
+                    message=_concatenation_impact_message(field, raw),
                 )
         except ScalarValueRuleError as error:
             values[synthetic_field(field_plan.index)] = InvalidPreparedValue(
@@ -1428,6 +1429,21 @@ def _transformation_outcome(
     if not _display_values_equal(raw_value, proposed_value):
         return "changed"
     return "unchanged"
+
+
+def _concatenation_impact_message(field, raw_value: object) -> str:
+    if field.value_source is not ScalarValueSource.CONCATENATE:
+        return ""
+    parts = raw_value if isinstance(raw_value, tuple) else ()
+    blank_count = sum(
+        value is None or not str(value).strip()
+        for value in parts
+    )
+    if parts and blank_count == len(parts):
+        return "All selected source parts were blank."
+    if blank_count:
+        return "Blank source parts were skipped."
+    return ""
 
 
 def _fallback_was_used(field, raw_value: object) -> bool:

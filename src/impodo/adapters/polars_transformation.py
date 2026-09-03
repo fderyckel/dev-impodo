@@ -2119,7 +2119,7 @@ def _scalar_error_messages(
         message = "A value rule produced more than 1000000 characters"
         return error, message, message
     if error == "SOURCE_CONCATENATION_PART_BLANK":
-        message = "A required source part for this combined value is blank."
+        message = "A required part of the combined value is blank"
         return error, message, message
     if error == "SOURCE_SELECTION_RULE_UNRESOLVED":
         message = "No choice rule matched and no otherwise choice was set."
@@ -2255,6 +2255,16 @@ def _scalar_impact(
         )
         proposed_display = _display_value(proposed)
         message = ""
+        if field.provider.operation is ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS:
+            blank_count = sum(
+                raw_by_ordinal[source.ordinal][1] == int(SourceCellKind.NULL)
+                or not str(raw_by_ordinal[source.ordinal][0] or "").strip()
+                for source in field.provider.sources
+            )
+            if blank_count == len(field.provider.sources):
+                message = "All selected source parts were blank."
+            elif blank_count:
+                message = "Blank source parts were skipped."
         if field.provider.operation in {
             ColumnarOperationKind.USE_CONSTANT,
             ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS,

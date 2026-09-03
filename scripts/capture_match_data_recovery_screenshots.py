@@ -2,7 +2,7 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional test data, serves the current application on an ephemeral
-loopback port, authenticates through the normal launch route, and writes four
+loopback port, authenticates through the normal launch route, and writes five
 1440 by 1024 PNG files under ``docs/images/user``.
 """
 
@@ -94,6 +94,18 @@ def _configure_formula(page, formula: str, *, source_column_key: str) -> None:
     formula_box.blur()
 
 
+def _configure_concatenation(page, source_column_keys: tuple[str, str]) -> None:
+    row = page.locator('tr[data-target-field="field_0000"]')
+    row.locator("[data-value-source]").select_option("concatenate")
+    sources = row.locator("[data-concatenation-source]")
+    for index, source_column_key in enumerate(source_column_keys):
+        source = sources.nth(index)
+        source.focus()
+        source.select_option(source_column_key)
+    row.locator("[data-provider-concatenation]").scroll_into_view_if_needed()
+    page.evaluate("window.scrollBy(0, 180)")
+
+
 def _capture(page, target: Path) -> None:
     page.screenshot(path=str(target), full_page=False)
     print(f"Captured {target.relative_to(REPOSITORY_ROOT)}")
@@ -156,6 +168,21 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                     "The current Match data page did not render the fictional "
                     f"formula field. URL={page.url!r}; status={status}; body={summary!r}"
                 )
+
+            _configure_concatenation(
+                page,
+                (dataset.columns[0].stable_key, dataset.columns[1].stable_key),
+            )
+            expect(
+                formula_row.locator("[data-provider-concatenation]")
+            ).to_be_visible()
+            expect(formula_row.locator("[data-preview-proposed]")).to_contain_text(
+                "P001 Example"
+            )
+            _capture(
+                page,
+                output_directory / "11e-mapping-combined-columns.png",
+            )
 
             _configure_formula(
                 page,

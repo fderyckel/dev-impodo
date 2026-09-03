@@ -131,13 +131,22 @@ integrated Test workflow.
 Each dataset declares one permitted target model and one operating mode:
 `upsert`, `create`, `reference`, or `odoo_pinned_update`. Each scalar target
 field has exactly one provider. The provider can use a source value, a
-constant, a source value with a fallback, ordered conditional Selection rules,
-or no sent value so Odoo can apply its default. Transformations, null behavior, comparison policy, and
+constant, a source value with a fallback, an ordered two-to-five-column text
+concatenation, ordered conditional Selection rules, or no sent value so Odoo
+can apply its default. Transformations, null behavior, comparison policy, and
 relationship resolution use closed, versioned choices rather than arbitrary
 code.
 
-Mapping contract version 13 retains the `conditional_rules` scalar provider
-introduced in version 12. A `SelectionRuleSet` preserves author order, applies
+Mapping contract version 14 adds the `concatenate` scalar provider and its
+closed `ScalarConcatenation` configuration. It binds two to five distinct
+stable source-column keys in order, a separator of at most 20 characters,
+`skip_blank` or `block_row`, and per-part trimming. It is valid only for an
+Odoo `char` or `text` target with canonical string output. The contract rejects
+a concatenation that also carries a single source, literal, fallback,
+conditional rules, inline value matches, reference lookup, or formula.
+
+Version 14 retains the `conditional_rules` scalar provider introduced in
+version 12. A `SelectionRuleSet` preserves author order, applies
 first-match-wins semantics, and ends with either one captured Odoo technical
 choice or an explicit unresolved-row block. Each rule combines one to eight
 typed source conditions with `all` or `any`; the complete field is bounded to
@@ -151,6 +160,17 @@ referenced source column in one dataset scan. The columnar compiler emits
 `CONDITIONAL_SELECTION`, and the Polars adapter evaluates ordered branches as
 native expressions without a Python UDF. None of these paths calls Odoo or
 queries a repository inside a source-row loop.
+
+The same scalar oracle joins concatenation parts before the existing whole
+value transformations. Null, empty, and whitespace-only parts are blank.
+`skip_blank` removes them before inserting separators and returns null when all
+parts are blank; `block_row` emits `SOURCE_CONCATENATION_PART_BLANK`. The
+columnar compiler emits `CONCATENATE_SOURCE_COLUMNS`, and the Polars adapter
+uses native string expressions with identical output-length and issue
+semantics. Canonical lineage, browser labels, matching-review exports,
+normalization review, and sparse impact evidence name every contributing
+column. Recipe compilation stores logical source-column IDs in order and
+application rebinds every ID without label-based guessing.
 
 The browser renders captured Odoo choices independently from source values.
 The rule form stores strict JSON under 64 KiB, preserves stable rule and
@@ -268,12 +288,14 @@ validation result for the malformed formula.
 | Mapping draft, revision, submission, and receipt persistence | [`mapping_repository.py`](../../../src/impodo/adapters/duckdb/mapping_repository.py) |
 | Semantic validator | [`validator.py`](../../../src/impodo/domain/mapping/validation/validator.py) |
 | Governed-reference policy | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
-| Shared scalar and conditional-rule evaluator | [`scalar_values.py`](../../../src/impodo/domain/mapping/scalar_values.py) |
+| Shared scalar, concatenation, and conditional-rule evaluator | [`scalar_values.py`](../../../src/impodo/domain/mapping/scalar_values.py) |
 | Categorical source-domain scan | [`CategoricalCoverageService`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |
-| Native conditional-rule compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
+| Native scalar-provider compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Rule-impact service | [`TransformationImpactService`](../../../src/impodo/application/workspace/mapping/transformation_impact.py) |
 | Rule-impact facts and fingerprints | [`transformation_impact.py`](../../../src/impodo/domain/staging/transformation_impact.py) |
 | Native rule-impact summary | [`polars_transformation.py`](../../../src/impodo/adapters/polars_transformation.py) |
+| Guided scalar form parsing | [`mapping_forms.py`](../../../src/impodo/web/presenters/mapping_forms.py) |
+| Guided scalar controls | [`_scalar_catalog.html`](../../../src/impodo/web/templates/mapping/_scalar_catalog.html) and [`mapping-value-rules.js`](../../../src/impodo/web/static/mapping-value-rules.js) |
 | Rule-impact persistence and acknowledgements | [`TransformationImpactRepository`](../../../src/impodo/adapters/duckdb/transformation_impact_repository.py) |
 | Matching review workbook | [`mapping_review.py`](../../../src/impodo/adapters/artifacts/mapping_review.py) |
 | Optional Recipe compilation | [`RecipeCompiler`](../../../src/impodo/application/recipe_compilation_service.py) |
@@ -454,9 +476,10 @@ protected-evidence read authority.
 `capture_match_data_recovery_screenshots.py::capture` creates an isolated
 fictional Contact workspace, serves the current authenticated application on
 an ephemeral loopback port, and drives the installed Edge browser at 1440 by
-1024 CSS pixels with device scale factor 1. It captures the inline formula
-error, saved-with-issues, stale-tab conflict, and disconnected-server states
-that the paired user page presents. The helper stops the isolated server to
+1024 CSS pixels with device scale factor 1. It captures the guided combined
+source-column provider plus the inline formula error, saved-with-issues,
+stale-tab conflict, and disconnected-server states that the paired user page
+presents. The helper stops the isolated server to
 exercise the real heartbeat; it does not edit an operator workspace or use
 operational source data.
 
@@ -473,8 +496,11 @@ operational source data.
 - [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
 - [`tests/domain/preparation/test_target_first_relationships.py`](../../../tests/domain/preparation/test_target_first_relationships.py)
 - [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
+- [`tests/domain/mapping/test_concatenation.py`](../../../tests/domain/mapping/test_concatenation.py)
+- [`tests/integration/columnar/test_polars_transformation.py`](../../../tests/integration/columnar/test_polars_transformation.py)
 
-Verify draft recovery, stale versions, semantic validation, relation modes,
+Verify draft recovery, stale versions, semantic validation, concatenation
+order, both blank-part policies, native parity, Recipe rebinding, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,
 direct exact submission, target-first reuse without updates, case-sensitive
 relationship matching, incoming fallback, and required Stage 4 review.

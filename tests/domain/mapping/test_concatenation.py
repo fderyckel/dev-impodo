@@ -157,6 +157,28 @@ class ScalarConcatenationTests(unittest.TestCase):
             "SOURCE_CONCATENATION_PART_BLANK",
         )
 
+    def test_output_limit_and_distinct_column_bounds_fail_closed(self) -> None:
+        with self.assertRaises(ScalarValueRuleError) as raised:
+            evaluate_scalar_mapping_value(
+                _mapping(),
+                None,
+                source_values_by_key={
+                    "contact.first_name": "a" * 600_000,
+                    "contact.last_name": "b" * 600_000,
+                },
+            )
+        self.assertEqual(raised.exception.code, "SOURCE_RULE_OUTPUT_TOO_LONG")
+
+        with self.assertRaises(ValueError):
+            ScalarConcatenation(source_column_keys=("contact.first_name",))
+        with self.assertRaises(ValueError):
+            ScalarConcatenation(
+                source_column_keys=(
+                    "contact.first_name",
+                    "contact.first_name",
+                )
+            )
+
     def test_contract_round_trip_and_legacy_version_guard(self) -> None:
         selection = _selection()
         definition = MappingDefinition(
@@ -173,6 +195,34 @@ class ScalarConcatenationTests(unittest.TestCase):
         )
 
         self.assertEqual(MappingDefinition.from_json(definition.to_json()), definition)
+        reversed_definition = MappingDefinition(
+            mapping_id=definition.mapping_id,
+            source_selection_hash=selection.content_hash,
+            schema_hash=HASH_B,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=DATASET_ID,
+                    target_model="res.partner",
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            value_source=ScalarValueSource.CONCATENATE,
+                            concatenation=ScalarConcatenation(
+                                source_column_keys=tuple(
+                                    reversed(
+                                        _configuration().source_column_keys
+                                    )
+                                )
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertNotEqual(
+            reversed_definition.content_hash,
+            definition.content_hash,
+        )
         with self.assertRaises(ValueError):
             MappingDefinition(
                 mapping_id="legacy-mapping",

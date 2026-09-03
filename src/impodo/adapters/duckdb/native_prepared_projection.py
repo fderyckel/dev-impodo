@@ -683,12 +683,23 @@ def _impact_items_sql(
             order += 1
     for field, value in zip(program.scalar_fields, layout.scalars, strict=True):
         raw = (
-            _source_display_sql(field.provider.source.ordinal)
+            (
+                " || ' / ' || ".join(
+                    f"({_source_display_sql(source.ordinal)})"
+                    for source in field.provider.sources
+                )
+                if field.provider.operation
+                is ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS
+                else _source_display_sql(field.provider.source.ordinal)
+            )
             if field.provider.source is not None
             else _literal("—")
         )
         proposed = _display_sql(value.alias, value.value_type)
-        if field.provider.operation is ColumnarOperationKind.USE_CONSTANT:
+        if field.provider.operation in {
+            ColumnarOperationKind.USE_CONSTANT,
+            ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS,
+        }:
             outcome = "'provided'"
         else:
             fallback = (

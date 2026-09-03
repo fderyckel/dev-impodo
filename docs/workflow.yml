@@ -277,6 +277,7 @@ stages:
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
+      - src/impodo/domain/mapping/contracts.py::ScalarConcatenation
       - src/impodo/domain/mapping/scalar_values.py::evaluate_scalar_mapping_value
       - src/impodo/domain/staging/transformation_impact.py::selection_rule_impact_definitions
       - src/impodo/domain/compiler/columnar_transformation.py::compile_columnar_transformation_program
@@ -286,6 +287,7 @@ stages:
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
+      - src/impodo/web/presenters/mapping_forms.py::_scalar_concatenation_from_form
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
       - src/impodo/adapters/artifacts/mapping_review.py::write_mapping_review_workbook
       - src/impodo/web/diagnostics.py::RequestDiagnosticsMiddleware
@@ -302,6 +304,9 @@ stages:
       - tests/integration/web/test_mapping_forms.py
       - tests/domain/mapping/test_validation.py
       - tests/domain/mapping/test_selection_rules.py
+      - tests/domain/mapping/test_concatenation.py
+      - tests/integration/columnar/test_polars_transformation.py
+      - tests/domain/recipe/test_representative_shapes.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/web/test_mapping_catalog_scale.py
