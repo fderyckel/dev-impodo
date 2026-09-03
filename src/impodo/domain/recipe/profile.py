@@ -225,8 +225,11 @@ class RelationSpec(StrictModel):
     """Map source business keys to a many2one or many2many target field."""
 
     kind: Literal["many2one", "many2many"]
-    source_fields: tuple[str, ...] = Field(min_length=1)
+    source_fields: tuple[str, ...] = ()
     resolve: ResolveSpec
+    value_source: Literal["source", "constant_existing"] = "source"
+    constant_key_values: tuple[str, ...] = ()
+    constant_scope_values: tuple[str, ...] = ()
     compare: bool = True
     validate_only: bool = False
     required: bool = False
@@ -241,6 +244,29 @@ class RelationSpec(StrictModel):
     def validate_semantics(self) -> "RelationSpec":
         """Reject unsafe relation operations and non-blocking compare policies."""
 
+        if self.value_source == "source":
+            if not self.source_fields:
+                raise ValueError("source relations require source_fields")
+            if self.constant_key_values or self.constant_scope_values:
+                raise ValueError("source relations cannot carry constant values")
+        else:
+            if self.kind != "many2one":
+                raise ValueError("constant existing records require many2one")
+            if self.source_fields:
+                raise ValueError("constant existing records cannot use source_fields")
+            if self.resolve.origin != "target":
+                raise ValueError("constant existing records require target resolution")
+            if len(self.constant_key_values) != len(self.resolve.target_fields):
+                raise ValueError("constant key values must match target fields")
+            if len(self.constant_scope_values) != len(
+                self.resolve.target_scope_fields
+            ):
+                raise ValueError("constant scope values must match target scope fields")
+            if not self.constant_key_values or any(
+                not value.strip()
+                for value in (*self.constant_key_values, *self.constant_scope_values)
+            ):
+                raise ValueError("constant existing record values are invalid")
         if self.validate_only and self.compare:
             raise ValueError("validate_only relations cannot also set compare: true")
         if self.kind == "many2one" and self.operation != "replace":

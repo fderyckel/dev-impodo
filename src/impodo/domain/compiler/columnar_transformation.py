@@ -22,10 +22,12 @@ from ..mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    RelationshipValueSource,
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
     TargetFieldHandling,
+    relationship_target_fields,
 )
 from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
@@ -430,6 +432,7 @@ class ColumnarIdentityComponentProgram:
     normalization_steps: tuple[ColumnarExpressionStep, ...]
     required: bool = True
     failure_code: str = "SOURCE_IDENTITY_INVALID"
+    literal_values: tuple[str, ...] = ()
 
     def to_portable_dict(self) -> dict[str, object]:
         return cast(dict[str, object], portable(asdict(self)))
@@ -694,6 +697,12 @@ class ColumnarTransformationProgram:
                 required=bool(item.get("required", True)),
                 failure_code=str(
                     item.get("failure_code", "SOURCE_IDENTITY_INVALID")
+                ),
+                literal_values=tuple(
+                    str(value)
+                    for value in cast(
+                        Sequence[object], item.get("literal_values", ())
+                    )
                 ),
             )
 
@@ -1014,12 +1023,22 @@ def _compile_dataset(
         target_source_keys = tuple(
             item.source_column_key for item in target_mappings
         )
+        target_key_fields, target_scope_fields = relationship_target_fields(
+            relationship
+        )
+        constant_provider = (
+            relationship.value_source
+            is RelationshipValueSource.CONSTANT_EXISTING
+        )
         target_supported = (
             resolver.origin
             in {ResolverOrigin.TARGET_CATALOG, ResolverOrigin.TARGET_THEN_DATASET}
             and resolver.model is not None
-            and bool(resolver.key_mappings)
-            and target_source_keys == relationship.source_column_keys
+            and bool(target_key_fields)
+            and (
+                constant_provider
+                or target_source_keys == relationship.source_column_keys
+            )
             and resolver.dataset_projection_field is None
         )
         incoming_supported = (
@@ -1041,11 +1060,17 @@ def _compile_dataset(
                 _require_column(key, columns, draft)
                 for key in relationship.source_column_keys
             )
-            target_key_fields = tuple(
-                item.target_field for item in resolver.key_mappings
-            )
-            target_scope_fields = tuple(
-                item.target_field for item in resolver.scope_mappings
+            constant_reference = relationship.constant_reference
+            constant_values = (
+                tuple(
+                    value.value
+                    for value in (
+                        *constant_reference.key_values,
+                        *constant_reference.scope_values,
+                    )
+                )
+                if constant_reference is not None
+                else ()
             )
             relationships.append(
                 ColumnarRelationshipProgram(
@@ -1061,7 +1086,7 @@ def _compile_dataset(
                         source_columns=key_columns,
                         source_label=" + ".join(
                             item.source_name for item in key_columns
-                        ),
+                        ) or "Same existing Odoo record for every row",
                         target_fields=(
                             (*target_key_fields, *target_scope_fields)
                             if target_supported
@@ -1079,6 +1104,7 @@ def _compile_dataset(
                         ),
                         required=relationship.required,
                         failure_code="SOURCE_REQUIRED_VALUE_MISSING",
+                        literal_values=constant_values,
                     ),
                     compare=relationship.compare,
                     validate_only=relationship.validate_only,
@@ -1099,7 +1125,11 @@ def _compile_dataset(
                 )
             )
             draft.use(
-                ColumnarOperationKind.RELATIONSHIP_KEY_NORMALIZATION,
+                (
+                    ColumnarOperationKind.USE_CONSTANT
+                    if constant_provider
+                    else ColumnarOperationKind.RELATIONSHIP_KEY_NORMALIZATION
+                ),
                 f"{path}/key",
                 target_field=relationship.target_field,
             )

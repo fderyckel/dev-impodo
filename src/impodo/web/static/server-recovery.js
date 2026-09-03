@@ -9,6 +9,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const title = banner.querySelector("[data-server-recovery-title]");
   const message = banner.querySelector("[data-server-recovery-message]");
   const retry = banner.querySelector("[data-server-recovery-retry]");
+  const help = banner.querySelector("[data-server-recovery-help]");
+  const disconnectedHelp = help?.textContent.trim() || "";
   const healthUrl = banner.dataset.healthUrl || "/health";
   const failureLimit = Math.max(
     2,
@@ -24,17 +26,21 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   let consecutiveFailures = 0;
   let disconnected = false;
+  let sessionEnded = false;
   let activeRequest = null;
   let nextCheck = null;
   let recoveredNotice = null;
 
   const schedule = () => {
     window.clearTimeout(nextCheck);
+    if (sessionEnded) {
+      return;
+    }
     nextCheck = window.setTimeout(() => void checkHealth(), intervalMs);
   };
 
   const showDisconnected = () => {
-    if (disconnected) {
+    if (disconnected || sessionEnded) {
       return;
     }
     disconnected = true;
@@ -47,12 +53,44 @@ document.addEventListener("DOMContentLoaded", () => {
       message.textContent =
         "Keep this tab open while Impodo tries to reconnect. Your saved work is unchanged, and unsaved entries remain on this page.";
     }
+    if (retry) {
+      retry.hidden = false;
+    }
+    if (help) {
+      help.textContent = disconnectedHelp;
+    }
     banner.hidden = false;
     document.dispatchEvent(new CustomEvent("impodo:server-disconnected"));
   };
 
+  const showSessionEnded = () => {
+    if (sessionEnded) {
+      return;
+    }
+    sessionEnded = true;
+    disconnected = false;
+    banner.classList.remove("success");
+    banner.classList.add("error");
+    if (title) {
+      title.textContent = "This Impodo session has ended";
+    }
+    if (message) {
+      message.textContent =
+        "Impodo is still running, but this tab can no longer use it. Your saved work is unchanged, and unsaved entries remain on this page.";
+    }
+    if (retry) {
+      retry.hidden = true;
+    }
+    if (help) {
+      help.textContent =
+        "Use the most recently opened Impodo tab. If there is none, restart Impodo once. Copy any unsaved entries from this page before closing it.";
+    }
+    banner.hidden = false;
+    document.dispatchEvent(new CustomEvent("impodo:session-ended"));
+  };
+
   const showRecovered = () => {
-    if (!disconnected) {
+    if (!disconnected || sessionEnded) {
       return;
     }
     disconnected = false;
@@ -64,6 +102,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (message) {
       message.textContent =
         "Review this page and any save outcome before repeating your last action.";
+    }
+    if (retry) {
+      retry.hidden = false;
+    }
+    if (help) {
+      help.textContent = disconnectedHelp;
     }
     banner.hidden = false;
     document.dispatchEvent(new CustomEvent("impodo:server-reconnected"));
@@ -91,6 +135,10 @@ document.addEventListener("DOMContentLoaded", () => {
         credentials: "same-origin",
         signal: controller.signal,
       });
+      if (response.status === 401) {
+        showSessionEnded();
+        return;
+      }
       let payload = null;
       try {
         payload = await response.json();

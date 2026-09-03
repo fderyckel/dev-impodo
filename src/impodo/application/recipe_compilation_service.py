@@ -16,6 +16,7 @@ from ..domain.mapping.contracts import (
     DatasetMapping,
     MappingTargetMode,
     UnsupportedMappingContractError,
+    relationship_target_fields,
 )
 from ..domain.schema.governance import BusinessKeyStatus, SchemaGovernance
 from ..domain.recipe_parameters import (
@@ -633,6 +634,9 @@ class RecipeCompiler:
                 key=lambda item: item.target_field,
             ):
                 resolver = relation.resolver
+                target_key_fields, target_scope_fields = relationship_target_fields(
+                    relation
+                )
                 relationships.append(
                     {
                         "categorical_policy": (
@@ -655,6 +659,12 @@ class RecipeCompiler:
                         "required": relation.required,
                         "required_on_create": relation.required_on_create,
                         "separator": relation.separator,
+                        "value_source": relation.value_source.value,
+                        "constant_reference": (
+                            portable(asdict(relation.constant_reference))
+                            if relation.constant_reference is not None
+                            else None
+                        ),
                         "source_column_ids": [
                             self._column(dataset.dataset_id, key, columns)
                             for key in relation.source_column_keys
@@ -670,7 +680,7 @@ class RecipeCompiler:
                             resolver.dataset_projection_field
                         ),
                         "target_key_fields": [
-                            item.target_field for item in resolver.key_mappings
+                            *target_key_fields
                         ],
                         "target_key_mappings": [
                             {
@@ -684,7 +694,7 @@ class RecipeCompiler:
                             for item in resolver.key_mappings
                         ],
                         "target_scope_fields": [
-                            item.target_field for item in resolver.scope_mappings
+                            *target_scope_fields
                         ],
                         "target_scope_mappings": [
                             {

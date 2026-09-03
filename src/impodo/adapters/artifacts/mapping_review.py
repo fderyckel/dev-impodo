@@ -24,6 +24,7 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingTargetMode,
     RelationshipMapping,
+    RelationshipValueSource,
     ScalarFieldMapping,
     ScalarValueSource,
     TargetFieldHandling,
@@ -372,6 +373,16 @@ def _field_provider(
     if handling is TargetFieldHandling.ODOO_MANAGED:
         return "Odoo-managed field", ""
     if relation is not None:
+        if relation.value_source is RelationshipValueSource.CONSTANT_EXISTING:
+            reference = relation.constant_reference
+            display = " · ".join(
+                f"{item.target_field}={item.value}"
+                for item in (
+                    *((reference.key_values if reference is not None else ())),
+                    *((reference.scope_values if reference is not None else ())),
+                )
+            )
+            return "Same existing Odoo record for every row", display
         source = ", ".join(
             source_labels.get(item, item) for item in relation.source_column_keys
         )

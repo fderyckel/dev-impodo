@@ -19,6 +19,8 @@ from ...domain.mapping.contracts import (
     BusinessControlDefinition,
     CategoricalCoveragePolicy,
     ConcatenationBlankHandling,
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -27,6 +29,7 @@ from ...domain.mapping.contracts import (
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
+    RelationshipValueSource,
     ResolverOrigin,
     ScalarConcatenation,
     ScalarFieldMapping,
@@ -328,6 +331,8 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
             allowed.update(
                 {
                     f"relation_source_{dataset_index}_{relation_index}",
+                    f"relation_value_source_{dataset_index}_{relation_index}",
+                    f"relation_constant_key_{dataset_index}_{relation_index}",
                     f"relation_origin_{dataset_index}_{relation_index}",
                     f"relation_dataset_{dataset_index}_{relation_index}",
                     f"relation_projection_{dataset_index}_{relation_index}",
@@ -344,6 +349,10 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"relation_value_matches_{dataset_index}_{relation_index}",
                     f"relation_categorical_policy_{dataset_index}_{relation_index}",
                 }
+            )
+            allowed.update(
+                f"relation_constant_component_{dataset_index}_{relation_index}_{slot}"
+                for slot in range(10)
             )
     return allowed
 
@@ -677,7 +686,130 @@ def _mapping_datasets_from_form(
                 )
                 if item in source_columns
             )
-            if not selected_sources:
+            provider_text = _text(
+                form,
+                f"relation_value_source_{dataset_index}_{relation_index}",
+            )
+            if not provider_text and not selected_sources:
+                continue
+            value_source = RelationshipValueSource(
+                provider_text or RelationshipValueSource.SOURCE.value
+            )
+            if (
+                value_source is RelationshipValueSource.SOURCE
+                and not selected_sources
+            ):
+                continue
+            if value_source is RelationshipValueSource.CONSTANT_EXISTING:
+                if metadata.type != "many2one" or not metadata.relation:
+                    raise ValueError(
+                        "A constant existing record requires a many-to-one field"
+                    )
+                business_key = keys.get(
+                    _text(
+                        form,
+                        f"relation_constant_key_{dataset_index}_{relation_index}",
+                    )
+                )
+                if business_key is None or business_key.model != metadata.relation:
+                    raise ValueError(
+                        "Choose how the existing linked record is identified"
+                    )
+                component_fields = (
+                    *business_key.key_fields,
+                    *business_key.scope_fields,
+                )
+                component_values = tuple(
+                    _text(
+                        form,
+                        (
+                            f"relation_constant_component_{dataset_index}_"
+                            f"{relation_index}_{slot}"
+                        ),
+                    )
+                    for slot in range(len(component_fields))
+                )
+                key_width = len(business_key.key_fields)
+                relationships.append(
+                    RelationshipMapping(
+                        target_field=metadata.name,
+                        kind=metadata.type,
+                        source_column_keys=(),
+                        resolver=RelationshipResolver(
+                            origin=ResolverOrigin.TARGET_CATALOG,
+                            model=metadata.relation,
+                        ),
+                        compare=_checked(
+                            form,
+                            f"relation_compare_{dataset_index}_{relation_index}",
+                        ),
+                        validate_only=_checked(
+                            form,
+                            (
+                                f"relation_validate_only_{dataset_index}_"
+                                f"{relation_index}"
+                            ),
+                        ),
+                        required=_checked(
+                            form,
+                            f"relation_required_{dataset_index}_{relation_index}",
+                        ),
+                        required_on_create=_checked(
+                            form,
+                            (
+                                f"relation_required_create_{dataset_index}_"
+                                f"{relation_index}"
+                            ),
+                        ) or metadata.required,
+                        on_missing=(
+                            _text(
+                                form,
+                                f"relation_missing_{dataset_index}_{relation_index}",
+                            )
+                            or "error"
+                        ),
+                        on_ambiguous=(
+                            _text(
+                                form,
+                                (
+                                    f"relation_ambiguous_{dataset_index}_"
+                                    f"{relation_index}"
+                                ),
+                            )
+                            or "error"
+                        ),
+                        operation="replace",
+                        null_policy=(
+                            _text(
+                                form,
+                                f"relation_null_{dataset_index}_{relation_index}",
+                            )
+                            or "distinct"
+                        ),
+                        categorical_policy=(
+                            CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                        ),
+                        value_source=value_source,
+                        constant_reference=ConstantBusinessReference(
+                            key_values=tuple(
+                                ConstantReferenceComponent(field, value)
+                                for field, value in zip(
+                                    business_key.key_fields,
+                                    component_values[:key_width],
+                                    strict=True,
+                                )
+                            ),
+                            scope_values=tuple(
+                                ConstantReferenceComponent(field, value)
+                                for field, value in zip(
+                                    business_key.scope_fields,
+                                    component_values[key_width:],
+                                    strict=True,
+                                )
+                            ),
+                        ),
+                    )
+                )
                 continue
             origin = ResolverOrigin(
                 _text(
@@ -856,6 +988,7 @@ def _mapping_datasets_from_form(
                             else CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
                         )
                     ),
+                    value_source=value_source,
                 )
             )
         mode = MappingTargetMode(

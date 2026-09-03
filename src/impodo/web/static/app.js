@@ -29,10 +29,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     window.addEventListener("pageshow", clearSubmittingState);
-    document.addEventListener(
+    for (const eventName of [
       "impodo:server-disconnected",
-      clearSubmittingState
-    );
+      "impodo:session-ended",
+    ]) {
+      document.addEventListener(eventName, clearSubmittingState);
+    }
   }
 
   const setupBlockers = document.querySelector(

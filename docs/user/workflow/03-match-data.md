@@ -323,6 +323,13 @@ is still responding. After three consecutive failed checks, the page shows
 **Impodo is not responding**. Keep the tab open. Your saved work is unchanged,
 and unsaved entries remain on the page.
 
+Your authenticated browser session remains valid while the same Impodo
+launcher is running. It does not expire after a fixed period while you are
+working. If the server responds but the tab belongs to an earlier Impodo
+launch, the page instead shows **This Impodo session has ended**. Use the most
+recently opened Impodo tab, and copy any unsaved entries from the older page
+before closing it.
+
 Impodo tries one automatic server restart on the same local address. If the
 banner changes to **Impodo is responding again**, review the page and any save
 outcome before repeating the action. Impodo never repeats a save automatically.

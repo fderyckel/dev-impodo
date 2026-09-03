@@ -17,6 +17,8 @@ from ..domain.mapping.contracts import (
     BusinessControlDefinition,
     CategoricalCoveragePolicy,
     ConcatenationBlankHandling,
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
     MappingControlExpectation,
@@ -25,6 +27,7 @@ from ..domain.mapping.contracts import (
     ReferenceLookupMapping,
     RelationshipMapping,
     RelationshipResolver,
+    RelationshipValueSource,
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarConcatenation,
@@ -1042,6 +1045,33 @@ class RecipeApplicationCompiler:
             separator=str(item.get("separator", ";")),
             null_policy=str(item.get("null_policy", "distinct")),
             categorical_policy=(CategoricalCoveragePolicy(str(item["categorical_policy"])) if item.get("categorical_policy") else None),
+            value_source=RelationshipValueSource(
+                str(item.get("value_source", "source"))
+            ),
+            constant_reference=(
+                ConstantBusinessReference(
+                    key_values=tuple(
+                        ConstantReferenceComponent(
+                            target_field=str(value["target_field"]),
+                            value=str(value["value"]),
+                        )
+                        for value in dict(item["constant_reference"]).get(
+                            "key_values", ()
+                        )
+                    ),
+                    scope_values=tuple(
+                        ConstantReferenceComponent(
+                            target_field=str(value["target_field"]),
+                            value=str(value["value"]),
+                        )
+                        for value in dict(item["constant_reference"]).get(
+                            "scope_values", ()
+                        )
+                    ),
+                )
+                if item.get("constant_reference") is not None
+                else None
+            ),
         )
 
     def _resolver(self, payload, bindings):

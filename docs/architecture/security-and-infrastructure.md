@@ -61,8 +61,10 @@ SQL, `sudo`, or workflow-action surface.
 ### Local browser
 
 - Uvicorn binds an operating-system-selected port on literal `127.0.0.1`.
-- A random single-use launch token is exchanged for a short-lived signed
-  session and removed from the active URL.
+- A random single-use launch token is exchanged for a signed browser session
+  that belongs to the current Impodo launcher and is removed from the active
+  URL. A supervised server-child restart retains the signing secret, while a
+  new launcher rotates it and invalidates the earlier session.
 - State changes require CSRF and same-origin validation; `GET` is not used for
   mutations.
 - Host validation, restrictive response headers, framing denial, and

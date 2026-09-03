@@ -5,9 +5,11 @@ from typing import Collection, Mapping
 
 from ..mapping.contracts import (
     MappingDefinition,
+    RelationshipValueSource,
     RelationshipResolver,
     ResolverOrigin,
     ScalarValueSource,
+    relationship_target_fields,
 )
 from impodo.domain.recipe.profile import (
     DatasetSpec,
@@ -102,8 +104,19 @@ def compile_browser_mapping(
                 normalize=NormalizationSpec(empty_as_null=True),
                 null_policy=field.null_policy,
             )
-        relations = {
-            item.target_field: RelationSpec(
+        relations = {}
+        for index, item in enumerate(mapping.relationships):
+            key_fields, scope_fields = relationship_target_fields(item)
+            constant = item.constant_reference
+            if item.value_source is RelationshipValueSource.CONSTANT_EXISTING:
+                relation_resolver = ResolveSpec(
+                    target_model=item.resolver.model,
+                    target_fields=key_fields,
+                    target_scope_fields=scope_fields,
+                )
+            else:
+                relation_resolver = resolver(item.resolver)
+            relations[item.target_field] = RelationSpec(
                 kind=item.kind,
                 source_fields=tuple(
                     synthetic_relationship_field(index, source_index)
@@ -111,7 +124,18 @@ def compile_browser_mapping(
                         item.source_column_keys
                     )
                 ),
-                resolve=resolver(item.resolver),
+                resolve=relation_resolver,
+                value_source=item.value_source.value,
+                constant_key_values=(
+                    tuple(value.value for value in constant.key_values)
+                    if constant is not None
+                    else ()
+                ),
+                constant_scope_values=(
+                    tuple(value.value for value in constant.scope_values)
+                    if constant is not None
+                    else ()
+                ),
                 compare=item.compare,
                 validate_only=item.validate_only,
                 required=item.required,
@@ -126,8 +150,6 @@ def compile_browser_mapping(
                 separator=item.separator,
                 null_policy=item.null_policy,
             )
-            for index, item in enumerate(mapping.relationships)
-        }
         identity_normalization = NormalizationSpec(
             trim=True,
             collapse_whitespace=True,

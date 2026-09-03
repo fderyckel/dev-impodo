@@ -408,14 +408,28 @@ qualification.
 The cache is operational only and creates no mapping evidence.
 
 `GET /health` requires the launch-token session and returns only the fixed
-healthy status. `server-recovery.js` starts a same-origin, no-store health
-request every four seconds and gives each request a two-second timeout. Three
-consecutive failures produce **Impodo is not responding**. A fully timed-out
-sequence is therefore visible within 18 seconds in an active tab. The script dispatches
-`impodo:server-disconnected`, which clears shared single-submit state and makes
-an in-flight Match data action show an unknown outcome beside its action
-buttons. It never repeats the mutation. A successful later health check shows
-**Impodo is responding again** and dispatches `impodo:server-reconnected`.
+healthy status. The signed browser cookie has no fixed maximum age because the
+per-launch signing secret already limits it to the current launcher lifetime.
+The supervisor retains that secret across its one server-child restart, while
+a new launcher creates a new secret and rejects the earlier cookie.
+
+`server-recovery.js` starts a same-origin, no-store health request every four
+seconds and gives each request a two-second timeout. Three consecutive network,
+timeout, invalid-response, or server failures produce **Impodo is not
+responding**. A fully timed-out sequence is therefore visible within 18 seconds
+in an active tab. The script dispatches `impodo:server-disconnected`, which
+clears shared single-submit state and makes an in-flight Match data action show
+an unknown outcome beside its action buttons. It never repeats the mutation. A
+successful later health check shows **Impodo is responding again** and
+dispatches `impodo:server-reconnected`.
+
+An HTTP 401 proves that the server answered but the browser session is no
+longer valid. The script immediately shows **This Impodo session has ended**,
+stops futile health retries, and dispatches `impodo:session-ended` instead of
+claiming that the server is unavailable. Shared forms and the Match data editor
+clear their busy state without repeating an action. The older page keeps its
+unsaved browser values so the operator can copy them to the most recently
+opened Impodo tab.
 
 The launcher retains the chosen loopback port and the session-signing secret,
 but the FastAPI and Uvicorn application runs in a spawned child process. A

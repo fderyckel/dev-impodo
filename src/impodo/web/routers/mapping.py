@@ -263,7 +263,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
         try:
             kind = _text(form, "kind")
-            if kind not in {"scalar", "relationship"}:
+            if kind not in {
+                "scalar",
+                "relationship",
+                "constant_relationship",
+            }:
                 raise WorkspaceError("Choose a supported Odoo field")
             selection = context.queries.get_mapping_source_selection(
                 workspace_id
@@ -284,16 +288,22 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 ),
                 None,
             )
-            if source_dataset is None or source_column_key not in {
-                item.stable_key for item in source_dataset.columns
-            }:
+            if source_dataset is None or (
+                kind != "constant_relationship"
+                and source_column_key
+                not in {item.stable_key for item in source_dataset.columns}
+            ):
                 raise WorkspaceError("Choose one current source column")
-            source_choices = await run_in_threadpool(
-                _source_value_choices,
-                context,
-                workspace_id,
-                dataset_id,
-                source_column_key,
+            source_choices = (
+                ()
+                if kind == "constant_relationship"
+                else await run_in_threadpool(
+                    _source_value_choices,
+                    context,
+                    workspace_id,
+                    dataset_id,
+                    source_column_key,
+                )
             )
             target_model = _text(form, "target_model")
             target_field = _text(form, "target_field")

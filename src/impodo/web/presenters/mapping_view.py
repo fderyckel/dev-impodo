@@ -33,8 +33,10 @@ from ...domain.source_binding import (
 from ...domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     MAX_CONTROL_TOTALS_PER_DATASET,
+    RelationshipValueSource,
     ScalarFieldMapping,
     ScalarValueSource,
+    relationship_target_fields,
 )
 from ...domain.mapping.scalar_values import (
     ScalarValueError,
@@ -1648,6 +1650,43 @@ def _mapping_dataset_views(
             standard_related_key = _standard_reference_business_key(
                 field.relation
             )
+            selected_relationship_key = None
+            if mapping is not None:
+                if (
+                    mapping.value_source
+                    is RelationshipValueSource.CONSTANT_EXISTING
+                ):
+                    mapping_key_fields, mapping_scope_fields = (
+                        relationship_target_fields(mapping)
+                    )
+                    selected_relationship_key = next(
+                        (
+                            item
+                            for item in related_keys
+                            if item.key_fields == mapping_key_fields
+                            and item.scope_fields == mapping_scope_fields
+                        ),
+                        None,
+                    )
+                else:
+                    selected_relationship_key = _resolver_business_key(
+                        mapping.resolver,
+                        related_keys,
+                    )
+            else:
+                selected_relationship_key = _resolver_business_key(
+                    None,
+                    related_keys,
+                )
+            constant_components = (
+                (
+                    *mapping.constant_reference.key_values,
+                    *mapping.constant_reference.scope_values,
+                )
+                if mapping is not None
+                and mapping.constant_reference is not None
+                else ()
+            )
             row: dict[str, object] = {
                 "index": relation_index,
                 "metadata": field,
@@ -1658,9 +1697,9 @@ def _mapping_dataset_views(
                     related_keys,
                     models,
                 ),
-                "selected_key": _resolver_business_key(
-                    mapping.resolver if mapping else None,
-                    related_keys,
+                "selected_key": selected_relationship_key,
+                "constant_component_values": tuple(
+                    item.value for item in constant_components
                 ),
                 "recommended_key_id": (
                     standard_related_key.key_id

@@ -27,11 +27,14 @@ from impodo.domain.mapping.canonicalization import canonicalize_mapping_definiti
 from impodo.domain.mapping.contracts import (
     MAX_VALUE_MAPPINGS,
     ConcatenationBlankHandling,
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
     RelationshipMapping,
     RelationshipResolver,
+    RelationshipValueSource,
     ResolverOrigin,
     ScalarConcatenation,
     ScalarFieldMapping,
@@ -358,6 +361,68 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     for record in batch.records
                 )
                 self.assertEqual(records, expected_records)
+
+    def test_constant_existing_relationship_matches_python_oracle(self) -> None:
+        dataset_mapping = replace(
+            self.definition.datasets[0],
+            relationships=(
+                RelationshipMapping(
+                    target_field="uom_id",
+                    kind="many2one",
+                    source_column_keys=(),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.TARGET_CATALOG,
+                        model="uom.uom",
+                    ),
+                    value_source=RelationshipValueSource.CONSTANT_EXISTING,
+                    constant_reference=ConstantBusinessReference(
+                        key_values=(
+                            ConstantReferenceComponent("name", "PCE"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        definition = replace(self.definition, datasets=(dataset_mapping,))
+        expected_records, _expected_report = _python_oracle(
+            definition,
+            self.selection,
+            self.rows,
+        )
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        self.assertEqual(decision.program.inputs, tuple(decision.program.inputs))
+        constant = decision.program.relationships[0]
+        self.assertEqual(constant.key.literal_values, ("PCE",))
+        destination, prepared = _write_prepared_snapshot(
+            self.root,
+            self.path,
+            self.snapshot,
+            decision.program,
+        )
+        records = tuple(
+            record
+            for batch in iter_polars_prepared_batches(
+                destination,
+                prepared,
+                self.snapshot,
+                decision.program,
+                batch_size=2,
+            )
+            for record in batch.records
+        )
+
+        self.assertEqual(records, expected_records)
+        references = {record.references["uom_id"] for record in records}
+        self.assertEqual(len(references), 1)
+        reference = references.pop()
+        self.assertEqual(reference.key, ("PCE",))
+        self.assertEqual(reference.model, "uom.uom")
 
     def test_production_projection_skips_full_prepared_record_objects(self) -> None:
         expected_records, _expected_report = _python_oracle(

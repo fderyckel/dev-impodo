@@ -1295,7 +1295,12 @@ def _compile_identity_group(
         text_steps = tuple(
             step for step in component.normalization_steps if step is not conversion
         )
-        for source_index, source in enumerate(component.source_columns):
+        inputs = (
+            tuple((source, None) for source in component.source_columns)
+            if component.source_columns
+            else tuple((None, value) for value in component.literal_values)
+        )
+        for source_index, (source, literal_value) in enumerate(inputs):
             normalized_alias = (
                 f"__impodo_{role}_{component_index:04d}_{source_index:04d}_normalized"
             )
@@ -1311,7 +1316,11 @@ def _compile_identity_group(
                 }
                 else typed_alias
             )
-            raw = pl.col(source_value_column(source.ordinal))
+            raw = (
+                pl.col(source_value_column(source.ordinal))
+                if source is not None
+                else pl.lit(literal_value, dtype=pl.String)
+            )
             normalized, _ = _text_expression(raw, text_steps)
             normalized_expressions.append(normalized.alias(normalized_alias))
             value, parse_invalid = _conversion_expression(
@@ -1358,8 +1367,12 @@ def _compile_identity_group(
                 _IdentityValueLayout(
                     role=role,
                     error_index=error_index,
-                    source_stable_key=source.stable_key,
-                    source_ordinal=source.ordinal,
+                    source_stable_key=(
+                        source.stable_key
+                        if source is not None
+                        else component.target_fields[source_index]
+                    ),
+                    source_ordinal=(source.ordinal if source is not None else -1),
                     value_type=component.value_type,
                     normalized_alias=normalized_alias,
                     value_alias=value_alias,

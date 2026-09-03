@@ -30,8 +30,10 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 14
-SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({12, 13, MAPPING_CONTRACT_VERSION})
+MAPPING_CONTRACT_VERSION = 15
+SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
+    {12, 13, 14, MAPPING_CONTRACT_VERSION}
+)
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -69,6 +71,51 @@ class ResolverOrigin(StrEnum):
     DATASET = "dataset"
     TARGET_CATALOG = "target_catalog"
     TARGET_THEN_DATASET = "target_then_dataset"
+
+
+class RelationshipValueSource(StrEnum):
+    """How one relationship target value is supplied."""
+
+    SOURCE = "source"
+    CONSTANT_EXISTING = "constant_existing"
+
+
+@dataclass(frozen=True, slots=True)
+class ConstantReferenceComponent:
+    """Bind one portable constant value to one related-model key field."""
+
+    target_field: str
+    value: str
+
+    def __post_init__(self) -> None:
+        if (
+            not self.target_field.strip()
+            or len(self.target_field) > 200
+            or self.target_field.casefold() == "id"
+        ):
+            raise ValueError("Constant-reference target field is invalid")
+        if not self.value.strip() or len(self.value) > MAX_VALUE_MAPPING_LENGTH:
+            raise ValueError("Constant-reference value is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class ConstantBusinessReference:
+    """Carry one existing record's ordered business key without its Odoo ID."""
+
+    key_values: tuple[ConstantReferenceComponent, ...]
+    scope_values: tuple[ConstantReferenceComponent, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "key_values", tuple(self.key_values))
+        object.__setattr__(self, "scope_values", tuple(self.scope_values))
+        if not 1 <= len(self.key_values) <= 5:
+            raise ValueError("Constant references require one to five key values")
+        components = (*self.key_values, *self.scope_values)
+        if len(components) > 10:
+            raise ValueError("Constant references contain too many values")
+        fields = tuple(item.target_field for item in components)
+        if len(set(fields)) != len(fields):
+            raise ValueError("Constant-reference fields must be unique")
 
 
 
@@ -531,14 +578,69 @@ class RelationshipMapping:
     separator: str = ";"
     null_policy: str = "distinct"
     categorical_policy: CategoricalCoveragePolicy | None = None
+    value_source: RelationshipValueSource = RelationshipValueSource.SOURCE
+    constant_reference: ConstantBusinessReference | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
+        object.__setattr__(
+            self,
+            "value_source",
+            RelationshipValueSource(self.value_source),
+        )
         if self.categorical_policy is not None:
             object.__setattr__(
                 self,
                 "categorical_policy",
                 CategoricalCoveragePolicy(self.categorical_policy),
             )
+        if self.value_source is RelationshipValueSource.SOURCE:
+            if self.constant_reference is not None:
+                raise ValueError(
+                    "Source relationships cannot carry a constant reference"
+                )
+            return
+        if self.kind != "many2one":
+            raise ValueError("Constant existing records require a many2one field")
+        if self.constant_reference is None:
+            raise ValueError("A constant existing record reference is required")
+        if self.source_column_keys:
+            raise ValueError(
+                "Constant existing records cannot carry source columns"
+            )
+        if (
+            self.resolver.origin is not ResolverOrigin.TARGET_CATALOG
+            or not self.resolver.model
+            or self.resolver.dataset_id is not None
+            or self.resolver.dataset_projection_field is not None
+            or self.resolver.key_mappings
+            or self.resolver.scope_mappings
+            or self.resolver.value_mappings
+        ):
+            raise ValueError(
+                "Constant existing records require a target-catalog resolver"
+            )
+        if self.operation != "replace":
+            raise ValueError("Constant existing records require replace semantics")
+
+
+def relationship_target_fields(
+    relationship: RelationshipMapping,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return one provider-independent ordered related-model key and scope."""
+
+    if relationship.value_source is RelationshipValueSource.CONSTANT_EXISTING:
+        reference = relationship.constant_reference
+        if reference is None:
+            return (), ()
+        return (
+            tuple(item.target_field for item in reference.key_values),
+            tuple(item.target_field for item in reference.scope_values),
+        )
+    return (
+        tuple(item.target_field for item in relationship.resolver.key_mappings),
+        tuple(item.target_field for item in relationship.resolver.scope_mappings),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -715,6 +817,16 @@ class MappingDefinition:
         ):
             raise ValueError(
                 f"Mapping contract v{self.contract_version} cannot contain concatenation"
+            )
+        if self.contract_version < 15 and any(
+            relationship.value_source is not RelationshipValueSource.SOURCE
+            or relationship.constant_reference is not None
+            for dataset in self.datasets
+            for relationship in dataset.relationships
+        ):
+            raise ValueError(
+                f"Mapping contract v{self.contract_version} cannot contain "
+                "a constant relationship"
             )
         if self.contract_version == 12 and any(
             resolver.dataset_projection_field is not None
@@ -919,11 +1031,27 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 15:
+        payload = _without_relationship_value_provider(payload)
     if contract_version < 14:
         payload = _without_scalar_concatenation(payload)
     if contract_version == 12:
         return _without_dataset_projection_field(payload)
     return payload
+
+
+def _without_relationship_value_provider(value: Any) -> Any:
+    """Reproduce the pre-v15 relationship layout for hashes and round trips."""
+
+    if isinstance(value, dict):
+        return {
+            key: _without_relationship_value_provider(item)
+            for key, item in value.items()
+            if key not in {"value_source", "constant_reference"}
+        }
+    if isinstance(value, list):
+        return [_without_relationship_value_provider(item) for item in value]
+    return value
 
 
 def _without_scalar_concatenation(value: Any) -> Any:
@@ -1208,9 +1336,12 @@ def _relationship_from_dict(
     *,
     contract_version: int,
 ) -> RelationshipMapping:
+    expected_fields = _contract_fields(RelationshipMapping)
+    if contract_version < 15:
+        expected_fields.difference_update({"value_source", "constant_reference"})
     _require_contract_fields(
         payload,
-        _contract_fields(RelationshipMapping),
+        expected_fields,
         "Relationship mapping fields do not match the current contract",
     )
     return RelationshipMapping(
@@ -1235,6 +1366,48 @@ def _relationship_from_dict(
             if payload.get("categorical_policy") is not None
             else None
         ),
+        value_source=RelationshipValueSource(
+            payload.get("value_source", RelationshipValueSource.SOURCE.value)
+        ),
+        constant_reference=(
+            _constant_business_reference_from_dict(payload["constant_reference"])
+            if payload.get("constant_reference") is not None
+            else None
+        ),
+    )
+
+
+def _constant_business_reference_from_dict(
+    payload: Mapping[str, Any],
+) -> ConstantBusinessReference:
+    _require_contract_fields(
+        payload,
+        _contract_fields(ConstantBusinessReference),
+        "Constant business-reference fields do not match the current contract",
+    )
+    return ConstantBusinessReference(
+        key_values=tuple(
+            _constant_reference_component_from_dict(item)
+            for item in payload.get("key_values", ())
+        ),
+        scope_values=tuple(
+            _constant_reference_component_from_dict(item)
+            for item in payload.get("scope_values", ())
+        ),
+    )
+
+
+def _constant_reference_component_from_dict(
+    payload: Mapping[str, Any],
+) -> ConstantReferenceComponent:
+    _require_contract_fields(
+        payload,
+        _contract_fields(ConstantReferenceComponent),
+        "Constant reference-component fields do not match the current contract",
+    )
+    return ConstantReferenceComponent(
+        target_field=str(payload.get("target_field", "")),
+        value=str(payload.get("value", "")),
     )
 
 

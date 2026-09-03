@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from tests.support.browser_scenarios import (
     LocalBrowserSecurityTestCase,
     _csrf,
@@ -10,6 +12,28 @@ from tests.support.browser_scenarios import (
 
 
 class LocalBrowserSecurityTests(LocalBrowserSecurityTestCase):
+    def test_browser_session_remains_valid_for_the_launcher_lifetime(self) -> None:
+        launched_at = 1_000_000
+        with patch("itsdangerous.timed.time.time", return_value=launched_at):
+            launched = self.client.get(
+                "/launch?token=launch-secret",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(launched.status_code, 303)
+        cookie = launched.headers["set-cookie"].casefold()
+        self.assertNotIn("max-age", cookie)
+        self.assertNotIn("expires", cookie)
+
+        with patch(
+            "itsdangerous.timed.time.time",
+            return_value=launched_at + (12 * 60 * 60),
+        ):
+            health = self.client.get("/health")
+
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json(), {"status": "ok"})
+
     def test_launch_session_host_and_origin_controls(self) -> None:
         unauthenticated = self.client.get("/projects")
         self.assertEqual(unauthenticated.status_code, 401)

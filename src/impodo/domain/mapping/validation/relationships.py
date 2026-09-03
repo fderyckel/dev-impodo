@@ -16,7 +16,9 @@ from ..contracts import (
     DatasetMapping,
     RelationshipMapping,
     RelationshipResolver,
+    RelationshipValueSource,
     ResolverOrigin,
+    relationship_target_fields,
 )
 from .common import (
     _NULL_POLICIES,
@@ -37,7 +39,8 @@ def _validate_relationship(
     issues: list[MappingValidationIssue],
 ) -> None:
     fields = context.fields_by_model[dataset.target_model]
-    if not relation.source_column_keys:
+    source_provider = relation.value_source is RelationshipValueSource.SOURCE
+    if source_provider and not relation.source_column_keys:
         issues.append(
             _issue(
                 "MAPPING_REFERENCE_KEY_INVALID",
@@ -48,8 +51,9 @@ def _validate_relationship(
                 target_field=relation.target_field,
             )
         )
-    for column in relation.source_column_keys:
-        _check_column(dataset, column, path, columns, issues)
+    if source_provider:
+        for column in relation.source_column_keys:
+            _check_column(dataset, column, path, columns, issues)
     metadata = fields.get(relation.target_field)
     if metadata is None:
         issues.append(_target_unknown(dataset, path, relation.target_field))
@@ -248,6 +252,7 @@ def _validate_relationship(
                 target_field=relation.target_field,
             )
         )
+    target_key_fields, target_scope_fields = relationship_target_fields(relation)
     _validate_resolver(
         context,
         dataset,
@@ -258,6 +263,9 @@ def _validate_relationship(
         metadata,
         issues,
         require_governed_key=True,
+        target_key_fields=target_key_fields,
+        target_scope_fields=target_scope_fields,
+        validate_source_mappings=source_provider,
     )
 
 
@@ -272,6 +280,9 @@ def _validate_resolver(
     issues: list[MappingValidationIssue],
     *,
     require_governed_key: bool,
+    target_key_fields: tuple[str, ...] | None = None,
+    target_scope_fields: tuple[str, ...] | None = None,
+    validate_source_mappings: bool = True,
 ) -> None:
     uses_incoming = resolver.origin in {
         ResolverOrigin.DATASET,
@@ -397,11 +408,15 @@ def _validate_resolver(
         )
         return
     model = context.schema_models.get(resolver.model)
-    resolver_key_fields = tuple(
-        item.target_field for item in resolver.key_mappings
+    resolver_key_fields = (
+        target_key_fields
+        if target_key_fields is not None
+        else tuple(item.target_field for item in resolver.key_mappings)
     )
-    resolver_scope_fields = tuple(
-        item.target_field for item in resolver.scope_mappings
+    resolver_scope_fields = (
+        target_scope_fields
+        if target_scope_fields is not None
+        else tuple(item.target_field for item in resolver.scope_mappings)
     )
     supporting_contracts = context.supporting_reference_contracts.get(
         (
@@ -467,7 +482,7 @@ def _validate_resolver(
         model_fields.add(reference_decision.contract.display_field)
     if supporting_contracts is not None:
         model_fields.update(item.name for item in supporting_contracts)
-    if not resolver.key_mappings:
+    if not resolver_key_fields:
         issues.append(
             _issue(
                 "MAPPING_REFERENCE_KEY_INVALID",
@@ -477,7 +492,23 @@ def _validate_resolver(
                 dataset=dataset,
             )
         )
-    for mapping in (*resolver.key_mappings, *resolver.scope_mappings):
+    for target_field in (*resolver_key_fields, *resolver_scope_fields):
+        if target_field not in model_fields:
+            issues.append(
+                _issue(
+                    "MAPPING_TARGET_FIELD_UNKNOWN",
+                    path,
+                    f"Resolver field {resolver.model}.{target_field} is unavailable.",
+                    "Choose a captured field.",
+                    dataset=dataset,
+                    target_field=target_field,
+                )
+            )
+    for mapping in (
+        (*resolver.key_mappings, *resolver.scope_mappings)
+        if validate_source_mappings
+        else ()
+    ):
         if mapping.source_column_key not in source_columns:
             issues.append(
                 _issue(
@@ -489,25 +520,11 @@ def _validate_resolver(
                     source_column=mapping.source_column_key,
                 )
             )
-        if mapping.target_field not in model_fields:
-            issues.append(
-                _issue(
-                    "MAPPING_TARGET_FIELD_UNKNOWN",
-                    path,
-                    (
-                        f"Resolver field {resolver.model}."
-                        f"{mapping.target_field} is unavailable."
-                    ),
-                    "Choose a captured field.",
-                    dataset=dataset,
-                    target_field=mapping.target_field,
-                )
-            )
     mapped_sources = tuple(
         item.source_column_key
         for item in (*resolver.key_mappings, *resolver.scope_mappings)
     )
-    if mapped_sources != source_columns:
+    if validate_source_mappings and mapped_sources != source_columns:
         issues.append(
             _issue(
                 "MAPPING_REFERENCE_KEY_INVALID",

@@ -1205,7 +1205,11 @@ def create_local_app(
         SessionMiddleware,
         secret_key=session_secret or secrets.token_urlsafe(48),
         session_cookie="impodo_session",
-        max_age=30 * 60,
+        # The signing secret already scopes this cookie to one launcher
+        # lifetime and survives only the launcher's supervised child restart.
+        # A fixed expiry would invalidate an otherwise active local browser
+        # tab because read-only requests do not rewrite Starlette sessions.
+        max_age=None,
         same_site="strict",
         https_only=False,
     )

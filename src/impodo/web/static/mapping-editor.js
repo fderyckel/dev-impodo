@@ -222,11 +222,13 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
     const source = row.querySelector('select[name^="relation_source_"]');
+    const provider = row.querySelector("[data-relation-value-source]");
     return {
       key: `${visibleTarget.name}\u0000${visibleTarget.value}`,
       visibleName: visibleTarget.name,
       targetField: visibleTarget.value,
-      hasSource: Boolean(source?.selectedOptions.length),
+      providerValue:
+        provider?.value || (source?.selectedOptions.length ? "source" : ""),
       controlNames: [...new Set(controls.map((control) => control.name))],
       entries,
       states,
@@ -346,20 +348,30 @@ document.addEventListener("DOMContentLoaded", () => {
       },
     });
 
-    document.addEventListener("impodo:server-disconnected", () => {
+    const stopSubmitting = (failureMessage, statusMessage) => {
       if (!submitting) {
         return;
       }
       submitting = false;
       mappingForm.removeAttribute("aria-busy");
-      saveRecovery.showFailure(
-        "Impodo stopped responding before it confirmed this action. Keep this tab open. When Impodo responds again, check the save outcome before retrying."
-      );
+      saveRecovery.showFailure(failureMessage);
       if (saveStatus) {
-        saveStatus.textContent =
-          "Save outcome unknown. Wait for Impodo, then check before retrying.";
+        saveStatus.textContent = statusMessage;
         saveStatus.classList.add("unsaved");
       }
+    };
+
+    document.addEventListener("impodo:server-disconnected", () => {
+      stopSubmitting(
+        "Impodo stopped responding before it confirmed this action. Keep this tab open. When Impodo responds again, check the save outcome before retrying.",
+        "Save outcome unknown. Wait for Impodo, then check before retrying."
+      );
+    });
+    document.addEventListener("impodo:session-ended", () => {
+      stopSubmitting(
+        "This Impodo session ended before it confirmed this action. Keep this tab open and copy any unsaved changes to the most recently opened Impodo tab.",
+        "Session ended. This save was not confirmed."
+      );
     });
 
     mappingForm.addEventListener("focusin", (event) => {
@@ -438,8 +450,9 @@ document.addEventListener("DOMContentLoaded", () => {
       for (const row of mappingForm.querySelectorAll(
         "[data-relation-mapping-row]"
       )) {
+        const provider = row.querySelector("[data-relation-value-source]");
         const source = row.querySelector('select[name^="relation_source_"]');
-        if (source && source.selectedOptions.length > 0) {
+        if (provider?.value || source?.selectedOptions.length > 0) {
           continue;
         }
         for (const control of row.querySelectorAll('[name^="relation_"]')) {
@@ -469,7 +482,7 @@ document.addEventListener("DOMContentLoaded", () => {
         for (const name of state.controlNames) {
           data.delete(name);
         }
-        if (!state.hasSource) {
+        if (!state.providerValue) {
           continue;
         }
         for (const [name, value] of state.entries) {
@@ -1159,8 +1172,137 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
 
+  const initializeRelationRow = (row) => {
+    if (row.dataset.relationRowInitialized === "true") {
+      return;
+    }
+    row.dataset.relationRowInitialized = "true";
+    const provider = row.querySelector("[data-relation-value-source]");
+    const sourceControls = row.querySelector("[data-relation-provider-source]");
+    const sourcePolicy = row.querySelector("[data-relation-source-policy]");
+    const constantControls = row.querySelector("[data-relation-provider-constant]");
+    const businessKey = row.querySelector("[data-constant-business-key]");
+    const chooser = row.querySelector("[data-constant-existing-chooser]");
+    const choice = chooser?.querySelector("[data-constant-existing-choice]");
+    const search = chooser?.querySelector("[data-constant-choice-search]");
+    const status = chooser?.querySelector("[data-constant-choice-status]");
+    let loadedChoices = [];
+
+    const syncProvider = () => {
+      const mode = provider?.value || "";
+      if (sourceControls) sourceControls.hidden = mode !== "source";
+      if (sourcePolicy) sourcePolicy.hidden = mode !== "source";
+      if (constantControls) {
+        constantControls.hidden = mode !== "constant_existing";
+      }
+    };
+    const syncComponents = () => {
+      const option = businessKey?.selectedOptions[0];
+      const fields = [
+        ...(option?.dataset.keyFields || "").split("|").filter(Boolean),
+        ...(option?.dataset.scopeFields || "").split("|").filter(Boolean),
+      ];
+      for (const component of row.querySelectorAll(
+        "[data-constant-component-row]"
+      )) {
+        const slot = Number(component.dataset.constantComponentSlot);
+        const active = slot < fields.length;
+        component.hidden = !active;
+        const input = component.querySelector("[data-constant-component-value]");
+        const label = component.querySelector("[data-constant-component-label]");
+        if (input) input.disabled = !active;
+        if (label && active) label.textContent = fields[slot];
+      }
+    };
+    const renderChoices = () => {
+      if (!choice) return;
+      const query = search?.value.trim().toLocaleLowerCase() || "";
+      const options = loadedChoices
+        .filter((item) => item.label.toLocaleLowerCase().includes(query))
+        .map((item) => {
+          const option = document.createElement("option");
+          option.value = item.value;
+          option.textContent = item.label;
+          return option;
+        });
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = options.length
+        ? "Choose one existing Odoo record"
+        : "No matching existing record loaded";
+      choice.replaceChildren(placeholder, ...options);
+    };
+
+    provider?.addEventListener("change", syncProvider);
+    businessKey?.addEventListener("change", syncComponents);
+    search?.addEventListener("input", renderChoices);
+    choice?.addEventListener("change", () => {
+      const first = row.querySelector("[data-constant-component-value]");
+      if (first && choice.value) {
+        first.value = choice.value;
+        first.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    chooser?.querySelector("[data-check-constant-record]")?.addEventListener(
+      "click",
+      async () => {
+        if (!businessKey?.value) {
+          if (status) status.textContent = "Choose a matching rule first.";
+          return;
+        }
+        const data = new FormData();
+        data.set(
+          "csrf_token",
+          mappingForm?.querySelector('[name="csrf_token"]')?.value || ""
+        );
+        data.set("kind", "constant_relationship");
+        data.set("dataset_id", chooser.dataset.datasetId || "");
+        data.set("source_column_key", "");
+        data.set("target_model", chooser.dataset.constantTargetModel || "");
+        data.set("target_field", chooser.dataset.targetField || "");
+        data.set("business_key_id", businessKey.value);
+        data.set("refresh", "0");
+        if (status) status.textContent = "Checking current Odoo choices…";
+        try {
+          const response = await fetch(chooser.dataset.endpoint, {
+            method: "POST",
+            body: data,
+            headers: { Accept: "application/json" },
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.detail || "The record could not be checked.");
+          }
+          loadedChoices = Array.isArray(payload.target_choices)
+            ? payload.target_choices
+            : [];
+          renderChoices();
+          if (status) {
+            status.textContent = loadedChoices.length
+              ? `${loadedChoices.length.toLocaleString()} unambiguous existing record(s) available.`
+              : "No unambiguous existing record matches this rule.";
+          }
+        } catch (error) {
+          if (status) {
+            status.textContent =
+              error instanceof Error
+                ? error.message
+                : "The record could not be checked.";
+          }
+        }
+      }
+    );
+    syncProvider();
+    syncComponents();
+  };
+
+  for (const row of document.querySelectorAll("[data-relation-mapping-row]")) {
+    initializeRelationRow(row);
+  }
+
   window.impodoMappingEditor = {
     initializeLazySourceSelect,
+    initializeRelationRow,
     mappingForm,
     restoreRelationRow,
     restoreScalarRow,

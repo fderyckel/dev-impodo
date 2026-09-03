@@ -395,6 +395,16 @@ def _prepare_relation(
     this source-preparation boundary.
     """
 
+    if relation.value_source == "constant_existing":
+        return LogicalReference(
+            origin="target",
+            key=relation.constant_key_values,
+            model=relation.resolve.target_model,
+            target_fields=relation.resolve.target_fields,
+            target_scope_fields=relation.resolve.target_scope_fields,
+            scope=relation.constant_scope_values,
+        )
+
     if relation.kind == "many2one":
         incoming_key = _parse_reference_key(
             relation.source_fields,

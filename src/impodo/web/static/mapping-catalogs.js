@@ -3,6 +3,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   const {
     initializeLazySourceSelect,
+    initializeRelationRow,
     initializeScalarRow,
     mappingForm,
     restoreRelationRow,
@@ -311,6 +312,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "[data-relation-mapping-row]"
       )) {
         restoreRelationRow(row);
+        initializeRelationRow(row);
         for (const select of row.querySelectorAll(
           "select[data-lazy-source-column]"
         )) {
