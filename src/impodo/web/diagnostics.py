@@ -9,6 +9,7 @@ accident.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from io import BytesIO
 import json
@@ -21,7 +22,7 @@ import platform
 import re
 import sys
 from threading import Lock
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -34,9 +35,12 @@ from impodo.application.shared.build_contract import ApplicationBuildContract
 DIAGNOSTIC_SCHEMA_VERSION = 1
 DIAGNOSTIC_DIRECTORY_NAME = "diagnostics"
 DIAGNOSTIC_LOG_NAME = "impodo.jsonl"
+DIAGNOSTIC_FALLBACK_LOG_NAME = f"{DIAGNOSTIC_LOG_NAME}.concurrent"
+DIAGNOSTIC_LOCK_NAME = ".impodo-diagnostics.lock"
 DEFAULT_MAX_LOG_BYTES = 2 * 1024 * 1024
 DEFAULT_BACKUP_COUNT = 5
 DEFAULT_SLOW_REQUEST_SECONDS = 2.0
+DEFAULT_DIAGNOSTIC_LOCK_TIMEOUT_SECONDS = 0.25
 REQUEST_ID_HEADER = "X-Impodo-Request-ID"
 DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 1
 DEFAULT_MAX_BUNDLE_RECORDS = 5_000
@@ -61,6 +65,164 @@ def diagnostic_directory(project_root: str | Path) -> Path:
     """Return the protected local directory used for operational evidence."""
 
     return Path(project_root).resolve().parent / DIAGNOSTIC_DIRECTORY_NAME
+
+
+class _ConcurrentRotatingFileHandler(RotatingFileHandler):
+    """Rotate safely when multiple local Impodo processes share one log.
+
+    Windows does not allow a file to be renamed while another process keeps it
+    open. Every current handler therefore coordinates through a lock file and
+    closes the JSONL stream after each record. If an older Impodo process still
+    owns the primary log, the handler moves to one shared, bounded fallback log
+    instead of printing a logging traceback for every request.
+    """
+
+    def __init__(
+        self,
+        filename: str | Path,
+        *,
+        max_bytes: int,
+        backup_count: int,
+        encoding: str,
+    ) -> None:
+        primary_path = Path(filename)
+        primary_path.touch(mode=0o600, exist_ok=True)
+        self._fallback_filename = os.path.abspath(
+            primary_path.parent / DIAGNOSTIC_FALLBACK_LOG_NAME
+        )
+        self.lock_path = primary_path.parent / DIAGNOSTIC_LOCK_NAME
+        self._process_lock_stream = None
+        super().__init__(
+            primary_path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding=encoding,
+            delay=True,
+        )
+        self._primary_filename = self.baseFilename
+        try:
+            self._process_lock_stream = self.lock_path.open(
+                "a+b",
+                buffering=0,
+            )
+            if self.lock_path.stat().st_size == 0:
+                self._process_lock_stream.write(b"\0")
+                self._process_lock_stream.flush()
+        except OSError:
+            super().close()
+            raise
+
+    def emit(self, record: logging.LogRecord) -> None:
+        lock_stream = self._process_lock_stream
+        if lock_stream is None:
+            return
+        try:
+            with _exclusive_process_file_lock(lock_stream):
+                self._close_output_stream()
+                if self.shouldRollover(record):
+                    try:
+                        self.doRollover()
+                    except PermissionError as error:
+                        if (
+                            self.baseFilename != self._primary_filename
+                            or not _is_windows_sharing_violation(error)
+                        ):
+                            raise
+                        self._close_output_stream()
+                        self.baseFilename = self._fallback_filename
+                logging.FileHandler.emit(self, record)
+                if self.stream is not None:
+                    self.stream.flush()
+                self._apply_private_output_permissions()
+        except (OSError, TimeoutError, ValueError):
+            # Optional diagnostics must never delay or break the application.
+            return
+        finally:
+            self._close_output_stream()
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        """Keep logging's internal error path off the operator console."""
+
+        return
+
+    def close(self) -> None:
+        self._close_output_stream()
+        lock_stream = self._process_lock_stream
+        self._process_lock_stream = None
+        if lock_stream is not None:
+            try:
+                lock_stream.close()
+            except OSError:
+                pass
+        super().close()
+
+    def _close_output_stream(self) -> None:
+        if self.stream is None:
+            return
+        try:
+            self.stream.close()
+        except OSError:
+            pass
+        finally:
+            self.stream = None
+
+    def _apply_private_output_permissions(self) -> None:
+        if os.name == "nt":
+            return
+        try:
+            Path(self.baseFilename).chmod(0o600)
+        except OSError:
+            return
+
+
+@contextmanager
+def _exclusive_process_file_lock(
+    stream,
+    *,
+    timeout_seconds: float = DEFAULT_DIAGNOSTIC_LOCK_TIMEOUT_SECONDS,
+):
+    """Hold one advisory byte lock across a diagnostic write and rollover."""
+
+    deadline = perf_counter() + timeout_seconds
+    if os.name == "nt":
+        import msvcrt
+
+        acquired = False
+        while not acquired:
+            stream.seek(0)
+            try:
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                acquired = True
+            except OSError as error:
+                if perf_counter() >= deadline:
+                    raise TimeoutError("Diagnostic log lock timed out") from error
+                sleep(0.01)
+        try:
+            yield
+        finally:
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+
+    import fcntl
+
+    acquired = False
+    while not acquired:
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except OSError as error:
+            if perf_counter() >= deadline:
+                raise TimeoutError("Diagnostic log lock timed out") from error
+            sleep(0.01)
+    try:
+        yield
+    finally:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def _is_windows_sharing_violation(error: PermissionError) -> bool:
+    return os.name == "nt" and getattr(error, "winerror", None) in {32, 33}
 
 
 class LocalDiagnosticRecorder:
@@ -92,16 +254,20 @@ class LocalDiagnosticRecorder:
             level=logging.INFO,
         )
         self._logger.propagate = False
-        handler = RotatingFileHandler(
+        handler = _ConcurrentRotatingFileHandler(
             self.path,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
+            max_bytes=max_bytes,
+            backup_count=backup_count,
             encoding="utf-8",
         )
         handler.setFormatter(logging.Formatter("%(message)s"))
         self._handler = handler
         self._logger.addHandler(handler)
-        self._apply_private_permissions(resolved_directory, self.path)
+        self._apply_private_permissions(
+            resolved_directory,
+            self.path,
+            handler.lock_path,
+        )
 
     def record_lifecycle(
         self,
@@ -277,13 +443,14 @@ class LocalDiagnosticRecorder:
                 return
 
     @staticmethod
-    def _apply_private_permissions(directory: Path, path: Path) -> None:
+    def _apply_private_permissions(directory: Path, *paths: Path) -> None:
         if os.name == "nt":
             # The launcher prepares this directory with the private-root policy.
             return
         try:
             directory.chmod(0o700)
-            path.chmod(0o600)
+            for path in paths:
+                path.chmod(0o600)
         except OSError:
             # A restrictive process umask remains the fallback on unusual filesystems.
             return

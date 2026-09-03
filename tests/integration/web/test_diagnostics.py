@@ -124,6 +124,36 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
             self.assertNotIn("headers", record)
             self.assertNotIn("query", record)
 
+    def test_windows_sharing_violation_uses_bounded_fallback_log(self) -> None:
+        with _diagnostic_test_directory("impodo-diagnostics-sharing") as directory:
+            recorder = LocalDiagnosticRecorder(
+                directory,
+                max_bytes=1,
+                backup_count=2,
+            )
+            recorder.record_lifecycle("launcher_starting")
+            sharing_violation = PermissionError("diagnostic log is in use")
+            sharing_violation.winerror = 32
+            with (
+                patch.object(
+                    recorder._handler,
+                    "doRollover",
+                    side_effect=sharing_violation,
+                ),
+                patch(
+                    "impodo.web.diagnostics._is_windows_sharing_violation",
+                    return_value=True,
+                ),
+            ):
+                recorder.record_lifecycle("server_process_started", port=60572)
+            recorder.close()
+
+            fallback = directory / f"{DIAGNOSTIC_LOG_NAME}.concurrent"
+            record = json.loads(fallback.read_text(encoding="utf-8"))
+
+        self.assertEqual(record["event"], "server_process_started")
+        self.assertEqual(record["port"], 60572)
+
     def test_server_timing_parser_ignores_unknown_or_malformed_metrics(self) -> None:
         self.assertEqual(
             parse_server_timing(
