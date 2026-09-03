@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Review transfer &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 7 of 8 &middot; Review transfer</p>
+      <h1>Approve the exact Odoo transfer package</h1>
+      <p>
+        Review the records, selected write fields, relationship operations,
+        creation waves, and reconciled control totals before any load can exist.
+      </p>
+    </div>
+    <span class="status
+      {% if transfer_review_approved %}ready{% elif transfer_review_current %}review{% else %}blocked{% endif %}">
+      {% if transfer_review_approved %}
+        Approved
+      {% elif transfer_review_current %}
+        Approval required
+      {% else %}
+        Package required
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="notice warning">
+    <strong>No Odoo write happens in this stage.</strong>
+    Approval is bound to this exact package. Stage 8 must still recheck the
+    destination and request a final load confirmation before using the destination
+    transfer key.
+  </div>
+
+  {% if transfer_review_stale %}
+    <div class="notice warning">
+      <strong>The saved review package is no longer current.</strong>
+      Destination matching or transfer ordering changed. Freeze a new package;
+      the earlier approval cannot authorize it.
+    </div>
+  {% endif %}
+
+  {% if not transfer_review_current %}
+    <section class="form-card">
+      <p class="eyebrow">Freeze review evidence</p>
+      <h2>Build the complete transfer package</h2>
+      <p>
+        This combines Stage 5 and Stage 6 locally. It does not contact either
+        Odoo instance and does not ask for an API key.
+      </p>
+      <form method="post" action="/workspaces/{{ workspace_id }}/transfer-review/build">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+        <div class="actions">
+          <a
+            class="button secondary"
+            href="/workspaces/{{ workspace_id }}/transfer-order#transfer-order-results"
+          >Back to transfer order</a>
+          <button class="button primary" type="submit">Build review package</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+
+  {% if transfer_review_current %}
+    <section class="form-card" id="review-package">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Frozen execution scope</p>
+          <h2>
+            {{ transfer_review_package.totals.dataset_count }} record type(s)
+            bound to one exact plan
+          </h2>
+          <p>
+            Package {{ transfer_review_package.export_plan.plan_id }} was frozen
+            {{ transfer_review_package.export_plan.frozen_at.strftime('%Y-%m-%d %H:%M UTC') }}.
+          </p>
+        </div>
+        <span class="status {% if transfer_review_approved %}ready{% else %}review{% endif %}">
+          {% if transfer_review_approved %}Stage 7 complete{% else %}Review and approve{% endif %}
+        </span>
+      </div>
+
+      <div class="notice">
+        <strong>Exact destination behavior</strong>
+        Missing records will be created. Unique matching records may be updated
+        only in the fields listed below. Destination records outside this source
+        package remain unchanged.
+      </div>
+
+      <dl class="definition-list capture-summary">
+        <div>
+          <dt>Source records</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.source_record_count) }}</dd>
+        </div>
+        <div>
+          <dt>Reuse and update</dt>
+          <dd>
+            {{ "{:,}".format(transfer_review_package.totals.destination_existing_record_count) }}
+          </dd>
+        </div>
+        <div>
+          <dt>Create</dt>
+          <dd>
+            {{ "{:,}".format(transfer_review_package.totals.destination_create_record_count) }}
+          </dd>
+        </div>
+        <div>
+          <dt>Create waves</dt>
+          <dd>{{ transfer_review_package.totals.wave_count }}</dd>
+        </div>
+        <div>
+          <dt>Scalar fields</dt>
+          <dd>{{ transfer_review_package.totals.scalar_write_field_count }}</dd>
+        </div>
+        <div>
+          <dt>Relationship fields</dt>
+          <dd>{{ transfer_review_package.totals.relationship_write_field_count }}</dd>
+        </div>
+        <div>
+          <dt>Relationship links</dt>
+          <dd>
+            {{ "{:,}".format(transfer_review_package.totals.source_relationship_link_count) }}
+          </dd>
+        </div>
+        <div>
+          <dt>Post-create links</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.post_create_link_count) }}</dd>
+        </div>
+      </dl>
+
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Record-type write scope</p>
+          <h2>Fields and actions by Odoo model</h2>
+        </div>
+      </div>
+      {% for row in transfer_review_dataset_rows %}
+        <article class="dataset-card">
+          <div class="page-heading compact">
+            <div>
+              <h3>{{ row.dataset.model_label }}</h3>
+              <p>
+                {{ row.dataset.model }} &middot; Wave {{ row.dataset.wave }}
+                &middot; match by {{ row.dataset.key_field_label }}
+                ({{ row.dataset.key_field }})
+              </p>
+            </div>
+          </div>
+          <dl class="definition-list capture-summary">
+            <div>
+              <dt>Reuse and update</dt>
+              <dd>{{ "{:,}".format(row.dataset.destination_existing_record_count) }}</dd>
+            </div>
+            <div>
+              <dt>Create</dt>
+              <dd>{{ "{:,}".format(row.dataset.destination_create_record_count) }}</dd>
+            </div>
+            <div>
+              <dt>Scalar write fields</dt>
+              <dd>
+                {{ row.dataset.scalar_write_fields|join(', ') if row.dataset.scalar_write_fields else 'None' }}
+              </dd>
+            </div>
+            <div>
+              <dt>Relationship fields</dt>
+              <dd>
+                {{ row.dataset.relationship_write_fields|join(', ') if row.dataset.relationship_write_fields else 'None' }}
+              </dd>
+            </div>
+          </dl>
+          {% for relation in row.relationships %}
+            <div class="notice">
+              <strong>{{ relation.field_label }} ({{ relation.field_name }})</strong>
+              {{ relation.operation }} {{ "{:,}".format(relation.source_link_count) }}
+              link(s) to {{ relation.related_model_label }} by
+              {{ relation.related_key_field }} &middot;
+              {% if relation.phase == 'post_create' %}
+                post-create pass
+              {% else %}
+                create/update pass
+              {% endif %}.
+              {% if relation.inverse_field %}
+                Inverse one2many: {{ relation.related_model }}.{{ relation.inverse_field }}.
+              {% endif %}
+            </div>
+          {% endfor %}
+        </article>
+      {% endfor %}
+
+      <div class="notice">
+        <strong>Control totals reconcile.</strong>
+        {{ "{:,}".format(transfer_review_package.totals.destination_existing_record_count) }}
+        reused plus
+        {{ "{:,}".format(transfer_review_package.totals.destination_create_record_count) }}
+        created equals
+        {{ "{:,}".format(transfer_review_package.totals.source_record_count) }}
+        source records. Relationship reuse plus incoming links also equals the
+        captured relationship-link total.
+      </div>
+
+      {% if transfer_review_approved %}
+        <div class="notice">
+          <strong>Approved by {{ transfer_review_approval.approved_by.display_name }}.</strong>
+          Approved {{ transfer_review_approval.approved_at.strftime('%Y-%m-%d %H:%M UTC') }}
+          for this exact package.
+          {% if transfer_review_approval.reason %}
+            Note: {{ transfer_review_approval.reason }}
+          {% endif %}
+        </div>
+        <div class="notice warning">
+          <strong>Next planned stage: load destination Odoo.</strong>
+          Stage 8 is not available yet. Its preflight will revalidate the destination,
+          resolve protected keys, require final confirmation, journal writes, and
+          reconcile the outcome.
+        </div>
+      {% else %}
+        <form method="post" action="/workspaces/{{ workspace_id }}/transfer-review/approve">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+          <label>
+            Approval note (optional)
+            <textarea
+              name="reason"
+              maxlength="2000"
+              rows="3"
+              placeholder="Why is this exact transfer scope approved?"
+            ></textarea>
+          </label>
+          <label class="checkbox-line">
+            <input type="checkbox" name="confirmation" value="approve" required>
+            <span>
+              I approve this exact record scope, matching policy, selected field
+              writes, relationship operations, creation order, and control totals.
+            </span>
+          </label>
+          <div class="actions">
+            <a
+              class="button secondary"
+              href="/workspaces/{{ workspace_id }}/transfer-order#transfer-order-results"
+            >Back to transfer order</a>
+            <button class="button primary" type="submit">Approve exact transfer package</button>
+          </div>
+        </form>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

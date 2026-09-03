@@ -693,7 +693,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Destination connection complete", connected_page.text)
         self.assertIn("Stage 4 complete", connected_page.text)
         self.assertIn("Match destination data", connected_page.text)
-        self.assertIn("Not yet available", connected_page.text)
+        self.assertIn("Destination matching required", connected_page.text)
         connected_source_page = self.client.get(
             f"/workspaces/{workspace_id}/sources#download-complete"
         )
@@ -744,7 +744,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f'href="/workspaces/{workspace_id}/transfer-order"',
             matched_page.text,
         )
-        self.assertIn("Not yet available", matched_page.text)
+        self.assertIn("Transfer order required", matched_page.text)
 
         order_page = self.client.get(
             f"/workspaces/{workspace_id}/transfer-order"
@@ -771,7 +771,52 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Transfer order is ready", ordered_page.text)
         self.assertIn("Stage 6 complete", ordered_page.text)
         self.assertIn("Wave 1", ordered_page.text)
-        self.assertIn("Next planned stage: review the complete transfer", ordered_page.text)
+        self.assertIn("Next: review the complete transfer", ordered_page.text)
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/transfer-review"',
+            ordered_page.text,
+        )
+
+        review_page = self.client.get(
+            f"/workspaces/{workspace_id}/transfer-review"
+        )
+        self.assertEqual(review_page.status_code, 200)
+        self.assertIn("Stage 7 of 8", review_page.text)
+        self.assertIn("Approve the exact Odoo transfer package", review_page.text)
+        review_built = self._post(
+            f"/workspaces/{workspace_id}/transfer-review/build",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(ordered_state.revision),
+            },
+        )
+        self.assertEqual(review_built.status_code, 303, review_built.text)
+        review_state = self.app.state.context.queries.get(workspace_id)
+        self.assertIsNotNone(review_state.transfer_review_package)
+        self.assertIsNone(review_state.transfer_review_approval)
+        built_page = self.client.get(review_built.headers["location"])
+        self.assertIn("Frozen execution scope", built_page.text)
+        self.assertIn("Control totals reconcile", built_page.text)
+        self.assertIn("Approve exact transfer package", built_page.text)
+
+        review_approved = self._post(
+            f"/workspaces/{workspace_id}/transfer-review/approve",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(review_state.revision),
+                "confirmation": "approve",
+                "reason": "Approved for the destination transfer.",
+            },
+        )
+        self.assertEqual(review_approved.status_code, 303, review_approved.text)
+        approved_transfer_state = self.app.state.context.queries.get(workspace_id)
+        self.assertIsNotNone(approved_transfer_state.transfer_review_approval)
+        approved_transfer_page = self.client.get(
+            review_approved.headers["location"]
+        )
+        self.assertIn("Stage 7 complete", approved_transfer_page.text)
+        self.assertIn("Exact transfer package approved", approved_transfer_page.text)
+        self.assertIn("Stage 8 is not available yet", approved_transfer_page.text)
 
         mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)

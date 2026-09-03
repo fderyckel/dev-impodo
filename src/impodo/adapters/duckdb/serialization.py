@@ -25,6 +25,10 @@ from impodo.domain.workspace.workbench import (
 )
 from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
+from impodo.domain.workspace.transfer_review import (
+    TransferReviewApproval,
+    TransferReviewPackage,
+)
 
 
 def _workspace_values(workspace: WorkspaceState) -> list[object]:
@@ -78,6 +82,16 @@ def _workspace_values(workspace: WorkspaceState) -> list[object]:
         (
             workspace.transfer_order_plan.to_json()
             if workspace.transfer_order_plan is not None
+            else None
+        ),
+        (
+            workspace.transfer_review_package.to_json()
+            if workspace.transfer_review_package is not None
+            else None
+        ),
+        (
+            workspace.transfer_review_approval.to_json()
+            if workspace.transfer_review_approval is not None
             else None
         ),
     ]
@@ -144,6 +158,20 @@ def _workspace_from_rows(
         transfer_order_plan=(
             TransferOrderPlan.from_json(str(data["transfer_order_plan_json"]))
             if data.get("transfer_order_plan_json")
+            else None
+        ),
+        transfer_review_package=(
+            TransferReviewPackage.from_json(
+                str(data["transfer_review_package_json"])
+            )
+            if data.get("transfer_review_package_json")
+            else None
+        ),
+        transfer_review_approval=(
+            TransferReviewApproval.from_json(
+                str(data["transfer_review_approval_json"])
+            )
+            if data.get("transfer_review_approval_json")
             else None
         ),
         intended_applications=tuple(json.loads(str(data["intended_applications"]))),

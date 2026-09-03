@@ -122,6 +122,10 @@ _TEMPLATE_LOCATION = {
         "transfer-order",
         "Validate transfer order",
     ),
+    "workspace_transfer_review.html": (
+        "transfer-review",
+        "Review transfer",
+    ),
     "workspace_datasets.html": ("source", "Saved source tables"),
     "workspace_derived_entities.html": (
         "source",
@@ -271,6 +275,22 @@ def _build_authoring_workspace_navigation(
             frozen_source is not None
             and schema is not None
             and current_workspace_state.transfer_order_ready(
+                source_selection_hash=frozen_source.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        )
+        transfer_review_current = bool(
+            frozen_source is not None
+            and schema is not None
+            and current_workspace_state.transfer_review_current(
+                source_selection_hash=frozen_source.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        )
+        transfer_review_approved = bool(
+            frozen_source is not None
+            and schema is not None
+            and current_workspace_state.transfer_review_approved(
                 source_selection_hash=frozen_source.content_hash,
                 source_schema_hash=schema.content_hash,
             )
@@ -541,13 +561,56 @@ def _build_authoring_workspace_navigation(
                 stage_id="transfer-review",
                 number=7,
                 label="Review transfer",
-                href=None,
-                status="locked",
-                status_label=(
-                    "Not yet available"
+                href=(
+                    f"/workspaces/{workspace_id}/transfer-review"
                     if transfer_order_ready
-                    else "Transfer order required"
+                    else None
                 ),
+                status=(
+                    "complete"
+                    if transfer_review_approved
+                    else (
+                        "attention"
+                        if current_workspace_state.transfer_review_package is not None
+                        and transfer_order_ready
+                        else ("current" if transfer_order_ready else "locked")
+                    )
+                ),
+                status_label=(
+                    "Transfer approved"
+                    if transfer_review_approved
+                    else (
+                        "Approval required"
+                        if transfer_review_current
+                        else (
+                            "Rebuild review"
+                            if current_workspace_state.transfer_review_package
+                            is not None
+                            and transfer_order_ready
+                            else (
+                                "Current"
+                                if transfer_order_ready
+                                else "Transfer order required"
+                            )
+                        )
+                    )
+                ),
+                pages=(
+                    _page(
+                        workspace_id,
+                        "transfer-review",
+                        "Review transfer",
+                        "/transfer-review",
+                        complete=transfer_review_approved,
+                        attention=(
+                            current_workspace_state.transfer_review_package
+                            is not None
+                            and not transfer_review_approved
+                        ),
+                    ),
+                )
+                if transfer_order_ready
+                else (),
             ),
             WorkflowStage(
                 stage_id="destination-load",
@@ -555,7 +618,11 @@ def _build_authoring_workspace_navigation(
                 label="Load destination Odoo",
                 href=None,
                 status="locked",
-                status_label="Not yet available",
+                status_label=(
+                    "Not yet available"
+                    if transfer_review_approved
+                    else "Transfer approval required"
+                ),
             ),
         ]
         return _navigation(

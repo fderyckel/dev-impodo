@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 import tempfile
 import unittest
@@ -7,18 +8,26 @@ from uuid import uuid4
 
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
+from impodo.application.transfer_review_service import TransferReviewService
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.transfer_order import (
     TransferOrderDataset,
     TransferOrderPlan,
     TransferOrderWave,
 )
+from impodo.domain.workspace.transfer_review import TransferReviewApproval
 from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceState,
     WorkspaceStatus,
 )
 from tests.support.paths import REPOSITORY_ROOT
+from tests.application.workspace.test_transfer_order import (
+    _build,
+    _match_plan,
+    _model,
+    _workspace,
+)
 
 
 HASHES = tuple("sha256:" + character * 64 for character in "abcde")
@@ -73,6 +82,44 @@ class TransferOrderPersistenceTests(unittest.TestCase):
 
         self.assertEqual(restored.transfer_order_plan, plan)
         self.assertEqual(restored.transfer_order_plan.content_hash, plan.content_hash)
+
+    def test_workspace_engine_round_trips_stage_seven_approval(self) -> None:
+        product = _model("product.template", "Product", create=1)
+        match = _match_plan((product,), ())
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+        package = TransferReviewService().build(
+            workspace,
+            match,
+            order,
+            run_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+        approval = TransferReviewApproval.approve(
+            package,
+            approval_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+            reason="Reviewed.",
+        )
+        workspace = replace(
+            workspace,
+            transfer_review_package=package,
+            transfer_review_approval=approval,
+        )
+
+        (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / ".tmp") as directory:
+            repository = WorkspaceStateRepository(
+                DuckDbWorkspaceDatabase(directory)
+            )
+            repository.initialize_workbench(workspace, actor=LOCAL_ACTOR)
+
+            restored = repository.get(workspace.workspace_id)
+
+        self.assertEqual(restored.transfer_review_package, package)
+        self.assertEqual(restored.transfer_review_approval, approval)
 
 
 if __name__ == "__main__":

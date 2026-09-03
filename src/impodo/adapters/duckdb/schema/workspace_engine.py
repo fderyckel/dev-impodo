@@ -60,6 +60,8 @@ _WORKSPACE_PROJECTION_COLUMNS = (
     "destination_verified_at",
     "destination_match_plan_json",
     "transfer_order_plan_json",
+    "transfer_review_package_json",
+    "transfer_review_approval_json",
 )
 _AUDIT_EVENT_COLUMNS = (
     "event_id",
@@ -196,7 +198,9 @@ class WorkspaceEngineSchemaMixin:
                 destination_verified_odoo_version VARCHAR NOT NULL,
                 destination_verified_at VARCHAR,
                 destination_match_plan_json VARCHAR,
-                transfer_order_plan_json VARCHAR
+                transfer_order_plan_json VARCHAR,
+                transfer_review_package_json VARCHAR,
+                transfer_review_approval_json VARCHAR
             );
 
             CREATE TABLE source_file (
@@ -956,6 +960,21 @@ def _upgrade_workspace_engine_v6_to_v7(
     )
 
 
+def _upgrade_workspace_engine_v7_to_v8(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add frozen Stage 7 review and approval evidence."""
+
+    connection.execute(
+        """
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN transfer_review_package_json VARCHAR;
+        ALTER TABLE workspace_projection_cache
+            ADD COLUMN transfer_review_approval_json VARCHAR;
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -980,5 +999,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     6: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v6-to-v7-transfer-order",
         apply=_upgrade_workspace_engine_v6_to_v7,
+    ),
+    7: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v7-to-v8-transfer-review",
+        apply=_upgrade_workspace_engine_v7_to_v8,
     ),
 }

@@ -171,12 +171,21 @@
       {% endif %}
 
       {% if transfer_order_ready %}
-        <div class="notice">
-          <strong>Next planned stage: review the complete transfer.</strong>
-          Stage 7 is not available yet. It will combine matching, creation waves,
-          deferred links, field writes, and control totals into an approval package.
-          Destination writes remain disabled.
-        </div>
+        <section class="next-action-card ready">
+          <div>
+            <p class="eyebrow">Transfer order complete</p>
+            <h2>Next: review the complete transfer</h2>
+            <p>
+              Freeze matching, creation waves, deferred links, selected field
+              writes, and control totals into one approval package. Destination
+              writes remain disabled.
+            </p>
+          </div>
+          <div class="next-action-buttons">
+            <span class="status ready">Stage 6 complete</span>
+            <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-review">Review transfer</a>
+          </div>
+        </section>
       {% endif %}
     </section>
   {% endif %}

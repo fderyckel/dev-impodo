@@ -29,6 +29,10 @@ from impodo.domain.run.setup import OdooConnectionMode, validate_odoo_base_url
 from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
+from impodo.domain.workspace.transfer_review import (
+    TransferReviewApproval,
+    TransferReviewPackage,
+)
 
 
 class WorkspaceStateError(ValueError):
@@ -146,6 +150,8 @@ class WorkspaceState:
     destination_verified_at: datetime | None = None
     destination_match_plan: DestinationMatchPlan | None = None
     transfer_order_plan: TransferOrderPlan | None = None
+    transfer_review_package: TransferReviewPackage | None = None
+    transfer_review_approval: TransferReviewApproval | None = None
     intended_applications: tuple[str, ...] = ()
     intended_models: tuple[str, ...] = ()
     source_files: tuple[SourceFile, ...] = ()
@@ -280,6 +286,55 @@ class WorkspaceState:
             )
             and self.transfer_order_plan is not None
             and self.transfer_order_plan.ready
+        )
+
+    def transfer_review_current(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether Stage 7 is bound to the exact current matching and order."""
+
+        package = self.transfer_review_package
+        match_plan = self.destination_match_plan
+        order_plan = self.transfer_order_plan
+        return bool(
+            self.transfer_order_ready(
+                source_selection_hash=source_selection_hash,
+                source_schema_hash=source_schema_hash,
+            )
+            and package is not None
+            and match_plan is not None
+            and order_plan is not None
+            and package.workspace_id == self.workspace_id
+            and package.source_selection_hash == source_selection_hash
+            and package.source_schema_hash == source_schema_hash
+            and package.destination_match_plan_hash == match_plan.content_hash
+            and package.transfer_order_plan_hash == order_plan.content_hash
+            and package.destination_target_hash
+            == transfer_destination_identity_hash(self)
+            and package.export_plan.frozen_at >= order_plan.recorded_at
+        )
+
+    def transfer_review_approved(
+        self,
+        *,
+        source_selection_hash: str,
+        source_schema_hash: str,
+    ) -> bool:
+        """Whether a current Stage 7 package has exact export-plan approval."""
+
+        package = self.transfer_review_package
+        approval = self.transfer_review_approval
+        return bool(
+            self.transfer_review_current(
+                source_selection_hash=source_selection_hash,
+                source_schema_hash=source_schema_hash,
+            )
+            and package is not None
+            and approval is not None
+            and approval.authorizes(package, at=_now())
         )
 
 
@@ -577,6 +632,12 @@ class WorkspaceStateService:
             transfer_order_plan=(
                 None if changed else workspace.transfer_order_plan
             ),
+            transfer_review_package=(
+                None if changed else workspace.transfer_review_package
+            ),
+            transfer_review_approval=(
+                None if changed else workspace.transfer_review_approval
+            ),
         )
         return self._save(
             updated,
@@ -667,6 +728,8 @@ class WorkspaceStateService:
             workspace,
             destination_match_plan=plan,
             transfer_order_plan=None,
+            transfer_review_package=None,
+            transfer_review_approval=None,
         )
         return self._save(
             updated,
@@ -710,7 +773,12 @@ class WorkspaceStateService:
             raise WorkspaceStateError(
                 "Transfer order does not match current destination matching"
             )
-        updated = replace(workspace, transfer_order_plan=plan)
+        updated = replace(
+            workspace,
+            transfer_order_plan=plan,
+            transfer_review_package=None,
+            transfer_review_approval=None,
+        )
         return self._save(
             updated,
             workspace,
@@ -722,6 +790,121 @@ class WorkspaceStateService:
                 f"ready={'yes' if plan.ready else 'no'}"
             ),
         )
+
+    def save_transfer_review_package(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        package: TransferReviewPackage,
+    ) -> WorkspaceState:
+        """Freeze Stage 7 scope and controls without authorizing a write."""
+
+        workspace = self._target_editable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        match_plan = workspace.destination_match_plan
+        order_plan = workspace.transfer_order_plan
+        if (
+            match_plan is None
+            or order_plan is None
+            or not workspace.transfer_order_ready(
+                source_selection_hash=package.source_selection_hash,
+                source_schema_hash=package.source_schema_hash,
+            )
+            or package.workspace_id != workspace.workspace_id
+            or package.destination_match_plan_hash != match_plan.content_hash
+            or package.transfer_order_plan_hash != order_plan.content_hash
+            or package.destination_target_hash != match_plan.destination_target_hash
+            or package.built_by != actor.identity
+        ):
+            raise WorkspaceStateError(
+                "Transfer review does not match the current transfer order"
+            )
+        updated = replace(
+            workspace,
+            transfer_review_package=package,
+            transfer_review_approval=None,
+        )
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_TRANSFER_REVIEW_FROZEN",
+            actor=actor,
+            detail=(
+                f"package={package.content_hash}; "
+                f"records={package.totals.source_record_count}; "
+                f"create={package.totals.destination_create_record_count}; "
+                f"reuse={package.totals.destination_existing_record_count}"
+            ),
+        )
+
+    def approve_transfer_review(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        approval: TransferReviewApproval,
+    ) -> WorkspaceState:
+        """Approve one exact current Stage 7 package, still without Odoo writes."""
+
+        workspace = self._transfer_review_approvable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        package = workspace.transfer_review_package
+        if (
+            package is None
+            or approval.workspace_id != workspace.workspace_id
+            or approval.approved_by != actor.identity
+            or not workspace.transfer_review_current(
+                source_selection_hash=package.source_selection_hash,
+                source_schema_hash=package.source_schema_hash,
+            )
+            or not approval.authorizes(package, at=approval.approved_at)
+        ):
+            raise WorkspaceStateError(
+                "Transfer approval does not match the current review package"
+            )
+        updated = replace(workspace, transfer_review_approval=approval)
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_TRANSFER_REVIEW_APPROVED",
+            actor=actor,
+            detail=(
+                f"package={package.content_hash}; "
+                f"approval={approval.content_hash}"
+            ),
+        )
+
+    def _transfer_review_approvable(
+        self,
+        workspace_id: str,
+        expected_revision: int,
+        *,
+        actor: Actor,
+    ) -> WorkspaceState:
+        _canonical_workspace_id(workspace_id)
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_APPROVE,
+            workspace_id=workspace_id,
+        )
+        workspace = self.repository.get(workspace_id)
+        self.repository.assert_workspace_mutable(workspace.workspace_id)
+        if workspace.revision != expected_revision:
+            raise WorkspaceStateConflictError(
+                "The workspace changed in another request; reload before continuing"
+            )
+        if workspace.status is WorkspaceStatus.CLOSED:
+            raise WorkspaceStateError("Closed workspaces cannot be edited")
+        return workspace
 
     def _target_editable(
         self,

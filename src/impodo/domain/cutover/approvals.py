@@ -1,10 +1,9 @@
-"""Immutable approval evidence used by normalization and future Stage I plans.
+"""Immutable approval evidence used by normalization and frozen export plans.
 
 ``ApprovalEvidence`` is integrated into the Stage-G ``DryRun`` decision state.
-``FrozenExportPlan`` and ``ExportPlanApproval`` are standalone domain contracts
-for a future clean-package/import-plan workflow: no application service,
-repository, browser route, or executor currently creates or consumes them.
-Their presence must not be interpreted as Odoo write authorization.
+The Odoo-to-Odoo Stage 7 review package now binds its exact portable action
+scope through ``FrozenExportPlan`` and records ``ExportPlanApproval``. That
+approval remains review evidence only and is not itself an Odoo write command.
 
 Stages J-K remain outside this module. The practical local writer and journal
 do not consume these optional higher-risk approvals, and post-write
@@ -100,11 +99,11 @@ class ApprovalEvidence:
 
 @dataclass(frozen=True, slots=True)
 class FrozenExportPlan:
-    """Future Stage-I contract binding every proposed execution input.
+    """Contract binding every proposed execution input.
 
-    This value object is not built by the current Stage-H readiness workflow.
-    A future clean-package service must define and verify ``actions_hash`` and
-    every upstream/target binding before persisting one of these plans.
+    The Odoo-to-Odoo review package defines and verifies ``actions_hash`` and
+    every upstream/target binding before persisting one of these plans. Other
+    workflows may adopt the same contract independently.
     """
 
     plan_id: str
@@ -181,7 +180,7 @@ class FrozenExportPlan:
 
 @dataclass(frozen=True, slots=True)
 class ExportPlanApproval:
-    """Future approval of one exact frozen plan, never a generic Odoo write.
+    """Approval of one exact frozen plan, never a generic Odoo write.
 
     A later executor would still need a separately authorized, idempotent,
     journaled Stage-J operation and must re-check plan hash and expiry. No such
