@@ -73,6 +73,10 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
+- [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
+  — the proposed internal VM deployment, Microsoft Entra sign-in, retained
+  local files, bounded preparation-worker coordination, recovery, and pilot
+  acceptance plan.
 - [Scalable relationship dependency planning and execution](plans/scalable-relationship-dependency-planning.md)
   — the proposed generic dataset and row dependency planner for hierarchies,
   Product relationships, BOM-shaped migrations, cycle handling, bounded Odoo
