@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Loading destination Odoo &middot; {{ job.migration_project_name }} &middot; Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/execution.css') }}">
+{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/job-polling.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+  {% set active = job.status.value in ('QUEUED', 'RUNNING') %}
+  <div class="load-progress-page" data-load-job data-status-url="/workspaces/{{ job.workspace_id }}/transfer-load/progress/{{ job.job_id }}/status">
+    <nav class="load-stepper" aria-label="Destination Odoo load progress">
+      <ol>
+        <li class="load-step complete"><a href="/workspaces/{{ job.workspace_id }}/transfer-load"><span class="load-step-number" aria-hidden="true">1</span><span><strong>Prepare exact load</strong><small>Complete</small></span></a></li>
+        <li class="load-step {% if active %}current{% elif job.status.value == 'SUCCEEDED' %}complete{% else %}attention{% endif %}"><span aria-current="step"><span class="load-step-number" aria-hidden="true">2</span><span><strong>Confirm and load</strong><small data-load-step-state>{% if active %}In progress{% elif job.status.value == 'SUCCEEDED' %}Complete{% else %}Needs attention{% endif %}</small></span></span></li>
+        <li class="load-step {% if job.status.value == 'SUCCEEDED' %}available{% else %}locked{% endif %}">{% if job.status.value == 'SUCCEEDED' %}<a href="/workspaces/{{ job.workspace_id }}/transfer-load/outcome">{% else %}<span aria-disabled="true">{% endif %}<span class="load-step-number" aria-hidden="true">3</span><span><strong>Verify result</strong><small>{% if job.status.value == 'SUCCEEDED' %}Available{% else %}Not ready{% endif %}</small></span>{% if job.status.value == 'SUCCEEDED' %}</a>{% else %}</span>{% endif %}</li>
+      </ol>
+    </nav>
+
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 8B of 8 &middot; Confirmed destination load</p>
+        <h1>Loading {{ job.migration_project_name }} into destination Odoo</h1>
+        <p>Impodo records each attempted operation before transport and each accepted result before reporting it here. You may leave this page and return from the workspace.</p>
+      </div>
+      <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% else %}ready{% endif %}" data-load-state>{% if job.status.value == 'SUCCEEDED' %}Finished{% elif job.status.value == 'FAILED' %}Stopped{% else %}In progress{% endif %}</span>
+    </div>
+
+    <section class="load-target-banner" aria-labelledby="transfer-progress-target">
+      <div><p class="eyebrow">Destination Odoo database</p><h2 id="transfer-progress-target">{{ job.target_database }}</h2><p>{{ job.target_server }}</p></div>
+      <p class="load-target-total"><strong data-load-total>{{ job.total_rows }}</strong> record{{ 's' if job.total_rows != 1 else '' }} to load</p>
+    </section>
+
+    <section class="form-card load-progress-card" aria-labelledby="transfer-progress-title" aria-live="polite">
+      <div class="load-progress-heading"><div><p class="eyebrow">Current step</p><h2 id="transfer-progress-title" data-load-message>{{ job.message }}</h2></div><span class="activity-spinner" aria-hidden="true" data-load-spinner {% if not active %}hidden{% endif %}></span></div>
+      <progress max="100" value="{{ job.progress_percent }}" data-load-progress>{{ job.progress_percent }}%</progress>
+      <div class="load-progress-numbers"><strong data-load-percent>{{ job.progress_percent }}%</strong><span data-load-rows>{{ job.completed_rows }} of {{ job.total_rows }} records have a final write result</span></div>
+      <p class="load-group-progress" data-load-group {% if not job.load_group_count %}hidden{% endif %}>Load wave {{ job.load_group_number }} of {{ job.load_group_count }}</p>
+      <div class="readiness-cards load-progress-counts" aria-label="Recorded destination load totals">
+        <div class="readiness-card ready"><span>New accepted</span><strong data-load-created>{{ job.created_count }}</strong><small>Odoo returned a record</small></div>
+        <div class="readiness-card review"><span>Updates accepted</span><strong data-load-updated>{{ job.updated_count }}</strong><small>Odoo accepted the change</small></div>
+        <div class="readiness-card {% if job.attention_count %}blocked{% else %}ready{% endif %}" data-load-attention-card><span>Needs attention</span><strong data-load-attention>{{ job.attention_count }}</strong><small>Known failed or uncertain outcomes</small></div>
+      </div>
+      <p class="muted" data-load-guidance>{% if job.phase.value == 'VERIFYING' %}Impodo is checking the saved destination records now.{% elif job.phase.value == 'RELATIONSHIPS' %}The records exist. Impodo is finishing their approved relationships before verification.{% else %}Accepted totals are not called verified until Impodo reads the destination records back.{% endif %}</p>
+      <p class="muted" data-load-relationships {% if not job.relationship_total_count %}hidden{% endif %}>Relationships finished for {{ job.relationship_completed_count }} of {{ job.relationship_total_count }} new record{{ 's' if job.relationship_total_count != 1 else '' }}{% if job.relationship_pending_count %}; {{ job.relationship_pending_count }} still pending{% endif %}.</p>
+    </section>
+
+    <section class="next-action-card blocked" data-load-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
+      <div><p class="eyebrow">Transfer stopped</p><h2>Review the durable journal before continuing</h2><p data-load-failure>{{ job.failure_message }}</p><p><strong>Do not start another transfer.</strong> A completed Odoo call may already have changed records.</p></div>
+      <a class="button secondary" href="/workspaces/{{ job.workspace_id }}/transfer-load/outcome">Open saved outcome</a>
+    </section>
+    <section class="next-action-card ready" data-load-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
+      <div><p class="eyebrow">Next action</p><h2>Verify the saved destination result</h2><p>The verification result will open automatically.</p></div>
+      <a class="button primary" data-load-continue href="/workspaces/{{ job.workspace_id }}/transfer-load/outcome">Verify result</a>
+    </section>
+    <div class="load-progress-actions" data-load-active {% if not active %}hidden{% endif %}><a class="button secondary" href="/projects">Work on another data project</a></div>
+  </div>
+{% endblock %}

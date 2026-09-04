@@ -144,7 +144,12 @@ class TransferOrderNavigationTests(unittest.TestCase):
             item for item in navigation.stages if item.stage_id == "destination-load"
         )
         self.assertEqual(stage.status, "current")
-        self.assertEqual(stage.status_label, "Preflight passed; load not started")
+        self.assertEqual(stage.status_label, "Ready to prepare and load")
+        self.assertEqual(stage.href, f"/workspaces/{workspace.workspace_id}/transfer-load")
+        self.assertEqual(
+            tuple(page.page_id for page in stage.pages),
+            ("transfer-preflight", "transfer-load"),
+        )
         self.assertEqual(navigation.viewed_stage_id, "destination-load")
 
 

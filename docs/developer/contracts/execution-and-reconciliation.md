@@ -18,14 +18,19 @@ It exposes no generic Odoo client and provides no whole-migration rollback.
 The Odoo-to-Odoo Stage 8A preflight is deliberately outside execution. It
 repeats bounded destination reads and records aggregate drift evidence for an
 approved transfer package. A ready Stage 8A report does not authorize a write,
-create an execution journal, or count as reconciliation. Stage 8B must define
-and enforce those boundaries before the Odoo-to-Odoo path can load records.
+create an execution journal, or count as reconciliation. Stage 8B first repeats
+that read and stages an exact execution snapshot without constructing a writer.
+Only a separate confirmation, bound to the current workspace revision,
+preflight hash, and snapshot hash, may enter execution.
 
 ## Authorization and binding
 
-Execution requires a current `READY` report, execution snapshot, target
-fingerprint, mapping, prepared evidence, writable-field scope, dependency order,
-explicitly permitted target, verified actor, and write-role credential.
+Prepared-data execution requires a current `READY` final-review report. An
+Odoo-to-Odoo transfer instead requires a current ready
+`TransferPreflightReport`, its approved transfer-review package, and the exact
+staged execution snapshot. Both paths require a matching target fingerprint,
+mapping or transfer plan, prepared evidence, writable-field scope, dependency
+order, explicitly permitted target, and verified actor.
 
 Before a write, the service revalidates every binding and records the
 credential generation, write principal, observed permissions, and context as
@@ -37,6 +42,20 @@ ID. Immediately before journaling, execution bulk-resolves all existing keys
 in bounded model pages. Every key must still be unique and must produce the
 same opaque binding. A missing, ambiguous, or retargeted key sends the data
 manager back to **Check changes** before the first Odoo write.
+
+For Odoo-to-Odoo creates, execution also bulk-checks every reviewed business
+key immediately before journaling. If any key classified as new now exists,
+the transfer stops with no journal and no write. New rows carry deterministic
+External IDs and use the import-capable create boundary, so an uncertain caller
+retry cannot silently create an unidentifiable duplicate.
+
+The cross-instance workflow has exactly two credential roles: one
+`SOURCE_FETCH` key for the frozen source capture and one
+`DESTINATION_TRANSFER` key for the destination. Stage 8A and the Stage 8B
+preparation use the destination key only through read interfaces. After the
+explicit Stage 8B confirmation, execution re-probes that same destination key
+for the exact readable and writable API scope and requires the same principal
+and company context. No third key or implicit source-key substitution exists.
 
 Completed-load correction is the deliberate protected exception. Its lean
 correction execution snapshot is rebuilt from the encrypted plan and explicit
@@ -53,7 +72,9 @@ difference invalidates the current plan and sends zero writes.
 ## Journal-before-transport
 
 The durable run and planned row attempts are committed after the read-only
-crosswalk check and before the first write. Immediately before each Odoo call,
+crosswalk check and before the first write. For a transfer, the repository also
+requires the current ready transfer-preflight hash, workspace, and target to
+match the proposed run in the same transaction. Immediately before each Odoo call,
 the journal marks the exact rows `IN_FLIGHT` and stores their component, page,
 transport-batch number, and create, update, or relationship-completion phase.
 The returned outcome then replaces that checkpoint in a second short
@@ -112,6 +133,11 @@ identifier. A
 completed earlier component that changed, an ambiguous match, a missing
 receipt, another target, or another principal stops resume. Known rejections
 and terminal `OUTCOME_UNKNOWN` runs require a new **Check changes** result.
+
+Stage 8B automatically attempts read-back after a completed transfer and also
+offers manual verification of its saved journal. Same-run write recovery for
+an interrupted Odoo-to-Odoo transfer is not yet enabled; the existing transfer
+journal prevents a blind resubmission while the operator reconciles the result.
 
 ## Reconciliation
 

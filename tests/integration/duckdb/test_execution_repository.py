@@ -28,6 +28,11 @@ from impodo.domain.reconciliation import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.application.transfer_preflight_service import TransferPreflightService
+from tests.application.workspace.test_transfer_preflight import (
+    _approved_state,
+    _fresh,
+)
 
 
 ROOT = REPOSITORY_ROOT
@@ -234,6 +239,52 @@ class ExecutionRepositoryTests(unittest.TestCase):
                 "SELECT event_type FROM audit_event ORDER BY event_id"
             ).fetchall()
         self.assertEqual(events[-1], ("ODOO_CORRECTION_STARTED",))
+
+    def test_transfer_run_requires_current_hash_bound_preflight(self):
+        workspace, package, approval, match = _approved_state()
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            _fresh(match),
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        report = replace(
+            report,
+            workspace_id=self.workspace_state.workspace_id,
+            destination_target_hash=TARGET_HASH,
+        )
+        path = self.workspace_states.workspace_directory(
+            self.workspace_state.workspace_id
+        ) / "workspace-engine.duckdb"
+        with self.workspace_states._connect(path) as connection:
+            connection.execute(
+                """
+                UPDATE workspace_projection_cache
+                   SET transfer_preflight_report_json = ?
+                 WHERE singleton_id = 1
+                """,
+                [report.to_json()],
+            )
+
+        run = self._run()
+        self.repository.start_run(
+            self.workspace_state.workspace_id,
+            run,
+            actor=LOCAL_ACTOR,
+            transfer_preflight_hash=report.content_hash,
+        )
+
+        self.assertEqual(
+            self.repository.get_current_run(self.workspace_state.workspace_id),
+            run,
+        )
+        with self.workspace_states._connect(path) as connection:
+            events = connection.execute(
+                "SELECT event_type FROM audit_event ORDER BY event_id"
+            ).fetchall()
+        self.assertEqual(events[-1], ("ODOO_TRANSFER_LOAD_STARTED",))
 
     def test_created_row_can_progress_from_partial_to_committed(self) -> None:
         run = self._run()

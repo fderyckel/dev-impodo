@@ -15,6 +15,7 @@ from impodo.application.data_version.source_snapshots import (
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.domain.execution.models import ExecutionRun
+from impodo.domain.errors import ReadinessError
 from impodo.domain.execution.odoo_write import OdooWriteExecutor
 from impodo.domain.execution_snapshot import (
     ExecutionDataset,
@@ -94,7 +95,13 @@ class TransferExecutionService:
         if workspace.source_mode is not SourceMode.ODOO:
             raise WorkspaceError("Stage 8B requires a frozen Odoo source")
         if (
-            package.workspace_id != workspace.workspace_id
+            workspace.transfer_review_package != package
+            or workspace.transfer_preflight_report != preflight
+            or not workspace.transfer_preflight_ready(
+                source_selection_hash=selection.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+            or package.workspace_id != workspace.workspace_id
             or preflight.workspace_id != workspace.workspace_id
             or not preflight.ready
             or preflight.review_package_hash != package.content_hash
@@ -168,6 +175,80 @@ class TransferExecutionService:
             source_manifest_hashes=manifest_hashes,
         )
 
+    def stage(
+        self,
+        workspace: WorkspaceState,
+        selection: SourceSelection,
+        schema: OdooSchemaCatalog,
+        snapshot: ExecutionSnapshot,
+    ) -> ExecutionSnapshot:
+        """Publish the exact no-write preview used by final confirmation."""
+
+        report = workspace.transfer_preflight_report
+        package = workspace.transfer_review_package
+        if (
+            report is None
+            or package is None
+            or not workspace.transfer_preflight_ready(
+                source_selection_hash=selection.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+            or snapshot.workspace_id != workspace.workspace_id
+            or snapshot.preflight_run_id != package.export_plan.run_id
+            or snapshot.preflight_result_hash != report.content_hash
+            or snapshot.mapping_content_hash != package.destination_match_plan_hash
+            or snapshot.compiled_plan_hash != package.transfer_order_plan_hash
+        ):
+            raise WorkspaceError("The prepared transfer preview is no longer current")
+        if self.execution.current_transfer_run(workspace.workspace_id) is not None:
+            raise WorkspaceError(
+                "This approved transfer already has a load journal. Verify its outcome."
+            )
+        snapshot = ExecutionSnapshot.from_json(snapshot.to_json())
+        self.artifacts.write_report(
+            workspace.workspace_id,
+            snapshot.preflight_run_id,
+            EXECUTION_SNAPSHOT_NAME,
+            snapshot.to_json().encode("utf-8"),
+        )
+        return snapshot
+
+    def current_snapshot(
+        self,
+        workspace: WorkspaceState,
+        selection: SourceSelection,
+        schema: OdooSchemaCatalog,
+    ) -> ExecutionSnapshot | None:
+        """Load a staged 8B preview only while every approval remains current."""
+
+        report = workspace.transfer_preflight_report
+        package = workspace.transfer_review_package
+        if (
+            report is None
+            or package is None
+            or not workspace.transfer_preflight_ready(
+                source_selection_hash=selection.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        ):
+            return None
+        try:
+            snapshot = self.execution.preflight.execution_snapshot(
+                workspace.workspace_id,
+                package.export_plan.run_id,
+            )
+        except ReadinessError:
+            return None
+        if (
+            snapshot.preflight_result_hash != report.content_hash
+            or snapshot.mapping_content_hash != package.destination_match_plan_hash
+            or snapshot.compiled_plan_hash != package.transfer_order_plan_hash
+            or snapshot.staging_content_hash != selection.content_hash
+            or snapshot.target_hash != report.destination_target_hash
+        ):
+            return None
+        return snapshot
+
     def execute(
         self,
         workspace: WorkspaceState,
@@ -182,15 +263,9 @@ class TransferExecutionService:
         write_identity: OdooWriteIdentity,
         progress=None,
     ) -> ExecutionRun:
-        """Publish the exact snapshot, then enter the shared journalled writer."""
+        """Execute the exact staged snapshot through the shared journalled writer."""
 
         snapshot = ExecutionSnapshot.from_json(snapshot.to_json())
-        self.artifacts.write_report(
-            workspace.workspace_id,
-            snapshot.preflight_run_id,
-            EXECUTION_SNAPSHOT_NAME,
-            snapshot.to_json().encode("utf-8"),
-        )
         try:
             return self.execution.execute_transfer(
                 workspace.workspace_id,
@@ -370,6 +445,10 @@ def compile_transfer_execution_snapshot(
     for reviewed in package.datasets:
         dataset_id = reviewed.dataset_id
         rows = source_rows[dataset_id]
+        if tuple(row.number for row in rows) != tuple(range(1, len(rows) + 1)):
+            raise WorkspaceError(
+                f"Frozen row order changed for {reviewed.model_label}"
+            )
         keys = keys_by_dataset[dataset_id]
         relationship_columns = _relationship_columns(
             source_origins[dataset_id],
@@ -569,6 +648,11 @@ def _scalar_intent(field: str, value: object) -> FieldIntent:
 
 def _relationship_intent(relationship, references, bindings) -> FieldIntent:
     if not references:
+        if relationship.required:
+            raise WorkspaceError(
+                f"A required relationship is blank for "
+                f"{relationship.owner_model}.{relationship.field_name}"
+            )
         return FieldIntent(
             field=relationship.field_name,
             action="SET_NULL",

@@ -32,6 +32,7 @@ belongs or which dependencies it may introduce.
 | Plan an integrated Test run | focused use cases under `application/run`; `MigrationRunPlanningService` is the stable facade | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
 | Coordinate Review and load progress | `web/run_review.py` | bounded registry status plus latest preparation and load job snapshots |
+| Compile and execute an Odoo-to-Odoo transfer | `TransferExecutionService` and `ExecutionService.execute_transfer` | `web/routers/transfer_load.py` separates no-write preparation, explicit confirmation, background loading, and read-back; the existing execution journal binds the current transfer preflight |
 | Recover an interrupted Odoo batch | `application/workspace/execution/reconciliation.py` assesses exact read-back; `ExecutionService.resume` classifies the same frozen schedule | `ExecutionRepository.record_batch_started` and `record_recovery` persist the checkpoint and report binding inside the existing row journal |
 | Seal, review, execute, and verify completed-load correction intent | `domain/correction.py`, `domain/correction_origin.py`, `domain/correction_execution.py`, `application/correction_service.py`, `application/correction_orchestration.py`, `application/correction_stages.py`, `application/correction_workflow.py`, and `application/correction_execution.py` | `web/routers/corrections.py` and `CorrectionJobManager` present one focused resumable journey; native Polars/Parquet review emits sparse intent; exact protected IDs drive bounded reread, writes, and existing execution/reconciliation journals; one registry binding and whole-artifact hashes avoid row hashes |
 | Version and qualify an integrated plan | `domain/cutover/models.py`, `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
@@ -259,7 +260,7 @@ Project identity, workspace identity, run identity, or cutover authority.
 | Match data | `MappingWorkspaceService` | `/workspaces/{workspace_id}/mapping` |
 | Prepare data | `PreparationService`, `PreparationJobManager` | `/workspaces/{workspace_id}/prepare` |
 | Final review | `PreflightService` | `/workspaces/{workspace_id}/summary` |
-| Load and reconcile | `ExecutionService`, `LoadJobManager`, `ReconciliationService` | `/workspaces/{workspace_id}/load` |
+| Load and reconcile | `ExecutionService`, `TransferExecutionService`, `LoadJobManager`, `ReconciliationService` | `/workspaces/{workspace_id}/load`, `/workspaces/{workspace_id}/transfer-load` |
 
 ## Query and Odoo performance
 

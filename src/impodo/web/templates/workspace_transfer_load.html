@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Load destination Odoo &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/execution.css') }}">
+{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/execution.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+  <nav class="load-stepper" aria-label="Destination Odoo load progress">
+    <ol>
+      <li class="load-step {% if transfer_step == 'prepare' %}current{% else %}complete{% endif %}">
+        {% if transfer_step == 'prepare' %}<span aria-current="step">{% else %}<a href="/workspaces/{{ workspace_id }}/transfer-load">{% endif %}
+          <span class="load-step-number" aria-hidden="true">1</span>
+          <span><strong>Prepare exact load</strong><small>{% if transfer_step == 'prepare' %}Current{% else %}Complete{% endif %}</small></span>
+        {% if transfer_step == 'prepare' %}</span>{% else %}</a>{% endif %}
+      </li>
+      <li class="load-step {% if transfer_step == 'confirm' %}current{% elif transfer_run %}complete{% elif transfer_snapshot %}available{% else %}locked{% endif %}">
+        {% if transfer_step == 'confirm' %}<span aria-current="step">{% elif transfer_snapshot and not transfer_run %}<a href="/workspaces/{{ workspace_id }}/transfer-load/confirm">{% else %}<span aria-disabled="true">{% endif %}
+          <span class="load-step-number" aria-hidden="true">2</span>
+          <span><strong>Confirm and load</strong><small>{% if transfer_step == 'confirm' %}Current{% elif transfer_run %}Complete{% elif transfer_snapshot %}Available{% else %}Prepare first{% endif %}</small></span>
+        {% if transfer_step != 'confirm' and transfer_snapshot and not transfer_run %}</a>{% else %}</span>{% endif %}
+      </li>
+      <li class="load-step {% if transfer_step == 'outcome' %}current{% elif transfer_run %}available{% else %}locked{% endif %}">
+        {% if transfer_step == 'outcome' %}<span aria-current="step">{% elif transfer_run %}<a href="/workspaces/{{ workspace_id }}/transfer-load/outcome">{% else %}<span aria-disabled="true">{% endif %}
+          <span class="load-step-number" aria-hidden="true">3</span>
+          <span><strong>Verify result</strong><small>{% if transfer_step == 'outcome' and reconciliation and reconciliation.status.value == 'VERIFIED' %}Complete{% elif transfer_step == 'outcome' %}Current{% elif transfer_run %}Available{% else %}Not started{% endif %}</small></span>
+        {% if transfer_step != 'outcome' and transfer_run %}</a>{% else %}</span>{% endif %}
+      </li>
+    </ol>
+  </nav>
+
+  {% if transfer_step == 'prepare' %}
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 8B of 8 &middot; Prepare exact load</p>
+        <h1>Prepare the destination load</h1>
+        <p>Impodo will perform one final destination read and compile the exact values and generic relationships to load. This step cannot write to Odoo.</p>
+      </div>
+      <span class="status review">No writes on this step</span>
+    </div>
+
+    <section class="load-target-banner" aria-labelledby="prepare-transfer-target">
+      <div>
+        <p class="eyebrow">Destination Odoo database</p>
+        <h2 id="prepare-transfer-target">{{ workspace_state.destination_odoo_database }}</h2>
+        <p>{{ workspace_state.destination_odoo_base_url }}</p>
+      </div>
+      <p class="load-target-total">
+        <strong>{{ transfer_review_package.totals.source_record_count }}</strong>
+        record{{ 's' if transfer_review_package.totals.source_record_count != 1 else '' }} in scope
+      </p>
+    </section>
+
+    <section class="next-action-card review" aria-labelledby="prepare-transfer-title">
+      <div>
+        <p class="eyebrow">Final no-write check</p>
+        <h2 id="prepare-transfer-title">Recheck keys, permissions, fields, and relationships</h2>
+        <p>The same destination transfer key is used for this check and, only after your next confirmation, for the write and verification. No third API key is introduced.</p>
+        <p>{{ transfer_review_package.totals.destination_existing_record_count }} matching record{{ 's' if transfer_review_package.totals.destination_existing_record_count != 1 else '' }} will be updated and {{ transfer_review_package.totals.destination_create_record_count }} will be created if the final check passes.</p>
+      </div>
+      <form method="post" action="/workspaces/{{ workspace_id }}/transfer-load/prepare">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+        <input type="hidden" name="preflight_hash" value="{{ transfer_preflight_report.content_hash }}">
+        <button class="button primary" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>Prepare exact load confirmation</button>
+      </form>
+    </section>
+    {% if not destination_credential_status.available %}
+      <div class="notice warning">
+        <strong>The destination transfer key is unavailable.</strong>
+        <a href="/workspaces/{{ workspace_id }}/transfer-destination#destination-connection">Restore it on the destination connection page</a> before continuing.
+      </div>
+    {% endif %}
+
+  {% elif transfer_step == 'confirm' %}
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 8B of 8 &middot; Explicit load confirmation</p>
+        <h1>Confirm the destination Odoo load</h1>
+        <p>The final read passed and the exact hash-bound load is ready. This is the only action on this workflow that can begin writing.</p>
+      </div>
+      <span class="status review">Your confirmation is required</span>
+    </div>
+
+    <section class="load-target-banner" aria-labelledby="confirm-transfer-target">
+      <div>
+        <p class="eyebrow">Destination Odoo database</p>
+        <h2 id="confirm-transfer-target">{{ transfer_snapshot.target_database }}</h2>
+        <p>{{ workspace_state.destination_odoo_base_url }} &middot; Odoo {{ transfer_snapshot.target_odoo_version }}</p>
+      </div>
+      <p class="load-target-total">
+        <strong>{{ transfer_snapshot.write_count }}</strong>
+        record{{ 's' if transfer_snapshot.write_count != 1 else '' }} will change
+      </p>
+    </section>
+
+    <section class="readiness-cards" aria-label="Confirmed destination changes">
+      <div class="readiness-card review">
+        <span>Existing records</span>
+        <strong>{{ transfer_snapshot.counts.get('UPDATE', 0) }}</strong>
+        <small>Selected fields will be updated</small>
+      </div>
+      <div class="readiness-card ready">
+        <span>New records</span>
+        <strong>{{ transfer_snapshot.counts.get('CREATE', 0) }}</strong>
+        <small>Stable External IDs prevent blind duplicate retries</small>
+      </div>
+      <div class="readiness-card ready">
+        <span>Relationship fields</span>
+        <strong>{{ transfer_review_package.totals.relationship_write_field_count }}</strong>
+        <small>Many2one and many2many are resolved generically</small>
+      </div>
+    </section>
+
+    <section class="form-card" aria-labelledby="transfer-order-title">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Approved execution order</p>
+          <h2 id="transfer-order-title">Record types load in {{ transfer_review_package.totals.wave_count }} wave{{ 's' if transfer_review_package.totals.wave_count != 1 else '' }}</h2>
+        </div>
+      </div>
+      <ol class="load-order-list">
+        {% for item in transfer_review_package.datasets|sort(attribute='wave') %}
+          <li>
+            <span class="load-order-number" aria-hidden="true">{{ item.wave }}</span>
+            <div>
+              <strong>{{ item.model_label }}</strong>
+              <small>{{ item.destination_existing_record_count }} update{{ 's' if item.destination_existing_record_count != 1 else '' }} and {{ item.destination_create_record_count }} create{{ 's' if item.destination_create_record_count != 1 else '' }} &middot; match by {{ item.key_field }}</small>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+
+    <section class="next-action-card review load-confirmation" aria-labelledby="confirm-transfer-load-title">
+      <div>
+        <p class="eyebrow">Explicit confirmation</p>
+        <h2 id="confirm-transfer-load-title">Load {{ transfer_snapshot.write_count }} record{{ 's' if transfer_snapshot.write_count != 1 else '' }} into {{ transfer_snapshot.target_database }}</h2>
+        <p>Impodo checks create keys once more before journaling, records each attempted operation before transport, and stops on an uncertain response. It never blindly retries an uncertain write.</p>
+      </div>
+      <form method="post" action="/workspaces/{{ workspace_id }}/transfer-load" data-load-confirmation-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+        <input type="hidden" name="snapshot_hash" value="{{ transfer_snapshot.semantic_hash }}">
+        <input type="hidden" name="preflight_hash" value="{{ transfer_preflight_report.content_hash }}">
+        <details class="technical-details advanced-settings">
+          <summary>Advanced settings</summary>
+          <label>
+            Records per Odoo batch
+            <input type="number" name="batch_rows" min="1" max="50" step="1" value="10" required>
+            <small>Keep 10 unless support recommends another value.</small>
+          </label>
+        </details>
+        <div class="button-row">
+          <button class="button primary" type="submit">Load {{ transfer_snapshot.write_count }} record{{ 's' if transfer_snapshot.write_count != 1 else '' }} into destination Odoo</button>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/transfer-preflight#preflight-results">Back to preflight</a>
+        </div>
+        <small class="muted" role="status" data-load-confirmation-status hidden>Starting the destination load and opening its progress page.</small>
+      </form>
+    </section>
+
+    <details class="technical-details form-card">
+      <summary>Support details</summary>
+      <p>Preview <code>{{ transfer_snapshot.semantic_hash }}</code></p>
+      <p>Preflight <code>{{ transfer_preflight_report.content_hash }}</code></p>
+      <p>Target <code>{{ transfer_snapshot.target_hash }}</code></p>
+    </details>
+
+  {% else %}
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 8B of 8 &middot; Verify result</p>
+        <h1>Verify the destination Odoo result</h1>
+        <p>The durable journal prevents this approved transfer from being loaded twice. Verification reads the actual destination records with the same transfer key.</p>
+      </div>
+      <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
+        {% if not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs review{% else %}Verified with fallout{% endif %}
+      </span>
+    </div>
+
+    {% if reconciliation %}
+      <section class="readiness-cards" aria-label="Destination verification totals">
+        <div class="readiness-card ready"><span>Verified</span><strong>{{ reconciliation.verified_count }}</strong><small>Destination values match</small></div>
+        <div class="readiness-card {% if reconciliation.fallout_count %}blocked{% else %}ready{% endif %}"><span>Fallout</span><strong>{{ reconciliation.fallout_count }}</strong><small>Rows needing review</small></div>
+        <div class="readiness-card {% if reconciliation.unknown_count %}blocked{% else %}ready{% endif %}"><span>Unknown</span><strong>{{ reconciliation.unknown_count }}</strong><small>Outcome not proven</small></div>
+      </section>
+      <section class="next-action-card {% if reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
+        <div>
+          <p class="eyebrow">Read-back complete</p>
+          <h2>{% if reconciliation.status.value == 'VERIFIED' %}The destination matches the confirmed transfer{% else %}Do not run this transfer again{% endif %}</h2>
+          <p>{% if reconciliation.status.value == 'VERIFIED' %}All confirmed writes and relationships were read back successfully.{% else %}Review the aggregate outcomes below. A fresh transfer review is required for any later correction; this journal cannot be replayed blindly.{% endif %}</p>
+        </div>
+        <a class="button secondary" href="/projects">Return to projects</a>
+      </section>
+    {% else %}
+      <section class="next-action-card review">
+        <div>
+          <p class="eyebrow">Journal saved</p>
+          <h2>{{ transfer_run.committed_count }} committed &middot; {{ transfer_run.partially_applied_count }} partial &middot; {{ transfer_run.unknown_count }} unknown</h2>
+          <p><strong>Do not start this transfer again.</strong> Read the saved results back from Odoo to establish what happened.</p>
+        </div>
+        <form method="post" action="/workspaces/{{ workspace_id }}/transfer-load/reconcile">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="execution_run_id" value="{{ transfer_run.run_id }}">
+          <button class="button primary" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>Verify what happened in Odoo</button>
+        </form>
+      </section>
+    {% endif %}
+
+    <section class="form-card" aria-labelledby="transfer-dataset-outcomes">
+      <h2 id="transfer-dataset-outcomes">Outcome by record type</h2>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Record type</th><th>Planned update</th><th>Planned create</th><th>Accepted</th><th>Verified</th><th>Needs attention</th></tr></thead>
+          <tbody>
+            {% for row in transfer_dataset_rows %}
+              <tr>
+                <th scope="row">{{ row.dataset.model_label }}<small>{{ row.dataset.model }}</small></th>
+                <td>{{ row.dataset.destination_existing_record_count }}</td>
+                <td>{{ row.dataset.destination_create_record_count }}</td>
+                <td>{{ row.accepted }}</td>
+                <td>{{ row.verified }}</td>
+                <td>{{ row.attention }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

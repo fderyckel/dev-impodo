@@ -130,6 +130,14 @@ _TEMPLATE_LOCATION = {
         "destination-load",
         "Read-only destination preflight",
     ),
+    "workspace_transfer_load.html": (
+        "destination-load",
+        "Prepare exact destination load",
+    ),
+    "workspace_transfer_load_progress.html": (
+        "destination-load",
+        "Loading destination Odoo",
+    ),
     "workspace_datasets.html": ("source", "Saved source tables"),
     "workspace_derived_entities.html": (
         "source",
@@ -216,6 +224,13 @@ def _build_authoring_workspace_navigation(
             viewed_page_label = "Verify result"
         else:
             viewed_page_label = "Check changes"
+    if template_name == "workspace_transfer_load.html":
+        if current_path.endswith("/transfer-load/confirm"):
+            viewed_page_label = "Confirm and load"
+        elif current_path.endswith("/transfer-load/outcome"):
+            viewed_page_label = "Verify destination result"
+        else:
+            viewed_page_label = "Prepare exact destination load"
     if current_workspace_state.status is not WorkspaceStatus.REGISTERED:
         stages = _locked_stages(current_workspace_state.workspace_id)
         setup_page = (
@@ -314,6 +329,31 @@ def _build_authoring_workspace_navigation(
                 source_selection_hash=frozen_source.content_hash,
                 source_schema_hash=schema.content_hash,
             )
+        )
+        try:
+            transfer_execution_reader = getattr(context, "execution", None)
+            transfer_reconciliation_reader = getattr(
+                context,
+                "reconciliation",
+                None,
+            )
+            transfer_run = (
+                transfer_execution_reader.current_transfer_run(workspace_id)
+                if transfer_execution_reader is not None
+                else None
+            )
+            transfer_reconciliation = (
+                transfer_reconciliation_reader.current(workspace_id)
+                if transfer_run is not None
+                and transfer_reconciliation_reader is not None
+                else None
+            )
+        except WorkspaceError:
+            transfer_run = None
+            transfer_reconciliation = None
+        transfer_verified = bool(
+            transfer_reconciliation is not None
+            and transfer_reconciliation.status is ReconciliationRunStatus.VERIFIED
         )
         if template_name == "workspace_target.html":
             viewed_stage_id = "connection"
@@ -637,25 +677,49 @@ def _build_authoring_workspace_navigation(
                 number=8,
                 label="Load destination Odoo",
                 href=(
-                    f"/workspaces/{workspace_id}/transfer-preflight"
-                    if transfer_review_approved
-                    else None
+                    f"/workspaces/{workspace_id}/transfer-load/outcome"
+                    if transfer_run is not None
+                    else (
+                        f"/workspaces/{workspace_id}/transfer-load"
+                        if transfer_preflight_ready
+                        else (
+                            f"/workspaces/{workspace_id}/transfer-preflight"
+                            if transfer_review_approved
+                            else None
+                        )
+                    )
                 ),
                 status=(
-                    "attention"
-                    if transfer_preflight_current and not transfer_preflight_ready
-                    else ("current" if transfer_review_approved else "locked")
+                    "complete"
+                    if transfer_verified
+                    else (
+                        "attention"
+                        if transfer_run is not None
+                        or (
+                            transfer_preflight_current
+                            and not transfer_preflight_ready
+                        )
+                        else ("current" if transfer_review_approved else "locked")
+                    )
                 ),
                 status_label=(
-                    "Preflight passed; load not started"
-                    if transfer_preflight_ready
+                    "Destination load verified"
+                    if transfer_verified
                     else (
-                        "Destination drift found"
-                        if transfer_preflight_current
+                        "Verify saved load outcome"
+                        if transfer_run is not None
                         else (
-                            "Run read-only preflight"
-                            if transfer_review_approved
-                            else "Transfer approval required"
+                            "Ready to prepare and load"
+                            if transfer_preflight_ready
+                            else (
+                                "Destination drift found"
+                                if transfer_preflight_current
+                                else (
+                                    "Run read-only preflight"
+                                    if transfer_review_approved
+                                    else "Transfer approval required"
+                                )
+                            )
                         )
                     )
                 ),
@@ -671,6 +735,36 @@ def _build_authoring_workspace_navigation(
                             and not transfer_preflight_ready
                         ),
                     ),
+                )
+                + (
+                    (
+                        _page(
+                            workspace_id,
+                            "transfer-load",
+                            "Prepare and load destination",
+                            "/transfer-load",
+                            complete=transfer_run is not None,
+                            attention=(
+                                transfer_run is not None and not transfer_verified
+                            ),
+                        ),
+                    )
+                    if transfer_preflight_ready or transfer_run is not None
+                    else ()
+                )
+                + (
+                    (
+                        _page(
+                            workspace_id,
+                            "transfer-verify",
+                            "Verify destination result",
+                            "/transfer-load/outcome",
+                            complete=transfer_verified,
+                            attention=not transfer_verified,
+                        ),
+                    )
+                    if transfer_run is not None
+                    else ()
                 )
                 if transfer_review_approved
                 else (),

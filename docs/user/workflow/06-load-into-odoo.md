@@ -13,16 +13,17 @@ into its approved Odoo 19 target, then verify the recorded outcome.
 
 Impodo currently has two paths at this stage. A prepared-data workspace can
 continue through the existing load and verification steps. An Odoo-to-Odoo
-workspace can now complete the read-only destination preflight described
-below, but it cannot start the destination write yet.
+workspace can continue from its read-only destination preflight through a
+separate preparation, explicit load confirmation, and destination read-back.
 
-## Odoo-to-Odoo transfer through Stage 8A
+## Odoo-to-Odoo transfer through Stage 8B
 
 When you download records from one Odoo database for transfer to another,
 Impodo keeps the source-fetch key separate from the destination transfer key.
 The destination key is the second and final API key in this workflow. Impodo
-uses it for read-only matching and preflight now. A future load confirmation
-will be required before that key may be used for a write.
+uses it for read-only matching and preflight. It uses that same destination key
+for loading and verification only after you explicitly confirm the prepared
+load. There is no third API key.
 
 1. Complete **Connect destination Odoo** with the destination transfer key.
 2. In **Match destination data**, choose the stable matching field for every
@@ -37,6 +38,16 @@ will be required before that key may be used for a write.
 6. Compare the approved and freshly observed reuse, create, field, and
    relationship totals. If the page shows **Preflight passed**, Stage 8A is
    complete. No record has been written to Odoo.
+7. Select **Continue to Stage 8B**, then **Prepare exact load confirmation**.
+   Impodo performs one last destination read and compiles the exact load. This
+   action still cannot write to Odoo.
+8. On **Confirm and load**, check the destination database, total records,
+   creates, updates, relationship fields, and approved wave order.
+9. Select the single **Load ... into destination Odoo** action once. This is the
+   first action in the cross-instance workflow that can start a write.
+10. Follow progress to **Verify result**. Impodo attempts read-back
+    automatically; if it could not finish verification, use **Verify what
+    happened in Odoo** on the saved outcome page.
 
 For example, a Product can refer to a Unit of Measure through a many-to-one
 field. Impodo first checks whether each Unit's chosen business key is unique
@@ -51,9 +62,10 @@ duplicate. A changed field, permission context, or relationship resolution
 also stops the transfer. Return to **Match destination data**, rebuild the
 order and review, approve the new package, and run preflight again.
 
-Stage 8B execution is not implemented for this Odoo-to-Odoo path. A passed
-preflight therefore means that the destination still matches the approved
-plan; it does not mean that the records have been loaded.
+The preparation is bound to the current workspace revision, preflight, target,
+and exact load snapshot. A changed destination sends you back to preflight. A
+saved load journal prevents the same approved transfer from being submitted a
+second time.
 
 ## Before you start
 
@@ -63,6 +75,9 @@ key. This key authorizes only the reviewed target operation; it does not grant
 authority to another data project, data version, or future rollout.
 
 ## Steps in Impodo
+
+The following steps apply to a prepared-data workspace. Use the Stage 8A and
+Stage 8B sequence above for an Odoo-to-Odoo workspace.
 
 1. Open **Load into Odoo**, then review **Check changes**.
 2. Confirm the target, exact snapshot, new and changed totals, field scope, and
@@ -192,9 +207,10 @@ Either the reviewed snapshot required no writes, or execution finished and
 reconciliation verified the expected Odoo state. A successful HTTP response
 alone is not completion evidence.
 
-For the Odoo-to-Odoo path, **Preflight passed** completes only Stage 8A. The
-sidebar keeps **Load destination Odoo** current because Stage 8B has not
-started and no destination record has changed.
+For the Odoo-to-Odoo path, **Preflight passed** completes only Stage 8A.
+**Load destination Odoo** becomes complete only after the confirmed Stage 8B
+load has a verified destination read-back. A prepared confirmation or accepted
+Odoo response alone is not completion evidence.
 
 For a completed-load correction, Complete means its automatic exact-record
 read-back is verified. A submitted correction request or accepted API response
@@ -217,13 +233,16 @@ bounded and do not expose source values or internal row identifiers.
 
 Do not blindly retry a timeout, connection reset, HTTP 422, or other unknown
 write outcome. First inspect the execution journal and reconcile the target.
-Retry only through the recorded recovery path. Impodo first reads the exact
-affected fields back from Odoo and verifies every earlier group of records. It
-can retry an interrupted create only when no matching record exists. If a
-created record is waiting for an optional relationship, recovery writes only
-the relationship fields that were already part of **Check changes**. A changed
-target, ambiguous record, missing receipt, or changed loading identity stops
-recovery and requires **Check changes** again.
+For an Odoo-to-Odoo transfer, use the saved **Verify result** page; same-run
+write recovery is not yet enabled for this path, and the journal prevents a
+second submission. For prepared-data loads, retry only through the recorded
+recovery path. Impodo first reads the exact affected fields back from Odoo and
+verifies every earlier group of records. It can retry an interrupted create
+only when no matching record exists. If a created record is waiting for an
+optional relationship, recovery writes only the relationship fields that were
+already part of **Check changes**. A changed target, ambiguous record, missing
+receipt, or changed loading identity stops recovery and requires **Check
+changes** again.
 
 ## What makes this work stale
 

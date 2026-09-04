@@ -323,7 +323,8 @@ class ExecutionService:
         workspace_state = self.workspaces.get(workspace_id)
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
-                "Pinned Odoo loading is not available yet. No Odoo record was changed."
+                "Odoo-to-Odoo transfer recovery cannot resume writes yet. "
+                "Reconcile the saved transfer journal before taking another action."
             )
         create_batch_rows = validated_create_batch_rows(batch_rows)
         preview = self.current_preview(workspace_id)
@@ -516,6 +517,7 @@ class ExecutionService:
             (row.dataset, _portable_key(row.source_identity)): row
             for row in snapshot.rows
         }
+        self._assert_create_rows_still_absent(write_rows, metadata, executor)
         identity_cache = self._resolve_identity_crosswalk(
             write_rows,
             metadata,
@@ -1382,6 +1384,46 @@ class ExecutionService:
             ExecutionRunStatus.COMPLETED,
             actor=actor,
         )
+
+    @staticmethod
+    def _assert_create_rows_still_absent(
+        write_rows: Sequence[ExecutionRow],
+        metadata: Mapping[str, ExecutionDataset],
+        executor: OdooWriteExecutor,
+    ) -> None:
+        """Fail before journaling when a reviewed create key now exists."""
+
+        by_model: dict[str, list[tuple[tuple[str, str, Any], ...]]] = {}
+        for row in write_rows:
+            if row.disposition != "CREATE":
+                continue
+            dataset = metadata[row.dataset]
+            domain = _identity_domain(
+                dataset.identity_fields,
+                row.business_identity,
+                dataset.scope_fields,
+                row.business_scope,
+            )
+            by_model.setdefault(row.target_model, []).append(domain)
+        try:
+            for model in sorted(by_model):
+                domains = by_model[model]
+                for start in range(0, len(domains), MAX_IDENTITY_LOOKUP_KEYS):
+                    page = tuple(domains[start : start + MAX_IDENTITY_LOOKUP_KEYS])
+                    matches = executor.find_ids_many(model, page)
+                    if len(matches) != len(page):
+                        raise WorkspaceError(
+                            "Odoo returned an incomplete create-key check"
+                        )
+                    if any(identifiers for identifiers in matches):
+                        raise WorkspaceError(
+                            "An Odoo business key marked for creation now exists; "
+                            "run destination preflight again"
+                        )
+        except OdooWriteRejected as error:
+            raise WorkspaceError(
+                "Odoo create-key verification failed before loading"
+            ) from error
 
     @staticmethod
     def _resolve_identity_crosswalk(

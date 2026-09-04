@@ -25,7 +25,8 @@
   <div class="notice warning">
     <strong>8A cannot write to Odoo.</strong>
     It uses the second API key only for identity, metadata, matching-key, and
-    relationship-resolution reads. The future 8B load remains disabled.
+    relationship-resolution reads. Stage 8B requires a separate, explicit
+    confirmation before the same destination transfer key may write.
   </div>
 
   {% if transfer_preflight_stale %}
@@ -212,12 +213,14 @@
       {% endif %}
 
       {% if transfer_preflight_ready %}
-        <div class="notice">
-          <strong>8A passed; zero writes were attempted.</strong>
-          The exact approved counts, fields, and relationship resolutions still
-          match the destination. Stage 8B execution and final load confirmation
-          are intentionally not part of this implementation.
-        </div>
+        <section class="next-action-card ready">
+          <div>
+            <p class="eyebrow">8A passed &middot; zero writes attempted</p>
+            <h2>Continue to the guarded destination load</h2>
+            <p>Stage 8B performs one final no-write read, prepares the exact load, then asks you to confirm the destination and record count before writing.</p>
+          </div>
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-load">Continue to Stage 8B</a>
+        </section>
       {% else %}
         <div class="notice warning">
           <strong>Loading is blocked.</strong>

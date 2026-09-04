@@ -117,8 +117,9 @@ them. Earlier data-version evidence remains protected history.
 For a file source, continue to [Odoo data](02-odoo-data.md). For an Odoo
 source, continue to **Connect destination Odoo** after the complete capture is
 frozen. You then match destination records, validate relationship order,
-approve the transfer, and run the read-only destination preflight. The current
-Odoo-to-Odoo path stops after that preflight and does not yet write records.
+approve the transfer, and run the read-only destination preflight. When it
+passes, continue through Stage 8B to prepare the exact load, explicitly confirm
+it, and verify the destination result.
 
 ## Related documentation
 

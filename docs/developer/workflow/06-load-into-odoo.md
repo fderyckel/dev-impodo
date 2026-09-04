@@ -22,48 +22,72 @@ order must still match. The target must be explicitly allowed for the practical
 rehearsal path and the actor must provide or have already stored the required
 write-role credential.
 
-## Odoo-to-Odoo transfer boundary through Stage 8A
+## Odoo-to-Odoo transfer boundary through Stage 8B
 
-The Odoo-source Authoring variant has a separate, currently read-only path.
-`transfer_destination.py` binds a second credential to a different Odoo 19
-database. `DestinationMatchingService` performs bounded metadata and
-natural-key reads for every frozen source model. It also resolves generic
-many-to-one and many-to-many evidence, including inverse one-to-many metadata,
-without persisting business-key values or numeric Odoo identifiers.
+The Odoo-source Authoring variant binds exactly two credentials. `SOURCE_FETCH`
+captures and freezes the source. `DESTINATION_TRANSFER` is the second and final
+key and belongs only to the different Odoo 19 destination. The destination key
+is used for matching, preflight, confirmed loading, and read-back; the source
+key is never substituted for it and no third credential role is introduced.
 
-`TransferOrderService` derives the dependency waves. `TransferReviewService`
-then freezes the exact create and update counts, selected write fields,
+`DestinationMatchingService` performs bounded metadata and natural-key reads
+for every frozen source model. It resolves generic many-to-one and many-to-many
+evidence and normalizes inverse one-to-many metadata to the writable
+many-to-one field. `TransferOrderService` derives dependency waves, while
+`TransferReviewService` freezes create and update counts, write fields,
 relationship operations, later relationship passes, and control totals.
-`TransferReviewApproval` authorizes only that immutable package; it does not
-authorize transport.
+Approval authorizes only that immutable package; it does not authorize
+transport.
 
-Stage 8A starts at `POST /workspaces/{workspace_id}/transfer-preflight`.
-The route resolves only the existing `DESTINATION_TRANSFER` vault entry and
-calls the read-identity probe plus `DestinationMatchingService` again.
-`TransferPreflightService` compares the fresh aggregate result with the exact
-approved package. A changed permission or company context, model or field
-scope, create or update classification, or relationship resolution produces
-immutable blocker evidence. The route saves `TransferPreflightReport` through
-`WorkspaceStateService.save_transfer_preflight_report`.
+Stage 8A starts at `POST /workspaces/{workspace_id}/transfer-preflight`. The
+route resolves the `DESTINATION_TRANSFER` vault entry and calls only the
+read-identity probe and bounded destination readers. `TransferPreflightService`
+compares the fresh aggregate result with the exact approved package. A changed
+permission or company context, model or field scope, create or update
+classification, record identity, or relationship resolution produces immutable
+blocker evidence. The route never constructs `OdooWriteExecutor`, creates no
+journal, and writes no Odoo record.
 
-This route has no writer dependency in its application flow. It does not
-construct `OdooWriteExecutor`, create an execution journal, request final load
-confirmation, or reconcile a destination outcome. A ready report means that
-the approved scope still matches a fresh destination read. The navigation
-therefore keeps **Load destination Odoo** current after 8A passes. Stage 8B is
-not implemented.
+Stage 8B is deliberately split in two. `POST .../transfer-load/prepare` repeats
+the destination read with the same transfer key, saves that fresh preflight,
+and stops on drift. When it is ready, `TransferExecutionService` combines the
+frozen Parquet tables, protected source relationship evidence, exact
+destination record snapshot, approved transfer order, and preflight into an
+`ExecutionSnapshot`. It expresses existing relations as business references,
+incoming relations as logical references, preserves approved dependency waves,
+and stages the snapshot as a no-write confirmation artifact.
 
-Changing destination identity, matching, order, package, or approval clears
-the saved preflight. Source and schema hash checks also make old evidence
-stale. The workspace-engine version 9 projection stores only the report's
-technical identities, aggregate counts, timestamps, actor identity, and
-one-way hashes.
+The implementation is owned by
+[`TransferExecutionService`](../../../src/impodo/application/transfer_execution_service.py).
+
+`POST .../transfer-load` is the separate write boundary. Its form must carry
+the current workspace revision, preflight hash, and execution-snapshot hash.
+Only then does the background job re-probe the same destination key through
+both the read-identity and exact write-scope interfaces, require the same
+principal and company context, construct the writer, and call
+`ExecutionService.execute_transfer`.
+
+Immediately before journaling, execution bulk-revalidates every existing
+record binding and proves that every key classified for creation is still
+absent. Creates use deterministic External IDs. The repository transaction
+requires the current ready transfer-preflight hash, workspace, and target,
+then saves every planned attempt before transport. The shared dependency
+engine performs creates, updates, and deferred relationship completion in the
+approved order. The job attempts automatic read-back through
+`ReconciliationService`; its outcome page also permits manual verification
+with the same transfer key.
+
+Changing destination identity, matching, order, package, approval, source, or
+schema makes the saved evidence stale. A durable transfer journal disables a
+second submission. Same-run write recovery for an interrupted Odoo-to-Odoo
+transfer is not yet enabled, so an uncertain transfer must be reconciled and
+must never be blindly resubmitted.
 
 ## Implementation flow
 
-`execution.py` renders the preview, accepts the hash-bound confirmation, builds
-the scoped executor, invokes `ExecutionService.execute`, and exposes
-reconciliation and fallout routes.
+For prepared-data workspaces, `execution.py` renders the preview, accepts the
+hash-bound confirmation, builds the scoped executor, invokes
+`ExecutionService.execute`, and exposes reconciliation and fallout routes.
 
 The route resolves only the exact target-bound `WRITE` vault entry. Target
 setup may have created that entry from the same operator-approved secret as the
@@ -370,9 +394,11 @@ qualify another remote topology.
 - [`tests/application/workspace/test_transfer_order.py`](../../../tests/application/workspace/test_transfer_order.py)
 - [`tests/application/workspace/test_transfer_review.py`](../../../tests/application/workspace/test_transfer_review.py)
 - [`tests/application/workspace/test_transfer_preflight.py`](../../../tests/application/workspace/test_transfer_preflight.py)
+- [`tests/application/workspace/test_transfer_execution.py`](../../../tests/application/workspace/test_transfer_execution.py)
 - [`tests/integration/web/test_transfer_order_navigation.py`](../../../tests/integration/web/test_transfer_order_navigation.py)
 - [`tests/integration/web/test_transfer_review_routes.py`](../../../tests/integration/web/test_transfer_review_routes.py)
 - [`tests/integration/web/test_transfer_preflight_routes.py`](../../../tests/integration/web/test_transfer_preflight_routes.py)
+- [`tests/integration/web/test_transfer_load_routes.py`](../../../tests/integration/web/test_transfer_load_routes.py)
 - [`tests/integration/duckdb/test_transfer_order_persistence.py`](../../../tests/integration/duckdb/test_transfer_order_persistence.py)
 
 Verify scope enforcement, dependency order, create batching, update behavior,

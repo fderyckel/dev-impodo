@@ -63,6 +63,7 @@ from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
+from ..application.transfer_execution_service import TransferExecutionService
 from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.execution.load_jobs import LoadJobManager
 from ..application.workspace.execution.reconciliation import ReconciliationService
@@ -254,6 +255,7 @@ from .routers.transfer_destination import build_transfer_destination_router
 from .routers.transfer_order import build_transfer_order_router
 from .routers.transfer_review import build_transfer_review_router
 from .routers.transfer_preflight import build_transfer_preflight_router
+from .routers.transfer_load import build_transfer_load_router
 from .remote_connection import RemoteConnectionStatusService
 from .run_review import publish_load_progress, publish_preparation_progress
 from .security import (
@@ -653,6 +655,12 @@ def create_local_app(
         require_remote_write_identity=True,
         current_read_credential_binding=current_read_credential_binding,
     )
+    transfer_execution = TransferExecutionService(
+        source_repository,
+        artifacts,
+        odoo_provenance_service,
+        execution,
+    )
     reconciliation = ReconciliationService(
         preflight,
         execution_repository,
@@ -969,6 +977,7 @@ def create_local_app(
         normalization=normalization,
         preflight=preflight,
         execution=execution,
+        transfer_execution=transfer_execution,
         load_jobs=load_jobs,
         reconciliation=reconciliation,
         corrections=corrections,
@@ -1279,6 +1288,7 @@ def create_local_app(
         build_transfer_order_router(context),
         build_transfer_review_router(context),
         build_transfer_preflight_router(context),
+        build_transfer_load_router(context),
         build_sources_router(context),
         build_schema_router(context),
         build_derived_entities_router(context),

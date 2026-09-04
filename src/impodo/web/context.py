@@ -36,6 +36,7 @@ from ..application.odoo_source_capture_service import (
     OdooSourceCaptureService,
 )
 from ..application.preflight_service import PreflightService
+from ..application.transfer_execution_service import TransferExecutionService
 from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.execution.load_jobs import LoadJobManager
 from ..application.workspace.execution.reconciliation import ReconciliationService
@@ -203,6 +204,7 @@ class WebContext:
     normalization: NormalizationService
     preflight: PreflightService
     execution: ExecutionService
+    transfer_execution: TransferExecutionService
     load_jobs: LoadJobManager | None
     reconciliation: ReconciliationService
     corrections: CorrectionWorkflowService

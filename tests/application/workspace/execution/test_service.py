@@ -39,6 +39,7 @@ from impodo.domain.shared.models import (
     LogicalReference,
     OdooReadIdentity,
     OdooWriteIdentity,
+    target_identity_hash,
     target_record_binding_hash,
 )
 from impodo.adapters.odoo.writer import Json2WriteExecutor
@@ -48,7 +49,12 @@ from impodo.domain.execution.odoo_write import (
 )
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.adapters.odoo.connectors import Json2Config
-from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStatus,
+)
 from impodo.web.composition.target_writers import _write_executor
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -488,6 +494,7 @@ class _Journal:
     def __init__(self) -> None:
         self.run = None
         self.rows = {}
+        self.transfer_preflight_hash = ""
 
     def get_current_run(self, project_id, snapshot_hash=None):
         del project_id, snapshot_hash
@@ -497,9 +504,17 @@ class _Journal:
         del project_id
         return self.run if self.run and self.run.run_id == run_id else None
 
-    def start_run(self, project_id, run, *, actor):
+    def start_run(
+        self,
+        project_id,
+        run,
+        *,
+        actor,
+        transfer_preflight_hash="",
+    ):
         del project_id, actor
         self.run = run
+        self.transfer_preflight_hash = transfer_preflight_hash
         self.rows = {item.row_id: item for item in run.rows}
 
     def record_outcomes(self, project_id, run_id, rows):
@@ -672,6 +687,156 @@ class ExecutionServiceTests(unittest.TestCase):
             CapabilityAuthorizationPolicy(),
         )
         return service, journal
+
+    def _transfer_service(self, snapshot):
+        target_hash = target_identity_hash(
+            connection_mode="REMOTE",
+            base_url="https://destination.example.test",
+            database="destination",
+        )
+        transfer_snapshot = replace(
+            _with_plan(snapshot),
+            target_hash=target_hash,
+            target_database="destination",
+            preflight_result_hash=HASH,
+            read_credential_binding_hash=HASH,
+            read_principal_hash=HASH,
+            read_permission_hash=HASH,
+            read_context_hash=HASH,
+            readable_models=tuple(
+                sorted(item.target_model for item in snapshot.datasets)
+            ),
+        )
+        report = SimpleNamespace(ready=True, content_hash=HASH)
+        workspace = WorkspaceState(
+            workspace_id=transfer_snapshot.workspace_id,
+            name="Odoo transfer",
+            source_system="Odoo",
+            source_mode=SourceMode.ODOO,
+            status=WorkspaceStatus.REGISTERED,
+            odoo_connection_mode=OdooConnectionMode.REMOTE,
+            odoo_base_url="https://source.example.test",
+            odoo_database="source",
+            destination_odoo_connection_mode=OdooConnectionMode.REMOTE,
+            destination_odoo_base_url="https://destination.example.test",
+            destination_odoo_database="destination",
+            destination_verified_target_hash=target_hash,
+            destination_verified_credential_binding_hash=HASH,
+            destination_verified_read_principal_hash=HASH,
+            destination_verified_odoo_version="19.0",
+            destination_verified_at=datetime.now(timezone.utc),
+            transfer_preflight_report=report,
+        )
+        journal = _Journal()
+        service = ExecutionService(
+            SimpleNamespace(get=lambda _workspace_id: workspace),
+            SimpleNamespace(),
+            journal,
+            CapabilityAuthorizationPolicy(),
+        )
+        return service, journal, transfer_snapshot
+
+    def test_transfer_rechecks_create_absence_before_journaling(self):
+        service, journal, snapshot = self._transfer_service(_snapshot())
+        executor = _Executor(
+            execution_api_scope(snapshot).semantic_hash,
+            lookup_ids=(),
+            lookup_results={
+                (
+                    "product.category",
+                    (("name", "=", "Category"),),
+                ): (71,),
+            },
+        )
+        executor.target_hash = snapshot.target_hash
+        read_identity = OdooReadIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=snapshot.readable_models,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        scope = execution_api_scope(snapshot)
+        write_identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=tuple(item.model for item in scope.models),
+            writable_models=tuple(
+                item.model for item in scope.models if item.write_fields
+            ),
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "marked for creation now exists",
+        ):
+            service.execute_transfer(
+                snapshot.workspace_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                expected_preflight_hash=HASH,
+                snapshot=snapshot,
+                executor=executor,
+                actor=LOCAL_ACTOR,
+                read_identity=read_identity,
+                credential_binding_hash=HASH,
+                write_identity=write_identity,
+            )
+
+        self.assertIsNone(journal.run)
+        self.assertEqual(executor.loads, [])
+
+    def test_transfer_uses_external_ids_and_binds_journal_to_preflight(self):
+        service, journal, snapshot = self._transfer_service(_snapshot())
+        executor = _Executor(
+            execution_api_scope(snapshot).semantic_hash,
+            lookup_ids=(),
+            lookup_results={
+                ("res.partner", (("ref", "=", "C1"),)): (50,),
+            },
+        )
+        executor.target_hash = snapshot.target_hash
+        read_identity = OdooReadIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=snapshot.readable_models,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        scope = execution_api_scope(snapshot)
+        write_identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=tuple(item.model for item in scope.models),
+            writable_models=tuple(
+                item.model for item in scope.models if item.write_fields
+            ),
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        run = service.execute_transfer(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            expected_preflight_hash=HASH,
+            snapshot=snapshot,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+            read_identity=read_identity,
+            credential_binding_hash=HASH,
+            write_identity=write_identity,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(journal.transfer_preflight_hash, HASH)
+        self.assertEqual(len(executor.loads), 2)
+        self.assertTrue(all(batch[2] for batch in executor.loads))
+        self.assertEqual(executor.creates, [])
 
     def test_browser_guidance_bounds_groups_and_record_type_labels(self):
         snapshot = _with_plan(_snapshot())

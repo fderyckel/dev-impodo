@@ -148,13 +148,16 @@ to download** captures eligible fields and model-specific plans, then
 bound cross-instance destination workflow. Stages 4 through 7 connect that
 destination, match every selected model, derive generic relationship order,
 and approve an exact aggregate transfer package. Stage 8A rechecks that
-package through a fresh read-only destination call. The path currently stops
-before Stage 8B writes.
+package through a fresh read-only destination call. Stage 8B performs one more
+no-write destination check, stages an exact execution snapshot, requires a
+separate hash-bound confirmation, then journals, loads, and reads back the
+approved destination changes.
 
 The source capture and destination checks use two distinct credential roles.
 The source-fetch key cannot satisfy destination matching. The one destination
-transfer key supports Stage 5 and Stage 8A reads, but no current Odoo-to-Odoo
-route invokes it through a write-capable adapter.
+transfer key supports destination matching, Stage 8A, and the no-write Stage 8B
+preparation. Only the explicit Stage 8B confirmation re-probes that same key
+for the exact write and read-back scope. No third credential role is used.
 
 ## Invalidation and recovery
 

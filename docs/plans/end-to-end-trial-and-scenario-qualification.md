@@ -90,7 +90,7 @@ requested path as already available.
 | --- | --- | --- |
 | Files to a local disposable Odoo | The browser can prepare, compare, load, and reconcile. | Automate the normal path and prove a second comparison is unchanged. |
 | Files to a remote disposable Odoo | The governed load path exists. The opt-in representative runner exercises production services, but it is not the complete browser journey. | Reuse the shared scenario contract and retain remote acceptance evidence. |
-| Odoo source to a different local or remote Odoo | Bounded capture, transformation, destination matching, transfer ordering, review, and Stage 8A read-only destination preflight exist. | Exercise the current path through Stage 8A first. Add load and reconciliation only after a separate Stage 8B product contract is accepted and implemented. |
+| Odoo source to a different local or remote Odoo | Bounded capture, transformation, destination matching, transfer ordering, review, Stage 8A preflight, and explicitly confirmed Stage 8B loading and read-back exist. | Add a disposable-target scenario that proves the no-write gates, confirmed transfer, relationship order, and verified read-back. |
 | Odoo source updated in the same Odoo database | Bounded capture and offline comparison exist. Guarded update execution remains deferred. | Add an update-only scenario after the protected same-instance update contract is implemented. |
 | Continuous end-to-end monitoring | Unit, integration, browser-request, performance, and opt-in live acceptance evidence exist. There is no common scheduled scenario catalogue and result contract. | Add one runner, catalogue, scheduler entry point, and comparable result format. |
 | Every record and every linked record from one Odoo model | Current capture is explicitly selected and bounded. It does not recursively crawl arbitrary Odoo links. | Add a reviewed, bounded relationship-capture plan. Never expose an unrestricted graph crawl. |
@@ -414,15 +414,16 @@ Start with a small risk-based catalogue instead of trying every combination.
 | Recipe on fresh files | Renamed but structurally compatible files use pinned Recipe revisions. | The run proves logical source matching and blocks a missing or ambiguous table. |
 | Remote representative | Generated files load into a remote disposable Odoo database. | The run preserves the current P4 safety properties and retains remote request evidence. |
 | Odoo capture to local preflight | A bounded remote Odoo capture is transformed for a local destination. | The run proves source capture, frozen offline transformation, destination matching, order, review, and Stage 8A with zero writes. |
-| Odoo-to-Odoo preflight | A bounded source database transfers to a distinct disposable remote database. | The run proves separate source and destination credentials, target identity, relationship order, and zero Stage 8A writes. |
+| Odoo-to-Odoo transfer | A bounded source database transfers to a distinct disposable remote database. | The run proves separate source and destination credentials, target identity, relationship order, zero Stage 8A and Stage 8B preparation writes, an explicit confirmed load, and verified read-back. |
 | Expected missing relationship | A source row refers to an absent or ambiguous target. | The run passes only when preparation or comparison blocks it and the journal remains absent. |
 | Target drift before load | The destination changes after comparison. | The run passes only when the pre-write check detects the drift and performs zero writes. |
 | Lost write response | A controlled transport fault occurs around a write. | The run proves journal state, stop behavior, read-back assessment, and no blind retry. |
 | Schema or permission drift | The Odoo schema or service-user access changes. | The run stops at the owning read-only gate and reports the changed evidence. |
 
-Add the Odoo-to-Odoo write scenario only after Stage 8B is implemented. Add
-the same-instance captured-record update scenario only after its separate
-guarded execution path is implemented.
+Stage 8B now supplies the product boundary for the Odoo-to-Odoo write scenario;
+the scenario runner still needs to qualify it on a disposable target. Add the
+same-instance captured-record update scenario only after its separate guarded
+execution path is implemented.
 
 The catalogue should tag each scenario by source mode, target mode, field
 types, relationship types, create or update behavior, failure class, and Odoo
@@ -503,13 +504,13 @@ This phase remains read-only at the destination. It exits when the runner
 proves the approved transfer package and fresh destination preflight with zero
 write calls.
 
-### Phase 5: extend only after product write contracts exist
+### Phase 5: qualify current cross-instance writes, then extend
 
-When Stage 8B becomes current, add Odoo-to-Odoo execution, reconciliation, and
-repeat comparison through the normal implementation. When guarded
-same-instance updates become current, add their update-only scenario. Neither
-scenario runner workstream should design around or bypass the missing product
-capability.
+Stage 8B is current, so add Odoo-to-Odoo execution and reconciliation through
+the normal implementation and retain its no-blind-retry evidence. When guarded
+same-instance updates become current, add their update-only scenario. The
+scenario runner must use the product confirmation, journal, writer, and
+read-back boundaries rather than bypassing them.
 
 ### Phase 6: schedule and operate the catalogue
 
@@ -542,8 +543,9 @@ following:
   Odoo identifiers, or business values.
 - Background execution is limited to registered sanitized or generated data
   and disposable scenario targets.
-- Odoo-to-Odoo and same-instance writes remain unavailable in the runner until
-  their product contracts become current.
+- Odoo-to-Odoo writes remain unavailable in the runner until its Stage 8B
+  disposable-target scenario is added. Same-instance writes remain unavailable
+  until their product contract becomes current.
 - Documentation distinguishes the interactive trial, background
   qualification, current product behavior, and planned behavior.
 

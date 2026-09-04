@@ -103,6 +103,7 @@ class ExecutionRepository(DuckDbRepository):
                     if (
                         report is None
                         or not report.ready
+                        or report.workspace_id != workspace_id
                         or report.content_hash != transfer_preflight_hash
                         or report.destination_target_hash != run.target_hash
                     ):
