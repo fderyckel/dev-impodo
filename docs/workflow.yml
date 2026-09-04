@@ -426,6 +426,7 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionPreview
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.resume_transfer
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/application/workspace/execution/job_models.py::LoadJob
       - src/impodo/application/correction_workflow.py::CorrectionWorkflowService
@@ -456,6 +457,7 @@ stages:
       - src/impodo/application/transfer_review_service.py::TransferReviewService
       - src/impodo/application/transfer_preflight_service.py::TransferPreflightService
       - src/impodo/application/transfer_execution_service.py::TransferExecutionService
+      - src/impodo/application/transfer_execution_service.py::TransferExecutionService.resume
       - src/impodo/application/transfer_execution_service.py::compile_transfer_execution_snapshot
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute_transfer
       - src/impodo/application/workspace/execution/service.py::ExecutionService.current_transfer_run

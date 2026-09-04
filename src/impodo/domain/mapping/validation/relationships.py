@@ -301,6 +301,28 @@ def _validate_resolver(
             )
             return
         referenced_model = context.dataset_targets.get(resolver.dataset_id)
+        referenced_mapping = context.datasets_by_id.get(resolver.dataset_id)
+        if (
+            referenced_mapping is not None
+            and referenced_mapping.source_identity_column_keys
+            and len(source_columns)
+            != len(referenced_mapping.source_identity_column_keys)
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_REFERENCE_KEY_INVALID",
+                    path,
+                    (
+                        "The incoming reference has a different number of "
+                        "components than the selected table's source identity."
+                    ),
+                    (
+                        "Choose one source value for each source-identity "
+                        "component in the selected table, in the same order."
+                    ),
+                    dataset=dataset,
+                )
+            )
         projection_valid = False
         projection_field = resolver.dataset_projection_field
         if projection_field is not None:

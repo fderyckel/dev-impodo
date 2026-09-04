@@ -137,6 +137,24 @@
                       </label>
                       {% if row.relational %}
                         <label>
+                          Where should Impodo find the related record?
+                          <select name="identity_origin_{{ dataset_index }}_{{ loop.index0 }}">
+                            <option value="target_catalog" {% if row.selected_origin == 'target_catalog' %}selected{% endif %}>Only existing Odoo records</option>
+                            <option value="dataset" {% if row.selected_origin == 'dataset' %}selected{% endif %}>Only another incoming table</option>
+                            <option value="target_then_dataset" {% if row.selected_origin == 'target_then_dataset' %}selected{% endif %}>Use Odoo first, otherwise use the incoming table</option>
+                          </select>
+                        </label>
+                        <label>
+                          Which related source table?
+                          <select name="identity_dataset_{{ dataset_index }}_{{ loop.index0 }}">
+                            <option value="">Not from another table</option>
+                            {% for candidate in row.related_datasets %}
+                              <option value="{{ candidate.dataset_id }}" {% if row.selected_dataset_id == candidate.dataset_id %}selected{% endif %}>{{ candidate.name }}</option>
+                            {% endfor %}
+                          </select>
+                          <small>Choose a table mapped to {{ row.metadata.relation }} when incoming records are allowed.</small>
+                        </label>
+                        <label>
                           Related record matching rule
                           <select name="identity_resolver_key_{{ dataset_index }}_{{ loop.index0 }}" {% if not row.related_keys %}disabled{% endif %}>
                             <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
@@ -146,7 +164,7 @@
                               </option>
                             {% endfor %}
                           </select>
-                          {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
+                          {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model before using Odoo lookup.</small>{% endif %}
                         </label>
                       {% endif %}
                     </div>

@@ -47,7 +47,10 @@ load. There is no third API key.
    first action in the cross-instance workflow that can start a write.
 10. Follow progress to **Verify result**. Impodo attempts read-back
     automatically; if it could not finish verification, use **Verify what
-    happened in Odoo** on the saved outcome page.
+    happened in Odoo** on the saved outcome page. If Impodo itself stopped
+    while the transfer was running, use **Assess and resume interrupted
+    transfer**. Impodo reads the destination first and continues only the work
+    that it can prove is safe.
 
 For example, a Product can refer to a Unit of Measure through a many-to-one
 field. Impodo first checks whether each Unit's chosen business key is unique
@@ -233,16 +236,21 @@ bounded and do not expose source values or internal row identifiers.
 
 Do not blindly retry a timeout, connection reset, HTTP 422, or other unknown
 write outcome. First inspect the execution journal and reconcile the target.
-For an Odoo-to-Odoo transfer, use the saved **Verify result** page; same-run
-write recovery is not yet enabled for this path, and the journal prevents a
-second submission. For prepared-data loads, retry only through the recorded
-recovery path. Impodo first reads the exact affected fields back from Odoo and
-verifies every earlier group of records. It can retry an interrupted create
-only when no matching record exists. If a created record is waiting for an
-optional relationship, recovery writes only the relationship fields that were
-already part of **Check changes**. A changed target, ambiguous record, missing
-receipt, or changed loading identity stops recovery and requires **Check
-changes** again.
+For an Odoo-to-Odoo transfer whose page shows **Interrupted transfer**, select
+**Assess and resume interrupted transfer**. Impodo uses the same destination
+transfer key to read the exact affected fields before it continues the same
+saved journal. It can retry an interrupted create only when no matching record
+exists, and it keeps the same External ID so the retry cannot silently create
+an unrelated duplicate. If the saved outcome is terminal rather than
+interrupted, use **Verify what happened in Odoo**; do not submit the transfer
+again.
+
+For prepared-data loads, retry only through the recorded recovery path. On
+both paths, Impodo verifies every earlier group of records. If a created record
+is waiting for an optional relationship, recovery writes only the relationship
+fields that were already reviewed. A changed target, ambiguous record, missing
+receipt, changed key, or changed loading identity stops recovery and requires
+a new review.
 
 ## What makes this work stale
 

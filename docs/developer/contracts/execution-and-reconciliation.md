@@ -121,6 +121,14 @@ report, the original target and write identity, and a still-current snapshot.
 It atomically binds every row to the recovery-report hash before another Odoo
 call can begin.
 
+For an Odoo-to-Odoo transfer, `ExecutionService.resume_transfer` adds the
+current ready transfer preflight, exact staged snapshot, destination read identity,
+and `DESTINATION_TRANSFER` credential binding to those checks. Recovery must
+use the same destination key generation, principal, and company context as the
+interrupted run. Before a create can become retry-ready, execution repeats the
+bounded absence check for its frozen business key. Resumed creates keep their
+original deterministic External IDs.
+
 Recovery may mark an interrupted create `RETRY_READY` only when business-key
 read-back found no matching record. It may accept a write as committed only
 when read-back proves every intended final field. It may retain a created row
@@ -135,9 +143,12 @@ receipt, another target, or another principal stops resume. Known rejections
 and terminal `OUTCOME_UNKNOWN` runs require a new **Check changes** result.
 
 Stage 8B automatically attempts read-back after a completed transfer and also
-offers manual verification of its saved journal. Same-run write recovery for
-an interrupted Odoo-to-Odoo transfer is not yet enabled; the existing transfer
-journal prevents a blind resubmission while the operator reconciles the result.
+offers manual verification of its saved journal. A `RUNNING` transfer exposes
+the separate **Assess and resume interrupted transfer** action. That action
+assesses read-back before constructing the writer and then resumes only rows
+classified as safe in the existing journal. A terminal `OUTCOME_UNKNOWN`
+transfer still cannot resume and requires reconciliation or a new reviewed
+load.
 
 ## Reconciliation
 

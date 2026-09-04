@@ -1,0 +1,58 @@
+{
+  "metadata": {
+    "kind": "metadata",
+    "complete": true,
+    "fingerprint": {
+      "target_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "connection_mode": "SNAPSHOT",
+      "database": "impodo-scenario-contact-empty",
+      "odoo_version": "19.0",
+      "snapshot_timestamp": "2026-09-04T00:00:00Z",
+      "module_versions": {
+        "base": "19.0",
+        "contacts": "19.0"
+      }
+    },
+    "models": {
+      "res.partner": {
+        "description": "Contacts",
+        "fields": {
+          "ref": {
+            "type": "char",
+            "required": false,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "name": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          }
+        }
+      }
+    }
+  },
+  "records": {
+    "kind": "records",
+    "complete": true,
+    "fingerprint": {
+      "target_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "connection_mode": "SNAPSHOT",
+      "database": "impodo-scenario-contact-empty",
+      "odoo_version": "19.0",
+      "snapshot_timestamp": "2026-09-04T00:00:00Z",
+      "module_versions": {
+        "base": "19.0",
+        "contacts": "19.0"
+      }
+    },
+    "models": {
+      "res.partner": {
+        "records": []
+      }
+    }
+  }
+}

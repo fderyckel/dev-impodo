@@ -117,6 +117,9 @@ setup, CLI, release, and acceptance procedures live under
   business identities, fields, relationships, and validation workflow.
 - [Preflight CLI runbook](developer/cli/preflight.md) — safe profile-driven snapshot
   and offline classification sequence, evidence rules, and exit behavior.
+- [Scenario qualification](developer/runbooks/scenario-qualification.md) —
+  current profile-driven offline canary and explicitly confirmed local Contact
+  round trip, durable evidence, safety gates, and remaining limits.
 - [Windows developer setup](developer/setup/windows.md)
   — IT provisioning, installation boundaries, Odoo access, and verification.
 - [Internal development and release runbook](developer/runbooks/internal-release.md) —

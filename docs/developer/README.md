@@ -57,6 +57,7 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Local Odoo technical runbook](runbooks/local-odoo.md)
 - [Internal development and release](runbooks/internal-release.md)
 - [Remote Odoo 19 acceptance](runbooks/remote-odoo-acceptance.md)
+- [Scenario qualification](runbooks/scenario-qualification.md)
 
 ## Cross-stage references
 

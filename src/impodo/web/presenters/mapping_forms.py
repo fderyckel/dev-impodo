@@ -262,6 +262,8 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
             allowed.update(
                 {
                     f"identity_source_{dataset_index}_{identity_index}",
+                    f"identity_origin_{dataset_index}_{identity_index}",
+                    f"identity_dataset_{dataset_index}_{identity_index}",
                     f"identity_resolver_key_{dataset_index}_{identity_index}",
                 }
             )
@@ -411,20 +413,45 @@ def _mapping_datasets_from_form(
             metadata = field_by_name.get(target_field)
             resolver = None
             if metadata is not None and metadata.type == "many2one":
-                related_key = keys.get(
+                origin = ResolverOrigin(
                     _text(
                         form,
-                        (
-                            f"identity_resolver_key_{dataset_index}_"
-                            f"{identity_index}"
+                        f"identity_origin_{dataset_index}_{identity_index}",
+                    )
+                    or ResolverOrigin.TARGET_CATALOG.value
+                )
+                resolver_dataset_id = _text(
+                    form,
+                    f"identity_dataset_{dataset_index}_{identity_index}",
+                ) or None
+                if origin is ResolverOrigin.DATASET:
+                    resolver = RelationshipResolver(
+                        origin=origin,
+                        dataset_id=resolver_dataset_id,
+                    )
+                else:
+                    related_key = keys.get(
+                        _text(
+                            form,
+                            (
+                                f"identity_resolver_key_{dataset_index}_"
+                                f"{identity_index}"
+                            ),
+                        )
+                    )
+                    resolver = replace(
+                        _target_catalog_resolver(
+                            metadata.relation,
+                            related_key,
+                            selected_sources,
+                        ),
+                        origin=origin,
+                        dataset_id=(
+                            resolver_dataset_id
+                            if origin is ResolverOrigin.TARGET_THEN_DATASET
+                            else None
                         ),
                     )
-                )
-                resolver = _target_catalog_resolver(
-                    metadata.relation,
-                    related_key,
-                    selected_sources,
-                )
             component = IdentityComponentMapping(
                 source_column_keys=selected_sources,
                 target_fields=(target_field,),

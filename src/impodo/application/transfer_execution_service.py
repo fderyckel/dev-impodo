@@ -28,6 +28,7 @@ from impodo.domain.execution_snapshot import (
 from impodo.domain.odoo.contracts import RecordSnapshot, record_snapshot_payload
 from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.preparation.source import SourceRow
+from impodo.domain.reconciliation import ReconciliationRun
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
@@ -288,6 +289,39 @@ class TransferExecutionService:
                     EXECUTION_SNAPSHOT_NAME,
                 )
             raise
+
+    def resume(
+        self,
+        workspace: WorkspaceState,
+        snapshot: ExecutionSnapshot,
+        recovery: ReconciliationRun,
+        *,
+        expected_execution_run_id: str,
+        expected_preflight_hash: str,
+        executor: OdooWriteExecutor,
+        actor: Actor,
+        read_identity: OdooReadIdentity,
+        credential_binding_hash: str,
+        write_identity: OdooWriteIdentity,
+        progress=None,
+    ) -> ExecutionRun:
+        """Resume an interrupted transfer without replacing its journal."""
+
+        snapshot = ExecutionSnapshot.from_json(snapshot.to_json())
+        return self.execution.resume_transfer(
+            workspace.workspace_id,
+            expected_execution_run_id=expected_execution_run_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            expected_preflight_hash=expected_preflight_hash,
+            snapshot=snapshot,
+            recovery=recovery,
+            executor=executor,
+            actor=actor,
+            read_identity=read_identity,
+            credential_binding_hash=credential_binding_hash,
+            write_identity=write_identity,
+            progress=progress,
+        )
 
 
 def compile_transfer_execution_snapshot(

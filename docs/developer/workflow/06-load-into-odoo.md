@@ -79,9 +79,13 @@ with the same transfer key.
 
 Changing destination identity, matching, order, package, approval, source, or
 schema makes the saved evidence stale. A durable transfer journal disables a
-second submission. Same-run write recovery for an interrupted Odoo-to-Odoo
-transfer is not yet enabled, so an uncertain transfer must be reconciled and
-must never be blindly resubmitted.
+second submission. If a process interruption leaves that journal `RUNNING`,
+`POST .../transfer-load/recover` first uses
+`ReconciliationService.assess_recovery` with the same destination key. It
+constructs the writer only after the assessment succeeds and delegates the
+same-run continuation to `TransferExecutionService.resume`. A terminal
+`OUTCOME_UNKNOWN` transfer must be reconciled and must never be blindly
+resubmitted.
 
 ## Implementation flow
 
@@ -257,6 +261,8 @@ recorded outcome.
 | Reconciliation | [`ReconciliationService`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
 | Recovery read-back | [`ReconciliationService.assess_recovery`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
 | Read-back-gated resume | [`ExecutionService.resume`](../../../src/impodo/application/workspace/execution/service.py) |
+| Odoo-transfer resume facade | [`TransferExecutionService.resume`](../../../src/impodo/application/transfer_execution_service.py) |
+| Hash-bound Odoo-transfer resume | [`ExecutionService.resume_transfer`](../../../src/impodo/application/workspace/execution/service.py) |
 | Durable batch and recovery transitions | [`ExecutionRepository`](../../../src/impodo/adapters/duckdb/execution_repository.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
 | Correction browser orchestration | [`CorrectionWorkflowService`](../../../src/impodo/application/correction_workflow.py) |
@@ -307,12 +313,16 @@ reset or wrapped HTTP 422 into a safe-to-retry failure.
 
 After a process interruption, `ReconciliationService.assess_recovery` checks
 all committed, in-flight, partially applied, and not-yet-started rows against
-the immutable schedule. `ExecutionService.resume` reuses an already recorded
-recovery report after another restart or records a new report atomically. It
-retries only a create proven absent, an exact update whose reviewed fields
-still differ, or the frozen deferred fields of a created row. It verifies all
-earlier committed components first and revalidates the target crosswalk before
-transport resumes.
+the immutable schedule. `ExecutionService.resume` handles a prepared-data
+load, while `ExecutionService.resume_transfer` additionally requires the
+current transfer preflight, exact staged snapshot, original destination-key
+binding, and matching read and write identity. Each path reuses an already
+recorded recovery report after another restart or records a new report
+atomically. It retries only a create proven absent, an exact update whose
+reviewed fields still differ, or the frozen deferred fields of a created row.
+It verifies all earlier committed components first and revalidates the target
+crosswalk before transport resumes. Transfer creates repeat their absence
+check and retain their original External IDs.
 
 Deferred relationships are applied only after their dependencies exist. A
 partial relationship outcome remains explicit and recoverable through the

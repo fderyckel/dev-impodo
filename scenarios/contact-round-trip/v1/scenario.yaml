@@ -1,0 +1,46 @@
+contract_version: 1
+scenario_id: contact-round-trip-v1
+purpose: MANUAL_TRIAL
+
+source:
+  mode: FILE
+  fixture_set: fixtures
+  fixture_hash: sha256:b781f30440129b5e317ec5309060d8366a8a3c30c71c2739898a2fb753239d48
+
+rules:
+  profile: profile.yaml
+  profile_hash: sha256:64c1893a7ccefedd5d0655d8cb1fb893401ccac32c03e3bbb76125a651fef597
+
+destination:
+  mode: LOCAL_ODOO
+  target_profile: local.contacts
+  expected_seed: empty-contacts
+  relevant_modules: [base, contacts]
+
+execution:
+  stop_after: REPEAT_COMPARISON
+  write_policy: DISPOSABLE_SCENARIO_ONLY
+  create_batch_rows: 10
+
+expectations:
+  expected_outcome: PASS
+  target_projection: expected-target.json
+  target_projection_hash: sha256:d4a6133dccf6fe6d7a5fc4b79dfea6412e85ed57e44e0dca740b3524f38fe394
+  prepared_rows: 1
+  source_issues: 0
+  first_comparison:
+    create: 1
+    update: 0
+    unchanged: 0
+    blocked: 0
+    ambiguous: 0
+  reconciliation:
+    verified: 1
+    fallout: 0
+    outcome_unknown: 0
+  repeat_comparison:
+    create: 0
+    update: 0
+    unchanged: 1
+    blocked: 0
+    ambiguous: 0

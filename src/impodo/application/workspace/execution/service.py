@@ -323,8 +323,7 @@ class ExecutionService:
         workspace_state = self.workspaces.get(workspace_id)
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
-                "Odoo-to-Odoo transfer recovery cannot resume writes yet. "
-                "Reconcile the saved transfer journal before taking another action."
+                "Use the confirmed Stage 8B transfer route for an Odoo-to-Odoo load."
             )
         create_batch_rows = validated_create_batch_rows(batch_rows)
         preview = self.current_preview(workspace_id)
@@ -484,8 +483,6 @@ class ExecutionService:
             raise WorkspaceError(
                 "This approved transfer already has a load journal. Verify its outcome."
             )
-        if preview.scope_error:
-            raise WorkspaceError(preview.scope_error)
         self._validate_execution_scope(destination_workspace, preview, executor)
         _validate_read_identity(
             preview,
@@ -595,7 +592,8 @@ class ExecutionService:
         workspace_state = self.workspaces.get(workspace_id)
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
-                "Pinned Odoo loading is not available yet. No Odoo record was changed."
+                "Use the Stage 8B transfer recovery action for an interrupted "
+                "Odoo-to-Odoo load."
             )
         snapshot = self.preflight.current_execution_snapshot(workspace_id)
         if snapshot is None:
@@ -675,6 +673,171 @@ class ExecutionService:
             actor,
             identity_cache=identity_cache,
             progress=progress,
+        )
+
+    def resume_transfer(
+        self,
+        workspace_id: str,
+        *,
+        expected_execution_run_id: str,
+        expected_snapshot_hash: str,
+        expected_preflight_hash: str,
+        snapshot: ExecutionSnapshot,
+        recovery: ReconciliationRun,
+        executor: OdooWriteExecutor,
+        actor: Actor,
+        read_identity: OdooReadIdentity,
+        credential_binding_hash: str,
+        write_identity: OdooWriteIdentity,
+        progress: Callable[[ExecutionRun], None] | None = None,
+    ) -> ExecutionRun:
+        """Resume one interrupted transfer from exact same-key read-back."""
+
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_EXECUTE,
+            workspace_id=workspace_id,
+        )
+        source_workspace = self.workspaces.get(workspace_id)
+        report = source_workspace.transfer_preflight_report
+        if (
+            source_workspace.source_mode is not SourceMode.ODOO
+            or report is None
+            or not report.ready
+            or report.content_hash != expected_preflight_hash
+            or snapshot.workspace_id != workspace_id
+            or snapshot.semantic_hash != expected_snapshot_hash
+            or snapshot.preflight_result_hash != report.content_hash
+        ):
+            raise WorkspaceError(
+                "The interrupted transfer preview or preflight is no longer current"
+            )
+        run = self.journal.get_run(workspace_id, expected_execution_run_id)
+        current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
+        if (
+            run is None
+            or current is None
+            or current.run_id != expected_execution_run_id
+            or run.status is not ExecutionRunStatus.RUNNING
+            or run.snapshot_hash != snapshot.semantic_hash
+            or run.snapshot_root_hash != snapshot.root_hash
+            or run.preflight_run_id != snapshot.preflight_run_id
+            or run.target_hash != snapshot.target_hash
+            or run.target_database != snapshot.target_database
+        ):
+            raise WorkspaceError(
+                "The interrupted transfer journal is no longer current"
+            )
+
+        destination_workspace = transfer_destination_workspace(source_workspace)
+        preview = ExecutionPreview(
+            snapshot=snapshot,
+            datasets=(),
+            current_run=run,
+            api_scope=execution_api_scope(snapshot),
+            deferred_create_count=0,
+            scope_error=_execution_snapshot_error(destination_workspace, snapshot),
+        )
+        if preview.scope_error:
+            raise WorkspaceError(preview.scope_error)
+        if executor.target_hash != snapshot.target_hash:
+            raise WorkspaceError(
+                "The recovery writer points to a different Odoo target"
+            )
+        if executor.scope_hash != preview.api_scope.semantic_hash:
+            raise WorkspaceError(
+                "The recovery writer is not bound to this transfer preview"
+            )
+        _validate_read_identity(
+            preview,
+            read_identity,
+            credential_binding_hash,
+            required=True,
+        )
+        _validate_write_identity(
+            preview,
+            write_identity,
+            credential_binding_hash,
+            required=True,
+        )
+        _require_resume_write_identity(
+            run,
+            write_identity,
+            credential_binding_hash,
+            required=True,
+        )
+        if (
+            write_identity.principal_hash != read_identity.principal_hash
+            or write_identity.context_hash != read_identity.context_hash
+        ):
+            raise WorkspaceError(
+                "The destination transfer key changed principal or company context"
+            )
+        if recovery.verification_credential_binding_hash != credential_binding_hash:
+            raise WorkspaceError(
+                "The recovery evidence was collected with another destination "
+                "transfer key"
+            )
+
+        recovery = ReconciliationRun.from_json(recovery.to_json())
+        already_applied = (
+            not run.in_flight_count
+            and all(item.recovery_hash == recovery.semantic_hash for item in run.rows)
+        )
+        recovered = (
+            run.rows
+            if already_applied
+            else self._classify_recovery(snapshot, run, recovery)
+        )
+        write_rows = tuple(
+            row for row in snapshot.rows if row.disposition in {"CREATE", "UPDATE"}
+        )
+        row_by_id = {row.row_id: row for row in write_rows}
+        retryable_creates = tuple(
+            row_by_id[item.row_id]
+            for item in recovered
+            if item.status
+            in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY}
+            and row_by_id[item.row_id].disposition == "CREATE"
+        )
+        metadata = {item.dataset: item for item in snapshot.datasets}
+        self._assert_create_rows_still_absent(
+            retryable_creates,
+            metadata,
+            executor,
+        )
+        if not already_applied:
+            self.journal.record_recovery(
+                workspace_id,
+                run.run_id,
+                recovered,
+                actor=actor,
+            )
+            run = self.journal.get_run(workspace_id, run.run_id)
+            if run is None:
+                raise WorkspaceError(
+                    "The recovered transfer journal could not be reloaded"
+                )
+
+        by_source = {
+            (row.dataset, _portable_key(row.source_identity)): row
+            for row in snapshot.rows
+        }
+        identity_cache = self._resolve_identity_crosswalk(
+            write_rows,
+            metadata,
+            by_source,
+            executor,
+        )
+        return self._continue_run(
+            destination_workspace,
+            snapshot,
+            run,
+            executor,
+            actor,
+            identity_cache=identity_cache,
+            progress=progress,
+            create_with_external_ids=True,
         )
 
     def _continue_run(
@@ -1338,7 +1501,7 @@ class ExecutionService:
         workspace_state = self.workspaces.get(workspace_id)
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
-                "Pinned Odoo loading is not available yet. No Odoo record was changed."
+                "Use the Stage 8B transfer outcome to complete an Odoo-to-Odoo load."
             )
         preview = self.current_preview(workspace_id)
         if preview is None:

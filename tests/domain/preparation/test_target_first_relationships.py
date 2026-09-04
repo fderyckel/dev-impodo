@@ -374,6 +374,21 @@ class TargetFirstRelationshipTests(unittest.TestCase):
                             target_fields=("default_code",),
                         ),
                     ),
+                    target_scope=(
+                        IdentityComponentMapping(
+                            source_column_keys=("product.uom",),
+                            target_fields=("uom_id",),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.TARGET_THEN_DATASET,
+                                dataset_id=sales_dataset_id,
+                                model="uom.uom",
+                                key_mappings=(
+                                    ReferenceKeyMapping("product.uom", "name"),
+                                ),
+                                value_mappings=(ValueMapping("UNI", "Unit"),),
+                            ),
+                        ),
+                    ),
                     relationships=(
                         RelationshipMapping(
                             target_field="uom_id",
@@ -407,6 +422,11 @@ class TargetFirstRelationshipTests(unittest.TestCase):
         self.assertEqual(resolver.target_model, "uom.uom")
         self.assertEqual(resolver.target_fields, ("name",))
         self.assertEqual(resolver.target_value_mappings, (("UNI", "Unit"),))
+        scope_resolver = compiled.dataset("products").target_identity.scope[0].resolve
+        assert scope_resolver is not None
+        self.assertEqual(scope_resolver.origin, "target_then_incoming")
+        self.assertEqual(scope_resolver.dataset, "sales_uoms")
+        self.assertEqual(scope_resolver.target_source_fields, ("uom.code",))
 
         source_dataset = selection.datasets[1]
         transformer = compile_browser_row_transformer(
@@ -430,6 +450,19 @@ class TargetFirstRelationshipTests(unittest.TestCase):
         ).transform(staged_row)
         self.assertEqual(issues, ())
         self.assertEqual(
+            prepared.target_scope,
+            (
+                LogicalReference(
+                    origin="target_then_incoming",
+                    key=("Unit",),
+                    dataset="sales_uoms",
+                    model="uom.uom",
+                    target_fields=("name",),
+                    incoming_key=("UNI",),
+                ),
+            ),
+        )
+        self.assertEqual(
             prepared.references["uom_id"],
             LogicalReference(
                 origin="target_then_incoming",
@@ -440,6 +473,168 @@ class TargetFirstRelationshipTests(unittest.TestCase):
                 incoming_key=("UNI",),
             ),
         )
+
+    def test_relational_scope_resolves_parent_and_orders_execution(self) -> None:
+        orders = DatasetSpec(
+            name="orders",
+            source=SourceSpec(file="orders.csv"),
+            target=TargetSpec(model="sale.order", mode="upsert"),
+            source_identity=SourceIdentitySpec(fields=("order_ref",)),
+            target_identity=TargetIdentitySpec(
+                components=(
+                    IdentityComponent(
+                        source_fields=("order_ref",),
+                        target_fields=("name",),
+                    ),
+                ),
+            ),
+        )
+        lines = DatasetSpec(
+            name="order_lines",
+            source=SourceSpec(file="order_lines.csv"),
+            target=TargetSpec(model="sale.order.line", mode="upsert"),
+            source_identity=SourceIdentitySpec(fields=("order_ref", "line_no")),
+            target_identity=TargetIdentitySpec(
+                components=(
+                    IdentityComponent(
+                        source_fields=("line_no",),
+                        target_fields=("sequence",),
+                        type="integer",
+                    ),
+                ),
+                scope=(
+                    IdentityComponent(
+                        source_fields=("order_ref",),
+                        target_fields=("order_id",),
+                        resolve=ResolveSpec(
+                            dataset="orders",
+                            target_source_fields=("order_ref",),
+                            target_model="sale.order",
+                            target_fields=("name",),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        plan = CompiledMigrationPlan(
+            plan_id="relational_scope",
+            origin="profile_document",
+            origin_hash=_HASH,
+            datasets=(lines, orders),
+        )
+        prepared = prepare_source_tables(
+            plan,
+            (
+                SourceTable(
+                    dataset="order_lines",
+                    path=PurePath("order_lines.csv"),
+                    headers=("order_ref", "line_no"),
+                    rows=(
+                        SourceRow(2, {"order_ref": "SO-1", "line_no": "10"}),
+                        SourceRow(3, {"order_ref": "SO-1", "line_no": "20"}),
+                    ),
+                    content_hash=_HASH,
+                ),
+                SourceTable(
+                    dataset="orders",
+                    path=PurePath("orders.csv"),
+                    headers=("order_ref",),
+                    rows=(SourceRow(2, {"order_ref": "SO-1"}),),
+                    content_hash=_HASH,
+                ),
+            ),
+            source_hashes={"orders": _HASH, "order_lines": _HASH},
+        )
+        fingerprint = TargetFingerprint(
+            target_hash=_HASH,
+            connection_mode="LOCAL",
+            database="relational_scope_test",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-09-04T00:00:00Z",
+        )
+        metadata, records = bind_snapshot_hashes(
+            MetadataSnapshot(
+                fingerprint=fingerprint,
+                models={
+                    "sale.order": ModelMetadata(
+                        model="sale.order",
+                        description="Sales Orders",
+                        fields={
+                            "name": FieldMetadata(name="name", type="char"),
+                        },
+                    ),
+                    "sale.order.line": ModelMetadata(
+                        model="sale.order.line",
+                        description="Sales Order Lines",
+                        fields={
+                            "sequence": FieldMetadata(
+                                name="sequence",
+                                type="integer",
+                            ),
+                            "order_id": FieldMetadata(
+                                name="order_id",
+                                type="many2one",
+                                required=True,
+                                relation="sale.order",
+                            ),
+                        },
+                    ),
+                },
+            ),
+            RecordSnapshot(
+                fingerprint=fingerprint,
+                records={"sale.order": (), "sale.order.line": ()},
+                requested_fields={
+                    "sale.order": ("name",),
+                    "sale.order.line": ("sequence", "order_id"),
+                },
+            ),
+        )
+
+        result = PreflightEngine().run(plan, prepared, metadata, records)
+
+        self.assertEqual(
+            {decision.classification for decision in result.decisions},
+            {Classification.CREATE},
+        )
+        scope_resolutions = [
+            item
+            for item in result.reference_resolutions
+            if item.dataset == "order_lines" and item.field == "scope:order_id"
+        ]
+        self.assertEqual(
+            [item.status for item in scope_resolutions],
+            ["RESOLVED_INCOMING"],
+        )
+
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=_frozen(plan, prepared),
+            result=result,
+        )
+
+        self.assertEqual(
+            [item.dataset for item in snapshot.datasets],
+            ["orders", "order_lines"],
+        )
+        order_row = next(row for row in snapshot.rows if row.dataset == "orders")
+        line_rows = [row for row in snapshot.rows if row.dataset == "order_lines"]
+        self.assertEqual(len(line_rows), 2)
+        self.assertTrue(
+            all(order_row.schedule_ordinal < row.schedule_ordinal for row in line_rows)
+        )
+        for row in line_rows:
+            scope_intent = next(item for item in row.fields if item.field == "order_id")
+            self.assertEqual(scope_intent.dependency_strength, "hard")
+            self.assertEqual(scope_intent.dependency_row_ids, (order_row.row_id,))
+            self.assertEqual(
+                scope_intent.value,
+                LogicalReference(
+                    origin="incoming",
+                    key=("SO-1",),
+                    dataset="orders",
+                ),
+            )
 
     def test_odoo_wins_without_updates_and_missing_pce_uses_incoming(self) -> None:
         plan = _plan()

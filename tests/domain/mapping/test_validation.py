@@ -708,6 +708,36 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertIn("MAPPING_RELATION_POLICY_UNSAFE", codes)
         self.assertIn("MAPPING_BUSINESS_KEY_NOT_GOVERNED", codes)
 
+    def test_incoming_scope_must_match_parent_source_identity_arity(self) -> None:
+        valid = _valid_definition(self.selection, self.governance)
+        company, partner = valid.datasets
+        invalid_scope = replace(
+            partner.target_scope[0],
+            source_column_keys=("partner.company", "partner.ref"),
+        )
+
+        result = self.validator.validate(
+            replace(
+                valid,
+                datasets=(
+                    company,
+                    replace(partner, target_scope=(invalid_scope,)),
+                ),
+            ),
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        matching_issues = [
+            item
+            for item in result.issues
+            if item.code == "MAPPING_REFERENCE_KEY_INVALID"
+            and "source identity" in item.message
+        ]
+        self.assertEqual(result.status, MappingValidationStatus.INVALID)
+        self.assertEqual(len(matching_issues), 1)
+
     def test_self_relationships_are_left_for_row_level_cycle_analysis(
         self,
     ) -> None:

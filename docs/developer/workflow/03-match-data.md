@@ -228,6 +228,25 @@ never writes it as an independently owned list. Dynamic value matching reads
 one frozen source column and fetches target choices in batches. It persists
 portable codes or business keys, never numeric Odoo IDs.
 
+Relational components inside `target_identity` and `target_scope` use the same
+three origins. The guided identity form stores `identity_origin_*`,
+`identity_dataset_*`, and `identity_resolver_key_*`; an omitted origin retains
+the compatibility default `target_catalog`. The view offers only other source
+tables whose currently selected target model matches the captured many2one
+relation. Semantic validation remains authoritative when a forged or stale
+form names another table.
+
+For an incoming relational component, its selected child source columns are
+the reference tuple and the referenced dataset's
+`source_identity_column_keys` are the lookup tuple. Their arity must match.
+The browser compiler copies the referenced source identity into
+`ResolveSpec.target_source_fields`; it never guesses by column label. Dataset
+order in the source selection is irrelevant: identity and scope dependencies
+are hard edges, preflight resolves the parent recursively, and the execution
+snapshot schedules a created parent before every dependent child. Missing,
+ambiguous, or blocked parents continue to fail closed. This behavior does not
+authorize partial loading of otherwise valid rows.
+
 A `constant_existing` many2one produces the same target `LogicalReference`
 for every applicable owner row. The row evaluator uses the stored values
 directly, while the columnar compiler emits native literal expressions; the
@@ -532,11 +551,12 @@ protected-evidence read authority.
 
 ## Verification
 
-`capture_match_data_recovery_screenshots.py::capture` creates an isolated
-fictional Contact workspace, serves the current authenticated application on
+`capture_match_data_recovery_screenshots.py::capture` creates isolated
+fictional Contact and order-line workspaces, serves the current authenticated application on
 an ephemeral loopback port, and drives the installed Edge browser at 1440 by
-1024 CSS pixels with device scale factor 1. It captures the guided combined
-source-column provider plus the inline formula error, saved-with-issues,
+1024 CSS pixels with device scale factor 1. It captures the relational identity
+origin and incoming-parent controls, the guided combined-source-column
+provider, plus the inline formula error, saved-with-issues,
 stale-tab conflict, and disconnected-server states that the paired user page
 presents. The helper stops the isolated server to
 exercise the real heartbeat; it does not edit an operator workspace or use

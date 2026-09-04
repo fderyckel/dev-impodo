@@ -2,7 +2,7 @@
 
 ## Status and decision
 
-**Status:** Proposal for product and architecture review, 2026-09-04.
+**Status:** Approved; phased implementation started, 2026-09-04.
 
 This proposal asks Impodo to add one shared end-to-end execution capability
 with two controlled ways to use it:
@@ -12,9 +12,33 @@ with two controlled ways to use it:
 2. Developers and operators can run reviewed, deterministic scenarios in the
    background to detect workflow regressions.
 
-Approve the shared scenario contract and the local file-to-Odoo first slice.
-Do not interpret this proposal as approval for unbounded Odoo graph capture,
+The shared scenario contract and local file-to-Odoo first slice are approved.
+Do not interpret that decision as approval for unbounded Odoo graph capture,
 Odoo-to-Odoo writes, Production writes, or unattended use of customer data.
+
+## Implementation status
+
+The first current slice includes the strict versioned definition, contained
+fixture and target-projection loader, secret rejection, compact result
+contract, `impodo-cli scenario validate`, and `impodo-cli scenario run`.
+The committed offline Contact canary runs the production profile compiler,
+source preparation, request planning, snapshot adapter, and comparison engine.
+
+An explicitly confirmed Contact scenario can also write to a literal-loopback
+Odoo 19 database in the `impodo_scenario_` namespace. It performs a fresh
+pre-write comparison, retains the execution snapshot and journal before
+transport, calls the existing scoped writer and reconciliation service,
+asserts an independent target projection, and requires the expected repeat
+comparison. A lost-response integration proves that retained evidence blocks
+a blind second write.
+
+This current slice remains profile-driven and does not yet create the normal
+Project, Data version, Recipe application, or workspace records. Target
+provisioning and independent seed attestation, automatic recovery entry,
+Product and bill-of-material fixtures, a real browser journey, remote targets,
+bounded Odoo-source capture scenarios, Odoo-to-Odoo scenario qualification,
+and scheduling remain planned. Phase 1 therefore has not reached its full
+exit criteria.
 
 ## Why this is the right capability
 
@@ -88,18 +112,20 @@ requested path as already available.
 
 | Path | Current position | Proposed scenario result |
 | --- | --- | --- |
-| Files to a local disposable Odoo | The browser can prepare, compare, load, and reconcile. | Automate the normal path and prove a second comparison is unchanged. |
+| Files to a local disposable Odoo | The browser can prepare, compare, load, and reconcile. A current profile-driven Contact scenario uses the shared writer and reconciliation services and proves an unchanged repeat, but it does not yet create the normal Project lifecycle. | Automate the complete Project/Data version/Recipe/workspace path and add Product and bill-of-material coverage. |
 | Files to a remote disposable Odoo | The governed load path exists. The opt-in representative runner exercises production services, but it is not the complete browser journey. | Reuse the shared scenario contract and retain remote acceptance evidence. |
 | Odoo source to a different local or remote Odoo | Bounded capture, transformation, destination matching, transfer ordering, review, Stage 8A preflight, and explicitly confirmed Stage 8B loading and read-back exist. | Add a disposable-target scenario that proves the no-write gates, confirmed transfer, relationship order, and verified read-back. |
 | Odoo source updated in the same Odoo database | Bounded capture and offline comparison exist. Guarded update execution remains deferred. | Add an update-only scenario after the protected same-instance update contract is implemented. |
-| Continuous end-to-end monitoring | Unit, integration, browser-request, performance, and opt-in live acceptance evidence exist. There is no common scheduled scenario catalogue and result contract. | Add one runner, catalogue, scheduler entry point, and comparable result format. |
+| Continuous end-to-end monitoring | A common definition/result contract and committed offline Contact canary now exist. There is no scheduler, trend store, or complete risk catalogue yet. | Add the remaining catalogue, scheduler entry point, retention, and comparable trend reporting. |
 | Every record and every linked record from one Odoo model | Current capture is explicitly selected and bounded. It does not recursively crawl arbitrary Odoo links. | Add a reviewed, bounded relationship-capture plan. Never expose an unrestricted graph crawl. |
 
-The existing `scripts/p4_representative_runner.py` is a valuable seed. It
+The existing `scripts/p4_representative_runner.py` remains a valuable seed. It
 already proves a disposable database namespace, generated sanitized inputs,
 real preflight and execution services, reconciliation, repeat comparison, and
-credential-safe JSON output. The common runner should absorb those properties
-rather than maintain the P4 path as a permanent one-off implementation.
+credential-safe JSON output. The current scenario runner has absorbed the
+definition, compact result, local namespace, durable journal, reconciliation,
+and repeat-comparison properties. Remote representative coverage and P4
+retirement remain planned.
 
 ## The two product surfaces
 
@@ -173,12 +199,15 @@ purpose: RELEASE_QUALIFICATION
 
 source:
   mode: FILE
-  fixture_set: scenarios/file-products-and-boms/v1
+  fixture_set: fixtures
+  fixture_hash: sha256:<reviewed-fixture-content-hash>
 
 rules:
   recipe_revisions:
-    - product-recipe-revision-reference
-    - bom-recipe-revision-reference
+    - recipe_id: 11111111-1111-4111-8111-111111111111
+      revision: 3
+    - recipe_id: 22222222-2222-4222-8222-222222222222
+      revision: 2
 
 destination:
   mode: LOCAL_ODOO
@@ -191,6 +220,7 @@ execution:
 
 expectations:
   target_projection: scenarios/file-products-and-boms/v1/expected-target.json
+  target_projection_hash: sha256:<reviewed-projection-content-hash>
   prepared_rows: 120
   first_comparison:
     create: 120
@@ -200,11 +230,14 @@ expectations:
     ambiguous: 0
   reconciliation:
     verified: 120
-    different: 0
-    missing: 0
+    fallout: 0
     outcome_unknown: 0
   repeat_comparison:
+    create: 0
+    update: 0
     unchanged: 120
+    blocked: 0
+    ambiguous: 0
 ```
 
 The exact schema may change during implementation, but the following meaning

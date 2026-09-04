@@ -2,12 +2,17 @@
 
 ## Scope
 
-The CLI is the expert, profile-driven route for producing read-only migration
-preflight evidence. It is separate from the browser workflow: browser mapping
-revisions are not compiled into CLI profiles.
+The profile, snapshot, preflight, and benchmark commands are the expert,
+profile-driven route for producing read-only migration evidence. They are
+separate from the browser workflow: browser mapping revisions are not
+compiled into CLI profiles.
 
-The CLI can read selected Odoo metadata and records, but it cannot create,
-write, unlink, import, or run arbitrary model methods.
+Those commands can read selected Odoo metadata and records, but they cannot
+create, write, unlink, import, or run arbitrary model methods. The separate
+`scenario run` subcommand can perform one explicitly confirmed local
+disposable write under stricter scenario guards. Use the
+[scenario qualification runbook](../runbooks/scenario-qualification.md) for
+that path.
 
 Use the installed command:
 
@@ -111,6 +116,7 @@ evidence.
 | `3` | Profile, source, path, or value error |
 | `4` | Connector or target-read error |
 | `6` | Report-generation error |
+| `7` | A scenario ran but needs attention or is unsafe to continue |
 
 Treat any non-zero code as a failed run. Do not promote partial output.
 

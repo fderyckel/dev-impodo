@@ -34,6 +34,7 @@ from ...domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     MAX_CONTROL_TOTALS_PER_DATASET,
     RelationshipValueSource,
+    ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
     relationship_target_fields,
@@ -1390,6 +1391,13 @@ def _mapping_dataset_views(
                     component.resolver if component else None,
                     related_keys,
                 )
+                related_datasets = tuple(
+                    item
+                    for item in selection.datasets
+                    if item.dataset_id != source_dataset.dataset_id
+                    and selected_model_by_dataset.get(item.dataset_id)
+                    == (metadata.relation if metadata is not None else None)
+                )
                 identity_rows.append(
                     {
                         "target_field": target_field,
@@ -1416,6 +1424,19 @@ def _mapping_dataset_views(
                             models,
                         ),
                         "selected_related_key": selected_related_key,
+                        "selected_origin": (
+                            component.resolver.origin.value
+                            if component is not None
+                            and component.resolver is not None
+                            else ResolverOrigin.TARGET_CATALOG.value
+                        ),
+                        "selected_dataset_id": (
+                            component.resolver.dataset_id
+                            if component is not None
+                            and component.resolver is not None
+                            else None
+                        ),
+                        "related_datasets": related_datasets,
                         "recommended_related_key_id": (
                             standard_related_key.key_id
                             if standard_related_key is not None

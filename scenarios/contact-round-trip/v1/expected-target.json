@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "records": [
+    {
+      "model": "res.partner",
+      "identity": {
+        "ref": "IMPODO-SCENARIO-ROUNDTRIP-001"
+      },
+      "values": {
+        "name": "Scenario Round Trip 001"
+      }
+    }
+  ]
+}

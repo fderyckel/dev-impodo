@@ -208,6 +208,40 @@ attention**. Use **Match values** to confirm that the two values identify the
 same Odoo record, or choose **Only another incoming table** when they must
 remain distinct records.
 
+### Use an incoming parent as part of a record identity
+
+A child table can use a linked parent as part of its Odoo matching rule. For
+example, an order-line rule can combine **Line number** with the linked
+**Order**. The Order component is a record scope: it distinguishes line 10 on
+one order from line 10 on another order.
+
+For the linked component under **How should Impodo find the same record in
+Odoo?**:
+
+1. Select the child column or columns that identify the parent.
+2. Under **Where should Impodo find the related record?**, choose **Only
+   another incoming table** or **Use Odoo first, otherwise use the incoming
+   table**.
+3. Under **Which related source table?**, select the parent table. Impodo shows
+   tables mapped to the linked Odoo record type.
+4. When Odoo lookup is allowed, choose the confirmed **Related record matching
+   rule**.
+
+The selected child values must correspond, in order, to the parent table's
+**Unique row identifier**. A one-part parent identifier therefore needs one
+child value; a two-part parent identifier needs two. Impodo blocks the mapping
+when the counts differ. During preparation, each child reference must resolve
+to exactly one parent. During loading, Impodo schedules a newly created parent
+before its child rows, even when the child table appeared first in the source
+selection.
+
+With **Use Odoo first, otherwise use the incoming table**, one exact Odoo
+parent wins. Otherwise Impodo uses the matching incoming parent. A missing or
+ambiguous parent blocks the row; Impodo never guesses or loads an orphaned
+child.
+
+![Current relational matching-rule controls for a fictional order-line table using an incoming order as its scope.](../../images/user/10a-mapping-relational-scope.png)
+
 ### Fill an Odoo choice field
 
 An Odoo choice field now shows **View available Odoo choices** even when the

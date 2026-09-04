@@ -637,6 +637,12 @@ class _CrashAfterCheckpoint(_Executor):
         raise RuntimeError("simulated process interruption")
 
 
+class _CrashTransferAfterCheckpoint(_Executor):
+    def load_create_rows(self, model, values, external_ids):
+        del model, values, external_ids
+        raise RuntimeError("simulated transfer interruption")
+
+
 class _RejectFirstCreate(_Executor):
     def __init__(self, scope_hash: str) -> None:
         super().__init__(scope_hash)
@@ -837,6 +843,139 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertEqual(len(executor.loads), 2)
         self.assertTrue(all(batch[2] for batch in executor.loads))
         self.assertEqual(executor.creates, [])
+
+    def test_interrupted_transfer_resumes_with_same_key_and_external_ids(self):
+        service, journal, snapshot = self._transfer_service(_snapshot())
+        scope = execution_api_scope(snapshot)
+        lookup_results = {
+            ("res.partner", (("ref", "=", "C1"),)): (50,),
+        }
+        interrupted_executor = _CrashTransferAfterCheckpoint(
+            scope.semantic_hash,
+            lookup_ids=(),
+            lookup_results=lookup_results,
+        )
+        interrupted_executor.target_hash = snapshot.target_hash
+        read_identity = OdooReadIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=snapshot.readable_models,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        write_identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=tuple(item.model for item in scope.models),
+            writable_models=tuple(
+                item.model for item in scope.models if item.write_fields
+            ),
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "transfer interruption"):
+            service.execute_transfer(
+                snapshot.workspace_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                expected_preflight_hash=HASH,
+                snapshot=snapshot,
+                executor=interrupted_executor,
+                actor=LOCAL_ACTOR,
+                read_identity=read_identity,
+                credential_binding_hash=HASH,
+                write_identity=write_identity,
+            )
+
+        interrupted = journal.run
+        self.assertEqual(interrupted.status, ExecutionRunStatus.RUNNING)
+        self.assertEqual(interrupted.rows[0].status, ExecutionRowStatus.IN_FLIGHT)
+        recovery = ReconciliationRun(
+            reconciliation_id=str(uuid4()),
+            workspace_id=snapshot.workspace_id,
+            execution_run_id=interrupted.run_id,
+            snapshot_hash=snapshot.semantic_hash,
+            target_hash=snapshot.target_hash,
+            target_database=snapshot.target_database,
+            status=ReconciliationRunStatus.FALLOUT,
+            verified_at=datetime.now(timezone.utc),
+            verified_by="Local operator",
+            unchanged_count=0,
+            rows=tuple(
+                ReconciliationRow(
+                    row_id=row.row_id,
+                    dataset=row.dataset,
+                    source_row=row.source_row,
+                    target_model=row.target_model,
+                    operation=row.disposition,
+                    execution_status=interrupted.rows[index].status.value,
+                    status=(
+                        ReconciliationRowStatus.NOT_APPLIED
+                        if index == 0
+                        else ReconciliationRowStatus.NOT_WRITTEN
+                    ),
+                    message="Transfer recovery evidence",
+                    retry_safe=index == 0,
+                )
+                for index, row in enumerate(snapshot.rows)
+            ),
+            verification_credential_binding_hash=HASH,
+            verification_principal_hash=HASH,
+            verification_permission_hash=HASH,
+            verification_context_hash=HASH,
+        )
+        executor = _Executor(
+            scope.semantic_hash,
+            lookup_ids=(),
+            lookup_results=lookup_results,
+        )
+        executor.target_hash = snapshot.target_hash
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "another destination transfer key",
+        ):
+            service.resume_transfer(
+                snapshot.workspace_id,
+                expected_execution_run_id=interrupted.run_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                expected_preflight_hash=HASH,
+                snapshot=snapshot,
+                recovery=replace(
+                    recovery,
+                    verification_credential_binding_hash=TARGET_HASH,
+                ),
+                executor=executor,
+                actor=LOCAL_ACTOR,
+                read_identity=read_identity,
+                credential_binding_hash=HASH,
+                write_identity=write_identity,
+            )
+        self.assertTrue(all(not item.recovery_hash for item in journal.run.rows))
+
+        completed = service.resume_transfer(
+            snapshot.workspace_id,
+            expected_execution_run_id=interrupted.run_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            expected_preflight_hash=HASH,
+            snapshot=snapshot,
+            recovery=recovery,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+            read_identity=read_identity,
+            credential_binding_hash=HASH,
+            write_identity=write_identity,
+        )
+
+        self.assertEqual(completed.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(completed.committed_count, 3)
+        self.assertEqual(completed.rows[0].attempt, 2)
+        self.assertTrue(all(item.recovery_hash for item in completed.rows))
+        self.assertEqual(len(executor.loads), 2)
+        self.assertEqual(executor.creates, [])
+        self.assertEqual(len(executor.updates), 1)
 
     def test_browser_guidance_bounds_groups_and_record_type_labels(self):
         snapshot = _with_plan(_snapshot())

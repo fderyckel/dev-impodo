@@ -32,8 +32,9 @@ belongs or which dependencies it may introduce.
 | Plan an integrated Test run | focused use cases under `application/run`; `MigrationRunPlanningService` is the stable facade | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
 | Coordinate Review and load progress | `web/run_review.py` | bounded registry status plus latest preparation and load job snapshots |
-| Compile and execute an Odoo-to-Odoo transfer | `TransferExecutionService` and `ExecutionService.execute_transfer` | `web/routers/transfer_load.py` separates no-write preparation, explicit confirmation, background loading, and read-back; the existing execution journal binds the current transfer preflight |
-| Recover an interrupted Odoo batch | `application/workspace/execution/reconciliation.py` assesses exact read-back; `ExecutionService.resume` classifies the same frozen schedule | `ExecutionRepository.record_batch_started` and `record_recovery` persist the checkpoint and report binding inside the existing row journal |
+| Compile and execute an Odoo-to-Odoo transfer | `TransferExecutionService`, `ExecutionService.execute_transfer`, and `ExecutionService.resume_transfer` | `web/routers/transfer_load.py` separates no-write preparation, explicit confirmation, background loading, read-back, and read-before-resume recovery; the existing execution journal binds the current transfer preflight |
+| Qualify a governed profile scenario | `domain/scenarios` defines immutable inputs and compact results; `application/scenarios/ScenarioRunner` asserts checkpoints | `adapters/scenarios` loads contained fixtures, adapts the existing profile/preflight/writer/reconciliation services, and retains protected execution evidence; `web/composition/cli.py` exposes validation and explicit local execution |
+| Recover an interrupted Odoo batch | `application/workspace/execution/reconciliation.py` assesses exact read-back; `ExecutionService.resume` and `resume_transfer` classify the same frozen schedule | `ExecutionRepository.record_batch_started` and `record_recovery` persist the checkpoint and report binding inside the existing row journal |
 | Seal, review, execute, and verify completed-load correction intent | `domain/correction.py`, `domain/correction_origin.py`, `domain/correction_execution.py`, `application/correction_service.py`, `application/correction_orchestration.py`, `application/correction_stages.py`, `application/correction_workflow.py`, and `application/correction_execution.py` | `web/routers/corrections.py` and `CorrectionJobManager` present one focused resumable journey; native Polars/Parquet review emits sparse intent; exact protected IDs drive bounded reread, writes, and existing execution/reconciliation journals; one registry binding and whole-artifact hashes avoid row hashes |
 | Version and qualify an integrated plan | `domain/cutover/models.py`, `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
 | Run selected meaning with latest data | `ProductionCutoverService` | `ProductionRunRepository`, Production run routes, shared workspace engine |
@@ -47,13 +48,13 @@ services.
 
 | Code to find | Current path |
 | --- | --- |
-| Project, Data version, workspace, Recipe, run, and Cutover meaning | `domain/project`, `domain/data_version`, `domain/workspace`, `domain/recipe`, `domain/run`, and `domain/cutover` |
+| Project, Data version, workspace, Recipe, run, Cutover, and scenario meaning | `domain/project`, `domain/data_version`, `domain/workspace`, `domain/recipe`, `domain/run`, `domain/cutover`, and `domain/scenarios` |
 | Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/relationship_dependencies.py`, `domain/preparation`, `domain/staging`, `domain/execution_snapshot.py`, and `domain/execution` |
-| Owner-qualified commands, queries, and ports | `application/project`, `application/data_version`, `application/recipe`, `application/run`, and `application/workspace` |
+| Owner-qualified commands, queries, and ports | `application/project`, `application/data_version`, `application/recipe`, `application/run`, `application/workspace`, and `application/scenarios` |
 | Cross-owner workflow coordinators and stable facades | Named modules directly below `application`, including Project authoring, Recipe compilation and publication, source projection, preflight, Cutover, and Production coordination. |
 | Shared application ports | `application/shared` |
 | DuckDB stores and forward-only schema handling | `adapters/duckdb` and `adapters/duckdb/schema` |
-| Artifact, protected-evidence, job, Odoo, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, and `adapters/odoo`, plus named integration facades directly below `adapters` |
+| Artifact, protected-evidence, job, Odoo, scenario, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, `adapters/odoo`, and `adapters/scenarios`, plus named integration facades directly below `adapters` |
 | Request handling and view construction | `web/routers` and `web/presenters` |
 | Concrete runtime construction | `web/composition`, `web/app.py`, and `web/capability_builders.py` |
 | Privacy-safe local diagnostics and process recovery | `web/diagnostics.py` builds bounded evidence and redacted bundles; `web/server_supervisor.py` owns same-port child restart and the circuit breaker; `web/launcher.py` secures and binds the local runtime; `web/routers/lifecycle.py` and `web/static/server-recovery.js` own authenticated recovery actions |

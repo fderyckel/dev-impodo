@@ -2,7 +2,7 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional test data, serves the current application on an ephemeral
-loopback port, authenticates through the normal launch route, and writes six
+loopback port, authenticates through the normal launch route, and writes seven
 1440 by 1024 PNG files under ``docs/images/user``.
 """
 
@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 import socket
 import sys
 from threading import Thread
 import time
+from uuid import uuid4
 
 import uvicorn
 
@@ -29,6 +31,18 @@ from tests.support.browser_scenarios import (
     RecordSnapshot,
     TargetRecord,
     _browser_schema,
+)
+from impodo.domain.schema.governance import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    SchemaGovernance,
+)
+from impodo.domain.workspace.contracts import (
+    SchemaField,
+    SchemaModel,
+    SourceDataset,
+    SourceDatasetColumn,
+    canonical_mapping_source_selection,
 )
 from impodo.web.security import LoopbackSecurityMiddleware
 
@@ -119,6 +133,146 @@ def _capture(page, target: Path) -> None:
     print(f"Captured {target.relative_to(REPOSITORY_ROOT)}")
 
 
+def _configure_relational_scope_workspace(
+    fixture: ProjectSetupBrowserTestCase,
+    workspace_id: str,
+    child_dataset: SourceDataset,
+) -> tuple[str, str]:
+    """Add one fictional incoming parent and a relational line identity."""
+
+    context = fixture.app.state.context
+    actor = context.actor
+    current_selection = context.sources.sources.get_source_selection(workspace_id)
+    current_schema = context.schema_workspace.schemas.get_odoo_schema_catalog(
+        workspace_id
+    )
+    current_governance = context.schema_workspace.schemas.get_schema_governance(
+        workspace_id
+    )
+    if (
+        current_selection is None
+        or current_schema is None
+        or current_governance is None
+    ):
+        raise RuntimeError("The isolated relational-scope workspace is incomplete.")
+
+    parent_dataset = SourceDataset(
+        dataset_id="dataset:" + "b" * 24,
+        name="Orders",
+        source=child_dataset.source,
+        row_count=1,
+        columns=(
+            SourceDatasetColumn(
+                1,
+                "Order reference",
+                "order.reference",
+                "string",
+            ),
+        ),
+    )
+    selection = canonical_mapping_source_selection(
+        replace(
+            current_selection,
+            version=current_selection.version + 1,
+            created_at=datetime.now(timezone.utc),
+            datasets=(
+                replace(child_dataset, name="Order lines"),
+                parent_dataset,
+            ),
+        )
+    )
+    context.sources.sources.save_source_selection(
+        workspace_id,
+        selection,
+        actor=actor,
+    )
+
+    line_model = SchemaModel(
+        "sale.order.line",
+        "Sales Order Line",
+        (
+            SchemaField(
+                name="sequence",
+                label="Line number",
+                type="integer",
+                required=True,
+                readonly=False,
+                relation=None,
+                relation_field=None,
+                selection=(),
+            ),
+            SchemaField(
+                name="order_id",
+                label="Order",
+                type="many2one",
+                required=True,
+                readonly=False,
+                relation="sale.order",
+                relation_field=None,
+                selection=(),
+            ),
+        ),
+    )
+    order_model = SchemaModel(
+        "sale.order",
+        "Sales Order",
+        (
+            SchemaField(
+                name="name",
+                label="Order reference",
+                type="char",
+                required=True,
+                readonly=False,
+                relation=None,
+                relation_field=None,
+                selection=(),
+            ),
+        ),
+    )
+    schema = replace(
+        current_schema,
+        captured_at=datetime.now(timezone.utc),
+        models=(line_model, order_model),
+        content_hash="sha256:" + "9" * 64,
+    )
+    context.schema_workspace.schemas.save_odoo_schema_catalog(
+        workspace_id,
+        schema,
+        actor=actor,
+    )
+    line_key = BusinessKeyDefinition(
+        key_id="sale.order.line:sequence-order",
+        model="sale.order.line",
+        key_fields=("sequence",),
+        scope_fields=("order_id",),
+        description="Order and line number",
+        status=BusinessKeyStatus.CONFIRMED,
+    )
+    order_key = BusinessKeyDefinition(
+        key_id="sale.order:name",
+        model="sale.order",
+        key_fields=("name",),
+        scope_fields=(),
+        description="Order reference",
+        status=BusinessKeyStatus.CONFIRMED,
+    )
+    context.schema_workspace.schemas.save_schema_governance(
+        workspace_id,
+        SchemaGovernance(
+            governance_id=str(uuid4()),
+            version=1,
+            workspace_id=workspace_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=("sale.order.line", "sale.order"),
+            business_keys=(line_key, order_key),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by=actor.identity.display_name,
+        ),
+        actor=actor,
+    )
+    return parent_dataset.dataset_id, order_key.key_id
+
+
 def capture(output_directory: Path, *, browser_channel: str) -> None:
     try:
         from playwright.sync_api import expect, sync_playwright
@@ -144,6 +298,19 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 target_model="product.template",
                 relationship_field_names=("product_uom_id",),
                 relationship_field_labels=("Product Unit of Measure",),
+            )
+        )
+        relational_workspace_id, relational_dataset, _relational_key = (
+            fixture._mapping_ready_workspace(
+                scalar_field_count=0,
+                target_model="sale.order.line",
+            )
+        )
+        relational_parent_id, relational_parent_key_id = (
+            _configure_relational_scope_workspace(
+                fixture,
+                relational_workspace_id,
+                relational_dataset,
             )
         )
         original_readiness_reader = fixture.app.state.context.readiness_reader
@@ -287,6 +454,50 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 output_directory / "11f-mapping-constant-existing-record.png",
             )
             constant_page.close()
+
+            relational_page = context.new_page()
+            relational_page.goto(
+                (
+                    f"{base_url}/workspaces/{relational_workspace_id}/mapping"
+                    "?target_model_0=sale.order.line&target_model_1=sale.order"
+                ),
+                wait_until="networkidle",
+            )
+            sequence_source = relational_page.locator(
+                'select[name="identity_source_0_0"]'
+            )
+            sequence_source.focus()
+            expect(
+                sequence_source.locator('option[value="column:value"]')
+            ).to_have_count(1)
+            sequence_source.select_option("column:value")
+            order_source = relational_page.locator(
+                'select[name="identity_source_0_1"]'
+            )
+            order_source.focus()
+            expect(order_source.locator('option[value="column:ref"]')).to_have_count(
+                1
+            )
+            order_source.select_option("column:ref")
+            relational_page.locator(
+                'select[name="identity_origin_0_1"]'
+            ).select_option("target_then_dataset")
+            relational_page.locator(
+                'select[name="identity_dataset_0_1"]'
+            ).select_option(relational_parent_id)
+            relational_page.locator(
+                'select[name="identity_resolver_key_0_1"]'
+            ).select_option(relational_parent_key_id)
+            relational_row = relational_page.locator(
+                'select[name="identity_origin_0_1"]'
+            ).locator("xpath=ancestor::div[contains(@class, 'identity-match-row')]")
+            expect(relational_row).to_be_visible()
+            relational_row.scroll_into_view_if_needed()
+            _capture(
+                relational_page,
+                output_directory / "10a-mapping-relational-scope.png",
+            )
+            relational_page.close()
 
             _configure_formula(
                 page,

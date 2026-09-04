@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from starlette.datastructures import FormData
 
-from impodo.domain.mapping.contracts import RelationshipValueSource
+from impodo.domain.mapping.contracts import RelationshipValueSource, ResolverOrigin
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
@@ -29,6 +29,127 @@ from impodo.web.presenters.mapping_view import _is_phone_field
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_mapping_form_preserves_incoming_resolution_for_relational_scope(
+        self,
+    ) -> None:
+        file_binding = FileSourceBinding(
+            file_id="file:orders",
+            table_key="csv",
+            source_sha256="a" * 64,
+            catalog_hash="sha256:" + "b" * 64,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        )
+        selection = SimpleNamespace(
+            datasets=(
+                SourceDataset(
+                    dataset_id="dataset:orders",
+                    name="Orders",
+                    source=file_binding,
+                    row_count=2,
+                    columns=(
+                        SourceDatasetColumn(1, "Order ref", "order.ref", "string"),
+                    ),
+                ),
+                SourceDataset(
+                    dataset_id="dataset:lines",
+                    name="Order lines",
+                    source=file_binding,
+                    row_count=3,
+                    columns=(
+                        SourceDatasetColumn(1, "Order ref", "line.order", "string"),
+                        SourceDatasetColumn(2, "Line", "line.number", "integer"),
+                    ),
+                ),
+            )
+        )
+
+        def field(
+            name: str,
+            field_type: str,
+            *,
+            relation: str | None = None,
+        ) -> SchemaField:
+            return SchemaField(
+                name=name,
+                label=name.replace("_", " ").title(),
+                type=field_type,
+                required=False,
+                readonly=False,
+                relation=relation,
+                relation_field=None,
+                selection=(),
+            )
+
+        schema = SimpleNamespace(
+            models=(
+                SchemaModel(
+                    "sale.order",
+                    "Sales Order",
+                    (field("name", "char"),),
+                ),
+                SchemaModel(
+                    "sale.order.line",
+                    "Sales Order Line",
+                    (
+                        field("sequence", "integer"),
+                        field("order_id", "many2one", relation="sale.order"),
+                    ),
+                ),
+            )
+        )
+        order_key = BusinessKeyDefinition(
+            key_id="key:order-name",
+            model="sale.order",
+            key_fields=("name",),
+            scope_fields=(),
+            description="Order number",
+            status=BusinessKeyStatus.CONFIRMED,
+        )
+        line_key = BusinessKeyDefinition(
+            key_id="key:line-order-sequence",
+            model="sale.order.line",
+            key_fields=("sequence",),
+            scope_fields=("order_id",),
+            description="Order and line number",
+            status=BusinessKeyStatus.CONFIRMED,
+        )
+        form = FormData(
+            (
+                ("target_model_0", "sale.order"),
+                ("business_key_0", order_key.key_id),
+                ("source_identity_0", "order.ref"),
+                ("identity_source_0_0", "order.ref"),
+                ("target_model_1", "sale.order.line"),
+                ("business_key_1", line_key.key_id),
+                ("source_identity_1", "line.order"),
+                ("source_identity_1", "line.number"),
+                ("identity_source_1_0", "line.number"),
+                ("identity_source_1_1", "line.order"),
+                ("identity_origin_1_1", "target_then_dataset"),
+                ("identity_dataset_1_1", "dataset:orders"),
+                ("identity_resolver_key_1_1", order_key.key_id),
+            )
+        )
+
+        datasets = _mapping_datasets_from_form(
+            form,
+            selection,
+            schema,
+            SimpleNamespace(business_keys=(order_key, line_key)),
+        )
+
+        scope = datasets[1].target_scope[0]
+        assert scope.resolver is not None
+        self.assertIs(scope.resolver.origin, ResolverOrigin.TARGET_THEN_DATASET)
+        self.assertEqual(scope.resolver.dataset_id, "dataset:orders")
+        self.assertEqual(scope.resolver.model, "sale.order")
+        self.assertEqual(
+            tuple(item.target_field for item in scope.resolver.key_mappings),
+            ("name",),
+        )
+
     def test_mapping_form_builds_constant_existing_many2one_without_source(self) -> None:
         source = SourceDataset(
             dataset_id="dataset:boms",
@@ -396,6 +517,8 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("scalar_concat_source_0_0_0", allowed)
         self.assertIn("scalar_concat_source_0_0_4", allowed)
         self.assertIn("scalar_concat_separator_0_0", allowed)
+        self.assertIn("identity_origin_0_0", allowed)
+        self.assertIn("identity_dataset_0_0", allowed)
         self.assertNotIn("scalar_search_0_0", allowed)
         self.assertNotIn("scalar_replacement_0_0", allowed)
         self.assertNotIn("scalar_search_mode_0_0", allowed)
@@ -474,6 +597,15 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn('aria-controls="mapping-table-fields-{{ dataset_index }}"', dataset_template)
         self.assertIn("data-table-fields-panel", dataset_template)
         self.assertIn("Close this table's fields", dataset_template)
+        self.assertIn(
+            "identity_origin_{{ dataset_index }}_{{ loop.index0 }}",
+            dataset_template,
+        )
+        self.assertIn("Only another incoming table", dataset_template)
+        self.assertIn(
+            "Use Odoo first, otherwise use the incoming table",
+            dataset_template,
+        )
         self.assertLess(
             dataset_template.index("data-table-fields-toggle"),
             dataset_template.index("data-table-fields-panel"),

@@ -25,6 +25,7 @@ from impodo.application.workspace.execution.service import (
     validated_create_batch_rows,
 )
 from impodo.domain.errors import ReadinessError
+from impodo.domain.execution.models import ExecutionRunStatus
 from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.access import AuthorizationError, Capability
@@ -149,6 +150,46 @@ def _dataset_rows(package, run, reconciliation):
         }
         for item in package.datasets
     )
+
+
+def _verify_transfer_result(
+    context: WebContext,
+    workspace_id: str,
+    destination,
+    credential,
+    scope,
+    run,
+) -> bool:
+    """Attempt final read-back without hiding a durable execution result."""
+
+    try:
+        verification_identity = context.write_identity_probe(
+            destination,
+            credential.secret,
+            scope,
+        )
+        reader = context.readback_reader_factory(
+            destination,
+            credential.secret,
+            scope,
+        )
+        verification = context.reconciliation.reconcile(
+            workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=context.actor,
+            write_identity=verification_identity,
+            write_credential_binding_hash=credential.binding_hash,
+        )
+    except (
+        ConnectorError,
+        OdooReadbackError,
+        ReadinessError,
+        WorkspaceError,
+        WorkspaceStateError,
+    ):
+        return False
+    return not (verification.unknown_count or verification.fallout_count)
 
 
 def _render_transfer(
@@ -472,7 +513,10 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
         workspace = context.queries.get(workspace_id)
         active = _manager(context).active(workspace_id)
         if active is not None:
-            return RedirectResponse(_progress_url(workspace_id, active.job_id), status_code=303)
+            return RedirectResponse(
+                _progress_url(workspace_id, active.job_id),
+                status_code=303,
+            )
         try:
             selection, schema = _current_evidence(context, workspace_id)
             expected_revision = _revision(form)
@@ -580,37 +624,14 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     progress=report_writing,
                 )
                 report_verifying(run)
-                try:
-                    verification_identity = context.write_identity_probe(
-                        destination,
-                        credential.secret,
-                        scope,
-                    )
-                    reader = context.readback_reader_factory(
-                        destination,
-                        credential.secret,
-                        scope,
-                    )
-                    verification = context.reconciliation.reconcile(
-                        workspace_id,
-                        expected_execution_run_id=run.run_id,
-                        reader=reader,
-                        actor=context.actor,
-                        write_identity=verification_identity,
-                        write_credential_binding_hash=credential.binding_hash,
-                    )
-                except (
-                    ConnectorError,
-                    OdooReadbackError,
-                    ReadinessError,
-                    WorkspaceError,
-                    WorkspaceStateError,
-                ):
-                    verification_complete = False
-                else:
-                    verification_complete = not (
-                        verification.unknown_count or verification.fallout_count
-                    )
+                verification_complete = _verify_transfer_result(
+                    context,
+                    workspace_id,
+                    destination,
+                    credential,
+                    scope,
+                    run,
+                )
                 return LoadJobResult(
                     execution_run_id=run.run_id,
                     verification_complete=verification_complete,
@@ -718,6 +739,217 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         return _render_transfer(request, context, workspace_id, step="outcome")
+
+    @router.post("/workspaces/{workspace_id}/transfer-load/recover")
+    async def recover_transfer_load(request: Request, workspace_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "revision",
+                "execution_run_id",
+                "snapshot_hash",
+                "preflight_hash",
+            },
+        )
+        workspace = context.queries.get(workspace_id)
+        active = _manager(context).active(workspace_id)
+        if active is not None:
+            return RedirectResponse(
+                _progress_url(workspace_id, active.job_id),
+                status_code=303,
+            )
+        try:
+            selection, schema = _current_evidence(context, workspace_id)
+            expected_revision = _revision(form)
+            if workspace.revision != expected_revision:
+                raise WorkspaceStateError(
+                    "The workspace changed in another request; reload before continuing"
+                )
+            run = context.execution.current_transfer_run(workspace_id)
+            report = workspace.transfer_preflight_report
+            snapshot = context.transfer_execution.current_snapshot(
+                workspace,
+                selection,
+                schema,
+            )
+            if (
+                run is None
+                or run.run_id != _text(form, "execution_run_id")
+                or run.status is not ExecutionRunStatus.RUNNING
+                or report is None
+                or not report.ready
+                or report.content_hash != _text(form, "preflight_hash")
+                or snapshot is None
+                or snapshot.semantic_hash != _text(form, "snapshot_hash")
+                or run.snapshot_hash != snapshot.semantic_hash
+                or run.preflight_run_id != snapshot.preflight_run_id
+            ):
+                raise WorkspaceError(
+                    "The interrupted transfer, preview, or preflight is no "
+                    "longer current"
+                )
+            credential = get_target_credential(
+                context.secret_store,
+                workspace,
+                TargetCredentialRole.DESTINATION_TRANSFER,
+            )
+            if credential is None:
+                raise SecretStoreError(
+                    "Return to the destination connection and restore the same "
+                    "transfer key"
+                )
+            access_context = context.workspace_access.resolve(
+                workspace_id,
+                actor=context.actor,
+                capability=Capability.EXPORT_PLAN_EXECUTE,
+            )
+            models = _destination_models(selection)
+            target_database = snapshot.target_database
+            target_server = _target_server(workspace.destination_odoo_base_url)
+            project_name = context.workspace_views.get(
+                workspace_id,
+                actor=context.actor,
+            ).migration_project.display_name
+
+            def run_recovery(authorized_workspace, report_writing, report_verifying):
+                if authorized_workspace != access_context:
+                    raise WorkspaceError(
+                        "The authorized workspace changed before recovery began"
+                    )
+                current = context.queries.get(workspace_id)
+                if current.revision != expected_revision:
+                    raise WorkspaceStateError(
+                        "The transfer approval changed before recovery began"
+                    )
+                current_selection, current_schema = _current_evidence(
+                    context,
+                    workspace_id,
+                )
+                current_snapshot = context.transfer_execution.current_snapshot(
+                    current,
+                    current_selection,
+                    current_schema,
+                )
+                current_run = context.execution.current_transfer_run(workspace_id)
+                current_report = current.transfer_preflight_report
+                if (
+                    current_run is None
+                    or current_run.run_id != run.run_id
+                    or current_run.status is not ExecutionRunStatus.RUNNING
+                    or current_snapshot is None
+                    or current_snapshot.semantic_hash != snapshot.semantic_hash
+                    or current_report is None
+                    or current_report.content_hash != report.content_hash
+                ):
+                    raise WorkspaceError(
+                        "The interrupted transfer changed before recovery began"
+                    )
+                destination = replace(
+                    transfer_destination_workspace(current),
+                    intended_models=models,
+                )
+                read_identity = context.read_identity_probe(
+                    destination,
+                    credential.secret,
+                    models,
+                )
+                scope = execution_api_scope(current_snapshot)
+                write_identity = context.write_identity_probe(
+                    destination,
+                    credential.secret,
+                    scope,
+                )
+                reader = context.readback_reader_factory(
+                    destination,
+                    credential.secret,
+                    scope,
+                )
+                recovery = context.reconciliation.assess_recovery(
+                    workspace_id,
+                    expected_execution_run_id=current_run.run_id,
+                    reader=reader,
+                    actor=context.actor,
+                    write_identity=write_identity,
+                    write_credential_binding_hash=credential.binding_hash,
+                )
+                executor = context.write_executor_factory(
+                    destination,
+                    credential.secret,
+                    scope,
+                )
+                resumed = context.transfer_execution.resume(
+                    current,
+                    current_snapshot,
+                    recovery,
+                    expected_execution_run_id=current_run.run_id,
+                    expected_preflight_hash=current_report.content_hash,
+                    executor=executor,
+                    actor=context.actor,
+                    read_identity=read_identity,
+                    credential_binding_hash=credential.binding_hash,
+                    write_identity=write_identity,
+                    progress=report_writing,
+                )
+                report_verifying(resumed)
+                verification_complete = _verify_transfer_result(
+                    context,
+                    workspace_id,
+                    destination,
+                    credential,
+                    scope,
+                    resumed,
+                )
+                return LoadJobResult(
+                    execution_run_id=resumed.run_id,
+                    verification_complete=verification_complete,
+                )
+
+            job = _manager(context).enqueue(
+                workspace_id,
+                project_name,
+                target_database=target_database,
+                target_server=target_server,
+                target_environment="Destination recovery",
+                total_rows=snapshot.write_count,
+                relationship_total_rows=sum(
+                    any(field.defer_on_create for field in row.fields)
+                    for row in snapshot.rows
+                    if row.disposition == "CREATE"
+                ),
+                load_group_count=len(snapshot.relationship_plan.components),
+                access_context=access_context,
+                work=run_recovery,
+            )
+        except (
+            AuthorizationError,
+            LoadJobStateError,
+            SecretStoreError,
+            WorkspaceError,
+            WorkspaceStateError,
+        ) as error:
+            try:
+                _current_evidence(context, workspace_id)
+            except WorkspaceError:
+                _flash(request, str(error))
+                return RedirectResponse(
+                    f"/workspaces/{workspace_id}/sources",
+                    status_code=303,
+                )
+            return _render_transfer(
+                request,
+                context,
+                workspace_id,
+                step="outcome",
+                error=str(error),
+                status_code=422,
+            )
+        return RedirectResponse(
+            _progress_url(workspace_id, job.job_id),
+            status_code=303,
+        )
 
     @router.post("/workspaces/{workspace_id}/transfer-load/reconcile")
     async def reconcile_transfer_load(request: Request, workspace_id: str):

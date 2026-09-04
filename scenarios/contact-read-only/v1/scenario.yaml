@@ -1,0 +1,33 @@
+contract_version: 1
+scenario_id: contact-read-only-v1
+purpose: PULL_REQUEST
+
+source:
+  mode: FILE
+  fixture_set: fixtures
+  fixture_hash: sha256:4bf0ff67059e46ac8eadae8e093d410dccf91f0edb3dc656b15e036ab567a507
+
+rules:
+  profile: profile.yaml
+  profile_hash: sha256:02d4013609034c44fb918a702f7d47fc9bbad5bdb216a88721839b03e88ee9d6
+
+destination:
+  mode: LOCAL_ODOO
+  target_profile: local.contacts
+  expected_seed: empty-contacts
+  relevant_modules: [base, contacts]
+
+execution:
+  stop_after: FIRST_COMPARISON
+  write_policy: READ_ONLY
+
+expectations:
+  expected_outcome: PASS
+  prepared_rows: 1
+  source_issues: 0
+  first_comparison:
+    create: 1
+    update: 0
+    unchanged: 0
+    blocked: 0
+    ambiguous: 0

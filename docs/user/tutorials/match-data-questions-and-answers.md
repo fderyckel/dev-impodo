@@ -53,6 +53,38 @@ may need `Document ref` and `Line number` together.
 an Odoo numeric ID from one database; it will not safely identify the same
 record in another database.
 
+## How do I identify a child row by a parent from another table?
+
+![Current Match data controls for a fictional order line whose matching rule uses an incoming order.](../../images/user/10a-mapping-relational-scope.png)
+
+Use the linked parent as the record scope. For example, an order line can use
+**Line number** as its record identifier and **Order** as **Company or site**.
+That combination keeps line 10 on order `SO-001` separate from line 10 on
+order `SO-002`.
+
+For the linked **Order** component:
+
+1. Under **Source column(s)**, select the order-reference value carried by the
+   line table.
+2. Under **Where should Impodo find the related record?**, choose **Only
+   another incoming table** when every order comes from the project, or **Use
+   Odoo first, otherwise use the incoming table** when an order may already
+   exist.
+3. Under **Which related source table?**, select the incoming Orders table.
+4. If Odoo lookup is allowed, choose its confirmed **Related record matching
+   rule**.
+
+🟢 Impodo can accept the line table before the Orders table. It derives the
+dependency from the saved matching rule and schedules each new order before
+its lines.
+
+🟡 The line's selected order-reference values must follow the same component
+count and order as the Orders table's **Unique row identifier**. The column
+labels can differ, but their business meaning must be the same.
+
+🔴 A missing or duplicate incoming order blocks the affected line. Impodo does
+not attach the line to a similar order and does not load it as an orphan.
+
 ## How can I fill a normal Odoo field?
 
 For each field, use the menu in **Use value from**. The available choices are:
@@ -354,6 +386,7 @@ confirmation no longer describe the current rule.
 | A source label resembles an Odoo label | Check the captured Odoo choice or business key and match explicitly when needed. |
 | More than one Odoo record matches | Stop or send it to review. Never select the first result. |
 | A relationship differs only by case | Treat it as a review case; match it explicitly only after approval. |
+| A child matching rule uses an incoming parent | Select the parent table and align the child reference values with that table's **Unique row identifier** in the same order. |
 | Two conditional rules both match | Reorder them deliberately and inspect **Review rule effects**. |
 | An advanced formula shows **Must fix** | Follow the correction beside the formula. Saving preserves the draft, but correct the issue before **Check matches**. |
 | A required field has no source value | Map it, use a verified Odoo default, or use an Odoo-managed disposition only when Impodo offers it. |

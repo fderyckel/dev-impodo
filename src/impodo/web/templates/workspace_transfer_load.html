@@ -175,7 +175,7 @@
         <p>The durable journal prevents this approved transfer from being loaded twice. Verification reads the actual destination records with the same transfer key.</p>
       </div>
       <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
-        {% if not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs review{% else %}Verified with fallout{% endif %}
+        {% if not reconciliation and transfer_run.status.value == 'RUNNING' %}Recovery required{% elif not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs review{% else %}Verified with fallout{% endif %}
       </span>
     </div>
 
@@ -193,6 +193,32 @@
         </div>
         <a class="button secondary" href="/projects">Return to projects</a>
       </section>
+    {% elif transfer_run.status.value == 'RUNNING' %}
+      <section class="next-action-card review">
+        <div>
+          <p class="eyebrow">Interrupted transfer</p>
+          <h2>Assess the saved journal before continuing</h2>
+          <p>Impodo first reads the destination with the same transfer key. It resumes only operations proven safe, keeps the same journal and idempotency key, and never blindly retries an uncertain write.</p>
+        </div>
+        {% if transfer_snapshot and transfer_preflight_report and transfer_preflight_current %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/transfer-load/recover">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+            <input type="hidden" name="execution_run_id" value="{{ transfer_run.run_id }}">
+            <input type="hidden" name="snapshot_hash" value="{{ transfer_snapshot.semantic_hash }}">
+            <input type="hidden" name="preflight_hash" value="{{ transfer_preflight_report.content_hash }}">
+            <button class="button primary" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>Assess and resume interrupted transfer</button>
+          </form>
+        {% else %}
+          <p class="notice warning">The exact approved preview is unavailable or no longer current. This transfer cannot be resumed.</p>
+        {% endif %}
+      </section>
+      {% if not destination_credential_status.available %}
+        <div class="notice warning">
+          <strong>The destination transfer key is unavailable.</strong>
+          <a href="/workspaces/{{ workspace_id }}/transfer-destination#destination-connection">Restore the same key</a> before assessing recovery.
+        </div>
+      {% endif %}
     {% else %}
       <section class="next-action-card review">
         <div>

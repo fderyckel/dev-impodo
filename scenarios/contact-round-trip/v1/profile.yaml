@@ -1,0 +1,28 @@
+profile:
+  id: scenario_contact_round_trip_v1
+  description: Sanitized Contact file-to-local-Odoo round trip
+
+datasets:
+  - name: contacts
+    source:
+      file: contacts.csv
+    target:
+      model: res.partner
+      mode: upsert
+    source_identity:
+      fields: [reference]
+    target_identity:
+      components:
+        - source_fields: [reference]
+          target_fields: [ref]
+          type: string
+          normalize: {trim: true}
+    fields:
+      name:
+        source: name
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+    relations: {}
