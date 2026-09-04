@@ -9,16 +9,23 @@ import unittest
 from openpyxl import load_workbook
 
 from impodo.adapters.artifacts.mapping_review import (
+    _field_provider,
     mapping_review_workbook_name,
     write_mapping_review_workbook,
 )
 from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.mapping.contracts import (
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
     MappingTargetMode,
+    RelationshipMapping,
+    RelationshipResolver,
+    RelationshipValueSource,
+    ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
     TargetFieldDisposition,
@@ -51,6 +58,30 @@ HASH_C = "sha256:" + "c" * 64
 
 
 class MappingReviewWorkbookTests(unittest.TestCase):
+    def test_constant_relationship_is_not_attributed_to_a_source_field(self) -> None:
+        provider, source = _field_provider(
+            None,
+            RelationshipMapping(
+                target_field="uom_id",
+                kind="many2one",
+                source_column_keys=(),
+                resolver=RelationshipResolver(
+                    origin=ResolverOrigin.TARGET_CATALOG,
+                    model="uom.uom",
+                ),
+                value_source=RelationshipValueSource.CONSTANT_EXISTING,
+                constant_reference=ConstantBusinessReference(
+                    key_values=(ConstantReferenceComponent("name", "PCE"),),
+                ),
+            ),
+            None,
+            False,
+            {},
+        )
+
+        self.assertEqual(provider, "Same existing Odoo record for every row")
+        self.assertEqual(source, "name=PCE")
+
     def test_odoo_source_business_values_stay_out_of_portable_workbook(self) -> None:
         revision, validation, selection, schema = self._evidence()
         protected_source = OdooSourceBinding(

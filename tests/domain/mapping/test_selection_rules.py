@@ -253,7 +253,7 @@ class SelectionRuleTests(unittest.TestCase):
         restored = MappingDefinition.from_json(definition.to_json())
 
         self.assertEqual(restored, definition)
-        self.assertEqual(restored.contract_version, 14)
+        self.assertEqual(restored.contract_version, 15)
         legacy = MappingDefinition(
             mapping_id=definition.mapping_id,
             source_selection_hash=HASH_A,

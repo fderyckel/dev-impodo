@@ -6,9 +6,11 @@
 
 This is the broad forward-looking roadmap. An approved detailed delivery plan
 may live beside it while that work remains unfinished. The current detailed
-plans are [Recipe runs in three pages](recipe-run-three-page-ui-refactor.md)
-and the proposed [scalable relationship dependency
-planner](scalable-relationship-dependency-planning.md).
+plans are [Recipe runs in three pages](recipe-run-three-page-ui-refactor.md),
+the proposed [scalable relationship dependency
+planner](scalable-relationship-dependency-planning.md), and the proposed
+[end-to-end trial and scenario qualification
+capability](end-to-end-trial-and-scenario-qualification.md).
 Completed behavior belongs in architecture, contracts, user and developer
 documentation. Point-in-time implementation evidence belongs in
 `docs/testing/` and Git history.

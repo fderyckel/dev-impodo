@@ -47,7 +47,12 @@ from impodo.domain.reconciliation import (
     ReconciliationRowStatus,
     ReconciliationRun,
 )
-from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceState,
+    transfer_destination_workspace,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.preflight_service import PreflightService
 
@@ -68,7 +73,12 @@ class ExecutionWorkspaceRepository(Protocol):
 
 class ExecutionJournalRepository(Protocol):
     def start_run(
-        self, workspace_id: str, run: ExecutionRun, *, actor: Actor
+        self,
+        workspace_id: str,
+        run: ExecutionRun,
+        *,
+        actor: Actor,
+        transfer_preflight_hash: str = "",
     ) -> None: ...
 
     def record_outcomes(
@@ -410,6 +420,157 @@ class ExecutionService:
             progress=progress,
         )
 
+    def current_transfer_run(self, workspace_id: str) -> ExecutionRun | None:
+        """Return the current durable journal for an Odoo-source transfer."""
+
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.source_mode is not SourceMode.ODOO:
+            return None
+        return self.journal.get_current_run(workspace_id)
+
+    def execute_transfer(
+        self,
+        workspace_id: str,
+        *,
+        expected_snapshot_hash: str,
+        expected_preflight_hash: str,
+        snapshot: ExecutionSnapshot,
+        executor: OdooWriteExecutor,
+        actor: Actor,
+        batch_rows: int | str = DEFAULT_CREATE_BATCH_ROWS,
+        read_identity: OdooReadIdentity,
+        credential_binding_hash: str,
+        write_identity: OdooWriteIdentity,
+        progress: Callable[[ExecutionRun], None] | None = None,
+    ) -> ExecutionRun:
+        """Enter the shared writer from a current, confirmed Stage 8B snapshot."""
+
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_EXECUTE,
+            workspace_id=workspace_id,
+        )
+        source_workspace = self.workspaces.get(workspace_id)
+        if source_workspace.source_mode is not SourceMode.ODOO:
+            raise WorkspaceError("Stage 8B requires a frozen Odoo source")
+        report = source_workspace.transfer_preflight_report
+        if (
+            report is None
+            or not report.ready
+            or report.content_hash != expected_preflight_hash
+            or snapshot.preflight_result_hash != report.content_hash
+            or snapshot.workspace_id != workspace_id
+            or snapshot.semantic_hash != expected_snapshot_hash
+        ):
+            raise WorkspaceError(
+                "The destination preflight changed. Run it again before loading."
+            )
+        destination_workspace = transfer_destination_workspace(source_workspace)
+        create_batch_rows = validated_create_batch_rows(batch_rows)
+        current = self.journal.get_current_run(workspace_id)
+        preview = ExecutionPreview(
+            snapshot=snapshot,
+            datasets=(),
+            current_run=current,
+            api_scope=execution_api_scope(snapshot),
+            deferred_create_count=_planned_deferred_create_count(
+                snapshot,
+                create_batch_rows=create_batch_rows,
+            ),
+            scope_error=_execution_snapshot_error(destination_workspace, snapshot),
+        )
+        if current is not None:
+            raise WorkspaceError(
+                "This approved transfer already has a load journal. Verify its outcome."
+            )
+        if preview.scope_error:
+            raise WorkspaceError(preview.scope_error)
+        self._validate_execution_scope(destination_workspace, preview, executor)
+        _validate_read_identity(
+            preview,
+            read_identity,
+            credential_binding_hash,
+            required=True,
+        )
+        _validate_write_identity(
+            preview,
+            write_identity,
+            credential_binding_hash,
+            required=True,
+        )
+        if (
+            write_identity.principal_hash != read_identity.principal_hash
+            or write_identity.context_hash != read_identity.context_hash
+        ):
+            raise WorkspaceError(
+                "The destination transfer key changed principal or company context"
+            )
+
+        write_rows = tuple(
+            row for row in snapshot.rows if row.disposition in {"CREATE", "UPDATE"}
+        )
+        if not write_rows:
+            raise WorkspaceError("This approved transfer has no records to load")
+        metadata = {item.dataset: item for item in snapshot.datasets}
+        by_source = {
+            (row.dataset, _portable_key(row.source_identity)): row
+            for row in snapshot.rows
+        }
+        identity_cache = self._resolve_identity_crosswalk(
+            write_rows,
+            metadata,
+            by_source,
+            executor,
+        )
+        attempts = tuple(
+            ExecutionRowAttempt(
+                row_id=row.row_id,
+                dataset=row.dataset,
+                source_row=row.source_row,
+                target_model=row.target_model,
+                operation=row.disposition,
+                field_names=tuple(intent.field for intent in row.fields),
+                proposed_external_id=row.proposed_external_id,
+                schedule_component=row.schedule_component,
+            )
+            for row in write_rows
+        )
+        run = ExecutionRun(
+            run_id=str(uuid4()),
+            workspace_id=workspace_id,
+            snapshot_hash=snapshot.semantic_hash,
+            snapshot_root_hash=snapshot.root_hash,
+            preflight_run_id=snapshot.preflight_run_id,
+            target_hash=snapshot.target_hash,
+            target_database=snapshot.target_database,
+            batch_rows=create_batch_rows,
+            status=ExecutionRunStatus.RUNNING,
+            started_at=datetime.now(timezone.utc),
+            started_by=actor.identity.display_name,
+            completed_at=None,
+            rows=attempts,
+            write_credential_binding_hash=credential_binding_hash,
+            write_principal_hash=write_identity.principal_hash,
+            write_permission_hash=write_identity.permission_hash,
+            write_context_hash=write_identity.context_hash,
+        )
+        self.journal.start_run(
+            workspace_id,
+            run,
+            actor=actor,
+            transfer_preflight_hash=expected_preflight_hash,
+        )
+        return self._continue_run(
+            destination_workspace,
+            snapshot,
+            run,
+            executor,
+            actor,
+            identity_cache=identity_cache,
+            progress=progress,
+            create_with_external_ids=True,
+        )
+
     def resume(
         self,
         workspace_id: str,
@@ -524,6 +685,7 @@ class ExecutionService:
         *,
         identity_cache: dict[str, int],
         progress: Callable[[ExecutionRun], None] | None,
+        create_with_external_ids: bool = False,
     ) -> ExecutionRun:
         """Consume unfinished rows from one durable schedule."""
 
@@ -683,7 +845,8 @@ class ExecutionService:
                             identity_cache,
                             executor,
                             import_relations=(
-                                workspace_state.odoo_connection_mode
+                                create_with_external_ids
+                                or workspace_state.odoo_connection_mode
                                 is OdooConnectionMode.REMOTE
                             ),
                             skip_fields=frozenset(
@@ -735,7 +898,11 @@ class ExecutionService:
                     report_progress(replace(run, rows=tuple(recorded.values())))
                     try:
                         values = tuple(item[1] for item in prepared_group)
-                        if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
+                        if (
+                            create_with_external_ids
+                            or workspace_state.odoo_connection_mode
+                            is OdooConnectionMode.REMOTE
+                        ):
                             identifiers = executor.load_create_rows(
                                 dataset.target_model,
                                 values,

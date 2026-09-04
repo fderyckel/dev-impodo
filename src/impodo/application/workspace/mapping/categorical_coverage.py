@@ -17,6 +17,7 @@ from impodo.domain.mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    relationship_target_fields,
 )
 from impodo.domain.mapping.scalar_values import (
     ScalarValueError,
@@ -56,7 +57,7 @@ CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
 )
 CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
     {
-        "contract_version": 3,
+        "contract_version": 4,
         "explicit_match_choice": "str(raw).strip()",
         "exact_target_value": "evaluate_scalar_mapping_value",
         "relationship_choice": "str(raw).strip()",
@@ -67,6 +68,7 @@ CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
         ),
         "conditional_selection": "ordered_first_match_with_typed_inputs",
         "conditional_blank_domain": "included",
+        "constant_existing_relationship": "portable_ordered_business_reference",
     }
 )
 
@@ -664,18 +666,12 @@ def _target_dependency_hash(fields: Sequence[_CoverageField]) -> str:
                 "policy": item.policy.value,
                 "target_values": sorted(item.target_values),
                 "resolver_key_fields": (
-                    [
-                        mapping.target_field
-                        for mapping in item.relationship.resolver.key_mappings
-                    ]
+                    list(relationship_target_fields(item.relationship)[0])
                     if item.relationship is not None
                     else []
                 ),
                 "resolver_scope_fields": (
-                    [
-                        mapping.target_field
-                        for mapping in item.relationship.resolver.scope_mappings
-                    ]
+                    list(relationship_target_fields(item.relationship)[1])
                     if item.relationship is not None
                     else []
                 ),

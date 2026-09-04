@@ -35,6 +35,11 @@ transformation rules, relationships, preparation rules, Odoo model and field
 requirements, governed business keys, reusable quality rules, standard
 references, parameter definitions, and controls.
 
+A constant existing many2one stores its related model, governed matching rule,
+and ordered portable key and scope values. It requires no logical source-column
+binding. Each application resolves those values against its own target
+evidence.
+
 It must exclude source rows, file and snapshot identities, current source
 hashes, Project and workspace UUIDs, target endpoint or database, credentials,
 numeric Odoo IDs, actors, approvals, execution journals, read-back, and

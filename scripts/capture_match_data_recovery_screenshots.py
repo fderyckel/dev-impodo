@@ -2,13 +2,14 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional test data, serves the current application on an ephemeral
-loopback port, authenticates through the normal launch route, and writes five
+loopback port, authenticates through the normal launch route, and writes six
 1440 by 1024 PNG files under ``docs/images/user``.
 """
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 import socket
 import sys
@@ -21,7 +22,14 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
+from tests.support.browser_scenarios import (
+    FieldMetadata,
+    ModelMetadata,
+    ProjectSetupBrowserTestCase,
+    RecordSnapshot,
+    TargetRecord,
+    _browser_schema,
+)
 from impodo.web.security import LoopbackSecurityMiddleware
 
 
@@ -128,6 +136,54 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
         workspace_id, dataset, _business_key = fixture._mapping_ready_workspace(
             scalar_field_count=1
         )
+        constant_workspace_id, _constant_dataset, _constant_business_key = (
+            fixture._mapping_ready_workspace(
+                scalar_field_count=0,
+                relationship_field_count=1,
+                relationship_model="uom.uom",
+                target_model="product.template",
+                relationship_field_names=("product_uom_id",),
+                relationship_field_labels=("Product Unit of Measure",),
+            )
+        )
+        original_readiness_reader = fixture.app.state.context.readiness_reader
+
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
+            if workspace_state.workspace_id != constant_workspace_id:
+                return original_readiness_reader(
+                    workspace_state,
+                    metadata_requests,
+                    record_requests,
+                )
+            available = _browser_schema(workspace_state)
+            metadata = replace(
+                available,
+                models={
+                    "uom.uom": ModelMetadata(
+                        model="uom.uom",
+                        description="Unit of Measure",
+                        fields={
+                            "name": FieldMetadata(
+                                name="name",
+                                type="char",
+                                label="Unit of Measure",
+                                required=True,
+                            ),
+                        },
+                    ),
+                },
+            )
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={
+                    "uom.uom": (
+                        TargetRecord("uom.uom", 41, {"name": "PCE"}),
+                    ),
+                },
+                requested_fields={"uom.uom": ("name",)},
+            )
+
+        fixture.app.state.context.readiness_reader = readiness_reader
         source_column_key = dataset.columns[1].stable_key
         session_cookie = fixture.client.cookies.get("impodo_session")
         if not session_cookie:
@@ -183,6 +239,54 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 page,
                 output_directory / "11e-mapping-combined-columns.png",
             )
+
+            constant_page = context.new_page()
+            constant_page.goto(
+                f"{base_url}/workspaces/{constant_workspace_id}/mapping",
+                wait_until="networkidle",
+            )
+            relationship_row = constant_page.locator(
+                '[data-relation-mapping-row][data-target-field="product_uom_id"]'
+            )
+            expect(relationship_row).to_have_count(1)
+            relationship_row.evaluate(
+                """element => {
+                  let current = element;
+                  while (current) {
+                    if (current instanceof HTMLDetailsElement) current.open = true;
+                    current = current.parentElement;
+                  }
+                }"""
+            )
+            relationship_row.locator(
+                "[data-relation-value-source]"
+            ).select_option("constant_existing")
+            relationship_row.locator(
+                "[data-constant-business-key]"
+            ).select_option(label="Odoo record name")
+            relationship_row.locator("[data-check-constant-record]").click()
+            existing_choice = relationship_row.locator(
+                "[data-constant-existing-choice]"
+            )
+            expect(existing_choice.locator('option[value="PCE"]')).to_have_count(
+                1,
+                timeout=10_000,
+            )
+            existing_choice.select_option("PCE")
+            constant_status = relationship_row.locator(
+                "[data-constant-choice-status]"
+            )
+            expect(constant_status).to_contain_text(
+                "PCE will be used for all 1 large_contacts rows."
+            )
+            relationship_row.locator(
+                "[data-relation-provider-constant]"
+            ).scroll_into_view_if_needed()
+            _capture(
+                constant_page,
+                output_directory / "11f-mapping-constant-existing-record.png",
+            )
+            constant_page.close()
 
             _configure_formula(
                 page,

@@ -931,12 +931,25 @@ class RecipeCompiler:
             relationship_field: str,
             relationship_type: str,
             resolver,
+            *,
+            target_key_fields: tuple[str, ...] | None = None,
+            target_scope_fields: tuple[str, ...] | None = None,
         ) -> None:
             if resolver is None or resolver.model is None:
                 return
-            for key in (*resolver.key_mappings, *resolver.scope_mappings):
+            key_fields = (
+                target_key_fields
+                if target_key_fields is not None
+                else tuple(item.target_field for item in resolver.key_mappings)
+            )
+            scope_fields = (
+                target_scope_fields
+                if target_scope_fields is not None
+                else tuple(item.target_field for item in resolver.scope_mappings)
+            )
+            for target_field in (*key_fields, *scope_fields):
                 field_roles.setdefault(
-                    (resolver.model, key.target_field), set()
+                    (resolver.model, target_field), set()
                 ).add("relationship_key")
             parent = schema_models.get(parent_model)
             relationship = next(
@@ -946,12 +959,6 @@ class RecipeCompiler:
                     if field.name == relationship_field
                 ),
                 None,
-            )
-            key_fields = tuple(
-                item.target_field for item in resolver.key_mappings
-            )
-            scope_fields = tuple(
-                item.target_field for item in resolver.scope_mappings
             )
             related = schema_models.get(resolver.model)
             decision = authorize_governed_reference(
@@ -1081,11 +1088,14 @@ class RecipeCompiler:
                 field_roles.setdefault(
                     (mapping.target_model, relation.target_field), set()
                 ).add("relationship")
+                key_fields, scope_fields = relationship_target_fields(relation)
                 register_resolver(
                     mapping.target_model,
                     relation.target_field,
                     relation.kind,
                     relation.resolver,
+                    target_key_fields=key_fields,
+                    target_scope_fields=scope_fields,
                 )
         business_keys = []
         for key in governance.business_keys:

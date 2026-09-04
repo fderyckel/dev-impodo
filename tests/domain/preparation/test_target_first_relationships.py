@@ -582,6 +582,63 @@ class TargetFirstRelationshipTests(unittest.TestCase):
             any("=ilike" in str(request.domain) for request in uom_requests)
         )
 
+    def test_ten_thousand_constant_references_plan_one_target_lookup(self) -> None:
+        products = DatasetSpec(
+            name="products",
+            source=SourceSpec(file="products.csv"),
+            target=TargetSpec(model="product.template", mode="upsert"),
+            source_identity=SourceIdentitySpec(fields=("code",)),
+            target_identity=TargetIdentitySpec(
+                components=(
+                    IdentityComponent(
+                        source_fields=("code",),
+                        target_fields=("default_code",),
+                    ),
+                ),
+            ),
+            relations={
+                "uom_id": RelationSpec(
+                    kind="many2one",
+                    source_fields=(),
+                    resolve=ResolveSpec(
+                        target_model="uom.uom",
+                        target_fields=("name",),
+                    ),
+                    value_source="constant_existing",
+                    constant_key_values=("PCE",),
+                    required=True,
+                    required_on_create=True,
+                ),
+            },
+        )
+        plan = CompiledMigrationPlan(
+            plan_id="constant_uom_scale",
+            origin="profile_document",
+            origin_hash=_HASH,
+            datasets=(products,),
+        )
+        prepared = prepare_source_tables(
+            plan,
+            (
+                SourceTable(
+                    dataset="products",
+                    path=PurePath("products.csv"),
+                    headers=("code",),
+                    rows=tuple(
+                        SourceRow(index + 2, {"code": f"P-{index:05d}"})
+                        for index in range(10_000)
+                    ),
+                    content_hash=_HASH,
+                ),
+            ),
+            source_hashes={"products": _HASH},
+        )
+
+        requests = plan_record_requests(plan, prepared.records)
+        uom_requests = [item for item in requests if item.model == "uom.uom"]
+
+        self.assertEqual(len(uom_requests), 1)
+        self.assertIn("PCE", str(uom_requests[0].domain))
 
 if __name__ == "__main__":
     unittest.main()

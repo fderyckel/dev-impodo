@@ -93,6 +93,8 @@ start a local Odoo stack separately before connecting to it in Impodo.
   control.
 - Configures many2one and many2many relationships using governed business
   keys; one2many relationships are handled through the child inverse field.
+- Lets a many2one use one source-provided value or the same existing Odoo
+  record for every row, stored by portable business key rather than numeric ID.
 - Authors hash-bound derived-entity rules that assign deterministic,
   related-entity-owned IDs to reusable values found in denormalized source
   fields, with bounded alias and hierarchy previews; extracted datasets appear

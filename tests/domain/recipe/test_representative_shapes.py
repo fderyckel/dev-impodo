@@ -17,12 +17,15 @@ from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
     ConcatenationBlankHandling,
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
+    RelationshipValueSource,
     ResolverOrigin,
     ScalarConcatenation,
     ScalarFieldMapping,
@@ -359,7 +362,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             mappings=(mapping,),
             models=(partner_model,),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=14,
+            mapping_contract_version=15,
         )
         with_related_capture = _publish(
             base_selection=selection,
@@ -377,7 +380,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                 ),
             ),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=14,
+            mapping_contract_version=15,
         )
 
         self.assertEqual(without_related_capture, with_related_capture)
@@ -414,7 +417,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                     ),
                 ),
                 business_keys=(_key("res.partner", "ref"),),
-                mapping_contract_version=14,
+                mapping_contract_version=15,
             )
 
     def test_product_recipe_compiles_scalar_and_target_reference_meaning(self):
@@ -505,6 +508,96 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
         self.assertEqual(
             product["comparison_policy"]["missing_source_row"],
             "NO_DELETE_INFERENCE",
+        )
+
+    def test_constant_existing_relationship_reuses_without_source_binding(self):
+        project_id = str(uuid4())
+        products = _dataset(
+            "Products",
+            (("product_code", "string"), ("name", "string")),
+            "f",
+        )
+        selection = SourceSelection(
+            str(uuid4()),
+            1,
+            project_id,
+            datetime.now(timezone.utc),
+            "Data manager",
+            (products,),
+            "sha256:" + "f" * 64,
+        )
+        mapping = DatasetMapping(
+            dataset_id=products.dataset_id,
+            target_model="product.template",
+            source_identity_column_keys=(_column(products, "product_code"),),
+            target_identity=(
+                IdentityComponentMapping(
+                    (_column(products, "product_code"),),
+                    ("default_code",),
+                ),
+            ),
+            fields=(
+                ScalarFieldMapping(
+                    target_field="name",
+                    source_column_key=_column(products, "name"),
+                ),
+            ),
+            relationships=(
+                RelationshipMapping(
+                    target_field="uom_id",
+                    kind="many2one",
+                    source_column_keys=(),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.TARGET_CATALOG,
+                        model="uom.uom",
+                    ),
+                    value_source=RelationshipValueSource.CONSTANT_EXISTING,
+                    constant_reference=ConstantBusinessReference(
+                        key_values=(
+                            ConstantReferenceComponent("name", "PCE"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        recipe = _publish(
+            base_selection=selection,
+            mapping_selection=selection,
+            mappings=(mapping,),
+            models=(
+                SchemaModel(
+                    "product.template",
+                    "Product",
+                    (
+                        _field("default_code"),
+                        _field("name"),
+                        _field("uom_id", "many2one", relation="uom.uom"),
+                    ),
+                ),
+                SchemaModel("uom.uom", "Unit", (_field("name"),)),
+            ),
+            business_keys=(
+                _key("product.template", "default_code"),
+                _key("uom.uom", "name"),
+            ),
+        )
+
+        relationship = recipe["mapping"]["datasets"][0]["relationships"][0]
+        self.assertEqual(relationship["source_column_ids"], [])
+        self.assertEqual(relationship["value_source"], "constant_existing")
+        self.assertEqual(
+            relationship["constant_reference"]["key_values"],
+            [{"target_field": "name", "value": "PCE"}],
+        )
+        rebound = RecipeApplicationCompiler()._relationship(relationship, {})
+        self.assertIs(
+            rebound.value_source,
+            RelationshipValueSource.CONSTANT_EXISTING,
+        )
+        self.assertEqual(
+            rebound.constant_reference,
+            mapping.relationships[0].constant_reference,
         )
 
     def test_product_bom_recipe_compiles_related_preparation_and_dependencies(self):

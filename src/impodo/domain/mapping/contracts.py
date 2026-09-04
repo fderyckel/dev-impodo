@@ -89,7 +89,9 @@ class ConstantReferenceComponent:
 
     def __post_init__(self) -> None:
         if (
-            not self.target_field.strip()
+            not isinstance(self.target_field, str)
+            or not isinstance(self.value, str)
+            or not self.target_field.strip()
             or len(self.target_field) > 200
             or self.target_field.casefold() == "id"
         ):
@@ -622,6 +624,13 @@ class RelationshipMapping:
             )
         if self.operation != "replace":
             raise ValueError("Constant existing records require replace semantics")
+        if self.categorical_policy not in {
+            None,
+            CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+        }:
+            raise ValueError(
+                "Constant existing records require exact business-key coverage"
+            )
 
 
 def relationship_target_fields(
@@ -1040,18 +1049,25 @@ def _dataset_mapping_to_dict(
     return payload
 
 
-def _without_relationship_value_provider(value: Any) -> Any:
+def _without_relationship_value_provider(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     """Reproduce the pre-v15 relationship layout for hashes and round trips."""
 
-    if isinstance(value, dict):
-        return {
-            key: _without_relationship_value_provider(item)
-            for key, item in value.items()
-            if key not in {"value_source", "constant_reference"}
-        }
-    if isinstance(value, list):
-        return [_without_relationship_value_provider(item) for item in value]
-    return value
+    result = dict(payload)
+    relationships = result.get("relationships")
+    if isinstance(relationships, list):
+        result["relationships"] = [
+            {
+                key: item
+                for key, item in relationship.items()
+                if key not in {"value_source", "constant_reference"}
+            }
+            if isinstance(relationship, dict)
+            else relationship
+            for relationship in relationships
+        ]
+    return result
 
 
 def _without_scalar_concatenation(value: Any) -> Any:

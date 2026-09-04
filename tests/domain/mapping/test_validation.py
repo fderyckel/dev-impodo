@@ -14,6 +14,8 @@ from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
     BusinessControlTotal,
     CategoricalCoveragePolicy,
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -22,6 +24,7 @@ from impodo.domain.mapping.contracts import (
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
+    RelationshipValueSource,
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
@@ -305,11 +308,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:c32923da081bc34f3e9acf57463d0c95e044728fca26ffe052cb776b8c6e5416",
+            "sha256:d75361fff5ff853d8e4f92b23f8da7ea0ec05647170b4924f23326f91756885a",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:a26e4b27463ea1a290422b3fc43e31b7833d3e230693c62eb05864f1e2a13afb",
+            "sha256:dbde70bfb6e700b1207106f7c9581dd9cbe9ec60f43b32e5788a02c09a816af7",
         )
         reversed_definition = replace(
             definition,
@@ -340,6 +343,69 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 "TARGET_REFERENCE_COVERAGE_DEFERRED",
                 "TARGET_IDENTITY_UNIQUENESS",
             },
+        )
+
+    def test_constant_existing_relationship_uses_governed_key_without_source(self) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        constant = RelationshipMapping(
+            target_field="category_id",
+            kind="many2one",
+            source_column_keys=(),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="res.partner.category",
+            ),
+            categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+            value_source=RelationshipValueSource.CONSTANT_EXISTING,
+            constant_reference=ConstantBusinessReference(
+                key_values=(ConstantReferenceComponent("code", "WHOLESALE"),),
+            ),
+        )
+        candidate = replace(
+            definition,
+            datasets=(
+                company,
+                replace(
+                    partner,
+                    relationships=(constant, partner.relationships[1]),
+                ),
+            ),
+        )
+
+        result = self.validator.validate(
+            candidate,
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        self.assertEqual(result.status, MappingValidationStatus.VALID)
+
+        forged_key = replace(
+            constant,
+            constant_reference=ConstantBusinessReference(
+                key_values=(ConstantReferenceComponent("name", "Wholesale"),),
+            ),
+        )
+        invalid = self.validator.validate(
+            replace(
+                candidate,
+                datasets=(
+                    company,
+                    replace(
+                        partner,
+                        relationships=(forged_key, partner.relationships[1]),
+                    ),
+                ),
+            ),
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+        self.assertIn(
+            "MAPPING_BUSINESS_KEY_NOT_GOVERNED",
+            {item.code for item in invalid.issues},
         )
 
     def test_pinned_odoo_update_needs_no_portable_business_key(self) -> None:

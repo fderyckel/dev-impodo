@@ -1159,6 +1159,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         business_key_description: str = "Unique reference",
         target_model: str = "res.partner",
         relationship_field_names: tuple[str, ...] | None = None,
+        relationship_field_labels: tuple[str, ...] | None = None,
         connection_mode: OdooConnectionMode = OdooConnectionMode.LOCAL,
     ):
         context = self.app.state.context
@@ -1446,7 +1447,11 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
                         if relationship_field_names is not None
                         else f"relation_{index:04d}"
                     ),
-                    label=f"Linked Field {index:04d}",
+                    label=(
+                        relationship_field_labels[index]
+                        if relationship_field_labels is not None
+                        else f"Linked Field {index:04d}"
+                    ),
                     type=relationship_field_type,
                     required=index in required_relationship_indexes,
                     readonly=index in readonly_relationship_indexes,

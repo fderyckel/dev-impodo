@@ -109,7 +109,7 @@
                           </label>
                         {% endfor %}
                       </div>
-                      <div data-constant-existing-chooser data-endpoint="/workspaces/{{ workspace_id }}/mapping/value-choices" data-dataset-id="{{ view.source.dataset_id }}" data-constant-target-model="{{ view.selected_model }}" data-target-field="{{ row.metadata.name }}">
+                      <div data-constant-existing-chooser data-endpoint="/workspaces/{{ workspace_id }}/mapping/value-choices" data-dataset-id="{{ view.source.dataset_id }}" data-constant-target-model="{{ view.selected_model }}" data-target-field="{{ row.metadata.name }}" data-source-row-count="{{ view.source.row_count }}" data-source-name="{{ view.source.name }}">
                         <label>Search existing {{ row.metadata.label }}
                           <input type="search" data-constant-choice-search placeholder="Type to filter loaded choices" autocomplete="off">
                         </label>
@@ -120,7 +120,7 @@
                         </label>
                         <button class="button secondary compact" type="button" data-check-constant-record>Check this record</button>
                         <small data-constant-choice-status>
-                          {% if row.constant_component_values %}{{ row.constant_component_values|join(' · ') }} will be used for every source row.{% else %}Impodo stores only the portable business key, never the Odoo database ID.{% endif %}
+                          {% if row.constant_component_values %}{{ row.constant_component_values|join(' · ') }} will be used for all {{ view.source.row_count }} {{ view.source.name }} rows.{% else %}Impodo stores only the portable business key, never the Odoo database ID.{% endif %}
                         </small>
                       </div>
                     </div>

@@ -73,6 +73,10 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
+- [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
+  — the proposed shared capability for interactive supplied-data trials and
+  deterministic background scenarios across file, local Odoo, remote Odoo,
+  and bounded Odoo-source paths.
 - [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
   — the proposed internal VM deployment, Microsoft Entra sign-in, retained
   local files, bounded preparation-worker coordination, recovery, and pilot

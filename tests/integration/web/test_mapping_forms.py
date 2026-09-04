@@ -8,12 +8,7 @@ from types import SimpleNamespace
 
 from starlette.datastructures import FormData
 
-from impodo.web.presenters.mapping_forms import (
-    _mapping_allowed_fields,
-    _mapping_datasets_from_form,
-    _text_steps_from_form,
-)
-from impodo.web.presenters.mapping_view import _is_phone_field
+from impodo.domain.mapping.contracts import RelationshipValueSource
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
@@ -25,9 +20,85 @@ from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
 )
+from impodo.web.presenters.mapping_forms import (
+    _mapping_allowed_fields,
+    _mapping_datasets_from_form,
+    _text_steps_from_form,
+)
+from impodo.web.presenters.mapping_view import _is_phone_field
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_mapping_form_builds_constant_existing_many2one_without_source(self) -> None:
+        source = SourceDataset(
+            dataset_id="dataset:boms",
+            name="BOMs",
+            source=FileSourceBinding(
+                file_id="file:boms",
+                table_key="csv",
+                source_sha256="a" * 64,
+                catalog_hash="sha256:" + "b" * 64,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
+            row_count=31,
+            columns=(
+                SourceDatasetColumn(1, "BOM code", "bom.code", "string"),
+            ),
+        )
+        relationship = SchemaField(
+            name="product_uom_id",
+            label="Product Unit of Measure",
+            type="many2one",
+            required=True,
+            readonly=False,
+            relation="uom.uom",
+            relation_field=None,
+            selection=(),
+        )
+        schema = SimpleNamespace(
+            models=(
+                SchemaModel("mrp.bom", "Bill of Material", (relationship,)),
+                SchemaModel("uom.uom", "Unit of Measure", ()),
+            )
+        )
+        key = BusinessKeyDefinition(
+            key_id="key:uom-name",
+            model="uom.uom",
+            key_fields=("name",),
+            scope_fields=(),
+            description="Unit of Measure Name",
+            status=BusinessKeyStatus.CONFIRMED,
+        )
+        form = FormData(
+            (
+                ("target_model_0", "mrp.bom"),
+                ("relation_value_source_0_0", "constant_existing"),
+                ("relation_constant_key_0_0", key.key_id),
+                ("relation_constant_component_0_0_0", "PCE"),
+                ("relation_compare_0_0", "1"),
+            )
+        )
+
+        datasets = _mapping_datasets_from_form(
+            form,
+            SimpleNamespace(datasets=(source,)),
+            schema,
+            SimpleNamespace(business_keys=(key,)),
+        )
+
+        mapping = datasets[0].relationships[0]
+        self.assertIs(
+            mapping.value_source,
+            RelationshipValueSource.CONSTANT_EXISTING,
+        )
+        self.assertEqual(mapping.source_column_keys, ())
+        self.assertEqual(mapping.resolver.model, "uom.uom")
+        assert mapping.constant_reference is not None
+        self.assertEqual(mapping.constant_reference.key_values[0].value, "PCE")
+        self.assertTrue(mapping.required_on_create)
+
     def test_generated_record_link_is_preserved_by_the_mapping_form(self) -> None:
         file_binding = FileSourceBinding(
             file_id="file:test",

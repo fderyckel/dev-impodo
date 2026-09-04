@@ -15,6 +15,7 @@ from impodo.domain.mapping.contracts import (
     RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
+    ScalarFieldMapping,
     UnsupportedMappingContractError,
 )
 
@@ -85,6 +86,12 @@ class MappingContractCompatibilityTests(unittest.TestCase):
                 DatasetMapping(
                     dataset_id="dataset:contacts",
                     target_model="res.partner",
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            source_column_key="partner_name",
+                        ),
+                    ),
                     relationships=(
                         RelationshipMapping(
                             target_field="company_id",
@@ -102,8 +109,10 @@ class MappingContractCompatibilityTests(unittest.TestCase):
         )
         payload = definition.to_dict()
         relation = payload["datasets"][0]["relationships"][0]
+        scalar = payload["datasets"][0]["fields"][0]
         self.assertNotIn("value_source", relation)
         self.assertNotIn("constant_reference", relation)
+        self.assertEqual(scalar["value_source"], "source")
         restored = MappingDefinition.from_dict(payload)
         self.assertEqual(
             restored.datasets[0].relationships[0].value_source,

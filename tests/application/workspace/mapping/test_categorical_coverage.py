@@ -434,7 +434,7 @@ class CategoricalCoverageTests(unittest.TestCase):
         payload["datasets"][0]["relationships"][0]["resolver"][
             "unknown_field"
         ] = True
-        with self.assertRaisesRegex(ValueError, "current contract"):
+        with self.assertRaisesRegex(ValueError, "mapping contract v15"):
             MappingDefinition.from_dict(payload)
 
     def test_edition_control_expectation_binds_actor_and_fresh_value(self) -> None:

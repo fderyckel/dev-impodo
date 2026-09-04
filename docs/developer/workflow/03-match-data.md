@@ -30,6 +30,11 @@ and schema evidence.
 `mapping.py` parses the browser form, requests bounded dynamic value choices,
 saves drafts, promotes checked revisions, publishes transformation-impact
 snapshots, records acknowledgements, and submits the exact valid revision.
+For writable many2one fields, the relationship card separates a source value
+from one constant existing Odoo record. The constant path captures an ordered
+governed business key and scope without a source-column binding or numeric
+Odoo ID. The `constant_relationship` value-choice request reuses the bounded
+read-only relationship lookup and returns only portable values and labels.
 
 `MappingWorkspaceService` separates a mutable working draft from immutable
 revision, validation, and submission evidence. Domain validation checks scalar
@@ -137,6 +142,22 @@ can apply its default. Transformations, null behavior, comparison policy, and
 relationship resolution use closed, versioned choices rather than arbitrary
 code.
 
+Mapping contract version 15 adds `RelationshipValueSource`. Existing
+relationships decode as `source`; `constant_existing` is limited to a
+many2one that uses `target_catalog` resolution and `replace` semantics.
+`ConstantBusinessReference` stores one to five ordered key components plus
+the governed scope components. Each `ConstantReferenceComponent` contains a
+bounded non-blank portable scalar and rejects the technical `id` field. A
+constant relationship cannot carry source columns, an incoming dataset,
+generated-record projection, inline value mappings, or another relationship
+provider. Version-aware decoding keeps the v14 field layout closed and
+unchanged.
+
+`relationship_target_fields` is the provider-independent source of the
+related-model key and scope field order. Semantic validation and Recipe
+contract compilation use this helper so a constant key must satisfy the same
+captured-model and governed-reference policy as a source-provided key.
+
 Mapping contract version 14 adds the `concatenate` scalar provider and its
 closed `ScalarConcatenation` configuration. It binds two to five distinct
 stable source-column keys in order, a separator of at most 20 characters,
@@ -206,6 +227,26 @@ is represented through the child dataset's inverse many2one field; Impodo
 never writes it as an independently owned list. Dynamic value matching reads
 one frozen source column and fetches target choices in batches. It persists
 portable codes or business keys, never numeric Odoo IDs.
+
+A `constant_existing` many2one produces the same target `LogicalReference`
+for every applicable owner row. The row evaluator uses the stored values
+directly, while the columnar compiler emits native literal expressions; the
+Polars path does not use a Python row function. The record planner deduplicates
+the repeated reference before target reads, so 10,000 owner rows with the same
+key produce one distinct target request. The relationship creates no incoming
+dataset dependency edge.
+
+Recipe publication stores the relationship provider, related model, matching
+rule, and ordered key and scope values. Recipe application needs no source
+binding for that relationship and resolves the portable values against the
+new workspace's Odoo evidence. A changed, missing, or newly ambiguous target
+record follows the saved missing or ambiguous policy; it cannot inherit an ID
+from the authoring target.
+
+The matching review workbook labels this provider **Same existing Odoo record
+for every row** and displays its portable key components without source
+attribution. Prepared lineage follows the same rule meaning rather than
+inventing a source column.
 
 The `target_then_dataset` resolver retains both the reviewed Odoo key and the
 original incoming key. Exact `ValueMapping` entries affect only the Odoo
@@ -284,6 +325,7 @@ validation result for the malformed formula.
 | --- | --- |
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/workspace/mapping/service.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
+| Constant relationship validation | [`relationships.py`](../../../src/impodo/domain/mapping/validation/relationships.py) |
 | Mapping mutation receipts and conflicts | [`mutations.py`](../../../src/impodo/domain/mapping/mutations.py) |
 | Mapping draft, revision, submission, and receipt persistence | [`mapping_repository.py`](../../../src/impodo/adapters/duckdb/mapping_repository.py) |
 | Semantic validator | [`validator.py`](../../../src/impodo/domain/mapping/validation/validator.py) |
@@ -291,14 +333,17 @@ validation result for the malformed formula.
 | Shared scalar, concatenation, and conditional-rule evaluator | [`scalar_values.py`](../../../src/impodo/domain/mapping/scalar_values.py) |
 | Categorical source-domain scan | [`CategoricalCoverageService`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |
 | Native scalar-provider compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
+| Row relationship preparation | [`source.py`](../../../src/impodo/domain/preparation/source.py) |
 | Rule-impact service | [`TransformationImpactService`](../../../src/impodo/application/workspace/mapping/transformation_impact.py) |
 | Rule-impact facts and fingerprints | [`transformation_impact.py`](../../../src/impodo/domain/staging/transformation_impact.py) |
 | Native rule-impact summary | [`polars_transformation.py`](../../../src/impodo/adapters/polars_transformation.py) |
 | Guided scalar form parsing | [`mapping_forms.py`](../../../src/impodo/web/presenters/mapping_forms.py) |
+| Guided relationship controls | [`_relationship_catalog.html`](../../../src/impodo/web/templates/mapping/_relationship_catalog.html) and [`mapping-editor.js`](../../../src/impodo/web/static/mapping-editor.js) |
 | Guided scalar controls | [`_scalar_catalog.html`](../../../src/impodo/web/templates/mapping/_scalar_catalog.html) and [`mapping-value-rules.js`](../../../src/impodo/web/static/mapping-value-rules.js) |
 | Rule-impact persistence and acknowledgements | [`TransformationImpactRepository`](../../../src/impodo/adapters/duckdb/transformation_impact_repository.py) |
 | Matching review workbook | [`mapping_review.py`](../../../src/impodo/adapters/artifacts/mapping_review.py) |
 | Optional Recipe compilation | [`RecipeCompiler`](../../../src/impodo/application/recipe_compilation_service.py) |
+| Recipe relationship rebinding | [`recipe_application_compilation.py`](../../../src/impodo/application/recipe_application_compilation.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
 | Catalogue projection cache and newest-generation scheduler | [`mapping_catalog_runtime.py`](../../../src/impodo/web/mapping_catalog_runtime.py) |
 | Browser catalogue search generations | [`mapping-catalogs.js`](../../../src/impodo/web/static/mapping-catalogs.js) |
@@ -518,6 +563,10 @@ order, both blank-part policies, native parity, Recipe rebinding, relation modes
 ordered transformations, optional zero-match and overlap review, hash binding,
 direct exact submission, target-first reuse without updates, case-sensitive
 relationship matching, incoming fallback, and required Stage 4 review.
+For constant existing relationships, verify strict v14 compatibility, closed
+v15 provider shapes, governed key and scope order, browser save without a
+source column, row/native parity, one distinct request for 10,000 rows, Recipe
+application without source binding, and source-free workbook lineage.
 Also verify formula authoring success and failure, CSRF and current-dataset
 checks, formula-free responses, saved invalid-draft recovery, and authoritative
 server rejection when the browser guard is bypassed.
@@ -541,3 +590,4 @@ Run the focused Mapping package with:
 - [User guide: Match data](../../user/workflow/03-match-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Canonical staging contract](../contracts/canonical-staging.md)
+- [Optional Recipe publication contract](../contracts/recipe-lifecycle.md)

@@ -33,8 +33,8 @@ from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 
-COLUMNAR_PROGRAM_CONTRACT_VERSION = 5
-COLUMNAR_COMPILER_VERSION = 6
+COLUMNAR_PROGRAM_CONTRACT_VERSION = 6
+COLUMNAR_COMPILER_VERSION = 7
 
 
 def _optional_string(value: object) -> str | None:
@@ -433,6 +433,20 @@ class ColumnarIdentityComponentProgram:
     required: bool = True
     failure_code: str = "SOURCE_IDENTITY_INVALID"
     literal_values: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if bool(self.source_columns) == bool(self.literal_values):
+            raise ValueError(
+                "Columnar identity components require source columns or literals"
+            )
+        if self.literal_values and (
+            len(self.literal_values) != len(self.target_fields)
+            or any(
+                not value.strip() or len(value) > 10_000
+                for value in self.literal_values
+            )
+        ):
+            raise ValueError("Columnar identity literal values are invalid")
 
     def to_portable_dict(self) -> dict[str, object]:
         return cast(dict[str, object], portable(asdict(self)))

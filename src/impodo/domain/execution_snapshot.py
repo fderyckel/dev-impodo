@@ -1647,6 +1647,85 @@ def plan_execution_rows(
     return planned_rows, plan
 
 
+def resequence_execution_rows(
+    rows: tuple[ExecutionRow, ...],
+    plan: RelationshipPlan,
+    datasets: tuple[ExecutionDataset, ...],
+    components: tuple[tuple[str, ...], ...],
+) -> tuple[tuple[ExecutionRow, ...], RelationshipPlan]:
+    """Apply a stricter reviewed component order without changing row intent.
+
+    Transfer reviews approve dataset-level creation waves.  The canonical row
+    planner may discover that some individual rows could run earlier because
+    their particular relationship already exists in Odoo.  This helper lets a
+    caller retain the stricter approved wave barriers while preserving every
+    row dependency and deferred-field decision calculated by the planner.
+    """
+
+    row_by_id = {row.row_id: row for row in rows}
+    ordered_ids = tuple(row_id for component in components for row_id in component)
+    scheduled_ids = {
+        row.row_id
+        for row in rows
+        if row.disposition in {
+            Classification.CREATE.value,
+            Classification.UPDATE.value,
+        }
+        and not any(item.row_id == row.row_id for item in plan.blockers)
+    }
+    if (
+        len(row_by_id) != len(rows)
+        or len(set(ordered_ids)) != len(ordered_ids)
+        or set(ordered_ids) != scheduled_ids
+        or any(not component for component in components)
+    ):
+        raise ValueError("Reviewed execution component order is invalid")
+    component_by_row = {
+        row_id: sequence
+        for sequence, component in enumerate(components)
+        for row_id in component
+    }
+    ordinal_by_row = {
+        row_id: ordinal for ordinal, row_id in enumerate(ordered_ids)
+    }
+    resequenced = tuple(
+        _rehash_row(
+            replace(
+                row_by_id[row_id],
+                schedule_ordinal=ordinal_by_row[row_id],
+                schedule_component=component_by_row[row_id],
+                row_hash="",
+            )
+        )
+        for row_id in ordered_ids
+    ) + tuple(
+        _rehash_row(
+            replace(
+                row,
+                schedule_ordinal=-1,
+                schedule_component=-1,
+                row_hash="",
+            )
+        )
+        for row in rows
+        if row.row_id not in scheduled_ids
+    )
+    resequenced_plan = replace(
+        plan,
+        components=tuple(
+            RelationshipComponent(sequence=sequence, row_ids=component)
+            for sequence, component in enumerate(components)
+        ),
+        root_hash="",
+    )
+    resequenced_plan = replace(
+        resequenced_plan,
+        root_hash=_relationship_plan_hash(resequenced_plan),
+    )
+    _validate_relationship_plan(resequenced, resequenced_plan, datasets)
+    return resequenced, resequenced_plan
+
+
 def _rehash_row(row: ExecutionRow) -> ExecutionRow:
     return replace(
         row,

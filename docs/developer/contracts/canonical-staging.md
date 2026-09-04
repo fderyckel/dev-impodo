@@ -39,6 +39,11 @@ issues. Each row records or retains the following evidence:
 - The row stores typed proposed scalar values and symbolic relationships.
 - The row retains structured issues and field-level source lineage.
 
+A constant existing many2one remains a symbolic relationship. Its lineage
+names the mapping rule and portable business-key value, but it does not claim
+that a source column supplied that value. Repeated constants are deduplicated
+before the later target-reference read plan.
+
 Portable staging recursively forbids numeric Odoo record IDs. Decimal, date,
 datetime, null, and symbolic-reference values use canonical serialization.
 

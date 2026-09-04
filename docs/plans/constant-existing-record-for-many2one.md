@@ -2,7 +2,7 @@
 
 ## Status and decision
 
-**Status:** Proposed. This behavior is not available in the current browser.
+**Status:** Implemented. This behavior is available in the current browser.
 
 Add a first-class value choice for Odoo many-to-one fields in **Match data**:
 
@@ -61,7 +61,7 @@ The normal actions remain **Save progress**, **Check matches**, and **Confirm
 field matches**. A later Recipe run resolves `PCE` again in its own Odoo
 target. It does not reuse the original target's numeric ID.
 
-## Proposed browser behavior
+## Implemented browser behavior
 
 ### Choose how the linked value is supplied
 
@@ -123,8 +123,7 @@ review. Impodo must never select the first match.
 
 Bump the mapping contract from version 14 to version 15. Add a closed
 relationship value-provider enum and a portable constant-reference object.
-The names below are proposed and may be refined without changing their
-meaning:
+The portable provider uses these names:
 
 ```python
 class RelationshipValueSource(StrEnum):
@@ -363,4 +362,3 @@ The first delivery does not:
 - modify or export a replacement source workbook;
 - weaken business-key governance or supporting-reference read limits; or
 - make Match data confirmation authorize an Odoo write.
-

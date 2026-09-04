@@ -1208,6 +1208,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const slot = Number(component.dataset.constantComponentSlot);
         const active = slot < fields.length;
         component.hidden = !active;
+        component.style.display = active ? "" : "none";
         const input = component.querySelector("[data-constant-component-value]");
         const label = component.querySelector("[data-constant-component-label]");
         if (input) input.disabled = !active;
@@ -1241,6 +1242,18 @@ document.addEventListener("DOMContentLoaded", () => {
       if (first && choice.value) {
         first.value = choice.value;
         first.dispatchEvent(new Event("input", { bubbles: true }));
+        if (status) {
+          const values = Array.from(
+            row.querySelectorAll(
+              "[data-constant-component-row]:not([hidden]) [data-constant-component-value]"
+            )
+          )
+            .map((component) => component.value.trim())
+            .filter(Boolean);
+          const rowCount = Number(chooser?.dataset.sourceRowCount || 0);
+          const sourceName = chooser?.dataset.sourceName || "source";
+          status.textContent = `${values.join(" · ")} will be used for all ${rowCount.toLocaleString()} ${sourceName} rows.`;
+        }
       }
     });
     chooser?.querySelector("[data-check-constant-record]")?.addEventListener(

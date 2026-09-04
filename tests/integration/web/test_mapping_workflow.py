@@ -5,7 +5,10 @@ from __future__ import annotations
 from io import BytesIO
 from openpyxl import load_workbook
 
-from impodo.domain.mapping.contracts import UnsupportedMappingContractError
+from impodo.domain.mapping.contracts import (
+    RelationshipValueSource,
+    UnsupportedMappingContractError,
+)
 
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -79,7 +82,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("created with mapping contract v12", page.text)
-        self.assertIn("create a v14 successor revision", page.text)
+        self.assertIn("create a v15 successor revision", page.text)
 
     def test_unsupported_mapping_has_controlled_stage_and_project_pages(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
@@ -827,6 +830,125 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Match values", page.text)
         self.assertNotIn('name="relation_key_0_0" disabled', page.text)
         self.assertNotIn("No matching rule available", page.text)
+
+    def test_constant_existing_uom_saves_without_a_source_column(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="uom.uom",
+            target_model="product.template",
+            relationship_field_names=("uom_id",),
+        )
+        source_identity = dataset.columns[0]
+        context = self.app.state.context
+
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
+            available = _browser_schema(workspace_state)
+            metadata = replace(
+                available,
+                models={
+                    "uom.uom": ModelMetadata(
+                        model="uom.uom",
+                        description="Unit of Measure",
+                        fields={
+                            "name": FieldMetadata(
+                                name="name",
+                                type="char",
+                                label="Unit of Measure",
+                                required=True,
+                            ),
+                        },
+                    )
+                },
+            )
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={
+                    "uom.uom": (
+                        TargetRecord("uom.uom", 41, {"name": "PCE"}),
+                    )
+                },
+                requested_fields={"uom.uom": ("name",)},
+            )
+
+        context.readiness_reader = readiness_reader
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Fill this linked field using", page.text)
+        self.assertIn(
+            "The same existing Odoo record for every row",
+            page.text,
+        )
+        candidate = re.search(
+            r'<option value="([^"]+)"[^>]*>\s*Odoo record name',
+            page.text,
+        )
+        self.assertIsNotNone(candidate, page.text)
+        candidate_key_id = candidate.group(1)
+
+        choices = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/value-choices",
+            data={
+                "csrf_token": self.csrf,
+                "kind": "constant_relationship",
+                "dataset_id": dataset.dataset_id,
+                "source_column_key": "",
+                "target_model": "product.template",
+                "target_field": "uom_id",
+                "business_key_id": candidate_key_id,
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(choices.status_code, 200, choices.text)
+        self.assertEqual(
+            choices.json()["target_choices"],
+            [{"value": "PCE", "label": "PCE"}],
+        )
+        self.assertNotIn("41", choices.text)
+
+        saved = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json={
+                "entries": [
+                    ["csrf_token", self.csrf],
+                    ["action", "save_progress"],
+                    ["expected_parent_version", ""],
+                    ["expected_working_draft_version", ""],
+                    ["editable_dataset_id", dataset.dataset_id],
+                    ["target_model_0", "product.template"],
+                    ["mode_0", "upsert"],
+                    ["on_existing_0", "block"],
+                    ["source_identity_0", source_identity.stable_key],
+                    ["business_key_0", business_key.key_id],
+                    ["identity_source_0_0", source_identity.stable_key],
+                    ["visible_relation_target_0", "uom_id"],
+                    ["relation_value_source_0_0", "constant_existing"],
+                    ["relation_constant_key_0_0", candidate_key_id],
+                    ["relation_constant_component_0_0_0", "PCE"],
+                    ["relation_operation_0_0", "replace"],
+                    ["relation_compare_0_0", "1"],
+                    ["relation_missing_0_0", "error"],
+                    ["relation_ambiguous_0_0", "error"],
+                    ["relation_null_0_0", "distinct"],
+                ]
+            },
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(saved.status_code, 200, saved.text)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            workspace_id
+        )
+        relationship = working.definition.datasets[0].relationships[0]
+        self.assertIs(
+            relationship.value_source,
+            RelationshipValueSource.CONSTANT_EXISTING,
+        )
+        self.assertEqual(relationship.source_column_keys, ())
+        self.assertEqual(
+            relationship.constant_reference.key_values[0].value,
+            "PCE",
+        )
 
     def test_product_uom_choices_are_fetched_as_bounded_supporting_data(
         self,

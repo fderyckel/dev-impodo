@@ -134,10 +134,43 @@ combined.
 
 ![Current combined-source-column controls for a fictional Contact text field.](../../images/user/11e-mapping-combined-columns.png)
 
-### Choose where a linked value comes from
+### Use one existing Odoo record for every row
 
-When a linked field can refer to an existing Odoo record or a record from
-another incoming table, choose the source of that record deliberately:
+When every source row needs the same linked Odoo record, you can state that
+decision directly. You do not need to add a constant column to the source
+file.
+
+For example, suppose all 31 Bill of Material rows use the existing `PCE` Unit
+of Measure. Expand **Product Unit of Measure**, then:
+
+1. Under **Fill this linked field using**, select **The same existing Odoo
+   record for every row**.
+2. Under **Find this record by**, select the confirmed matching rule, such as
+   **Odoo record name**.
+3. Select **Check this record** to load the bounded current Odoo choices, then
+   choose `PCE` under **Existing Product Unit of Measure**. You can filter the
+   loaded choices by typing in **Search existing Product Unit of Measure**.
+4. If the matching rule contains several key or scope parts, enter every part
+   in the order shown.
+5. Review the summary, then select **Save progress** and **Check matches**.
+
+Impodo stores the portable business-key values, not the Odoo database ID. It
+resolves that key again against the current target during preparation and
+final review. If no record matches, or if several records match, Impodo stops
+and asks instead of choosing the first result. It does not create, update, or
+rename the linked record.
+
+For you, this means the saved rule remains understandable and reusable. A
+Recipe can apply `PCE` to a later Data version without requiring a Unit of
+Measure source column, but that later work must verify `PCE` against its own
+Odoo target.
+
+![One existing fictional Unit of Measure is selected for every Bill of Material row.](../../images/user/11f-mapping-constant-existing-record.png)
+
+### Choose where a source-provided linked value comes from
+
+After you select **A value from the source**, choose whether that linked value
+refers to an existing Odoo record or a record from another incoming table:
 
 - **Only existing Odoo records** requires every populated value to resolve to
   one current Odoo record. Impodo does not use the incoming related table as a
@@ -235,6 +268,8 @@ Confirming these choices still does not contact or change Odoo.
 - Selection labels map to the current Odoo technical choices.
 - Each linked field uses the intended Odoo-only, incoming-only, or
   Odoo-first matching rule.
+- A linked field that uses one existing record shows the intended portable
+  business key and does not depend on a made-up source column.
 - Case-different linked values are explicitly matched or deliberately kept as
   distinct incoming records.
 - Ordered choice rules use the intended source columns, and every row resolves

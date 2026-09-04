@@ -278,15 +278,20 @@ stages:
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/contracts.py::ScalarConcatenation
+      - src/impodo/domain/mapping/contracts.py::ConstantBusinessReference
+      - src/impodo/domain/mapping/contracts.py::relationship_target_fields
+      - src/impodo/domain/mapping/validation/relationships.py::_validate_relationship
       - src/impodo/domain/mapping/scalar_values.py::evaluate_scalar_mapping_value
       - src/impodo/domain/staging/transformation_impact.py::selection_rule_impact_definitions
       - src/impodo/domain/compiler/columnar_transformation.py::compile_columnar_transformation_program
       - src/impodo/domain/compiler/browser_mapping_compiler.py::compile_browser_mapping
+      - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler
       - src/impodo/domain/relationship_dependencies.py::extract_dataset_dependency_edges
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
+      - src/impodo/domain/preparation/source.py::_prepare_relation
       - src/impodo/web/presenters/mapping_forms.py::_scalar_concatenation_from_form
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
       - src/impodo/adapters/artifacts/mapping_review.py::write_mapping_review_workbook
@@ -318,6 +323,8 @@ stages:
       - tests/domain/test_relationship_dependencies.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
+      - docs/developer/contracts/recipe-lifecycle.md
+      - docs/developer/contracts/canonical-staging.md
 
   - id: prepare
     order: 4

@@ -17,6 +17,7 @@ from impodo.domain.execution.models import (
 )
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 
@@ -37,6 +38,7 @@ class ExecutionRepository(DuckDbRepository):
         *,
         actor: Actor,
         correction_plan_hash: str = "",
+        transfer_preflight_hash: str = "",
     ) -> None:
         self._assert_workspace_mutable(workspace_id)
         try:
@@ -56,6 +58,9 @@ class ExecutionRepository(DuckDbRepository):
         ):
             raise WorkspaceError("Execution run is invalid")
         correction = bool(correction_plan_hash)
+        transfer = bool(transfer_preflight_hash)
+        if correction and transfer:
+            raise WorkspaceError("Execution run cannot have two authorization modes")
         if correction and (
             _SHA256.fullmatch(correction_plan_hash) is None
             or any(
@@ -73,7 +78,38 @@ class ExecutionRepository(DuckDbRepository):
             self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
-                if not correction:
+                if transfer:
+                    if _SHA256.fullmatch(transfer_preflight_hash) is None:
+                        raise WorkspaceError(
+                            "Transfer preflight authorization is invalid"
+                        )
+                    stored = connection.execute(
+                        """
+                        SELECT transfer_preflight_report_json
+                          FROM workspace_projection_cache
+                         WHERE singleton_id = 1
+                        """
+                    ).fetchone()
+                    try:
+                        report = (
+                            TransferPreflightReport.from_json(str(stored[0]))
+                            if stored is not None and stored[0] is not None
+                            else None
+                        )
+                    except ValueError as error:
+                        raise WorkspaceError(
+                            "The destination preflight evidence is invalid"
+                        ) from error
+                    if (
+                        report is None
+                        or not report.ready
+                        or report.content_hash != transfer_preflight_hash
+                        or report.destination_target_hash != run.target_hash
+                    ):
+                        raise WorkspaceError(
+                            "The destination preflight is no longer current"
+                        )
+                elif not correction:
                     current = connection.execute(
                         """
                         SELECT readiness.run_id, readiness.target_hash
@@ -162,7 +198,11 @@ class ExecutionRepository(DuckDbRepository):
                     event_type=(
                         "ODOO_CORRECTION_STARTED"
                         if correction
-                        else "ODOO_LOAD_STARTED"
+                        else (
+                            "ODOO_TRANSFER_LOAD_STARTED"
+                            if transfer
+                            else "ODOO_LOAD_STARTED"
+                        )
                     ),
                     detail=(
                         f"run {canonical_run_id}: {len(run.rows)} planned row(s), "

@@ -128,7 +128,7 @@ versions and content identity. A rejected or pending receipt never validates,
 submits, or otherwise authorizes mapping evidence. Pending means the outcome is
 still unknown and forbids automatic mutation replay.
 
-The exact current mapping contract is version 13. It binds an explicit
+The exact current mapping contract is version 15. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -142,17 +142,26 @@ values and parameter choices as DataVersion or workspace evidence; they are
 not reusable Recipe identity unless the Recipe contract explicitly defines
 their portable shape.
 
-Mapping contract version 13 retains the conditional Selection providers
-introduced in version 12 and also binds the optional captured projection used
-when Odoo creates a relationship target from an imported source record. It
-continues to bind ordered rule and condition identifiers, typed comparisons,
-referenced source-column keys, captured Odoo output keys, and the otherwise
-decision. Categorical validation
+Mapping contract version 13 added the optional captured projection used when
+Odoo creates a relationship target from an imported source record. Version 14
+added ordered two-to-five-column text concatenation. Version 15 adds a closed
+relationship value provider and a portable constant business reference for a
+many2one that uses the same existing Odoo record for every row. The constant
+stores ordered governed key and scope values without a source-column binding
+or numeric Odoo ID. Version-aware decoding keeps earlier field layouts closed;
+v14 relationships decode as source-provided relationships.
+
+The contract retains the conditional Selection providers introduced in
+version 12. It binds ordered rule and condition identifiers, typed
+comparisons, referenced source-column keys, captured Odoo output keys, and the
+otherwise decision. Categorical validation
 projects all referenced columns in the dataset's existing bounded scan and
 fails closed when a row cannot produce a current Odoo choice. Recipe
 publication replaces physical column keys with logical source-column IDs;
 application rebinds those IDs to the fresh frozen selection and revalidates
-the current Odoo choices before creating a normal mapping draft.
+the current Odoo choices before creating a normal mapping draft. A constant
+existing relationship has no source-column ID to bind; application instead
+rechecks its portable business reference against the fresh target evidence.
 
 Governed-reference policy version 1 has one canonical hash shared by Match,
 supporting lookups, Final review, and optional Recipe publication.
@@ -223,6 +232,7 @@ portable source or relationship identities.
 | Change the governed-reference policy | Mapping validation and submission, supporting lookups, preparation, comparison, and new Recipe target contracts |
 | Save or remove a related-dataset plan | Mapping and downstream prepared evidence |
 | Save a new mapping revision | Prior validation, impact review, submission, and downstream evidence |
+| Change a constant relationship provider, key, scope value, required policy, or failure policy | Prior validation, impact review, submission, preparation, comparison, transfer-order, execution, and reconciliation evidence |
 | Add, remove, edit, or reorder a conditional Selection rule | Prior categorical coverage, impact review, submission, preparation, comparison, and execution evidence |
 
 Invalidation retires current pointers; it does not rewrite or delete historical
