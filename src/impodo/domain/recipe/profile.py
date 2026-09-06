@@ -22,6 +22,7 @@ from impodo.domain.relationship_dependencies import (
     extract_dataset_dependency_edges,
     required_cross_dataset_cycle,
 )
+from impodo.domain.recipe.value_rules import MAX_FORMULA_LENGTH
 
 
 ScalarType = Literal[
@@ -131,6 +132,7 @@ class FieldSpec(StrictModel):
     """Map one source column to one scalar target field."""
 
     source: str = Field(min_length=1)
+    formula: str = Field(default="", max_length=MAX_FORMULA_LENGTH)
     type: ScalarType
     required: bool = False
     required_on_create: bool = False

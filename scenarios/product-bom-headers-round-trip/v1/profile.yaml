@@ -1,0 +1,110 @@
+profile:
+  id: scenario_product_bom_headers_round_trip_v1
+  description: Sanitized Product and BoM-header local-Odoo round trip
+
+datasets:
+  - name: uoms
+    source:
+      file: DEMO_Article.xlsx
+      sheet: PLW
+    target:
+      model: uom.uom
+      mode: upsert
+    source_identity:
+      fields: [UnitId]
+    target_identity:
+      components:
+        - source_fields: [UnitId]
+          target_fields: [name]
+          type: string
+          normalize: {trim: true}
+    fields:
+      active:
+        source: UnitId
+        formula: "True"
+        type: boolean
+        required: true
+        compare: true
+    relations: {}
+  - name: products
+    source:
+      file: DEMO_Article.xlsx
+      sheet: PLW
+    target:
+      model: product.template
+      mode: upsert
+    source_identity:
+      fields: [Numéro d'article]
+    target_identity:
+      components:
+        - source_fields: [Numéro d'article]
+          target_fields: [default_code]
+          type: string
+          normalize: {trim: true}
+    fields:
+      name:
+        source: Nom du produit
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+      active:
+        source: Code Statut Produit
+        formula: "True"
+        type: boolean
+        required: true
+        compare: true
+    relations:
+      uom_id:
+        kind: many2one
+        source_fields: [UnitId]
+        resolve:
+          dataset: uoms
+          target_source_fields: [UnitId]
+          target_model: uom.uom
+          target_fields: [name]
+          target_value_mappings: [[G, g]]
+        required: true
+        required_on_create: true
+        compare: true
+  - name: bom_headers
+    source:
+      file: DEMO_BOMVersion.xlsx
+      sheet: Sheet1
+    target:
+      model: mrp.bom
+      mode: upsert
+    source_identity:
+      fields: [BOMId]
+    target_identity:
+      components:
+        - source_fields: [BOMId]
+          target_fields: [code]
+          type: string
+          normalize: {trim: true}
+    fields:
+      active:
+        source: Active
+        formula: "Active == 'Oui' and Approved == 'Oui'"
+        type: boolean
+        required: true
+        compare: true
+      product_qty:
+        source: FromQty
+        formula: "FromQty * 1000"
+        type: decimal
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {decimal_places: 3}
+    relations:
+      product_tmpl_id:
+        kind: many2one
+        source_fields: [ItemId]
+        resolve:
+          dataset: products
+          target_source_fields: [Numéro d'article]
+        required: true
+        required_on_create: true
+        compare: true

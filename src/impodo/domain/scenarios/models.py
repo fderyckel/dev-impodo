@@ -23,6 +23,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
+from impodo.domain.recipe.value_rules import validate_formula
 from impodo.domain.serialization import content_hash
 
 
@@ -115,12 +116,67 @@ def _unique(values: tuple[str, ...], field_name: str) -> tuple[str, ...]:
     return normalized
 
 
+class CombinedDistinctInput(StrictScenarioModel):
+    """Select one source column for a bounded combined lookup table."""
+
+    file: str = Field(min_length=1, max_length=500)
+    field: str = Field(min_length=1, max_length=200)
+    sheet: str | None = Field(default=None, max_length=200)
+    encoding: str = Field(default="utf-8-sig", min_length=1, max_length=100)
+    delimiter: str = Field(default=",", min_length=1, max_length=1)
+    header_row: int = Field(default=1, ge=1, le=1_048_576)
+
+    @model_validator(mode="after")
+    def validate_input(self) -> "CombinedDistinctInput":
+        """Keep every combined input inside the pinned fixture directory."""
+
+        clean = _contained_relative_path(self.file, "combined input file")
+        suffix = PurePosixPath(clean).suffix.casefold()
+        if suffix not in {".csv", ".xlsx"}:
+            raise ValueError("combined input files must use CSV or XLSX")
+        if suffix == ".xlsx":
+            if self.sheet is None or not self.sheet.strip():
+                raise ValueError("combined XLSX inputs require a sheet")
+            if "encoding" in self.model_fields_set or "delimiter" in self.model_fields_set:
+                raise ValueError(
+                    "combined XLSX inputs cannot declare CSV parsing options"
+                )
+        elif self.sheet is not None or self.header_row != 1:
+            raise ValueError(
+                "combined CSV inputs cannot declare a sheet or custom header row"
+            )
+        object.__setattr__(self, "file", clean)
+        return self
+
+
+class CombinedDistinctTable(StrictScenarioModel):
+    """Derive one distinct single-column dataset from reviewed fixture inputs."""
+
+    output_dataset: str = Field(min_length=1, max_length=63)
+    output_field: str = Field(min_length=1, max_length=200)
+    inputs: tuple[CombinedDistinctInput, ...] = Field(min_length=1, max_length=10)
+    formula: str = Field(default="value", min_length=1, max_length=1_000)
+
+    @model_validator(mode="after")
+    def validate_table(self) -> "CombinedDistinctTable":
+        if _SCENARIO_ID.fullmatch(self.output_dataset) is None:
+            raise ValueError("combined output_dataset is invalid")
+        validate_formula(self.formula, allowed_names={"value"})
+        input_keys = tuple(
+            (item.file, item.sheet, item.field) for item in self.inputs
+        )
+        if len(set(input_keys)) != len(input_keys):
+            raise ValueError("combined inputs must be unique")
+        return self
+
+
 class FileScenarioSource(StrictScenarioModel):
     """Refer to one contained, immutable set of CSV or XLSX fixtures."""
 
     mode: Literal[ScenarioSourceMode.FILE] = ScenarioSourceMode.FILE
     fixture_set: str = Field(min_length=1, max_length=500)
     fixture_hash: str
+    combined_distinct_tables: tuple[CombinedDistinctTable, ...] = ()
 
     @model_validator(mode="after")
     def validate_fixture_set(self) -> "FileScenarioSource":
@@ -131,6 +187,11 @@ class FileScenarioSource(StrictScenarioModel):
         )
         if _SHA256.fullmatch(self.fixture_hash) is None:
             raise ValueError("source.fixture_hash must be a SHA-256 content hash")
+        outputs = tuple(
+            item.output_dataset for item in self.combined_distinct_tables
+        )
+        if len(set(outputs)) != len(outputs):
+            raise ValueError("combined output datasets must be unique")
         return self
 
 
@@ -270,6 +331,7 @@ class ScenarioDestination(StrictScenarioModel):
     mode: ScenarioDestinationMode
     target_profile: str = Field(min_length=1, max_length=200)
     expected_seed: str = Field(min_length=1, max_length=200)
+    expected_target_hash: str | None = None
     relevant_modules: tuple[str, ...] = Field(default=("base",), max_length=50)
 
     @model_validator(mode="after")
@@ -278,6 +340,16 @@ class ScenarioDestination(StrictScenarioModel):
             raise ValueError("destination.target_profile is invalid")
         if _REFERENCE.fullmatch(self.expected_seed) is None:
             raise ValueError("destination.expected_seed is invalid")
+        if (
+            self.expected_target_hash is not None
+            and _SHA256.fullmatch(self.expected_target_hash) is None
+        ):
+            raise ValueError("destination.expected_target_hash must be a SHA-256 hash")
+        if (
+            self.mode is ScenarioDestinationMode.REMOTE_ODOO
+            and self.expected_target_hash is None
+        ):
+            raise ValueError("remote scenarios must pin expected_target_hash")
         modules = _unique(self.relevant_modules, "destination.relevant_modules")
         if any(_TECHNICAL_NAME.fullmatch(item) is None for item in modules):
             raise ValueError("destination module name is invalid")
@@ -496,16 +568,45 @@ class ScenarioDefinition(StrictScenarioModel):
 ScenarioScalar = str | int | float | bool | None
 
 
+class TargetProjectionReference(StrictScenarioModel):
+    """Identify one expected many2one target through business fields only."""
+
+    model: str = Field(min_length=1, max_length=200)
+    identity: dict[str, ScenarioScalar] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> "TargetProjectionReference":
+        if (
+            _TECHNICAL_NAME.fullmatch(self.model) is None
+            or any(
+                _TECHNICAL_NAME.fullmatch(name) is None
+                for name in self.identity
+            )
+            or "id" in self.identity
+            or any(value is None for value in self.identity.values())
+            or any(
+                name.endswith(("_id", "_ids")) and type(value) is int
+                for name, value in self.identity.items()
+            )
+        ):
+            raise ValueError("target projection reference is invalid")
+        return self
+
+
 class TargetProjectionRecord(StrictScenarioModel):
     """State independently reviewed scalar values for one business identity."""
 
     model: str = Field(min_length=1, max_length=200)
     identity: dict[str, ScenarioScalar] = Field(min_length=1, max_length=20)
     values: dict[str, ScenarioScalar] = Field(min_length=1, max_length=50)
+    relationships: dict[str, TargetProjectionReference] = Field(
+        default_factory=dict,
+        max_length=20,
+    )
 
     @model_validator(mode="after")
     def validate_record(self) -> "TargetProjectionRecord":
-        fields = {*self.identity, *self.values}
+        fields = {*self.identity, *self.values, *self.relationships}
         if (
             _TECHNICAL_NAME.fullmatch(self.model) is None
             or any(_TECHNICAL_NAME.fullmatch(name) is None for name in fields)
@@ -518,6 +619,14 @@ class TargetProjectionRecord(StrictScenarioModel):
             )
         ):
             raise ValueError("target projection record is invalid")
+        overlap = (
+            set(self.identity).intersection(self.relationships)
+            | set(self.values).intersection(self.relationships)
+        )
+        if overlap:
+            raise ValueError(
+                "target projection relationships must use distinct fields"
+            )
         return self
 
 
@@ -534,6 +643,12 @@ class TargetProjection(StrictScenarioModel):
                 {
                     "model": record.model,
                     "identity": dict(sorted(record.identity.items())),
+                    "relationships": {
+                        name: reference.model_dump(mode="json")
+                        for name, reference in sorted(
+                            record.relationships.items()
+                        )
+                    },
                 }
             )
             for record in self.records

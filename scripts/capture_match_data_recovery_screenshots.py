@@ -16,6 +16,7 @@ import socket
 import sys
 from threading import Thread
 import time
+from types import SimpleNamespace
 from uuid import uuid4
 
 import uvicorn
@@ -181,10 +182,15 @@ def _configure_relational_scope_workspace(
             ),
         )
     )
-    context.sources.sources.save_source_selection(
-        workspace_id,
-        selection,
-        actor=actor,
+    original_mapping_sources = context.queries._mapping_sources
+    context.queries._mapping_sources = SimpleNamespace(
+        get_mapping_source_selection=lambda requested_workspace_id: (
+            selection
+            if requested_workspace_id == workspace_id
+            else original_mapping_sources.get_mapping_source_selection(
+                requested_workspace_id
+            )
+        )
     )
 
     line_model = SchemaModel(
@@ -493,6 +499,7 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             ).locator("xpath=ancestor::div[contains(@class, 'identity-match-row')]")
             expect(relational_row).to_be_visible()
             relational_row.scroll_into_view_if_needed()
+            relational_page.evaluate("window.scrollBy(0, 180)")
             _capture(
                 relational_page,
                 output_directory / "10a-mapping-relational-scope.png",

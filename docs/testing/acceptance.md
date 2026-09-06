@@ -28,15 +28,26 @@ ACL/record-rule matrices, the clean Windows repeat, and sizing beyond the
 current boundary remain pending for later risk profiles.
 
 The current scenario-qualification slice adds a committed offline Contact
-canary and a fake-transport full round-trip integration. The full round trip
-uses the production profile compiler, preparation, preflight, scoped writer,
-execution journal port, reconciliation service, independent target
-projection, and repeat comparison. A controlled lost write response leaves an
-`OUTCOME_UNKNOWN` journal and a second fresh-process attempt performs no
-second write. Live local execution is opt-in and requires a literal-loopback
-Odoo 19 target in the `impodo_scenario_` database namespace. The scenario
+canary and a fake-transport full round-trip integration. A live local Odoo 19
+Contact run and a two-stage Product and bill-of-material run also passed on
+2026-09-04. The Product stage prepared ten rows, created nine, reused the
+existing `g` Unit, reconciled all ten, and repeated as ten unchanged. The line
+stage created and reconciled six rows, then repeated as six unchanged. It
+covered the reviewed Active and Approved rule, the quantity formula, Product
+variant relationships, and `G` and `g` normalization. The trial also found and
+fixed an archived-record mismatch between comparison and the writer's final
+business-key check.
+
+The full round trip uses the production profile compiler, preparation,
+preflight, scoped writer, execution journal port, reconciliation service,
+independent target projection, and repeat comparison. A controlled lost write
+response leaves an `OUTCOME_UNKNOWN` journal and a second fresh-process attempt
+performs no second write. Live local execution is opt-in and requires a
+literal-loopback Odoo 19 target in the `impodo_scenario_` database namespace.
+Remote HTTPS definitions now pin the expected target identity; the edu-ucaps
+definitions validate, but a live remote result remains pending. The scenario
 slice does not yet prove normal Project/Data version/Recipe/workspace creation,
-a headless browser, a remote target, or an Odoo source.
+a headless browser, automatic remote cleanup, or an Odoo source.
 
 ## Validation command
 
@@ -113,7 +124,7 @@ the original source unavailable.
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_source_snapshot`, `test_source_snapshot_io`, `test_project_setup`, `test_source_workflow`, `test_target_workflow`, `test_project_setup_journey` |
 | Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_mapping_workflow`, `test_preparation_workflow`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
 | Profile-driven preflight and practical execution | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_execution_snapshot`, `test_dependency_scheduler`, `test_execution_service`, `test_execution_repository`, `test_dependency_execution_baseline`, `test_preflight_scale`, `test_reporting_cli` |
-| Governed scenario qualification | `test_models`, `test_results`, `test_service`, `test_loader`, `test_cli`, `test_result_writer`, `test_execution_evidence`, `test_committed_canary`, `test_profile_round_trip` under the scenario test packages |
+| Governed scenario qualification | `test_models`, `test_results`, `test_service`, `test_loader`, `test_cli`, `test_result_writer`, `test_execution_evidence`, `test_committed_canary`, `test_profile_round_trip`, `test_source_preparation` under the scenario test packages |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
 

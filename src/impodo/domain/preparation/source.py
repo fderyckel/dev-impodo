@@ -30,6 +30,7 @@ from impodo.domain.recipe.profile import (
     RelationSpec,
     ResolveSpec,
 )
+from impodo.domain.recipe.value_rules import evaluate_formula
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,7 +239,24 @@ def _prepare_row(
 
     scalar_values: dict[str, ScalarValue] = {}
     for target_field, spec in dataset.fields.items():
-        raw_value = row.get(spec.source)
+        try:
+            raw_value = (
+                evaluate_formula(spec.formula, row)
+                if spec.formula.strip()
+                else row.get(spec.source)
+            )
+        except (ArithmeticError, KeyError, TypeError, ValueError):
+            scalar_values[target_field] = None
+            row_issues.append(
+                Issue(
+                    code="SOURCE_FORMULA_INVALID",
+                    message="the reviewed formula could not produce a value",
+                    dataset=dataset.name,
+                    row=row_index,
+                    field=spec.source,
+                )
+            )
+            continue
         if isinstance(raw_value, InvalidPreparedValue):
             scalar_values[target_field] = None
             row_issues.append(

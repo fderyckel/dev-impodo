@@ -28,7 +28,7 @@ from impodo.adapters.scenarios.execution_evidence import (
     write_scenario_execution_snapshot,
 )
 from impodo.adapters.scenarios.loader import LoadedScenario
-from impodo.application.data_version.source_files import prepare_sources
+from impodo.adapters.scenarios.source_preparation import prepare_scenario_sources
 from impodo.application.scenarios import (
     ScenarioComparisonEvidence,
     ScenarioExecutionEvidence,
@@ -57,6 +57,7 @@ from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.scenarios import (
     FileScenarioSource,
     ScenarioDefinition,
+    ScenarioDestinationMode,
     ScenarioFailureStage,
     ScenarioReasonCode,
 )
@@ -116,7 +117,11 @@ class ProfileScenarioWorkflow:
         try:
             profile = load_profile(self._loaded.profile_path)
             plan = compile_profile_document(profile)
-            prepared = prepare_sources(plan, self._loaded.fixture_directory)
+            prepared = prepare_scenario_sources(
+                plan,
+                self._loaded.fixture_directory,
+                definition.source.combined_distinct_tables,
+            )
         except (ProfileLoadError, OSError, ValueError) as exc:
             raise ScenarioWorkflowFailure(
                 ScenarioFailureStage.PREPARATION,
@@ -202,8 +207,11 @@ class ProfileScenarioWorkflow:
             self._write_config is None
             or self._evidence_directory is None
             or self._last_preflight is None
-            or not self._write_config.database.startswith("impodo_scenario_")
-            or self._write_config.connection_mode != "LOCAL"
+            or not _write_target_matches_definition(
+                definition,
+                self._write_config,
+                comparison.target_hash,
+            )
         ):
             raise ScenarioWorkflowFailure(
                 ScenarioFailureStage.TARGET_POLICY,
@@ -366,15 +374,25 @@ class ProfileScenarioWorkflow:
                     record.values.get(field) == value
                     for field, value in expected.identity.items()
                 )
+                and all(
+                    _projection_reference_matches(
+                        record.values.get(field),
+                        reference.model,
+                        reference.identity,
+                        records.records,
+                    )
+                    for field, reference in expected.relationships.items()
+                )
             )
             if len(matches) != 1:
                 differences += 1
                 continue
             actual = matches[0]
-            if all(
+            values_match = all(
                 actual.values.get(field) == value
                 for field, value in expected.values.items()
-            ):
+            )
+            if values_match:
                 verified += 1
             else:
                 differences += 1
@@ -437,3 +455,56 @@ def _stable_preflight_hash(preflight: object) -> str:
     payload["target"] = target
     payload["snapshot_hashes"] = {"metadata": None, "records": None}
     return content_hash(payload)
+
+
+def _write_target_matches_definition(
+    definition: ScenarioDefinition,
+    config: Json2Config,
+    target_hash: str,
+) -> bool:
+    destination = definition.destination
+    if (
+        destination.expected_target_hash is not None
+        and target_hash != destination.expected_target_hash
+    ):
+        return False
+    if destination.mode is ScenarioDestinationMode.LOCAL_ODOO:
+        return (
+            config.connection_mode == "LOCAL"
+            and config.database.startswith("impodo_scenario_")
+        )
+    return (
+        config.connection_mode == "REMOTE"
+        and destination.expected_target_hash is not None
+    )
+
+
+def _projection_reference_matches(
+    value: object,
+    model: str,
+    identity: dict[str, object],
+    records: object,
+) -> bool:
+    """Compare one many2one through its captured business identity."""
+
+    if type(value) is int:
+        record_id = value
+    elif (
+        isinstance(value, (list, tuple))
+        and value
+        and type(value[0]) is int
+    ):
+        record_id = value[0]
+    else:
+        return False
+    model_records = records.get(model, ())
+    matches = tuple(
+        record
+        for record in model_records
+        if record.odoo_id == record_id
+        and all(
+            record.values.get(field) == expected
+            for field, expected in identity.items()
+        )
+    )
+    return len(matches) == 1

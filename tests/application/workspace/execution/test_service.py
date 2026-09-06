@@ -2973,6 +2973,7 @@ class Json2WriteExecutorTests(unittest.TestCase):
             ["|", ["ref", "=", "C1"], ["ref", "=", "C2"]],
         )
         self.assertEqual(calls[0][1]["limit"], 5)
+        self.assertEqual(calls[0][1]["context"]["active_test"], False)
 
     def test_generated_receipt_readback_is_exact_bounded_and_positional(self):
         calls = []
@@ -3018,7 +3019,11 @@ class Json2WriteExecutorTests(unittest.TestCase):
         self.assertEqual(
             calls[0][1],
             {
-                "context": {},
+                "context": {
+                    "active_test": False,
+                    "lang": "en_US",
+                    "tz": "UTC",
+                },
                 "domain": [["id", "in", [41, 42]]],
                 "fields": ["id", "product_variant_id"],
                 "limit": 2,

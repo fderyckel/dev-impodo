@@ -1,6 +1,8 @@
 """Public contracts for deterministic end-to-end qualification scenarios."""
 
 from .models import (
+    CombinedDistinctInput,
+    CombinedDistinctTable,
     ComparisonExpectation,
     FileScenarioSource,
     OdooCaptureModel,
@@ -20,6 +22,7 @@ from .models import (
     ScenarioWritePolicy,
     TargetProjection,
     TargetProjectionRecord,
+    TargetProjectionReference,
 )
 from .results import (
     ScenarioFailureStage,
@@ -30,6 +33,8 @@ from .results import (
 )
 
 __all__ = [
+    "CombinedDistinctInput",
+    "CombinedDistinctTable",
     "ComparisonExpectation",
     "FileScenarioSource",
     "OdooCaptureModel",
@@ -49,6 +54,7 @@ __all__ = [
     "ScenarioWritePolicy",
     "TargetProjection",
     "TargetProjectionRecord",
+    "TargetProjectionReference",
     "ScenarioFailureStage",
     "ScenarioReasonCode",
     "ScenarioRunResult",

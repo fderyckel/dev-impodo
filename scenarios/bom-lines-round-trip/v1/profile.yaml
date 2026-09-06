@@ -1,0 +1,52 @@
+profile:
+  id: scenario_bom_lines_round_trip_v1
+  description: Sanitized BoM-line local-Odoo round trip
+
+datasets:
+  - name: bom_lines
+    source:
+      file: DEMO_BOM.xlsx
+      sheet: Sheet1
+    target:
+      model: mrp.bom.line
+      mode: upsert
+    source_identity:
+      fields: [BOMId, Position]
+    target_identity:
+      components:
+        - source_fields: [BOMId]
+          target_fields: [bom_id]
+          resolve:
+            target_model: mrp.bom
+            target_fields: [code]
+        - source_fields: [Position]
+          target_fields: [sequence]
+          type: integer
+    fields:
+      product_qty:
+        source: BOMQty
+        formula: "BOMQty / BOMQtySerie * 1000"
+        type: decimal
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {decimal_places: 3}
+    relations:
+      bom_id:
+        kind: many2one
+        source_fields: [BOMId]
+        resolve:
+          target_model: mrp.bom
+          target_fields: [code]
+        required: true
+        required_on_create: true
+        compare: true
+      product_id:
+        kind: many2one
+        source_fields: [ItemId]
+        resolve:
+          target_model: product.product
+          target_fields: [default_code]
+        required: true
+        required_on_create: true
+        compare: true

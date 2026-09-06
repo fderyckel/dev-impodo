@@ -1,0 +1,85 @@
+{
+  "contract_version": 1,
+  "records": [
+    {
+      "model": "uom.uom",
+      "identity": {"name": "PCE"},
+      "values": {"active": true}
+    },
+    {
+      "model": "uom.uom",
+      "identity": {"name": "g"},
+      "values": {"active": true}
+    },
+    {
+      "model": "product.template",
+      "identity": {"default_code": "DEMO-CAP-BLUE"},
+      "values": {"name": "Demo Blue 26 mm Cap", "active": true},
+      "relationships": {
+        "uom_id": {"model": "uom.uom", "identity": {"name": "PCE"}}
+      }
+    },
+    {
+      "model": "product.template",
+      "identity": {"default_code": "DEMO-CAP-WHITE"},
+      "values": {"name": "Demo White 26 mm Cap", "active": true},
+      "relationships": {
+        "uom_id": {"model": "uom.uom", "identity": {"name": "PCE"}}
+      }
+    },
+    {
+      "model": "product.template",
+      "identity": {"default_code": "DEMO-RESIN-HDPE"},
+      "values": {"name": "Demo HDPE Resin", "active": true},
+      "relationships": {
+        "uom_id": {"model": "uom.uom", "identity": {"name": "g"}}
+      }
+    },
+    {
+      "model": "product.template",
+      "identity": {"default_code": "DEMO-COLOR-BLUE"},
+      "values": {"name": "Demo Blue Colorant", "active": true},
+      "relationships": {
+        "uom_id": {"model": "uom.uom", "identity": {"name": "g"}}
+      }
+    },
+    {
+      "model": "product.template",
+      "identity": {"default_code": "DEMO-LINER-A"},
+      "values": {"name": "Demo Liner A", "active": true},
+      "relationships": {
+        "uom_id": {"model": "uom.uom", "identity": {"name": "PCE"}}
+      }
+    },
+    {
+      "model": "product.template",
+      "identity": {"default_code": "DEMO-LINER-B"},
+      "values": {"name": "Demo Liner B", "active": true},
+      "relationships": {
+        "uom_id": {"model": "uom.uom", "identity": {"name": "PCE"}}
+      }
+    },
+    {
+      "model": "mrp.bom",
+      "identity": {"code": "DEMO-BOM-BLUE"},
+      "values": {"active": true, "product_qty": 1000.0},
+      "relationships": {
+        "product_tmpl_id": {
+          "model": "product.template",
+          "identity": {"default_code": "DEMO-CAP-BLUE"}
+        }
+      }
+    },
+    {
+      "model": "mrp.bom",
+      "identity": {"code": "DEMO-BOM-WHITE"},
+      "values": {"active": false, "product_qty": 1000.0},
+      "relationships": {
+        "product_tmpl_id": {
+          "model": "product.template",
+          "identity": {"default_code": "DEMO-CAP-WHITE"}
+        }
+      }
+    }
+  ]
+}

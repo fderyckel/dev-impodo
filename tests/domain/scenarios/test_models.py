@@ -85,6 +85,52 @@ class ScenarioDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "contained relative path"):
             ScenarioDefinition.model_validate(value)
 
+    def test_file_scenario_accepts_combined_distinct_source_table(self) -> None:
+        value = _definition()
+        source = dict(value["source"])
+        source["combined_distinct_tables"] = [
+            {
+                "output_dataset": "uoms",
+                "output_field": "UnitId",
+                "formula": "'g' if lower(value) == 'g' else upper(value)",
+                "inputs": [
+                    {
+                        "file": "DEMO_Article.xlsx",
+                        "sheet": "PLW",
+                        "field": "UnitId",
+                    },
+                    {
+                        "file": "DEMO_BOM.xlsx",
+                        "sheet": "Sheet1",
+                        "field": "UnitId",
+                    },
+                ],
+            }
+        ]
+        value["source"] = source
+
+        definition = ScenarioDefinition.model_validate(value)
+
+        combined = definition.source.combined_distinct_tables[0]
+        self.assertEqual(combined.output_dataset, "uoms")
+        self.assertEqual(len(combined.inputs), 2)
+
+    def test_combined_distinct_source_rejects_unsafe_formula(self) -> None:
+        value = _definition()
+        source = dict(value["source"])
+        source["combined_distinct_tables"] = [
+            {
+                "output_dataset": "uoms",
+                "output_field": "UnitId",
+                "formula": "__import__('os')",
+                "inputs": [{"file": "uoms.csv", "field": "UnitId"}],
+            }
+        ]
+        value["source"] = source
+
+        with self.assertRaisesRegex(ValidationError, "unknown value"):
+            ScenarioDefinition.model_validate(value)
+
     def test_read_only_scenario_cannot_request_reconciliation(self) -> None:
         value = _definition()
         value["execution"] = {
@@ -97,6 +143,23 @@ class ScenarioDefinitionTests(unittest.TestCase):
             "requires DISPOSABLE_SCENARIO_ONLY",
         ):
             ScenarioDefinition.model_validate(value)
+
+    def test_remote_scenario_requires_pinned_target_identity(self) -> None:
+        value = _definition()
+        destination = dict(value["destination"])
+        destination["mode"] = "REMOTE_ODOO"
+        value["destination"] = destination
+
+        with self.assertRaisesRegex(ValidationError, "expected_target_hash"):
+            ScenarioDefinition.model_validate(value)
+
+        destination["expected_target_hash"] = "sha256:" + "4" * 64
+        definition = ScenarioDefinition.model_validate(value)
+
+        self.assertEqual(
+            definition.destination.expected_target_hash,
+            "sha256:" + "4" * 64,
+        )
 
     def test_write_scenario_requires_independent_target_projection(self) -> None:
         value = _definition()
@@ -144,6 +207,55 @@ class ScenarioDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "identities must be unique"):
             TargetProjection.model_validate(
                 {"contract_version": 1, "records": [record, record]}
+            )
+
+    def test_target_projection_accepts_business_relationship_reference(self) -> None:
+        projection = TargetProjection.model_validate(
+            {
+                "contract_version": 1,
+                "records": [
+                    {
+                        "model": "mrp.bom.line",
+                        "identity": {"sequence": 10},
+                        "values": {"product_qty": 2950.0},
+                        "relationships": {
+                            "product_id": {
+                                "model": "product.product",
+                                "identity": {"default_code": "COMPONENT-001"},
+                            }
+                        },
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(
+            projection.records[0].relationships["product_id"].model,
+            "product.product",
+        )
+
+    def test_target_projection_relationship_rejects_database_id(self) -> None:
+        with self.assertRaisesRegex(
+            ValidationError,
+            "projection reference is invalid",
+        ):
+            TargetProjection.model_validate(
+                {
+                    "contract_version": 1,
+                    "records": [
+                        {
+                            "model": "mrp.bom.line",
+                            "identity": {"sequence": 10},
+                            "values": {"product_qty": 1.0},
+                            "relationships": {
+                                "product_id": {
+                                    "model": "product.product",
+                                    "identity": {"id": 42},
+                                }
+                            },
+                        }
+                    ],
+                }
             )
 
     def test_expected_block_is_read_only_and_contains_blockers(self) -> None:

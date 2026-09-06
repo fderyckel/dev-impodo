@@ -1,0 +1,58 @@
+contract_version: 1
+scenario_id: product-bom-headers-remote-round-trip-v1
+purpose: RELEASE_QUALIFICATION
+
+source:
+  mode: FILE
+  fixture_set: fixtures
+  fixture_hash: sha256:c389a76f8b82c7bb4bd18a5b5822198e9bea5c52ee52f4977627ca83bc629698
+  combined_distinct_tables:
+    - output_dataset: uoms
+      output_field: UnitId
+      formula: "'g' if lower(value) == 'g' else upper(value)"
+      inputs:
+        - file: DEMO_Article.xlsx
+          sheet: PLW
+          field: UnitId
+        - file: DEMO_BOM.xlsx
+          sheet: Sheet1
+          field: UnitId
+
+rules:
+  profile: profile.yaml
+  profile_hash: sha256:51c7e146f031294169d3c3e0f08e578ab25a816019eb693f67096092361ed910
+
+destination:
+  mode: REMOTE_ODOO
+  target_profile: remote.edu_ucaps.manufacturing
+  expected_seed: edu-ucaps-existing-pce-no-demo-records
+  expected_target_hash: sha256:441e0f2aafc5b7692928b0651ab020aff1b67d4bb3a7f9c1b5c31cacbd5d96c0
+  relevant_modules: [base, uom, product, mrp]
+
+execution:
+  stop_after: REPEAT_COMPARISON
+  write_policy: DISPOSABLE_SCENARIO_ONLY
+  create_batch_rows: 10
+
+expectations:
+  expected_outcome: PASS
+  target_projection: expected-target.json
+  target_projection_hash: sha256:663ce535ef7d9762f63fc18d013ca628dec558f545319f4d8f661963f530005e
+  prepared_rows: 10
+  source_issues: 0
+  first_comparison:
+    create: 8
+    update: 0
+    unchanged: 2
+    blocked: 0
+    ambiguous: 0
+  reconciliation:
+    verified: 10
+    fallout: 0
+    outcome_unknown: 0
+  repeat_comparison:
+    create: 0
+    update: 0
+    unchanged: 10
+    blocked: 0
+    ambiguous: 0

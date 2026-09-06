@@ -131,14 +131,14 @@ def build_parser() -> argparse.ArgumentParser:
     scenario_validate_parser.add_argument("--definition", required=True)
     scenario_run_parser = scenario_subparsers.add_parser(
         "run",
-        help="run governed comparison or a confirmed local disposable round trip",
+        help="run governed comparison or a confirmed disposable round trip",
     )
     scenario_run_parser.add_argument("--definition", required=True)
     scenario_run_parser.add_argument(
         "--connector",
         choices=("snapshot", "json2"),
         required=True,
-        help="offline read fixture or live local Odoo JSON-2",
+        help="offline read fixture or live Odoo JSON-2",
     )
     scenario_run_parser.add_argument(
         "--snapshot",
@@ -147,11 +147,11 @@ def build_parser() -> argparse.ArgumentParser:
     scenario_run_parser.add_argument(
         "--base-url",
         default="http://127.0.0.1:8069",
-        help="literal-loopback Odoo URL used with --connector json2",
+        help="Odoo URL used with --connector json2",
     )
     scenario_run_parser.add_argument(
         "--database",
-        help="disposable impodo_scenario_* database used with --connector json2",
+        help="disposable database used with --connector json2",
     )
     scenario_run_parser.add_argument(
         "--api-key-file",
@@ -279,20 +279,21 @@ def _scenario_run_command(arguments: argparse.Namespace) -> int:
         connector = SnapshotConnector(combined_path=arguments.snapshot)
     else:
         definition = loaded.definition
-        if definition.destination.mode is not ScenarioDestinationMode.LOCAL_ODOO:
-            raise ValueError("the first live scenario runner supports LOCAL_ODOO only")
-        if not arguments.database or not arguments.database.startswith(
-            "impodo_scenario_"
-        ):
+        if not arguments.database:
+            raise ValueError("--database is required with --connector json2")
+        local_destination = (
+            definition.destination.mode is ScenarioDestinationMode.LOCAL_ODOO
+        )
+        if local_destination and not arguments.database.startswith("impodo_scenario_"):
             raise ValueError(
-                "live scenarios accept only an impodo_scenario_* disposable database"
+                "local live scenarios accept only an impodo_scenario_* database"
             )
         api_key = _read_scenario_api_key(arguments.api_key_file)
         config = Json2Config(
             base_url=arguments.base_url.rstrip("/"),
             database=arguments.database,
             api_key=api_key,
-            connection_mode="LOCAL",
+            connection_mode=("LOCAL" if local_destination else "REMOTE"),
             relevant_modules=definition.destination.relevant_modules,
         )
         def connector_factory() -> Json2ReadConnector:

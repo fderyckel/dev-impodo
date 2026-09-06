@@ -18,7 +18,12 @@ from typing import Any, Mapping, Sequence
 from urllib.error import URLError
 from urllib.parse import quote
 
-from impodo.adapters.odoo.connectors import Json2Config, Transport, _urllib_transport
+from impodo.adapters.odoo.connectors import (
+    Json2Config,
+    Transport,
+    _urllib_transport,
+    target_record_read_context,
+)
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
@@ -79,7 +84,7 @@ class Json2WriteExecutor:
                 "fields": ["id"],
                 "limit": 2,
                 "order": "id asc",
-                "context": dict(self.config.context),
+                "context": target_record_read_context(self.config.context),
             },
             write=False,
         )
@@ -137,7 +142,7 @@ class Json2WriteExecutor:
                 "fields": ["id", *fields],
                 "limit": (2 * len(normalized)) + 1,
                 "order": "id asc",
-                "context": dict(self.config.context),
+                "context": target_record_read_context(self.config.context),
             },
             write=False,
         )
@@ -321,7 +326,7 @@ class Json2WriteExecutor:
                 "fields": ["id", projection_field],
                 "limit": len(requested),
                 "order": "id asc",
-                "context": dict(self.config.context),
+                "context": target_record_read_context(self.config.context),
             },
             write=False,
         )

@@ -12,8 +12,12 @@ from impodo.adapters.odoo.connectors import (
     target_record_read_config,
 )
 from impodo.adapters.scenarios import ProfileScenarioWorkflow, load_scenario
+from impodo.adapters.scenarios.profile_workflow import (
+    _write_target_matches_definition,
+)
 from impodo.application.scenarios import ScenarioRunner
-from impodo.domain.scenarios import ScenarioRunStatus
+from impodo.domain.scenarios import ScenarioDestination, ScenarioRunStatus
+from impodo.domain.shared.models import target_identity_hash
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -185,6 +189,42 @@ class ProfileScenarioRoundTripTests(unittest.TestCase):
             (self.root / "execution-journal.json").read_text(encoding="utf-8")
         )
         self.assertEqual(journal["status"], "OUTCOME_UNKNOWN")
+
+    def test_remote_write_requires_the_pinned_target_identity(self) -> None:
+        loaded = load_scenario(SCENARIO)
+        target_hash = target_identity_hash(
+            connection_mode="REMOTE",
+            base_url="https://edu-ucaps.odoo.com",
+            database="edu-ucaps",
+        )
+        destination = ScenarioDestination.model_validate(
+            {
+                "mode": "REMOTE_ODOO",
+                "target_profile": "remote.edu_ucaps",
+                "expected_seed": "known-disposable-state",
+                "expected_target_hash": target_hash,
+            }
+        )
+        definition = loaded.definition.model_copy(
+            update={"destination": destination}
+        )
+        config = Json2Config(
+            base_url="https://edu-ucaps.odoo.com",
+            database="edu-ucaps",
+            api_key="not-logged-test-key",
+            connection_mode="REMOTE",
+        )
+
+        self.assertTrue(
+            _write_target_matches_definition(definition, config, target_hash)
+        )
+        self.assertFalse(
+            _write_target_matches_definition(
+                definition,
+                config,
+                "sha256:" + "0" * 64,
+            )
+        )
 
 
 if __name__ == "__main__":

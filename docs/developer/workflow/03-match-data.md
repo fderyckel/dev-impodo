@@ -552,7 +552,8 @@ protected-evidence read authority.
 ## Verification
 
 `capture_match_data_recovery_screenshots.py::capture` creates isolated
-fictional Contact and order-line workspaces, serves the current authenticated application on
+fictional Contact and order-line workspaces, serves the current authenticated
+application on
 an ephemeral loopback port, and drives the installed Edge browser at 1440 by
 1024 CSS pixels with device scale factor 1. It captures the relational identity
 origin and incoming-parent controls, the guided combined-source-column

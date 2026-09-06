@@ -1,0 +1,59 @@
+{
+  "contract_version": 1,
+  "records": [
+    {
+      "model": "mrp.bom.line",
+      "identity": {"sequence": 10},
+      "values": {"product_qty": 2950.0},
+      "relationships": {
+        "bom_id": {"model": "mrp.bom", "identity": {"code": "DEMO-BOM-BLUE"}},
+        "product_id": {"model": "product.product", "identity": {"default_code": "DEMO-RESIN-HDPE"}}
+      }
+    },
+    {
+      "model": "mrp.bom.line",
+      "identity": {"sequence": 20},
+      "values": {"product_qty": 50.0},
+      "relationships": {
+        "bom_id": {"model": "mrp.bom", "identity": {"code": "DEMO-BOM-BLUE"}},
+        "product_id": {"model": "product.product", "identity": {"default_code": "DEMO-COLOR-BLUE"}}
+      }
+    },
+    {
+      "model": "mrp.bom.line",
+      "identity": {"sequence": 30},
+      "values": {"product_qty": 1000.0},
+      "relationships": {
+        "bom_id": {"model": "mrp.bom", "identity": {"code": "DEMO-BOM-BLUE"}},
+        "product_id": {"model": "product.product", "identity": {"default_code": "DEMO-LINER-A"}}
+      }
+    },
+    {
+      "model": "mrp.bom.line",
+      "identity": {"sequence": 10},
+      "values": {"product_qty": 2900.0},
+      "relationships": {
+        "bom_id": {"model": "mrp.bom", "identity": {"code": "DEMO-BOM-WHITE"}},
+        "product_id": {"model": "product.product", "identity": {"default_code": "DEMO-RESIN-HDPE"}}
+      }
+    },
+    {
+      "model": "mrp.bom.line",
+      "identity": {"sequence": 20},
+      "values": {"product_qty": 40.0},
+      "relationships": {
+        "bom_id": {"model": "mrp.bom", "identity": {"code": "DEMO-BOM-WHITE"}},
+        "product_id": {"model": "product.product", "identity": {"default_code": "DEMO-COLOR-BLUE"}}
+      }
+    },
+    {
+      "model": "mrp.bom.line",
+      "identity": {"sequence": 30},
+      "values": {"product_qty": 1000.0},
+      "relationships": {
+        "bom_id": {"model": "mrp.bom", "identity": {"code": "DEMO-BOM-WHITE"}},
+        "product_id": {"model": "product.product", "identity": {"default_code": "DEMO-LINER-B"}}
+      }
+    }
+  ]
+}

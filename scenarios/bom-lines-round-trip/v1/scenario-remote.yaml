@@ -1,0 +1,47 @@
+contract_version: 1
+scenario_id: bom-lines-remote-round-trip-v1
+purpose: RELEASE_QUALIFICATION
+
+source:
+  mode: FILE
+  fixture_set: fixtures
+  fixture_hash: sha256:b75a3020e1e5bcbd25a8a56b6f8feafecabbc6b61d2ef93ef52b56e655efc8ee
+
+rules:
+  profile: profile.yaml
+  profile_hash: sha256:d27af235f033bd573c933c47b7a2e026f2c784af730366f2c1ad155f60b9e300
+
+destination:
+  mode: REMOTE_ODOO
+  target_profile: remote.edu_ucaps.manufacturing
+  expected_seed: product-bom-headers-remote-round-trip-v1
+  expected_target_hash: sha256:441e0f2aafc5b7692928b0651ab020aff1b67d4bb3a7f9c1b5c31cacbd5d96c0
+  relevant_modules: [base, uom, product, mrp]
+
+execution:
+  stop_after: REPEAT_COMPARISON
+  write_policy: DISPOSABLE_SCENARIO_ONLY
+  create_batch_rows: 10
+
+expectations:
+  expected_outcome: PASS
+  target_projection: expected-target.json
+  target_projection_hash: sha256:a8bf9c961c3e7e83fc794f6bf7d7f6c4dff19d8c3ac9b609cecc5effd9784566
+  prepared_rows: 6
+  source_issues: 0
+  first_comparison:
+    create: 6
+    update: 0
+    unchanged: 0
+    blocked: 0
+    ambiguous: 0
+  reconciliation:
+    verified: 6
+    fallout: 0
+    outcome_unknown: 0
+  repeat_comparison:
+    create: 0
+    update: 0
+    unchanged: 6
+    blocked: 0
+    ambiguous: 0

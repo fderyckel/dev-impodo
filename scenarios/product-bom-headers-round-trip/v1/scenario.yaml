@@ -1,0 +1,57 @@
+contract_version: 1
+scenario_id: product-bom-headers-round-trip-v1
+purpose: RELEASE_QUALIFICATION
+
+source:
+  mode: FILE
+  fixture_set: fixtures
+  fixture_hash: sha256:c389a76f8b82c7bb4bd18a5b5822198e9bea5c52ee52f4977627ca83bc629698
+  combined_distinct_tables:
+    - output_dataset: uoms
+      output_field: UnitId
+      formula: "'g' if lower(value) == 'g' else upper(value)"
+      inputs:
+        - file: DEMO_Article.xlsx
+          sheet: PLW
+          field: UnitId
+        - file: DEMO_BOM.xlsx
+          sheet: Sheet1
+          field: UnitId
+
+rules:
+  profile: profile.yaml
+  profile_hash: sha256:51c7e146f031294169d3c3e0f08e578ab25a816019eb693f67096092361ed910
+
+destination:
+  mode: LOCAL_ODOO
+  target_profile: local.manufacturing
+  expected_seed: standard-uom-without-scenario-pce
+  relevant_modules: [base, uom, product, mrp]
+
+execution:
+  stop_after: REPEAT_COMPARISON
+  write_policy: DISPOSABLE_SCENARIO_ONLY
+  create_batch_rows: 10
+
+expectations:
+  expected_outcome: PASS
+  target_projection: expected-target.json
+  target_projection_hash: sha256:663ce535ef7d9762f63fc18d013ca628dec558f545319f4d8f661963f530005e
+  prepared_rows: 10
+  source_issues: 0
+  first_comparison:
+    create: 9
+    update: 0
+    unchanged: 1
+    blocked: 0
+    ambiguous: 0
+  reconciliation:
+    verified: 10
+    fallout: 0
+    outcome_unknown: 0
+  repeat_comparison:
+    create: 0
+    update: 0
+    unchanged: 10
+    blocked: 0
+    ambiguous: 0

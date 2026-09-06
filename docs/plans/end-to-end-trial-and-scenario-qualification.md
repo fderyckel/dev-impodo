@@ -24,21 +24,28 @@ contract, `impodo-cli scenario validate`, and `impodo-cli scenario run`.
 The committed offline Contact canary runs the production profile compiler,
 source preparation, request planning, snapshot adapter, and comparison engine.
 
-An explicitly confirmed Contact scenario can also write to a literal-loopback
-Odoo 19 database in the `impodo_scenario_` namespace. It performs a fresh
-pre-write comparison, retains the execution snapshot and journal before
-transport, calls the existing scoped writer and reconciliation service,
-asserts an independent target projection, and requires the expected repeat
+Explicitly confirmed Contact, Product, and bill-of-material scenarios can
+write to a literal-loopback Odoo 19 database in the `impodo_scenario_`
+namespace. They perform a fresh
+pre-write comparison, retain the execution snapshot and journal before
+transport, call the existing scoped writer and reconciliation service,
+assert an independent target projection, and require the expected repeat
 comparison. A lost-response integration proves that retained evidence blocks
-a blind second write.
+a blind second write. The Product scenario derives a distinct Unit dataset
+from Product and bill-of-material fixtures, normalizes `G` and `g` to `g`, and
+creates a missing `PCE` through the normal migration path.
+
+The runner now accepts remote HTTPS definitions when they pin the exact target
+identity hash. The edu-ucaps Product and bill-of-material definitions are
+registered and validate without credentials. They have not yet completed a
+live remote run, so remote acceptance evidence remains pending.
 
 This current slice remains profile-driven and does not yet create the normal
 Project, Data version, Recipe application, or workspace records. Target
-provisioning and independent seed attestation, automatic recovery entry,
-Product and bill-of-material fixtures, a real browser journey, remote targets,
-bounded Odoo-source capture scenarios, Odoo-to-Odoo scenario qualification,
-and scheduling remain planned. Phase 1 therefore has not reached its full
-exit criteria.
+provisioning and independent seed attestation, automatic recovery entry, a
+real browser journey, automatic remote cleanup, bounded Odoo-source capture
+scenarios, Odoo-to-Odoo scenario qualification, and scheduling remain
+planned. Phase 1 therefore has not reached its full exit criteria.
 
 ## Why this is the right capability
 

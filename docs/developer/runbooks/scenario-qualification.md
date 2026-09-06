@@ -14,8 +14,11 @@ slice. It can:
 - validate a versioned YAML definition and every contained fixture, profile,
   and target projection without reading a credential or contacting Odoo;
 - run source preparation and first comparison against a saved snapshot or a
-  live Odoo database on literal loopback;
-- run an explicitly confirmed Contact file-to-local-Odoo write through the
+  live local or remote Odoo database;
+- combine reviewed fixture columns into one normalized, distinct source
+  lookup dataset before mapping;
+- run explicitly confirmed Contact, Product, and bill-of-material
+  file-to-local-Odoo writes through the
   existing `ExecutionService`, scoped `Json2WriteExecutor`, and
   `ReconciliationService`;
 - assert reviewed preparation, comparison, reconciliation, independent target
@@ -24,11 +27,15 @@ slice. It can:
   private evidence directory while emitting a separate count-and-hash-only
   result.
 
+Remote HTTPS execution is implemented and requires the definition to pin the
+exact non-secret target identity hash. The committed edu-ucaps definitions
+have passed definition validation but do not yet have a retained live result.
+
 This is not yet the whole browser journey. It does not create the normal
 Project, Data version, Recipe application, or workspace records. It also does
 not yet provision or reset Odoo, attest a seed fingerprint independently,
-capture an Odoo source, run against remote Odoo, schedule a catalogue, or
-drive a real browser. Those remain in the phased
+capture an Odoo source, schedule a catalogue, clean a remote target
+automatically, or drive a real browser. Those remain in the phased
 [end-to-end scenario plan](../../plans/end-to-end-trial-and-scenario-qualification.md).
 
 ## Validate before access
@@ -91,6 +98,54 @@ and requires the reviewed comparison meaning to remain unchanged. The writer
 then journals each transport batch before sending it. If a response is lost,
 the compact result is `UNSAFE_TO_CONTINUE`; the journal remains, and another
 run using that evidence directory cannot blindly issue the write again.
+
+## Run the local Product and bill-of-material round trip
+
+Use a disposable Odoo 19 database with Manufacturing installed. The first
+scenario derives the `uoms` dataset from the Unit columns in the Product and
+bill-of-material fixtures. It creates `PCE` through the normal execution path
+when the target does not contain it and reuses the standard `g` Unit.
+
+```powershell
+impodo-cli scenario run `
+  --definition .\scenarios\product-bom-headers-round-trip\v1\scenario.yaml `
+  --connector json2 `
+  --base-url http://127.0.0.1:8069 `
+  --database impodo_scenario_product_bom_001 `
+  --api-key-file C:\private\impodo-scenario.key `
+  --evidence-dir .\.tmp\scenario-evidence\product-bom-headers-001 `
+  --output .\.tmp\scenario-results\product-bom-headers-001.json `
+  --confirm-disposable-write product-bom-headers-round-trip-v1
+
+impodo-cli scenario run `
+  --definition .\scenarios\bom-lines-round-trip\v1\scenario.yaml `
+  --connector json2 `
+  --base-url http://127.0.0.1:8069 `
+  --database impodo_scenario_product_bom_001 `
+  --api-key-file C:\private\impodo-scenario.key `
+  --evidence-dir .\.tmp\scenario-evidence\bom-lines-001 `
+  --output .\.tmp\scenario-results\bom-lines-001.json `
+  --confirm-disposable-write bom-lines-round-trip-v1
+```
+
+The two stages are intentional. Odoo creates each `product.product` variant
+from its `product.template`; the second scenario then resolves those variants
+by business key. Writer identity rechecks use `active_test=False`, so an
+inactive bill of material remains resolvable during execution.
+
+## Remote target boundary
+
+A remote scenario uses the same command with an HTTPS URL and its actual Odoo
+database name. `destination.expected_target_hash` must match that exact mode,
+URL, and database. The ordinary compact result still omits the URL, database
+identity details, API key, and Odoo record IDs.
+
+The current runner does not remove remote records. Before a live remote trial,
+prepare a reviewed cleanup operation that is limited to IDs created in the two
+execution journals. Delete child bill-of-material lines before headers and
+Products, then verify that no scenario business key or generated External ID
+remains. Do not delete an existing `PCE` or `g` Unit that compared as
+unchanged.
 
 ## Evidence and exit codes
 

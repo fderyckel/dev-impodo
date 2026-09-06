@@ -25,7 +25,7 @@ from impodo.web.presenters.mapping_forms import (
     _mapping_datasets_from_form,
     _text_steps_from_form,
 )
-from impodo.web.presenters.mapping_view import _is_phone_field
+from impodo.web.presenters.mapping_view import _is_phone_field, _mapping_dataset_views
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
@@ -149,6 +149,55 @@ class OrderedTextStepFormTests(unittest.TestCase):
             tuple(item.target_field for item in scope.resolver.key_mappings),
             ("name",),
         )
+        views = _mapping_dataset_views(
+            selection,
+            schema,
+            SimpleNamespace(business_keys=(order_key, line_key)),
+            datasets,
+            selected_models={0: "sale.order", 1: "sale.order.line"},
+        )
+        scope_row = views[1]["identity_rows"][1]
+        self.assertEqual(scope_row["selected_origin"], "target_then_dataset")
+        self.assertEqual(scope_row["selected_dataset_id"], "dataset:orders")
+        self.assertEqual(
+            [item.dataset_id for item in scope_row["related_datasets"]],
+            ["dataset:orders"],
+        )
+
+        identity_origin_field = "identity_origin_1_1"
+        identity_dataset_field = "identity_dataset_1_1"
+        base_items = [
+            (name, value)
+            for name, value in form.multi_items()
+            if name not in {identity_origin_field, identity_dataset_field}
+        ]
+        target_only = _mapping_datasets_from_form(
+            FormData(base_items),
+            selection,
+            schema,
+            SimpleNamespace(business_keys=(order_key, line_key)),
+        )[1].target_scope[0].resolver
+        assert target_only is not None
+        self.assertIs(target_only.origin, ResolverOrigin.TARGET_CATALOG)
+        self.assertIsNone(target_only.dataset_id)
+
+        incoming_only = _mapping_datasets_from_form(
+            FormData(
+                (
+                    *base_items,
+                    (identity_origin_field, "dataset"),
+                    (identity_dataset_field, "dataset:orders"),
+                )
+            ),
+            selection,
+            schema,
+            SimpleNamespace(business_keys=(order_key, line_key)),
+        )[1].target_scope[0].resolver
+        assert incoming_only is not None
+        self.assertIs(incoming_only.origin, ResolverOrigin.DATASET)
+        self.assertEqual(incoming_only.dataset_id, "dataset:orders")
+        self.assertIsNone(incoming_only.model)
+        self.assertEqual(incoming_only.key_mappings, ())
 
     def test_mapping_form_builds_constant_existing_many2one_without_source(self) -> None:
         source = SourceDataset(
