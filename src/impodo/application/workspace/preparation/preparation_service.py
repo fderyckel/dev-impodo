@@ -87,6 +87,7 @@ from .normalization_service import NormalizationService
 from .preparation_capability import compile_preparation_capability
 from .quality_service import QualityService
 from .resolution_service import ResolutionService
+from .timing import PreparationTimingReporter, timed_preparation_stage
 from .readiness_ports import (
     PreparationDerivedRepository,
     PreparationMappingRepository,
@@ -144,6 +145,7 @@ class PreparationService:
         actor: Actor,
         progress: Callable[[PreparationPhase, int, int, str], None] | None = None,
         cancellation_checkpoint: Callable[[], None] | None = None,
+        timing: PreparationTimingReporter | None = None,
     ) -> NormalizationRunSummary:
         """Prepare every frozen row for review without contacting Odoo.
 
@@ -343,15 +345,16 @@ class PreparationService:
             effective = None
             resolution_summary = None
             if self.resolution is not None:
-                effective, resolution_summary = (
-                    self.resolution.evaluate_for_preparation(
-                        workspace_id,
-                        canonical_run,
-                        staging_run_id=staging.run_id,
-                        staging_content_hash=staging.content_hash,
-                        actor=actor,
+                with timed_preparation_stage(timing, "resolution_evaluation"):
+                    effective, resolution_summary = (
+                        self.resolution.evaluate_for_preparation(
+                            workspace_id,
+                            canonical_run,
+                            staging_run_id=staging.run_id,
+                            staging_content_hash=staging.content_hash,
+                            actor=actor,
+                        )
                     )
-                )
             report_progress(
                 PreparationPhase.QUALITY,
                 total_rows,
@@ -376,6 +379,7 @@ class PreparationService:
                 allow_materialized_fallback=(
                     capability.permits_materialized_fallback
                 ),
+                timing=timing,
             )
             report_progress(
                 PreparationPhase.NORMALIZING,
@@ -398,6 +402,7 @@ class PreparationService:
                 allow_materialized_fallback=(
                     capability.permits_materialized_fallback
                 ),
+                timing=timing,
             )
             if bounded_session_id is not None:
                 self.sessions.mark_published(workspace_id, bounded_session_id)

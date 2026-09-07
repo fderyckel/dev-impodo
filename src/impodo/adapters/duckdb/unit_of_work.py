@@ -16,6 +16,7 @@ from typing import Callable, Iterator
 import duckdb
 
 from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
+from .request_timing import record_duckdb_connection_timing
 
 
 DUCKDB_CONFIG = {
@@ -93,10 +94,19 @@ class DuckDbConnectionFactory:
     ) -> duckdb.DuckDBPyConnection:
         """Wait only for a transient cross-process DuckDB file lock."""
 
+        started = time.perf_counter()
+        lock_wait_seconds = 0.0
+        lock_retry_count = 0
         deadline = time.monotonic() + self.lock_wait_timeout_seconds
         while True:
             try:
-                return duckdb.connect(str(path), config=config)
+                connection = duckdb.connect(str(path), config=config)
+                record_duckdb_connection_timing(
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    lock_wait_ms=lock_wait_seconds * 1000,
+                    lock_retry_count=lock_retry_count,
+                )
+                return connection
             except duckdb.IOException as error:
                 if not _is_lock_contention(error):
                     raise
@@ -105,7 +115,10 @@ class DuckDbConnectionFactory:
                     raise WorkspaceDatabaseBusyError(
                         _DATABASE_BUSY_MESSAGE
                     ) from error
-                time.sleep(min(self.lock_retry_interval_seconds, remaining))
+                wait_seconds = min(self.lock_retry_interval_seconds, remaining)
+                time.sleep(wait_seconds)
+                lock_wait_seconds += wait_seconds
+                lock_retry_count += 1
 
 
 def _is_lock_contention(error: duckdb.IOException) -> bool:

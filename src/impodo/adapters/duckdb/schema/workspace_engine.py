@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+
 import duckdb
 
 from impodo.domain.workspace.workbench import WorkspaceStateCompatibilityError
+from ..request_timing import record_duckdb_schema_timing
 from ..constants import (
     SCHEMA_BASELINE_VERSION,
     SCHEMA_GENERATION,
@@ -768,6 +771,7 @@ class WorkspaceEngineSchemaMixin:
     ) -> None:
         """Upgrade the recognized generation, then require its exact schema."""
 
+        started = perf_counter()
         try:
             ensure_current_schema(
                 connection,
@@ -788,6 +792,10 @@ class WorkspaceEngineSchemaMixin:
             raise WorkspaceStateCompatibilityError(
                 _UNSUPPORTED_WORKSPACE_MESSAGE
             ) from error
+        finally:
+            record_duckdb_schema_timing(
+                duration_ms=(perf_counter() - started) * 1000,
+            )
 
     def _validate_current_workspace_schema(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from time import perf_counter
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
@@ -197,6 +198,8 @@ def _render_summary(
     comparison_failure: OdooReadFailure | None = None,
     status_code: int = 200,
 ):
+    summary_started = perf_counter()
+    context_started = summary_started
     session_error = request.session.pop("summary_error", None)
     if error is None and isinstance(session_error, str):
         error = session_error
@@ -284,6 +287,8 @@ def _render_summary(
         if revision is not None
         else None
     )
+    summary_context_ms = (perf_counter() - context_started) * 1000
+    evidence_started = perf_counter()
     staging = context.preflight.current_staging(workspace_id)
     quality = context.quality.current_summary(workspace_id)
     normalization = context.normalization.current_summary(workspace_id)
@@ -293,6 +298,8 @@ def _render_summary(
         and (staging is None or quality.staging_run_id != staging.run_id)
     ):
         quality = None
+    summary_evidence_ms = (perf_counter() - evidence_started) * 1000
+    readiness_started = perf_counter()
     report = context.preflight.current_report(workspace_id)
     if (
         comparison_failure is None
@@ -312,12 +319,15 @@ def _render_summary(
         if comparison_failure is not None
         else None
     )
+    summary_readiness_ms = (perf_counter() - readiness_started) * 1000
+    execution_started = perf_counter()
     try:
         load_preview = context.execution.current_preview(workspace_id)
     except (ReadinessError, WorkspaceError):
         # Historical or manually repaired preflight evidence may predate the
         # execution artifact. It can still be reviewed and compared again.
         load_preview = None
+    summary_execution_ms = (perf_counter() - execution_started) * 1000
     quality_status = request.query_params.get("quality_status", "").strip()
     if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
         quality_status = ""
@@ -333,6 +343,7 @@ def _render_summary(
     quality_page_size = _summary_page_size(
         request.query_params.get("quality_page_size")
     )
+    quality_page_started = perf_counter()
     if quality is not None:
         quality_page = context.queries.get_quality_review_page(
             workspace_id,
@@ -354,6 +365,7 @@ def _render_summary(
                 quality_page.page * quality_page_size,
                 quality_page.matching_count,
             )
+    summary_quality_page_ms = (perf_counter() - quality_page_started) * 1000
     status_filter = request.query_params.get("status", "").strip()
     if status_filter not in {"", "ready", "needs_review", "blocked"}:
         status_filter = ""
@@ -370,6 +382,7 @@ def _render_summary(
     readiness_page_size = _summary_page_size(
         request.query_params.get("page_size")
     )
+    readiness_page_started = perf_counter()
     if report is not None:
         persisted_page = context.preflight.readiness_rows(
             workspace_id,
@@ -390,7 +403,9 @@ def _render_summary(
         row_page = 1
         row_page_count = 1
         row_start_index = 0
-    return _render(
+    summary_readiness_ms += (perf_counter() - readiness_page_started) * 1000
+    render_started = perf_counter()
+    response = _render(
         request,
         "workspace_summary.html",
         workspace_state=workspace_state,
@@ -516,6 +531,31 @@ def _render_summary(
         ),
         error=error,
         status_code=status_code,
+    )
+    summary_render_ms = (perf_counter() - render_started) * 1000
+    _append_summary_server_timing(
+        response,
+        summary_context=summary_context_ms,
+        summary_evidence=summary_evidence_ms,
+        summary_execution=summary_execution_ms,
+        summary_quality_page=summary_quality_page_ms,
+        summary_readiness=summary_readiness_ms,
+        summary_render=summary_render_ms,
+        total=(perf_counter() - summary_started) * 1000,
+    )
+    return response
+
+
+def _append_summary_server_timing(response, **metrics: float) -> None:
+    """Expose allowlisted phase durations to local request diagnostics."""
+
+    timing = ", ".join(
+        f"{name};dur={max(0.0, duration):.1f}"
+        for name, duration in metrics.items()
+    )
+    existing = response.headers.get("Server-Timing", "")
+    response.headers["Server-Timing"] = (
+        f"{existing}, {timing}" if existing else timing
     )
 
 

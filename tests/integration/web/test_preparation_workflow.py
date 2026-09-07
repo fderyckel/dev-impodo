@@ -72,6 +72,17 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("<summary>Support details</summary>", page.text)
         self.assertNotIn("<details open", page.text)
         self.assertNotIn("canonical_staging", page.text)
+        server_timing = page.headers.get("server-timing", "")
+        for phase in (
+            "summary_context",
+            "summary_evidence",
+            "summary_execution",
+            "summary_quality_page",
+            "summary_readiness",
+            "summary_render",
+            "total",
+        ):
+            self.assertIn(f"{phase};dur=", server_timing)
 
     def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(
         self,

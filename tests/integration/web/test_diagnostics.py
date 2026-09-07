@@ -25,6 +25,10 @@ import h11
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.adapters.duckdb.request_timing import (
+    record_duckdb_connection_timing,
+    record_duckdb_schema_timing,
+)
 from impodo.web.app import create_local_app
 from impodo.web.diagnostics import (
     DIAGNOSTIC_LOG_NAME,
@@ -179,6 +183,8 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                 outcome="warning",
                 reason="CORRECTION_ORIGIN_PREPARED_MISSING",
                 exception_class="CorrectionOriginError",
+                completed_rows=50,
+                total_rows=100,
             )
             recorder.close()
             record = json.loads(
@@ -190,6 +196,8 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
         self.assertEqual(record["stage"], "correction_origin")
         self.assertEqual(record["outcome"], "warning")
         self.assertEqual(record["reason"], "CORRECTION_ORIGIN_PREPARED_MISSING")
+        self.assertEqual(record["completed_rows"], 50)
+        self.assertEqual(record["total_rows"], 100)
         self.assertTrue(record["slow"])
         self.assertNotIn("workspace_id", record)
 
@@ -258,6 +266,70 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
 
 
 class RequestDiagnosticsMiddlewareTests(unittest.IsolatedAsyncioTestCase):
+    async def test_request_aggregates_duckdb_infrastructure_timings(self) -> None:
+        with _diagnostic_test_directory("impodo-duckdb-timing") as directory:
+            recorder = LocalDiagnosticRecorder(directory)
+            sent: list[dict] = []
+
+            async def application(scope, _receive, send) -> None:
+                scope["route"] = SimpleNamespace(
+                    path="/workspaces/{workspace_id}/summary"
+                )
+                record_duckdb_connection_timing(
+                    duration_ms=12.5,
+                    lock_wait_ms=5.0,
+                    lock_retry_count=2,
+                )
+                record_duckdb_schema_timing(duration_ms=3.25)
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [],
+                    }
+                )
+                await send({"type": "http.response.body", "body": b"ok"})
+
+            middleware = RequestDiagnosticsMiddleware(
+                application,
+                recorder=recorder,
+            )
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/workspaces/private-workspace-id/summary",
+                "query_string": b"quality_status=quarantined",
+                "headers": [],
+                "state": {},
+            }
+
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(message) -> None:
+                sent.append(message)
+
+            await middleware(scope, receive, send)
+            recorder.close()
+            record = json.loads(
+                (directory / DIAGNOSTIC_LOG_NAME).read_text(encoding="utf-8")
+            )
+
+        response_headers = dict(sent[0]["headers"])
+        server_timings = parse_server_timing(
+            response_headers[b"server-timing"].decode()
+        )
+        self.assertEqual(
+            server_timings,
+            {"db_connect": 12.5, "db_lock_wait": 5.0, "db_schema": 3.25},
+        )
+        self.assertEqual(record["server_timings_ms"], server_timings)
+        self.assertEqual(record["database_connection_count"], 1)
+        self.assertEqual(record["database_schema_check_count"], 1)
+        self.assertEqual(record["database_lock_retry_count"], 2)
+        self.assertNotIn("private-workspace-id", json.dumps(record))
+        self.assertNotIn("quarantined", json.dumps(record))
+
     async def test_request_record_uses_route_template_and_redacts_request_data(
         self,
     ) -> None:

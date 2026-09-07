@@ -686,6 +686,7 @@ def create_local_app(
         PreparationJobManager(
             project_root,
             build_contract=application_build_contract,
+            diagnostic_recorder=diagnostic_recorder,
         )
         if preparation_jobs_enabled
         else None

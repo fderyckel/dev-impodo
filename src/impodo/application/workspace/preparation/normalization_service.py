@@ -31,6 +31,7 @@ from .bounded_normalization import (
     BoundedNormalizationUnsupported,
     build_bounded_normalization_evaluation,
 )
+from .timing import PreparationTimingReporter, timed_preparation_stage
 
 
 class NormalizationService:
@@ -188,6 +189,7 @@ class NormalizationService:
         *,
         actor: Actor,
         allow_materialized_fallback: bool = True,
+        timing: PreparationTimingReporter | None = None,
     ) -> NormalizationRunSummary:
         """Convert impact rows into Stage-G evidence and publish a review run.
 
@@ -215,33 +217,45 @@ class NormalizationService:
             )
             for item in impact_rows
         )
-        try:
-            if (
-                isinstance(canonical_run, StoredCanonicalStagingRun)
-                and isinstance(quality_run, StoredQualityRun)
-            ):
-                try:
-                    evaluation: (
-                        NormalizationEvaluation
-                        | StoredNormalizationEvaluation
-                    ) = build_bounded_normalization_evaluation(
-                        workspace_state=workspace_state,
-                        staging=canonical_run,
-                        quality=quality_run,
-                        mappings=mappings,
-                        impact_rows=impact_rows,
-                        staging_content_hash=staging.content_hash,
-                        quality_content_hash=quality.content_hash,
-                        effective=effective,
-                    )
-                except BoundedNormalizationUnsupported as error:
-                    if not allow_materialized_fallback:
-                        raise ReadinessError(
-                            "The review-evidence route could not stay bounded "
-                            "for this workspace. Whole-run fallback is disabled "
-                            "above the materialized safety limit; no fallback "
-                            "was run."
-                        ) from error
+        with timed_preparation_stage(timing, "normalization_aggregation"):
+            try:
+                if (
+                    isinstance(canonical_run, StoredCanonicalStagingRun)
+                    and isinstance(quality_run, StoredQualityRun)
+                ):
+                    try:
+                        evaluation: (
+                            NormalizationEvaluation
+                            | StoredNormalizationEvaluation
+                        ) = build_bounded_normalization_evaluation(
+                            workspace_state=workspace_state,
+                            staging=canonical_run,
+                            quality=quality_run,
+                            mappings=mappings,
+                            impact_rows=impact_rows,
+                            staging_content_hash=staging.content_hash,
+                            quality_content_hash=quality.content_hash,
+                            effective=effective,
+                        )
+                    except BoundedNormalizationUnsupported as error:
+                        if not allow_materialized_fallback:
+                            raise ReadinessError(
+                                "The review-evidence route could not stay bounded "
+                                "for this workspace. Whole-run fallback is disabled "
+                                "above the materialized safety limit; no fallback "
+                                "was run."
+                            ) from error
+                        evaluation = evaluate_normalization(
+                            workspace_state=workspace_state,
+                            staging=canonical_run,
+                            quality=quality_run,
+                            mappings=mappings,
+                            candidates=candidates,
+                            published_staging_content_hash=staging.content_hash,
+                            published_quality_content_hash=quality.content_hash,
+                            effective=effective,
+                        )
+                else:
                     evaluation = evaluate_normalization(
                         workspace_state=workspace_state,
                         staging=canonical_run,
@@ -252,26 +266,19 @@ class NormalizationService:
                         published_quality_content_hash=quality.content_hash,
                         effective=effective,
                     )
-            else:
-                evaluation = evaluate_normalization(
-                    workspace_state=workspace_state,
-                    staging=canonical_run,
-                    quality=quality_run,
-                    mappings=mappings,
-                    candidates=candidates,
-                    published_staging_content_hash=staging.content_hash,
-                    published_quality_content_hash=quality.content_hash,
-                    effective=effective,
-                )
-        except NormalizationPolicyError as error:
-            raise NormalizationReviewPolicyError(str(error)) from error
-        except NormalizationError as error:
-            raise ReadinessError(str(error)) from error
-        return self.repository.publish_normalization_run(
-            workspace_state.workspace_id,
-            evaluation,
-            staging_run_id=staging.run_id,
-            quality_run_id=quality.run_id,
-            source_hashes=source_hashes,
-            actor=actor,
-        )
+            except NormalizationPolicyError as error:
+                raise NormalizationReviewPolicyError(str(error)) from error
+            except NormalizationError as error:
+                raise ReadinessError(str(error)) from error
+        with timed_preparation_stage(
+            timing,
+            "normalization_persistence_and_hash",
+        ):
+            return self.repository.publish_normalization_run(
+                workspace_state.workspace_id,
+                evaluation,
+                staging_run_id=staging.run_id,
+                quality_run_id=quality.run_id,
+                source_hashes=source_hashes,
+                actor=actor,
+            )

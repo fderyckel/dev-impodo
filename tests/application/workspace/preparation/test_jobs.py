@@ -352,8 +352,89 @@ class PreparationJobSchedulingTests(unittest.TestCase):
         finally:
             shutil.rmtree(temporary, ignore_errors=True)
 
+    def test_manager_records_value_free_worker_timing(self) -> None:
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        temporary = ROOT / ".tmp" / f"preparation-timing-{uuid4()}"
+        temporary.mkdir()
+        try:
+            recorder = MagicMock()
+            manager = PreparationJobManager(
+                str(temporary),
+                diagnostic_recorder=recorder,
+            )
+
+            terminal = manager._handle_event(
+                "unused-job-id",
+                (
+                    "timing",
+                    "normalization_aggregation",
+                    125.5,
+                    "completed",
+                    "",
+                    500,
+                    500,
+                ),
+            )
+
+            self.assertFalse(terminal)
+            recorder.record_operation_stage.assert_called_once_with(
+                "preparation",
+                "normalization_aggregation",
+                duration_ms=125.5,
+                outcome="completed",
+                reason=None,
+                completed_rows=500,
+                total_rows=500,
+            )
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
+
 
 class PreparationWorkerFailureTests(unittest.TestCase):
+    def test_worker_emits_phase_subphase_and_total_timings(self) -> None:
+        events = MagicMock()
+        cancel = MagicMock()
+        cancel.is_set.return_value = False
+        preparation = MagicMock()
+
+        def prepare(_workspace_id, *, progress, timing, **_kwargs):
+            progress(PreparationPhase.VALIDATING, 0, 12, "Checking")
+            progress(PreparationPhase.TRANSFORMING, 12, 12, "Preparing")
+            timing("quality_evaluation", 4.5, "completed")
+            progress(PreparationPhase.COMPLETE, 12, 12, "Ready")
+            return SimpleNamespace(run_id="normalization-run")
+
+        preparation.prepare.side_effect = prepare
+        with patch(
+            "impodo.web.composition.preparation_worker.create_preparation_worker",
+            return_value=preparation,
+        ):
+            _run_preparation_worker(
+                "impodo-root",
+                "workspace-id",
+                _workspace(),
+                PROCESS_BUILD_CONTRACT,
+                LOCAL_ACTOR,
+                events,
+                cancel,
+            )
+
+        emitted = [call.args[0] for call in events.put.call_args_list]
+        timings = [event for event in emitted if event[0] == "timing"]
+        self.assertEqual(
+            [event[1] for event in timings],
+            [
+                PreparationPhase.VALIDATING.value,
+                "quality_evaluation",
+                PreparationPhase.TRANSFORMING.value,
+                "total",
+            ],
+        )
+        self.assertTrue(all(event[2] >= 0 for event in timings))
+        self.assertEqual(timings[-1][3], "succeeded")
+        self.assertEqual(timings[-1][5:], (12, 12))
+        self.assertEqual(emitted[-1], ("succeeded", "normalization-run"))
+
     def test_local_storage_io_failure_has_safe_actionable_message(self) -> None:
         events = MagicMock()
         cancel = MagicMock()
@@ -373,7 +454,11 @@ class PreparationWorkerFailureTests(unittest.TestCase):
             )
 
         self.assertEqual(events.put.call_args_list[0].args[0], ("started",))
-        failure = events.put.call_args_list[1].args[0]
+        failure = next(
+            call.args[0]
+            for call in events.put.call_args_list
+            if call.args[0][0] == "failed"
+        )
         self.assertEqual(failure[0], "failed")
         self.assertEqual(failure[1], "LOCAL_WORKSPACE_STORAGE_IO_FAILED")
         self.assertIn("No Odoo records were changed", failure[2])
@@ -407,7 +492,11 @@ class PreparationWorkerFailureTests(unittest.TestCase):
 
         create_worker.assert_not_called()
         self.assertEqual(events.put.call_args_list[0].args[0], ("started",))
-        failure = events.put.call_args_list[1].args[0]
+        failure = next(
+            call.args[0]
+            for call in events.put.call_args_list
+            if call.args[0][0] == "failed"
+        )
         self.assertEqual(failure[0], "failed")
         self.assertEqual(failure[1], "IMPODO_BUILD_CHANGED")
         self.assertIn("Restart Impodo", failure[2])

@@ -29,6 +29,9 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from starlette.datastructures import MutableHeaders
 
+from impodo.adapters.duckdb.request_timing import (
+    collect_duckdb_request_timings,
+)
 from impodo.application.shared.build_contract import ApplicationBuildContract
 
 
@@ -53,6 +56,15 @@ _SAFE_SERVER_TIMINGS = frozenset(
         "view_build",
         "projection",
         "render",
+        "summary_context",
+        "summary_evidence",
+        "summary_execution",
+        "summary_quality_page",
+        "summary_readiness",
+        "summary_render",
+        "db_connect",
+        "db_schema",
+        "db_lock_wait",
         "total",
     }
 )
@@ -323,6 +335,9 @@ class LocalDiagnosticRecorder:
         exception_class: str | None = None,
         working_draft_version: int | None = None,
         server_timings_ms: dict[str, float] | None = None,
+        database_connection_count: int | None = None,
+        database_schema_check_count: int | None = None,
+        database_lock_retry_count: int | None = None,
     ) -> None:
         """Record one request using a route template rather than its raw URL."""
 
@@ -347,6 +362,13 @@ class LocalDiagnosticRecorder:
                 0,
                 int(working_draft_version),
             )
+        for name, value in (
+            ("database_connection_count", database_connection_count),
+            ("database_schema_check_count", database_schema_check_count),
+            ("database_lock_retry_count", database_lock_retry_count),
+        ):
+            if value is not None:
+                payload[name] = max(0, int(value))
         timings = _safe_server_timings(server_timings_ms or {})
         if timings:
             payload["server_timings_ms"] = timings
@@ -374,6 +396,8 @@ class LocalDiagnosticRecorder:
         outcome: str = "completed",
         reason: str | None = None,
         exception_class: str | None = None,
+        completed_rows: int | None = None,
+        total_rows: int | None = None,
     ) -> None:
         """Record one bounded application stage without business identifiers."""
 
@@ -394,6 +418,10 @@ class LocalDiagnosticRecorder:
                 exception_class,
                 fallback="Exception",
             )
+        if completed_rows is not None:
+            payload["completed_rows"] = max(0, int(completed_rows))
+        if total_rows is not None:
+            payload["total_rows"] = max(0, int(total_rows))
         self._write(payload)
 
     def close(self) -> None:
@@ -482,31 +510,52 @@ class RequestDiagnosticsMiddleware:
                 status_code = int(message["status"])
                 headers = MutableHeaders(scope=message)
                 headers[REQUEST_ID_HEADER] = request_id
+                database_header = ", ".join(
+                    f"{name};dur={duration:.3f}"
+                    for name, duration in database_timings.server_timings_ms().items()
+                )
+                if database_header:
+                    existing = headers.get("server-timing", "")
+                    headers["Server-Timing"] = (
+                        f"{existing}, {database_header}"
+                        if existing
+                        else database_header
+                    )
                 server_timings_ms = parse_server_timing(
                     headers.get("server-timing", "")
                 )
             await send(message)
 
-        try:
-            await self.app(scope, receive, diagnostic_send)
-        except BaseException as error:
-            exception_class = type(error).__name__
-            raise
-        finally:
-            route = scope.get("route")
-            route_template = getattr(route, "path", "<unmatched>")
-            self.recorder.record_request(
-                request_id=request_id,
-                method=str(scope.get("method", "UNKNOWN")),
-                route_template=str(route_template),
-                status_code=status_code,
-                duration_ms=(perf_counter() - started) * 1000,
-                exception_class=exception_class,
-                working_draft_version=_optional_nonnegative_int(
-                    state.get("diagnostic_working_draft_version")
-                ),
-                server_timings_ms=server_timings_ms,
-            )
+        with collect_duckdb_request_timings() as database_timings:
+            try:
+                await self.app(scope, receive, diagnostic_send)
+            except BaseException as error:
+                exception_class = type(error).__name__
+                raise
+            finally:
+                route = scope.get("route")
+                route_template = getattr(route, "path", "<unmatched>")
+                self.recorder.record_request(
+                    request_id=request_id,
+                    method=str(scope.get("method", "UNKNOWN")),
+                    route_template=str(route_template),
+                    status_code=status_code,
+                    duration_ms=(perf_counter() - started) * 1000,
+                    exception_class=exception_class,
+                    working_draft_version=_optional_nonnegative_int(
+                        state.get("diagnostic_working_draft_version")
+                    ),
+                    server_timings_ms=server_timings_ms,
+                    database_connection_count=(
+                        database_timings.connection_count
+                    ),
+                    database_schema_check_count=(
+                        database_timings.schema_check_count
+                    ),
+                    database_lock_retry_count=(
+                        database_timings.lock_retry_count
+                    ),
+                )
 
 
 def set_diagnostic_working_draft_version(request, version: int | None) -> None:
@@ -799,6 +848,11 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "restart_attempt": (0, 100),
         "status_code": (100, 599),
         "working_draft_version": (0, 9_223_372_036_854_775_807),
+        "database_connection_count": (0, 1_000_000),
+        "database_schema_check_count": (0, 1_000_000),
+        "database_lock_retry_count": (0, 1_000_000),
+        "completed_rows": (0, 9_223_372_036_854_775_807),
+        "total_rows": (0, 9_223_372_036_854_775_807),
     }
     for field, (minimum, maximum) in integer_fields.items():
         parsed = _bounded_int(value.get(field), minimum, maximum)

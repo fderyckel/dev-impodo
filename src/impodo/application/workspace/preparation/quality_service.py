@@ -36,6 +36,7 @@ from .bounded_quality import (
     build_bounded_quality_run,
     materialize_staging_run,
 )
+from .timing import PreparationTimingReporter, timed_preparation_stage
 
 
 class RecipeQualitySeedRepository(Protocol):
@@ -231,6 +232,7 @@ class QualityService:
         *,
         actor: Actor,
         allow_materialized_fallback: bool = True,
+        timing: PreparationTimingReporter | None = None,
     ) -> tuple[QualityRun | StoredQualityRun, QualityRunSummary]:
         """Evaluate Stage F and publish its full run plus lifecycle summary.
 
@@ -266,55 +268,57 @@ class QualityService:
                 ruleset,
                 actor=actor,
             )
-        try:
-            if (
-                isinstance(canonical_run, StoredCanonicalStagingRun)
-                and effective is None
-            ):
-                try:
-                    quality_run: QualityRun | StoredQualityRun = (
-                        build_bounded_quality_run(
+        with timed_preparation_stage(timing, "quality_evaluation"):
+            try:
+                if (
+                    isinstance(canonical_run, StoredCanonicalStagingRun)
+                    and effective is None
+                ):
+                    try:
+                        quality_run: QualityRun | StoredQualityRun = (
+                            build_bounded_quality_run(
+                                workspace_state=workspace_state,
+                                staging=canonical_run,
+                                physical_rows=physical_rows,
+                                ruleset=ruleset,
+                                published_staging_content_hash=staging.content_hash,
+                            )
+                        )
+                    except BoundedQualityUnsupported as error:
+                        if not allow_materialized_fallback:
+                            raise ReadinessError(
+                                "The data-check route could not stay bounded for "
+                                "this workspace. Whole-run fallback is disabled above "
+                                "the materialized safety limit; no fallback was run."
+                            ) from error
+                        quality_run = evaluate_quality(
                             workspace_state=workspace_state,
-                            staging=canonical_run,
+                            staging=materialize_staging_run(canonical_run),
                             physical_rows=physical_rows,
                             ruleset=ruleset,
                             published_staging_content_hash=staging.content_hash,
+                            reference_bundle=reference_bundle,
                         )
-                    )
-                except BoundedQualityUnsupported as error:
-                    if not allow_materialized_fallback:
-                        raise ReadinessError(
-                            "The data-check route could not stay bounded for "
-                            "this workspace. Whole-run fallback is disabled above "
-                            "the materialized safety limit; no fallback was run."
-                        ) from error
+                else:
                     quality_run = evaluate_quality(
                         workspace_state=workspace_state,
-                        staging=materialize_staging_run(canonical_run),
+                        staging=canonical_run,
                         physical_rows=physical_rows,
                         ruleset=ruleset,
                         published_staging_content_hash=staging.content_hash,
+                        effective=effective,
                         reference_bundle=reference_bundle,
                     )
-            else:
-                quality_run = evaluate_quality(
-                    workspace_state=workspace_state,
-                    staging=canonical_run,
-                    physical_rows=physical_rows,
-                    ruleset=ruleset,
-                    published_staging_content_hash=staging.content_hash,
-                    effective=effective,
-                    reference_bundle=reference_bundle,
-                )
-        except QualityError as error:
-            raise ReadinessError(str(error)) from error
-        summary = self.quality.publish_quality_run(
-            workspace_state.workspace_id,
-            quality_run,
-            staging_run_id=staging.run_id,
-            effective_dataset_run_id=effective_dataset_run_id,
-            actor=actor,
-        )
+            except QualityError as error:
+                raise ReadinessError(str(error)) from error
+        with timed_preparation_stage(timing, "quality_persistence_and_hash"):
+            summary = self.quality.publish_quality_run(
+                workspace_state.workspace_id,
+                quality_run,
+                staging_run_id=staging.run_id,
+                effective_dataset_run_id=effective_dataset_run_id,
+                actor=actor,
+            )
         if not summary.can_compare:
             raise ReadinessError(
                 "Fix the data-check setup shown below, then check all rows again. "
