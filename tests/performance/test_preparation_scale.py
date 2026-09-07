@@ -702,14 +702,21 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.context.preparation.sources.get_current_source_snapshots(workspace_id)
         )
         snapshot_bytes = sum(
-            (self.root / workspace_id / snapshot.parquet_storage_key).stat().st_size
+            self.artifacts.source_snapshot_size(
+                snapshot.data_version_id,
+                snapshot.parquet_storage_key,
+            )
             for snapshot in source_snapshots
         )
         prepared_snapshots = (
             self.context.preparation.sessions.current_prepared_snapshots(workspace_id)
         )
         prepared_snapshot_bytes = sum(
-            (self.root / workspace_id / snapshot.parquet_storage_key).stat().st_size
+            self.artifacts._prepared_snapshot_path(
+                workspace_id,
+                snapshot.parquet_storage_key,
+                create=False,
+            ).stat().st_size
             for snapshot in prepared_snapshots
         )
         with self.context.preparation.staging._connect(database_path) as connection:
@@ -780,15 +787,24 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert database_size_row is not None
         block_size = int(database_size_row[2])
         database_file_bytes = database_path.stat().st_size
-        project_directory = self.root / workspace_id
+        project_directories = {
+            (self.root / workspace_id).resolve(),
+            self.artifacts._workspace_directory(workspace_id),
+            *(
+                self.artifacts._data_version_directory(snapshot.data_version_id)
+                for snapshot in source_snapshots
+            ),
+        }
         project_storage_bytes = sum(
             item.stat().st_size
-            for item in project_directory.rglob("*")
+            for directory in project_directories
+            for item in directory.rglob("*")
             if item.is_file()
         )
         parquet_bytes = sum(
             item.stat().st_size
-            for item in project_directory.rglob("*.parquet")
+            for directory in project_directories
+            for item in directory.rglob("*.parquet")
             if item.is_file()
         )
         database_mib = database_file_bytes / (1024 * 1024)

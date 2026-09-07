@@ -150,6 +150,15 @@ def _canonical_row_requires_scalar_transport(
     return estimated_bytes > _CANONICAL_ROW_SCALAR_FALLBACK_BYTES
 
 
+def _canonical_row_json_requires_scalar_transport(row_json: str) -> bool:
+    """Keep large direct-row updates outside the copied JSON envelope."""
+
+    return (
+        len(row_json.encode("utf-8"))
+        > _CANONICAL_ROW_SCALAR_FALLBACK_BYTES
+    )
+
+
 class _SessionCanonicalRows(Sequence[CanonicalRow]):
     """Read finalized session rows through bounded ordinal slices."""
 

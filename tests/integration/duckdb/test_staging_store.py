@@ -5,6 +5,7 @@ from tests.support.paths import REPOSITORY_ROOT
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -481,7 +482,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertEqual(connection.execute.call_count, 3)
         self.assertEqual(
             [
-                len(item.args[1][0])
+                len(json.loads(item.args[1][1]))
                 for item in connection.execute.call_args_list
             ],
             [1_000, 1_000, 1],

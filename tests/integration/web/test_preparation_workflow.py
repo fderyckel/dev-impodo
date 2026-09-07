@@ -685,7 +685,21 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             / "workspace-engine.duckdb"
         )
 
+        from impodo.adapters.duckdb.migration_workspace_engine_database import (
+            FixedMigrationWorkspaceEngineDatabase,
+        )
+
+        worker_database = FixedMigrationWorkspaceEngineDatabase(
+            root,
+            project_id=workspace.project_id,
+            workspace_id=workspace.workspace_id,
+            data_version_id=workspace.data_version_id,
+            migration_run_id=workspace.migration_run_id,
+            recipe_application_id=workspace.recipe_application_id,
+        )
+
         with _spawned_duckdb_locks(registry_path):
+            worker_database.assert_workspace_mutable(workspace_id)
             job = manager.enqueue(
                 workspace_id,
                 workspace_state.name,

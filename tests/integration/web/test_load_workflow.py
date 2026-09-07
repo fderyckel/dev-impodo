@@ -64,7 +64,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 type(context.execution),
                 "current_preview",
                 return_value=preview,
-            ),
+            ) as current_preview,
             patch.object(
                 type(context.reconciliation),
                 "current",
@@ -76,6 +76,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             )
 
         self.assertEqual(page.status_code, 200, page.text)
+        self.assertEqual(current_preview.call_count, 1)
         self.assertIn("Completed-load correction is unavailable", page.text)
         self.assertIn("CORRECTION_ORIGIN_NOT_PUBLISHED", page.text)
         self.assertIn("verified", page.text.casefold())

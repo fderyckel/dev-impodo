@@ -288,6 +288,7 @@ def build_execution_router(
         workspace_id: str,
         *,
         step: str,
+        preview=None,
         error: str | None = None,
         status_code: int = 200,
     ):
@@ -296,7 +297,8 @@ def build_execution_router(
             workspace_id,
             workspace_state=workspace_state,
         )
-        preview = context.execution.current_preview(workspace_id)
+        if preview is None:
+            preview = context.execution.current_preview(workspace_id)
         if preview is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/summary",
@@ -517,7 +519,12 @@ def build_execution_router(
                 f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
-        return render(request, workspace_id, step="confirm")
+        return render(
+            request,
+            workspace_id,
+            step="confirm",
+            preview=preview,
+        )
 
     @router.get(
         "/workspaces/{workspace_id}/load/outcome",
@@ -550,6 +557,7 @@ def build_execution_router(
             request,
             workspace_id,
             step="outcome",
+            preview=preview,
         )
 
     @router.get(

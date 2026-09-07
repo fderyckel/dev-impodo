@@ -54,13 +54,27 @@ from .preparation_session_support import (
     _DIRECT_PHYSICAL_ROW_JSON_STRUCTURE,
     _DIRECT_RELATIONSHIP_JSON_STRUCTURE,
     _PREPARATION_IMPACT_JSON_STRUCTURE,
+    _canonical_row_json_requires_scalar_transport,
     _canonical_row_requires_scalar_transport,
 )
 from .serialization import (
     _canonical_json,
-    _columnar_parameters,
     iter_encoded_json_batches,
 )
+
+
+_CANONICAL_ROW_ISSUE_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "issue_ordinal":"BIGINT",
+    "issue_json":"VARCHAR"
+}]"""
+
+_DIRECT_ROW_UPDATE_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "disposition":"VARCHAR",
+    "row_json":"VARCHAR",
+    "finalized_duplicate":"BOOLEAN"
+}]"""
 
 
 class PreparationDirectWriter:
@@ -291,24 +305,45 @@ class PreparationDirectWriter:
                     canonical_row_count += 1
                 if canonical_row_count != len(rows):
                     raise WorkspaceError("Prepared canonical row batch is incomplete")
-                issue_rows = [
-                    [
-                        canonical_session_id,
-                        item.ordinal,
-                        issue_ordinal,
-                        _canonical_json(issue.to_portable_dict()),
-                    ]
+                issue_rows = (
+                    {
+                        "ordinal": item.ordinal,
+                        "issue_ordinal": issue_ordinal,
+                        "issue_json": _canonical_json(issue.to_portable_dict()),
+                    }
                     for item in rows
                     for issue_ordinal, issue in enumerate(item.issues, start=1)
-                ]
-                if issue_rows:
+                )
+                issue_count = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    issue_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
                     connection.execute(
                         """
-                        INSERT INTO canonical_staging_row_issue
-                        SELECT unnest(?), unnest(?), unnest(?), unnest(?)
+                        INSERT INTO canonical_staging_row_issue (
+                            run_id, ordinal, issue_ordinal, issue_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.issue_ordinal,
+                            item.issue_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
                         """,
-                        _columnar_parameters(issue_rows),
+                        [
+                            canonical_session_id,
+                            encoded_batch.payload,
+                            _CANONICAL_ROW_ISSUE_JSON_STRUCTURE,
+                        ],
                     )
+                    issue_count += encoded_batch.row_count
+                expected_issue_count = sum(len(item.issues) for item in rows)
+                if issue_count != expected_issue_count:
+                    raise WorkspaceError("Prepared row issue batch is incomplete")
                 identity_rows = (
                     {
                         "ordinal": item.ordinal,
@@ -1035,7 +1070,6 @@ class PreparationDirectWriter:
         if not values:
             return
         overlay_rows: list[list[object]] = []
-        ordinals = [int(item[0]) for item in values]
         for ordinal, _disposition, row_text, finalized in values:
             if not bool(finalized):
                 continue
@@ -1066,56 +1100,160 @@ class PreparationDirectWriter:
         with self._connect(database_path) as connection:
             connection.begin()
             try:
-                connection.execute(
-                    """
-                    UPDATE canonical_staging_row AS target
-                       SET disposition = updates.disposition,
-                           row_json = CASE
-                               WHEN target.row_json = '' THEN ''
-                               ELSE updates.row_json
-                           END
-                      FROM (
-                          SELECT unnest(?) AS ordinal,
-                                 unnest(?) AS disposition,
-                                 unnest(?) AS row_json,
-                                 unnest(?) AS finalized_duplicate
-                      ) AS updates
-                     WHERE target.run_id = ?
-                       AND target.ordinal = updates.ordinal
-                    """,
-                    [*_columnar_parameters(values), run_id],
+                json_values = []
+                scalar_values = []
+                for row in values:
+                    destination = (
+                        scalar_values
+                        if _canonical_row_json_requires_scalar_transport(str(row[2]))
+                        else json_values
+                    )
+                    destination.append(row)
+                update_rows = (
+                    {
+                        "ordinal": row[0],
+                        "disposition": row[1],
+                        "row_json": row[2],
+                        "finalized_duplicate": row[3],
+                    }
+                    for row in json_values
                 )
-                connection.execute(
-                    """
-                    DELETE FROM canonical_staging_row_issue
-                     WHERE run_id = ? AND issue_ordinal = 0
-                       AND ordinal IN (SELECT unnest(?))
-                    """,
-                    [run_id, ordinals],
-                )
-                if overlay_rows:
+                transported_updates = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    update_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
+                ):
                     connection.execute(
                         """
-                        INSERT INTO canonical_staging_row_issue
-                        SELECT unnest(?), unnest(?), unnest(?), unnest(?)
+                        UPDATE canonical_staging_row AS target
+                           SET disposition = updates.disposition,
+                               row_json = CASE
+                                   WHEN target.row_json = '' THEN ''
+                                   ELSE updates.row_json
+                               END
+                          FROM (
+                              SELECT UNNEST(
+                                  from_json_strict(CAST(? AS JSON), ?)
+                              ) AS updates
+                          )
+                         WHERE target.run_id = ?
+                           AND target.ordinal = updates.ordinal
                         """,
-                        _columnar_parameters(overlay_rows),
+                        [
+                            encoded_batch.payload,
+                            _DIRECT_ROW_UPDATE_JSON_STRUCTURE,
+                            run_id,
+                        ],
                     )
-                connection.execute(
-                    """
-                    UPDATE preparation_direct_identity AS target
-                       SET finalized_duplicate = updates.finalized_duplicate
-                      FROM (
-                          SELECT unnest(?) AS ordinal,
-                                 unnest(?) AS disposition,
-                                 unnest(?) AS row_json,
-                                 unnest(?) AS finalized_duplicate
-                      ) AS updates
-                     WHERE target.session_id = ?
-                       AND target.ordinal = updates.ordinal
-                    """,
-                    [*_columnar_parameters(values), run_id],
+                    connection.execute(
+                        """
+                        DELETE FROM canonical_staging_row_issue
+                         WHERE run_id = ? AND issue_ordinal = 0
+                           AND ordinal IN (
+                               SELECT item.ordinal
+                                 FROM (
+                                   SELECT UNNEST(
+                                       from_json_strict(CAST(? AS JSON), ?)
+                                   ) AS item
+                                 )
+                           )
+                        """,
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _DIRECT_ROW_UPDATE_JSON_STRUCTURE,
+                        ],
+                    )
+                    connection.execute(
+                        """
+                        UPDATE preparation_direct_identity AS target
+                           SET finalized_duplicate = updates.finalized_duplicate
+                          FROM (
+                              SELECT UNNEST(
+                                  from_json_strict(CAST(? AS JSON), ?)
+                              ) AS updates
+                          )
+                         WHERE target.session_id = ?
+                           AND target.ordinal = updates.ordinal
+                        """,
+                        [
+                            encoded_batch.payload,
+                            _DIRECT_ROW_UPDATE_JSON_STRUCTURE,
+                            run_id,
+                        ],
+                    )
+                    transported_updates += encoded_batch.row_count
+                if transported_updates != len(json_values):
+                    raise WorkspaceError("Direct row update batch is incomplete")
+
+                for ordinal, disposition, row_json, finalized in scalar_values:
+                    connection.execute(
+                        """
+                        UPDATE canonical_staging_row
+                           SET disposition = ?,
+                               row_json = CASE
+                                   WHEN row_json = '' THEN ''
+                                   ELSE ?
+                               END
+                         WHERE run_id = ? AND ordinal = ?
+                        """,
+                        [disposition, row_json, run_id, ordinal],
+                    )
+                    connection.execute(
+                        """
+                        DELETE FROM canonical_staging_row_issue
+                         WHERE run_id = ? AND ordinal = ?
+                           AND issue_ordinal = 0
+                        """,
+                        [run_id, ordinal],
+                    )
+                    connection.execute(
+                        """
+                        UPDATE preparation_direct_identity
+                           SET finalized_duplicate = ?
+                         WHERE session_id = ? AND ordinal = ?
+                        """,
+                        [finalized, run_id, ordinal],
+                    )
+
+                overlay_transport_rows = (
+                    {
+                        "ordinal": row[1],
+                        "issue_ordinal": row[2],
+                        "issue_json": row[3],
+                    }
+                    for row in overlay_rows
                 )
+                transported_overlays = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    overlay_transport_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO canonical_staging_row_issue (
+                            run_id, ordinal, issue_ordinal, issue_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.issue_ordinal,
+                            item.issue_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _CANONICAL_ROW_ISSUE_JSON_STRUCTURE,
+                        ],
+                    )
+                    transported_overlays += encoded_batch.row_count
+                if transported_overlays != len(overlay_rows):
+                    raise WorkspaceError("Direct row issue batch is incomplete")
                 connection.commit()
             except Exception:
                 connection.rollback()

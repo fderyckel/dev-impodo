@@ -7,7 +7,10 @@ approval freezes the exact eligible-dataset hash for Stage H consumption.
 
 from __future__ import annotations
 
-from .constants import NORMALIZATION_ROW_BATCH_SIZE
+from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
+    NORMALIZATION_ROW_BATCH_SIZE,
+)
 
 from datetime import (
     datetime,
@@ -39,7 +42,31 @@ from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository, WorkspaceAggregateReader
 
 
-from .serialization import _canonical_json, _columnar_parameters
+from .serialization import _canonical_json, iter_encoded_json_batches
+
+
+_NORMALIZATION_EFFECT_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "effect_id":"VARCHAR",
+    "group_id":"VARCHAR",
+    "row_id":"VARCHAR",
+    "dataset":"VARCHAR",
+    "source_row":"BIGINT",
+    "target_field":"VARCHAR",
+    "eligible":"BOOLEAN",
+    "effect_json":"VARCHAR"
+}]"""
+
+_NORMALIZATION_GROUP_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "group_id":"VARCHAR",
+    "kind":"VARCHAR",
+    "outcome":"VARCHAR",
+    "dataset":"VARCHAR",
+    "target_field":"VARCHAR",
+    "requires_decision":"BOOLEAN",
+    "group_json":"VARCHAR"
+}]"""
 
 
 class NormalizationRepository(DuckDbRepository):
@@ -709,77 +736,108 @@ class NormalizationRepository(DuckDbRepository):
                 NORMALIZATION_ROW_BATCH_SIZE,
             ):
                 batch = evaluation.effects[start : start + NORMALIZATION_ROW_BATCH_SIZE]
-                values = []
-                for offset, item in enumerate(batch):
-                    item_json = _canonical_json(item.to_portable_dict())
-                    hasher.add_encoded_array_item(item_json)
-                    values.append(
+                def transport_rows():
+                    for offset, item in enumerate(batch):
+                        item_json = _canonical_json(item.to_portable_dict())
+                        hasher.add_encoded_array_item(item_json)
+                        yield {
+                            "ordinal": start + offset,
+                            "effect_id": item.effect_id,
+                            "group_id": item.group_id,
+                            "row_id": item.row_id,
+                            "dataset": item.dataset,
+                            "source_row": item.source_row,
+                            "target_field": item.target_field,
+                            "eligible": item.eligible,
+                            "effect_json": item_json,
+                        }
+
+                inserted_effects = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    transport_rows(),
+                    max_rows=NORMALIZATION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO normalization_effect (
+                            run_id, ordinal, effect_id, group_id, row_id,
+                            dataset, source_row, target_field, eligible,
+                            effect_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.effect_id, item.group_id,
+                            item.row_id, item.dataset, item.source_row,
+                            item.target_field, item.eligible, item.effect_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
                         [
                             run_id,
-                            start + offset,
-                            item.effect_id,
-                            item.group_id,
-                            item.row_id,
-                            item.dataset,
-                            item.source_row,
-                            item.target_field,
-                            item.eligible,
-                            item_json,
-                        ]
+                            encoded_batch.payload,
+                            _NORMALIZATION_EFFECT_JSON_STRUCTURE,
+                        ],
                     )
-                connection.execute(
-                    """
-                    INSERT INTO normalization_effect (
-                        run_id, ordinal, effect_id, group_id, row_id, dataset,
-                        source_row, target_field, eligible, effect_json
+                    inserted_effects += encoded_batch.row_count
+                if inserted_effects != len(batch):
+                    raise WorkspaceError(
+                        "Normalization effect batch is incomplete"
                     )
-                    SELECT
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
-                    """,
-                    _columnar_parameters(values),
-                )
         hasher.end_array()
         hasher.add_value("eligible_dataset_hash", evaluation.eligible_dataset_hash)
         hasher.add_value("evaluator_version", evaluation.evaluator_version)
         hasher.start_array("groups")
         for start in range(0, len(evaluation.groups), NORMALIZATION_ROW_BATCH_SIZE):
             batch = evaluation.groups[start : start + NORMALIZATION_ROW_BATCH_SIZE]
-            values = []
-            for offset, item in enumerate(batch):
-                item_json = _canonical_json(item.to_portable_dict())
-                hasher.add_encoded_array_item(item_json)
-                values.append(
+            def transport_rows():
+                for offset, item in enumerate(batch):
+                    item_json = _canonical_json(item.to_portable_dict())
+                    hasher.add_encoded_array_item(item_json)
+                    yield {
+                        "ordinal": start + offset,
+                        "group_id": item.group_id,
+                        "kind": item.kind.value,
+                        "outcome": item.outcome.value,
+                        "dataset": item.dataset,
+                        "target_field": item.target_field,
+                        "requires_decision": item.requires_decision,
+                        "group_json": item_json,
+                    }
+
+            inserted_groups = 0
+            for encoded_batch in iter_encoded_json_batches(
+                transport_rows(),
+                max_rows=NORMALIZATION_ROW_BATCH_SIZE,
+                max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO normalization_group (
+                        run_id, ordinal, group_id, kind, outcome, dataset,
+                        target_field, requires_decision, group_json
+                    )
+                    SELECT
+                        ?, item.ordinal, item.group_id, item.kind,
+                        item.outcome, item.dataset, item.target_field,
+                        item.requires_decision, item.group_json
+                      FROM (
+                        SELECT UNNEST(
+                            from_json_strict(CAST(? AS JSON), ?)
+                        ) AS item
+                      )
+                    """,
                     [
                         run_id,
-                        start + offset,
-                        item.group_id,
-                        item.kind.value,
-                        item.outcome.value,
-                        item.dataset,
-                        item.target_field,
-                        item.requires_decision,
-                        item_json,
-                    ]
+                        encoded_batch.payload,
+                        _NORMALIZATION_GROUP_JSON_STRUCTURE,
+                    ],
                 )
-            connection.execute(
-                """
-                INSERT INTO normalization_group (
-                    run_id, ordinal, group_id, kind, outcome, dataset,
-                    target_field, requires_decision, group_json
-                )
-                SELECT
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BOOLEAN),
-                    CAST(unnest(?) AS VARCHAR)
-                """,
-                _columnar_parameters(values),
-            )
+                inserted_groups += encoded_batch.row_count
+            if inserted_groups != len(batch):
+                raise WorkspaceError("Normalization group batch is incomplete")
         hasher.end_array()
         hasher.add_value("mapping_hash", evaluation.mapping_hash)
         hasher.add_value("policy_hash", evaluation.policy_hash)

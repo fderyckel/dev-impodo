@@ -195,18 +195,12 @@ class FixedMigrationWorkspaceEngineDatabase(DuckDbWorkspaceDatabase):
         return self.workspace_access_context(workspace_id)
 
     def assert_workspace_mutable(self, workspace_id: str) -> None:
-        """Check the canonical registry before a fixed worker evidence write."""
+        """Check the worker-local projection without reopening the registry.
 
-        context = self.workspace_access_context(workspace_id)
-        registry_path = self.root / "registry.duckdb"
-        if not registry_path.is_file():
-            raise MigrationNotFoundError("Migration registry not found")
-        with self._connect(registry_path) as connection:
-            row = connection.execute(
-                "SELECT state FROM migration_workspace WHERE workspace_id = ?",
-                [context.workspace_id],
-            ).fetchone()
-        if row is None:
-            raise MigrationNotFoundError("MigrationWorkspace not found")
-        if str(row[0]) != "OPEN":
-            raise WorkspaceError("This MigrationWorkspace is closed and read-only")
+        The browser process verifies that the workspace is open before it
+        creates the fixed worker packet. Reopening ``registry.duckdb`` here
+        would make an otherwise workspace-isolated child contend with every
+        browser request in the parent process.
+        """
+
+        super().assert_workspace_mutable(workspace_id)

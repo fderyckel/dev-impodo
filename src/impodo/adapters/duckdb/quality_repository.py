@@ -55,9 +55,27 @@ from .repository import DuckDbRepository, WorkspaceAggregateReader
 
 from .serialization import (
     _canonical_json,
-    _columnar_parameters,
     iter_encoded_json_batches,
 )
+
+
+_QUALITY_ISSUE_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "issue_id":"VARCHAR",
+    "rule_id":"VARCHAR",
+    "dataset":"VARCHAR",
+    "row_id":"VARCHAR",
+    "policy":"VARCHAR",
+    "issue_json":"VARCHAR"
+}]"""
+
+_QUALITY_QUARANTINE_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "entry_id":"VARCHAR",
+    "row_id":"VARCHAR",
+    "rule_id":"VARCHAR",
+    "entry_json":"VARCHAR"
+}]"""
 
 
 _QUALITY_ROW_RESULT_JSON_STRUCTURE = """[{
@@ -1022,55 +1040,100 @@ class QualityRepository(DuckDbRepository):
         hasher.start_array("issues")
         for start in range(0, len(run.issues), QUALITY_ROW_BATCH_SIZE):
             batch = run.issues[start : start + QUALITY_ROW_BATCH_SIZE]
-            values: list[list[object]] = []
-            for offset, item in enumerate(batch):
-                item_json = _canonical_json(item.to_portable_dict())
-                hasher.add_encoded_array_item(item_json)
-                values.append([
-                    run_id, start + offset, item.issue_id, item.rule_id,
-                    item.dataset, item.row_id, item.policy.value, item_json,
-                ])
-            connection.execute(
-                """
-                INSERT INTO quality_issue (
-                    run_id, ordinal, issue_id, rule_id, dataset, row_id,
-                    policy, issue_json
+
+            def transport_rows():
+                for offset, item in enumerate(batch):
+                    item_json = _canonical_json(item.to_portable_dict())
+                    hasher.add_encoded_array_item(item_json)
+                    yield {
+                        "ordinal": start + offset,
+                        "issue_id": item.issue_id,
+                        "rule_id": item.rule_id,
+                        "dataset": item.dataset,
+                        "row_id": item.row_id,
+                        "policy": item.policy.value,
+                        "issue_json": item_json,
+                    }
+
+            inserted_issues = 0
+            for encoded_batch in iter_encoded_json_batches(
+                transport_rows(),
+                max_rows=QUALITY_ROW_BATCH_SIZE,
+                max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO quality_issue (
+                        run_id, ordinal, issue_id, rule_id, dataset, row_id,
+                        policy, issue_json
+                    )
+                    SELECT
+                        ?, item.ordinal, item.issue_id, item.rule_id,
+                        item.dataset, item.row_id, item.policy,
+                        item.issue_json
+                      FROM (
+                        SELECT UNNEST(
+                            from_json_strict(CAST(? AS JSON), ?)
+                        ) AS item
+                      )
+                    """,
+                    [
+                        run_id,
+                        encoded_batch.payload,
+                        _QUALITY_ISSUE_JSON_STRUCTURE,
+                    ],
                 )
-                SELECT
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR)
-                """,
-                _columnar_parameters(values),
-            )
+                inserted_issues += encoded_batch.row_count
+            if inserted_issues != len(batch):
+                raise WorkspaceError("Quality issue batch is incomplete")
         hasher.end_array()
         hasher.add_value("mapping_hash", run.mapping_hash)
         hasher.start_array("quarantine")
         for start in range(0, len(run.quarantine), QUALITY_ROW_BATCH_SIZE):
             batch = run.quarantine[start : start + QUALITY_ROW_BATCH_SIZE]
-            values = []
-            for offset, item in enumerate(batch):
-                item_json = _canonical_json(item.to_portable_dict())
-                hasher.add_encoded_array_item(item_json)
-                values.append([
-                    run_id, start + offset, item.entry_id, item.row_id,
-                    item.rule_id, item_json,
-                ])
-            connection.execute(
-                """
-                INSERT INTO quality_quarantine_entry (
-                    run_id, ordinal, entry_id, row_id, rule_id, entry_json,
-                    superseded_by_run_id
+
+            def transport_rows():
+                for offset, item in enumerate(batch):
+                    item_json = _canonical_json(item.to_portable_dict())
+                    hasher.add_encoded_array_item(item_json)
+                    yield {
+                        "ordinal": start + offset,
+                        "entry_id": item.entry_id,
+                        "row_id": item.row_id,
+                        "rule_id": item.rule_id,
+                        "entry_json": item_json,
+                    }
+
+            inserted_entries = 0
+            for encoded_batch in iter_encoded_json_batches(
+                transport_rows(),
+                max_rows=QUALITY_ROW_BATCH_SIZE,
+                max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO quality_quarantine_entry (
+                        run_id, ordinal, entry_id, row_id, rule_id,
+                        entry_json, superseded_by_run_id
+                    )
+                    SELECT
+                        ?, item.ordinal, item.entry_id, item.row_id,
+                        item.rule_id, item.entry_json, NULL
+                      FROM (
+                        SELECT UNNEST(
+                            from_json_strict(CAST(? AS JSON), ?)
+                        ) AS item
+                      )
+                    """,
+                    [
+                        run_id,
+                        encoded_batch.payload,
+                        _QUALITY_QUARANTINE_JSON_STRUCTURE,
+                    ],
                 )
-                SELECT
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    NULL
-                """,
-                _columnar_parameters(values),
-            )
+                inserted_entries += encoded_batch.row_count
+            if inserted_entries != len(batch):
+                raise WorkspaceError("Quality quarantine batch is incomplete")
         hasher.end_array()
         hasher.add_value("retention_context_hash", run.retention_context_hash)
         hasher.start_array("row_results")
@@ -1177,38 +1240,59 @@ class QualityRepository(DuckDbRepository):
                 batch = run.row_results[
                     start : start + QUALITY_ROW_BATCH_SIZE
                 ]
-                values = []
-                for offset, item in enumerate(batch):
-                    item_json = _canonical_json(item.to_portable_dict())
-                    hasher.add_encoded_array_item(item_json)
-                    values.append([
-                        run_id,
-                        row_ordinal + offset,
-                        item.row_id,
-                        item.dataset,
-                        item.source_row,
-                        item.record_label,
-                        item.base_disposition.value,
-                        item.effective_disposition.value,
-                        item.requires_review,
-                        item_json,
-                    ])
-                connection.execute(
-                    """
-                    INSERT INTO quality_row_result (
-                        run_id, ordinal, row_id, dataset, source_row,
-                        record_label, base_disposition,
-                        effective_disposition, requires_review, row_json
+                batch_start_ordinal = row_ordinal
+
+                def transport_rows():
+                    for offset, item in enumerate(batch):
+                        item_json = _canonical_json(item.to_portable_dict())
+                        hasher.add_encoded_array_item(item_json)
+                        yield {
+                            "ordinal": batch_start_ordinal + offset,
+                            "row_id": item.row_id,
+                            "dataset": item.dataset,
+                            "source_row": item.source_row,
+                            "record_label": item.record_label,
+                            "base_disposition": item.base_disposition.value,
+                            "effective_disposition": (
+                                item.effective_disposition.value
+                            ),
+                            "requires_review": item.requires_review,
+                            "row_json": item_json,
+                        }
+
+                inserted_rows = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    transport_rows(),
+                    max_rows=QUALITY_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO quality_row_result (
+                            run_id, ordinal, row_id, dataset, source_row,
+                            record_label, base_disposition,
+                            effective_disposition, requires_review, row_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.row_id, item.dataset,
+                            item.source_row, item.record_label,
+                            item.base_disposition, item.effective_disposition,
+                            item.requires_review, item.row_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _QUALITY_ROW_RESULT_JSON_STRUCTURE,
+                        ],
                     )
-                    SELECT
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
-                    """,
-                    _columnar_parameters(values),
-                )
+                    inserted_rows += encoded_batch.row_count
+                if inserted_rows != len(batch):
+                    raise WorkspaceError("Quality row evidence batch is incomplete")
                 row_ordinal += len(batch)
         if row_ordinal != len(run.row_results):
             raise WorkspaceError("Quality row evidence is incomplete")
@@ -1341,48 +1425,94 @@ class QualityRepository(DuckDbRepository):
                 batch = run.source_accounting[
                     start : start + QUALITY_ROW_BATCH_SIZE
                 ]
-                values = []
-                for offset, item in enumerate(batch):
-                    item_json = _canonical_json(item.to_portable_dict())
-                    hasher.add_encoded_array_item(item_json)
-                    values.append([
-                        run_id,
-                        accounting_ordinal + offset,
-                        item.physical_dataset_id,
-                        item.source_row,
-                        item.state.value,
-                        item_json,
-                    ])
-                connection.execute(
-                    """
-                    INSERT INTO source_accounting_entry (
-                        run_id, ordinal, physical_dataset_id, source_row,
-                        state, entry_json
+                batch_start_ordinal = accounting_ordinal
+
+                def entry_transport_rows():
+                    for offset, item in enumerate(batch):
+                        item_json = _canonical_json(item.to_portable_dict())
+                        hasher.add_encoded_array_item(item_json)
+                        yield {
+                            "ordinal": batch_start_ordinal + offset,
+                            "physical_dataset_id": item.physical_dataset_id,
+                            "source_row": item.source_row,
+                            "state": item.state.value,
+                            "entry_json": item_json,
+                        }
+
+                inserted_entries = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    entry_transport_rows(),
+                    max_rows=QUALITY_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO source_accounting_entry (
+                            run_id, ordinal, physical_dataset_id, source_row,
+                            state, entry_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.physical_dataset_id,
+                            item.source_row, item.state, item.entry_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _SOURCE_ACCOUNTING_ENTRY_JSON_STRUCTURE,
+                        ],
                     )
-                    SELECT
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR)
-                    """,
-                    _columnar_parameters(values),
-                )
-                links = [
-                    [run_id, accounting_ordinal + offset, row_id]
+                    inserted_entries += encoded_batch.row_count
+                if inserted_entries != len(batch):
+                    raise WorkspaceError(
+                        "Quality source accounting batch is incomplete"
+                    )
+
+                link_rows = (
+                    {
+                        "accounting_ordinal": batch_start_ordinal + offset,
+                        "row_id": row_id,
+                    }
                     for offset, item in enumerate(batch)
                     for row_id in item.canonical_row_ids
-                ]
-                if links:
+                )
+                expected_links = sum(
+                    len(item.canonical_row_ids)
+                    for item in batch
+                )
+                inserted_links = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    link_rows,
+                    max_rows=QUALITY_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
                     connection.execute(
                         """
                         INSERT INTO source_accounting_link (
                             run_id, accounting_ordinal, row_id
                         )
                         SELECT
-                            CAST(unnest(?) AS VARCHAR),
-                            CAST(unnest(?) AS BIGINT),
-                            CAST(unnest(?) AS VARCHAR)
+                            ?, item.accounting_ordinal, item.row_id
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
                         """,
-                        _columnar_parameters(links),
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _SOURCE_ACCOUNTING_LINK_JSON_STRUCTURE,
+                        ],
+                    )
+                    inserted_links += encoded_batch.row_count
+                if inserted_links != expected_links:
+                    raise WorkspaceError(
+                        "Quality source accounting links are incomplete"
                     )
                 accounting_ordinal += len(batch)
         if accounting_ordinal != len(run.source_accounting):

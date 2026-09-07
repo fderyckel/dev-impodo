@@ -17,6 +17,7 @@ from impodo.domain.preparation.normalization import NormalizationEffect
 from impodo.domain.preparation.quality import QualityIssue
 from impodo.domain.workspace.errors import WorkspaceError
 from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )
 from .preparation_session_support import (
@@ -24,8 +25,51 @@ from .preparation_session_support import (
 )
 from .serialization import (
     _canonical_json,
-    _columnar_parameters,
+    iter_encoded_json_batches,
 )
+
+
+_PENDING_NORMALIZATION_EFFECT_JSON_STRUCTURE = """[{
+    "run_id":"VARCHAR",
+    "ordinal":"BIGINT",
+    "effect_id":"VARCHAR",
+    "group_id":"VARCHAR",
+    "row_id":"VARCHAR",
+    "dataset":"VARCHAR",
+    "source_row":"BIGINT",
+    "target_field":"VARCHAR",
+    "eligible":"BOOLEAN",
+    "effect_json":"VARCHAR"
+}]"""
+
+_NORMALIZATION_GROUP_SEED_JSON_STRUCTURE = """[{
+    "session_id":"VARCHAR",
+    "group_id":"VARCHAR",
+    "metadata_hash":"VARCHAR",
+    "dataset":"VARCHAR",
+    "target_field":"VARCHAR",
+    "rule_id":"VARCHAR",
+    "kind":"VARCHAR",
+    "outcome":"VARCHAR",
+    "name":"VARCHAR",
+    "explanation":"VARCHAR",
+    "owner_label":"VARCHAR"
+}]"""
+
+_NORMALIZATION_FINDING_JSON_STRUCTURE = """[{
+    "session_id":"VARCHAR",
+    "issue_id":"VARCHAR",
+    "group_id":"VARCHAR",
+    "row_id":"VARCHAR",
+    "rule_id":"VARCHAR",
+    "kind":"VARCHAR",
+    "outcome":"VARCHAR",
+    "dataset":"VARCHAR",
+    "target_field":"VARCHAR",
+    "name":"VARCHAR",
+    "explanation":"VARCHAR",
+    "owner_label":"VARCHAR"
+}]"""
 
 
 class PreparationNormalizationRecords:
@@ -428,50 +472,131 @@ class PreparationNormalizationRecords:
 
     @staticmethod
     def _insert_prepared_normalization_effects(connection, rows) -> None:
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO normalization_pending_effect
-            SELECT
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
-            """,
-            _columnar_parameters(rows),
+        transport_rows = (
+            {
+                "run_id": row[0],
+                "ordinal": row[1],
+                "effect_id": row[2],
+                "group_id": row[3],
+                "row_id": row[4],
+                "dataset": row[5],
+                "source_row": row[6],
+                "target_field": row[7],
+                "eligible": row[8],
+                "effect_json": row[9],
+            }
+            for row in rows
         )
+        for encoded_batch in iter_encoded_json_batches(
+            transport_rows,
+            max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+        ):
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO normalization_pending_effect
+                SELECT
+                    item.run_id, item.ordinal, item.effect_id, item.group_id,
+                    item.row_id, item.dataset, item.source_row,
+                    item.target_field, item.eligible, item.effect_json
+                  FROM (
+                    SELECT UNNEST(
+                        from_json_strict(CAST(? AS JSON), ?)
+                    ) AS item
+                  )
+                """,
+                [
+                    encoded_batch.payload,
+                    _PENDING_NORMALIZATION_EFFECT_JSON_STRUCTURE,
+                ],
+            )
 
     @staticmethod
     def _insert_prepared_normalization_group_seeds(connection, rows) -> None:
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO preparation_normalization_group_seed
-            SELECT
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR)
-            """,
-            _columnar_parameters(rows),
+        transport_rows = (
+            {
+                "session_id": row[0],
+                "group_id": row[1],
+                "metadata_hash": row[2],
+                "dataset": row[3],
+                "target_field": row[4],
+                "rule_id": row[5],
+                "kind": row[6],
+                "outcome": row[7],
+                "name": row[8],
+                "explanation": row[9],
+                "owner_label": row[10],
+            }
+            for row in rows
         )
+        for encoded_batch in iter_encoded_json_batches(
+            transport_rows,
+            max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+        ):
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO preparation_normalization_group_seed
+                SELECT
+                    item.session_id, item.group_id, item.metadata_hash,
+                    item.dataset, item.target_field, item.rule_id, item.kind,
+                    item.outcome, item.name, item.explanation,
+                    item.owner_label
+                  FROM (
+                    SELECT UNNEST(
+                        from_json_strict(CAST(? AS JSON), ?)
+                    ) AS item
+                  )
+                """,
+                [
+                    encoded_batch.payload,
+                    _NORMALIZATION_GROUP_SEED_JSON_STRUCTURE,
+                ],
+            )
 
     @staticmethod
     def _insert_prepared_normalization_findings(connection, rows) -> None:
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO preparation_normalization_finding
-            SELECT
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR)
-            """,
-            _columnar_parameters(rows),
+        transport_rows = (
+            {
+                "session_id": row[0],
+                "issue_id": row[1],
+                "group_id": row[2],
+                "row_id": row[3],
+                "rule_id": row[4],
+                "kind": row[5],
+                "outcome": row[6],
+                "dataset": row[7],
+                "target_field": row[8],
+                "name": row[9],
+                "explanation": row[10],
+                "owner_label": row[11],
+            }
+            for row in rows
         )
+        for encoded_batch in iter_encoded_json_batches(
+            transport_rows,
+            max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+        ):
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO preparation_normalization_finding
+                SELECT
+                    item.session_id, item.issue_id, item.group_id,
+                    item.row_id, item.rule_id, item.kind, item.outcome,
+                    item.dataset, item.target_field, item.name,
+                    item.explanation, item.owner_label
+                  FROM (
+                    SELECT UNNEST(
+                        from_json_strict(CAST(? AS JSON), ?)
+                    ) AS item
+                  )
+                """,
+                [
+                    encoded_batch.payload,
+                    _NORMALIZATION_FINDING_JSON_STRUCTURE,
+                ],
+            )
 
     def _iter_bound_impacts_with_eligibility(
         self,

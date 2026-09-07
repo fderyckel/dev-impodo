@@ -7,7 +7,10 @@ and invalidates quality and every later artifact; identical content is reused.
 
 from __future__ import annotations
 
-from .constants import STAGING_ROW_BATCH_SIZE
+from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
+    STAGING_ROW_BATCH_SIZE,
+)
 
 from datetime import (
     datetime,
@@ -42,7 +45,18 @@ from .preparation_session_repository import PreparationSessionRepository
 from .repository import DuckDbRepository
 
 
-from .serialization import _canonical_json, _columnar_parameters
+from .serialization import _canonical_json, iter_encoded_json_batches
+
+
+_STAGING_ROW_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "row_id":"VARCHAR",
+    "dataset":"VARCHAR",
+    "source_row":"BIGINT",
+    "target_model":"VARCHAR",
+    "disposition":"VARCHAR",
+    "row_json":"VARCHAR"
+}]"""
 
 
 class StagingRepository(DuckDbRepository):
@@ -644,57 +658,79 @@ class StagingRepository(DuckDbRepository):
         if callable(encoded_batches):
             expected_ordinal = 0
             for batch in encoded_batches(connection, STAGING_ROW_BATCH_SIZE):
-                values: list[list[object]] = []
-                for (
-                    ordinal,
-                    row_id,
-                    dataset,
-                    source_row,
-                    target_model,
-                    disposition,
-                    row_json,
-                ) in batch:
-                    if int(ordinal) != expected_ordinal:
-                        raise WorkspaceError(
-                            "Stored preparation rows are not contiguous"
+                batch_start_ordinal = expected_ordinal
+
+                def transport_rows():
+                    nonlocal expected_ordinal
+                    for (
+                        ordinal,
+                        row_id,
+                        dataset,
+                        source_row,
+                        target_model,
+                        disposition,
+                        row_json,
+                    ) in batch:
+                        if int(ordinal) != expected_ordinal:
+                            raise WorkspaceError(
+                                "Stored preparation rows are not contiguous"
+                            )
+                        encoded = str(row_json)
+                        if (
+                            not encoded
+                            or not str(row_id)
+                            or not str(dataset)
+                            or int(source_row) < 1
+                            or not str(target_model)
+                        ):
+                            raise WorkspaceError(
+                                "Stored preparation row metadata is inconsistent"
+                            )
+                        hasher.add_encoded_array_item(encoded)
+                        yield {
+                            "ordinal": expected_ordinal,
+                            "row_id": str(row_id),
+                            "dataset": str(dataset),
+                            "source_row": int(source_row),
+                            "target_model": str(target_model),
+                            "disposition": str(disposition),
+                            "row_json": encoded,
+                        }
+                        expected_ordinal += 1
+
+                inserted_rows = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    transport_rows(),
+                    max_rows=STAGING_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO canonical_staging_row (
+                            run_id, ordinal, row_id, dataset, source_row,
+                            target_model, disposition, row_json
                         )
-                    encoded = str(row_json)
-                    if (
-                        not encoded
-                        or not str(row_id)
-                        or not str(dataset)
-                        or int(source_row) < 1
-                        or not str(target_model)
-                    ):
-                        raise WorkspaceError(
-                            "Stored preparation row metadata is inconsistent"
-                        )
-                    hasher.add_encoded_array_item(encoded)
-                    values.append(
+                        SELECT
+                            ?, item.ordinal, item.row_id, item.dataset,
+                            item.source_row, item.target_model,
+                            item.disposition, item.row_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
                         [
                             run_id,
-                            expected_ordinal,
-                            str(row_id),
-                            str(dataset),
-                            int(source_row),
-                            str(target_model),
-                            str(disposition),
-                            encoded,
-                        ]
+                            encoded_batch.payload,
+                            _STAGING_ROW_JSON_STRUCTURE,
+                        ],
                     )
-                    expected_ordinal += 1
-                connection.execute(
-                    """
-                    INSERT INTO canonical_staging_row (
-                        run_id, ordinal, row_id, dataset, source_row,
-                        target_model, disposition, row_json
+                    inserted_rows += encoded_batch.row_count
+                if inserted_rows != expected_ordinal - batch_start_ordinal:
+                    raise WorkspaceError(
+                        "Stored preparation row batch is incomplete"
                     )
-                    SELECT
-                        unnest(?), unnest(?), unnest(?), unnest(?),
-                        unnest(?), unnest(?), unnest(?), unnest(?)
-                    """,
-                    _columnar_parameters(values),
-                )
             if expected_ordinal != len(run.rows):
                 raise WorkspaceError("Stored preparation rows are incomplete")
             hasher.end_array()
@@ -704,34 +740,51 @@ class StagingRepository(DuckDbRepository):
             return hasher.finish()
         for start in range(0, len(run.rows), STAGING_ROW_BATCH_SIZE):
             batch = run.rows[start : start + STAGING_ROW_BATCH_SIZE]
-            values: list[list[object]] = []
-            for offset, row in enumerate(batch):
-                row_json = _canonical_json(row.to_portable_dict())
-                hasher.add_encoded_array_item(row_json)
-                values.append(
+            def transport_rows():
+                for offset, row in enumerate(batch):
+                    row_json = _canonical_json(row.to_portable_dict())
+                    hasher.add_encoded_array_item(row_json)
+                    yield {
+                        "ordinal": start + offset,
+                        "row_id": row.row_id,
+                        "dataset": row.dataset,
+                        "source_row": row.source_row,
+                        "target_model": row.target_model,
+                        "disposition": row.disposition.value,
+                        "row_json": row_json,
+                    }
+
+            inserted_rows = 0
+            for encoded_batch in iter_encoded_json_batches(
+                transport_rows(),
+                max_rows=STAGING_ROW_BATCH_SIZE,
+                max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO canonical_staging_row (
+                        run_id, ordinal, row_id, dataset, source_row,
+                        target_model, disposition, row_json
+                    )
+                    SELECT
+                        ?, item.ordinal, item.row_id, item.dataset,
+                        item.source_row, item.target_model,
+                        item.disposition, item.row_json
+                      FROM (
+                        SELECT UNNEST(
+                            from_json_strict(CAST(? AS JSON), ?)
+                        ) AS item
+                      )
+                    """,
                     [
                         run_id,
-                        start + offset,
-                        row.row_id,
-                        row.dataset,
-                        row.source_row,
-                        row.target_model,
-                        row.disposition.value,
-                        row_json,
-                    ]
+                        encoded_batch.payload,
+                        _STAGING_ROW_JSON_STRUCTURE,
+                    ],
                 )
-            connection.execute(
-                """
-                INSERT INTO canonical_staging_row (
-                    run_id, ordinal, row_id, dataset, source_row,
-                    target_model, disposition, row_json
-                )
-                SELECT
-                    unnest(?), unnest(?), unnest(?), unnest(?),
-                    unnest(?), unnest(?), unnest(?), unnest(?)
-                """,
-                _columnar_parameters(values),
-            )
+                inserted_rows += encoded_batch.row_count
+            if inserted_rows != len(batch):
+                raise WorkspaceError("Prepared row batch is incomplete")
         hasher.end_array()
         hasher.add_value("schema_hash", run.schema_hash)
         hasher.add_value("source_selection_hash", run.source_selection_hash)
