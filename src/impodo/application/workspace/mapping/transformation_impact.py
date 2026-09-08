@@ -14,6 +14,7 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactRow,
     TransformationImpactSnapshot,
 )
+from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.mapping.artifacts import MappingRevision
@@ -140,6 +141,16 @@ class TransformationImpactContext:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class MappingReviewRowEvidence:
+    """Carry complete Stage 3 rows and cell impacts into one workbook."""
+
+    physical_selection: SourceSelection
+    effective_selection: SourceSelection
+    canonical_run: CanonicalStagingRun
+    impacts: tuple[TransformationImpactRow, ...]
+
+
 class TransformationImpactService:
     """Publish one complete hash-bound impact snapshot."""
 
@@ -162,7 +173,17 @@ class TransformationImpactService:
         self.authorization = authorization
 
     def context(self, workspace_id: str) -> TransformationImpactContext:
-        """Resolve current inputs and reject invalid or unsaved mapping state."""
+        """Resolve valid current inputs for the optional browser preview."""
+
+        return self._context(workspace_id, require_valid=True)
+
+    def _context(
+        self,
+        workspace_id: str,
+        *,
+        require_valid: bool,
+    ) -> TransformationImpactContext:
+        """Resolve current inputs while preserving the caller's validity gate."""
 
         workspace_state = self.workspaces.get(workspace_id)
         revision = self.mappings.get_mapping_revision(workspace_id)
@@ -173,7 +194,11 @@ class TransformationImpactService:
         validation = self.mappings.get_mapping_validation(
             workspace_id, revision.version
         )
-        if validation is None or validation.status is MappingValidationStatus.INVALID:
+        if validation is None:
+            raise WorkspaceError(
+                "Check the current mapping before reviewing transformed values."
+            )
+        if require_valid and validation.status is MappingValidationStatus.INVALID:
             raise WorkspaceError(
                 "Resolve the mapping validation findings before reviewing all "
                 "transformed values."
@@ -200,6 +225,42 @@ class TransformationImpactService:
             physical_selection=physical,
             effective_selection=effective,
             plan=self.derived_entities.get_derived_entity_plan(workspace_id),
+        )
+
+    def prepare_mapping_review_rows(
+        self,
+        workspace_id: str,
+    ) -> MappingReviewRowEvidence:
+        """Evaluate complete checked rows for the portable Stage 3 workbook.
+
+        The workbook remains useful after an invalid check, so this projection
+        accepts an exact invalid revision and lets the row evaluator mark the
+        affected cells. It still rejects missing checks, stale working changes,
+        unsupported source scale, and protected Odoo source materialization.
+        """
+
+        context = self._context(workspace_id, require_valid=False)
+        catalogs = self.sources.get_source_catalogs(workspace_id)
+        source_snapshots = self.sources.get_current_source_snapshots(workspace_id)
+        impacts: list[TransformationImpactRow] = []
+        staged = stage_browser_mapping(
+            context.workspace_state,
+            context.revision.definition,
+            context.physical_selection,
+            context.effective_selection,
+            context.plan,
+            catalogs,
+            self.artifacts,
+            source_snapshots=source_snapshots,
+            collect_transformation_impact=True,
+            transformation_detail_limit=0,
+            transformation_impact_sink=impacts.append,
+        )
+        return MappingReviewRowEvidence(
+            physical_selection=context.physical_selection,
+            effective_selection=context.effective_selection,
+            canonical_run=staged.canonical_run,
+            impacts=tuple(impacts),
         )
 
     def prepare_snapshot(

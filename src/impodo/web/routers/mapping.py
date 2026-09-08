@@ -33,6 +33,8 @@ from starlette.concurrency import run_in_threadpool
 
 from impodo.adapters.artifacts.mapping_review import (
     MappingReviewGenerationError,
+    MappingReviewRecipeContext,
+    build_mapping_review_row_projection,
     mapping_review_workbook_name,
     write_mapping_review_workbook,
 )
@@ -40,6 +42,7 @@ from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.run.contracts import (
     MigrationRunPlanningError,
     RecipeApplicationStatus,
@@ -1494,6 +1497,49 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 capability=Capability.PROTECTED_EVIDENCE_MANAGE,
             )
             filename = mapping_review_workbook_name(revision)
+            recipe_context = _mapping_review_recipe_context(
+                context,
+                workspace_id,
+                access,
+            )
+            row_projection = None
+            row_projection_error = ""
+            try:
+                row_evidence = await run_in_threadpool(
+                    context.transformation_impacts.prepare_mapping_review_rows,
+                    workspace_id,
+                )
+                if row_evidence.effective_selection.content_hash != selection.content_hash:
+                    raise WorkspaceError(
+                        "Source data changed. Check matches again before creating "
+                        "the workbook."
+                    )
+                row_projection = build_mapping_review_row_projection(
+                    revision,
+                    row_evidence.effective_selection,
+                    row_evidence.physical_selection,
+                    row_evidence.canonical_run.rows,
+                    row_evidence.impacts,
+                )
+            except (
+                ArtifactStoreError,
+                OSError,
+                ReadinessError,
+                SourceLoadError,
+                WorkspaceError,
+                ValueError,
+            ):
+                row_projection_error = (
+                    "Protected Odoo source values remain inside Impodo."
+                    if any(
+                        dataset.origin.value == "ODOO"
+                        for dataset in selection.datasets
+                    )
+                    else (
+                        "Impodo could not produce the row preview for this "
+                        "check. Review Needs attention and recreate the workbook."
+                    )
+                )
 
             def write_workbook() -> None:
                 with context.artifacts.prepare_report(
@@ -1507,6 +1553,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         selection,
                         schema,
                         workbook_path,
+                        row_projection=row_projection,
+                        row_projection_error=row_projection_error,
+                        recipe_context=recipe_context,
                     )
 
             await run_in_threadpool(write_workbook)
@@ -1897,6 +1946,40 @@ def _current_mapping_review_evidence(context: WebContext, workspace_id: str):
             "before creating the workbook."
         )
     return revision, validation, selection, schema
+
+
+def _mapping_review_recipe_context(
+    context: WebContext,
+    workspace_id: str,
+    access,
+) -> MappingReviewRecipeContext | None:
+    """Return verified Recipe lineage for one Recipe-application workspace."""
+
+    application_id = access.recipe_application_id
+    if application_id is None:
+        return None
+    try:
+        application = context.run_planning.repository.get_application(
+            application_id
+        )
+        recipe = context.recipes.get(application.recipe_id, actor=context.actor)
+    except MigrationFoundationError as error:
+        raise WorkspaceError(
+            "The Recipe details for this matching review could not be verified"
+        ) from error
+    if (
+        application.workspace_id != workspace_id
+        or application.project_id != access.project_id
+        or recipe.project_id != access.project_id
+    ):
+        raise WorkspaceError(
+            "The Recipe details for this matching review do not belong to this "
+            "workspace"
+        )
+    return MappingReviewRecipeContext(
+        display_name=recipe.display_name,
+        revision=application.recipe_revision,
+    )
 
 
 def _mapping_review_chunks(

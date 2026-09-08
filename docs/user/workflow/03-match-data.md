@@ -73,9 +73,17 @@ The matching review workbook shows what the current Stage 3 check already
 knows. Start with **Needs attention**, which lists every blocking error and
 reviewable warning with the affected table, Odoo field, reason, and correction.
 **Field matches** gives one filterable row for every mapped, required, or
-checked Odoo field. Each source table also receives a column-based field sheet
-so that missing required fields remain visible even when no source column was
-selected.
+checked Odoo field. It is the only field-decision sheet, so the workbook does
+not repeat the same matches in one sheet per source file.
+
+**Transformed data** shows the proposed Stage 3 values. For a normal file
+table, one workbook row represents one accepted source row. A derived table
+that combines source rows keeps all of its original row references. A blue
+cell contains a value that Impodo changed, combined, supplied, or replaced
+with a backup. Open that cell's Excel note to see the source field, original
+value, and rule. A value that passes through unchanged has no colour. A red
+**Not produced** cell identifies a row value that Impodo could not create
+safely.
 
 The workbook uses the same meanings as the final review workbook:
 
@@ -89,17 +97,22 @@ The workbook uses the same meanings as the final review workbook:
   value or transformation rule.
 - Grey fields need no current action.
 
-Every coloured field also contains a written status and next action. When a
-choice or business-key policy does not cover a source value, **Value coverage**
-shows the known gap. For an Odoo source, protected business values remain
-inside Impodo and do not enter this portable workbook.
+Every coloured field also contains a written status and next action. **Value
+coverage** gives one row for each distinct current source choice, together
+with its affected-row count and proposed Odoo value. When the mapping was
+loaded from a Recipe, the sheet names the Recipe version and marks each value
+as **Covered by Recipe** or **Not covered by Recipe**. Impodo checks the
+current accepted source data; it does not reuse value observations from the
+data that originally produced the Recipe. For an Odoo source, protected
+business values remain inside Impodo and do not enter this portable workbook.
 
 This workbook records the exact checked mapping. It does not contain prepared
-rows, resolved duplicates, final relationship results, or a fresh comparison
-with current Odoo records. **Checked later** names those remaining checks.
-Stage 4 still prepares every row, and the separate Stage 5 review workbook
-still documents the proposed load. After you change a field match, select
-**Check matches** and recreate the matching review workbook.
+evidence, resolved duplicates, final relationship results, or a fresh
+comparison with current Odoo records. The overview states this boundary once;
+the workbook has no separate **Checked later** sheet. Stage 4 still publishes
+and reviews the prepared rows, and the separate Stage 5 review workbook still
+documents the proposed load. After you change a field match, select **Check
+matches** and recreate the matching review workbook.
 
 For reviewed Odoo 19 references such as Country, Language, and Currency,
 Impodo checks the parent relationship and exact portable key through one

@@ -275,6 +275,7 @@ stages:
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService.submit_current
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
+      - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService.prepare_mapping_review_rows
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/contracts.py::ScalarConcatenation
@@ -295,6 +296,7 @@ stages:
       - src/impodo/web/presenters/mapping_forms.py::_scalar_concatenation_from_form
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
       - src/impodo/adapters/artifacts/mapping_review.py::write_mapping_review_workbook
+      - src/impodo/adapters/artifacts/mapping_review.py::build_mapping_review_row_projection
       - src/impodo/web/diagnostics.py::RequestDiagnosticsMiddleware
       - src/impodo/web/diagnostics.py::create_diagnostic_bundle
       - src/impodo/web/routers/lifecycle.py::build_lifecycle_router

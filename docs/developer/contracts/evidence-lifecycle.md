@@ -181,17 +181,28 @@ appearance cannot introduce or remove a validation finding.
 
 The workbook may add captured source-table, Odoo-model, and Odoo-field labels.
 It may also add the bounded categorical counts and uncovered values already
-contained in the exact validation evidence. Protected Odoo-source business
-values must remain inside Impodo. External workbook text must not become an
-executable spreadsheet formula.
+contained in the exact validation evidence. For a bounded file source, it may
+re-evaluate the exact frozen selection with the Stage 3 evaluator and display
+the resulting canonical rows as a non-authoritative preview. A changed cell
+may retain the source field, original value, and rule in an Excel note. This
+evaluation remains in memory and does not publish Stage 4 prepared evidence.
+Protected Odoo-source business values must remain inside Impodo and outside
+both row and value-coverage projections. External workbook text must not
+become an executable spreadsheet formula.
 
-The workbook does not contain prepared rows, duplicate decisions, final
-relationship outcomes, fresh target records, create/update classifications, or
-field differences against Odoo. It lists deferred runtime checks rather than
-claiming their results. It cannot confirm a mapping, acknowledge a warning,
-qualify preparation, or authorize execution. A changed working draft, source
-selection, governed schema, or validation binding makes the prior workbook
-ineligible for current download.
+The workbook does not contain duplicate decisions, final relationship
+outcomes, fresh target records, create/update classifications, or field
+differences against Odoo. Its overview states those remaining evidence
+boundaries without duplicating them in a deferred-check sheet. It cannot
+confirm a mapping, acknowledge a warning, qualify preparation, or authorize
+execution. A changed working draft, source selection, governed schema, or
+validation binding makes the prior workbook ineligible for current download.
+
+When a checked mapping belongs to a verified Recipe application, the workbook
+may identify that Recipe revision and classify each distinct current source
+value as covered or not covered by its Recipe-based rules. This is a fresh
+coverage evaluation over the application's accepted source snapshot, not
+historical evidence about the source data used to publish the Recipe.
 
 The transformation-impact snapshot records two hash-bound facts for each
 conditional Selection rule. The match fact counts rows that matched before

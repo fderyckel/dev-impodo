@@ -1,9 +1,10 @@
 """Write the portable Stage 3 matching review workbook.
 
-The workbook projects one immutable mapping revision and its exact validation
-result.  It uses captured source and Odoo schema labels, but it neither opens
-source artifacts nor contacts Odoo.  Stage 4 prepared rows and the Stage 5
-target comparison deliberately remain outside this artifact.
+The workbook projects one immutable mapping revision, its exact validation
+result, and an optional target-independent row evaluation over the frozen file
+source.  The row view reuses the Stage 3 evaluator and never contacts Odoo.
+Stage 4 decisions and the Stage 5 target comparison remain outside this
+artifact.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import re
 from typing import Any, Iterable
 
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -29,13 +31,23 @@ from impodo.domain.mapping.contracts import (
     ScalarValueSource,
     TargetFieldHandling,
 )
+from impodo.domain.mapping.scalar_values import (
+    ScalarValueError,
+    evaluate_scalar_mapping_value,
+)
 from impodo.domain.mapping.validation.evidence import (
     MappingValidationIssue,
     MappingValidationResult,
     MappingValidationStatus,
 )
 from impodo.domain.recipe.value_rules import ScalarTransformPolicy
+from impodo.domain.shared.models import (
+    BusinessReference,
+    LogicalReference,
+    portable_value,
+)
 from impodo.domain.source_binding import SourceOriginKind
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -78,7 +90,6 @@ _STYLE_COLORS = {
 _THIN_BORDER = Border(bottom=Side(style="thin", color=_COLORS["line"]))
 _EXCEL_MAX_ROW = 1_048_576
 _EXCEL_MAX_COLUMN = 16_384
-_INVALID_SHEET_CHARACTERS = re.compile(r"[\\/*?:\[\]]")
 
 
 class MappingReviewGenerationError(RuntimeError):
@@ -98,6 +109,47 @@ class _FieldReview:
     next_action: str
 
 
+@dataclass(frozen=True, slots=True)
+class MappingReviewRecipeContext:
+    """User-facing lineage for a mapping loaded from one Recipe revision."""
+
+    display_name: str
+    revision: int
+
+    @property
+    def label(self) -> str:
+        return f"Recipe {self.display_name} v{self.revision}"
+
+
+@dataclass(frozen=True, slots=True)
+class MappingReviewCell:
+    """One proposed row value and its optional raw-to-proposed explanation."""
+
+    value: Any
+    style: str = "neutral"
+    comment: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MappingReviewDataRow:
+    """One Stage 3 output row with direct frozen-source lineage."""
+
+    source_table: str
+    source_row: str
+    target_model: str
+    status: str
+    status_style: str
+    cells: dict[str, MappingReviewCell]
+
+
+@dataclass(frozen=True, slots=True)
+class MappingReviewRowProjection:
+    """Complete workbook-ready rows from one exact Stage 3 evaluation."""
+
+    rows: tuple[MappingReviewDataRow, ...]
+    changed_cell_count: int
+
+
 def mapping_review_workbook_name(revision: MappingRevision) -> str:
     """Return the artifact name bound to one exact mapping revision."""
 
@@ -110,12 +162,175 @@ def mapping_review_workbook_name(revision: MappingRevision) -> str:
     )
 
 
+def build_mapping_review_row_projection(
+    revision: MappingRevision,
+    effective_selection: SourceSelection,
+    physical_selection: SourceSelection,
+    canonical_rows: Iterable[Any],
+    impacts: Iterable[TransformationImpactRow],
+) -> MappingReviewRowProjection:
+    """Turn exact canonical rows and impacts into workbook notes and cells."""
+
+    effective_by_id = {
+        dataset.dataset_id: dataset for dataset in effective_selection.datasets
+    }
+    mapping_by_name = {
+        effective_by_id[mapping.dataset_id].name: mapping
+        for mapping in revision.definition.datasets
+        if mapping.dataset_id in effective_by_id
+    }
+    physical_labels = {
+        dataset.dataset_id: dataset.name for dataset in physical_selection.datasets
+    }
+    impact_by_cell = {
+        (impact.dataset, impact.source_row, impact.target_field): impact
+        for impact in impacts
+    }
+    rows: list[MappingReviewDataRow] = []
+    changed_count = 0
+    for row in canonical_rows:
+        mapping = mapping_by_name.get(row.dataset)
+        if mapping is None:
+            continue
+        values: dict[str, Any] = {}
+        values.update(_identity_values(mapping.target_identity, row.target_identity))
+        values.update(_identity_values(mapping.target_scope, row.target_scope))
+        values.update(dict(row.proposed_values))
+        values.update(
+            {
+                field.target_field: "Odoo will choose"
+                for field in mapping.fields
+                if field.value_source is ScalarValueSource.ODOO_DEFAULT
+            }
+        )
+        values.update(
+            {
+                field: _display_reference_value(value)
+                for field, value in row.references.items()
+            }
+        )
+        for disposition in mapping.target_field_dispositions:
+            values[disposition.target_field] = (
+                "Odoo will choose"
+                if disposition.handling is TargetFieldHandling.ODOO_DEFAULT
+                else "Odoo manages this field"
+            )
+
+        cells: dict[str, MappingReviewCell] = {}
+        for target_field, value in values.items():
+            impact = impact_by_cell.get(
+                (row.dataset, row.source_row, target_field)
+            )
+            if impact is None:
+                cells[target_field] = MappingReviewCell(
+                    value=_display_reference_value(value)
+                )
+                continue
+            changed_count += 1
+            style = "danger" if impact.outcome == "invalid" else "prepared"
+            cells[target_field] = MappingReviewCell(
+                value=(
+                    "Not produced"
+                    if impact.outcome == "invalid"
+                    else _display_reference_value(value)
+                ),
+                style=style,
+                comment=_impact_comment(impact),
+            )
+
+        issues = tuple(row.issues)
+        if any(issue.severity == "error" for issue in issues):
+            status, status_style = "Must fix", "danger"
+        elif issues:
+            status, status_style = "Review required", "warning"
+        else:
+            status, status_style = "Ready", "ready"
+        rows.append(
+            MappingReviewDataRow(
+                source_table=row.dataset,
+                source_row=_source_row_reference(row, physical_labels),
+                target_model=row.target_model,
+                status=status,
+                status_style=status_style,
+                cells=cells,
+            )
+        )
+    return MappingReviewRowProjection(
+        rows=tuple(rows),
+        changed_cell_count=changed_count,
+    )
+
+
+def _identity_values(components, values) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    cursor = 0
+    for component in components:
+        width = len(component.target_fields)
+        prepared = tuple(values[cursor : cursor + width])
+        cursor += width
+        for target_field, value in zip(
+            component.target_fields,
+            prepared,
+            strict=True,
+        ):
+            result[target_field] = _display_reference_value(value)
+    return result
+
+
+def _source_row_reference(row, physical_labels: dict[str, str]) -> str:
+    sources = dict(row.lineage.physical_sources)
+    if len(sources) == 1:
+        dataset_id, source_rows = next(iter(sources.items()))
+        if len(source_rows) == 1:
+            return str(source_rows[0])
+        return ", ".join(str(value) for value in source_rows)
+    return "; ".join(
+        f"{physical_labels.get(dataset_id, dataset_id)}: "
+        f"{', '.join(str(value) for value in source_rows)}"
+        for dataset_id, source_rows in sorted(sources.items())
+    )
+
+
+def _impact_comment(impact: TransformationImpactRow) -> str:
+    lines = [
+        f"Source field: {impact.source_column}",
+        f"Original value: {impact.raw_value}",
+        f"Rule: {impact.rules}",
+    ]
+    if impact.message:
+        lines.append(f"Result: {impact.message}")
+    return "\n".join(lines)
+
+
+def _display_reference_value(value: Any) -> Any:
+    if isinstance(value, LogicalReference | BusinessReference):
+        key = " / ".join(_display_text(item) for item in value.key)
+        scope = " / ".join(_display_text(item) for item in value.scope)
+        return f"{key} [{scope}]" if scope else key
+    if isinstance(value, tuple | list):
+        return " / ".join(_display_text(item) for item in value)
+    return value
+
+
+def _display_text(value: Any) -> str:
+    portable = portable_value(value)
+    if isinstance(portable, dict) and "value" in portable:
+        return str(portable["value"])
+    if portable is None:
+        return ""
+    return str(portable)
+
+
 def write_mapping_review_workbook(
     revision: MappingRevision,
     validation: MappingValidationResult,
     selection: SourceSelection,
     schema: OdooSchemaCatalog,
     workbook_path: str | Path,
+    *,
+    row_projection: MappingReviewRowProjection | None = None,
+    row_projection_error: str = "",
+    recipe_context: MappingReviewRecipeContext | None = None,
 ) -> Path:
     """Write one read-only matching review from exact checked evidence."""
 
@@ -128,8 +343,8 @@ def write_mapping_review_workbook(
     overview.title = "Matching overview"
     attention = workbook.create_sheet("Needs attention")
     field_matches = workbook.create_sheet("Field matches")
+    transformed_data = workbook.create_sheet("Transformed data")
     value_coverage = workbook.create_sheet("Value coverage")
-    checked_later = workbook.create_sheet("Checked later")
 
     source_by_id = {item.dataset_id: item for item in selection.datasets}
     models_by_name = {item.name: item for item in schema.models}
@@ -141,7 +356,6 @@ def write_mapping_review_workbook(
             issues_by_field[(issue.dataset_id, issue.target_field)].append(issue)
 
     field_reviews: list[_FieldReview] = []
-    dataset_reviews: list[tuple[DatasetMapping, SourceDataset, tuple[_FieldReview, ...]]] = []
     for dataset in revision.definition.datasets:
         source_dataset = source_by_id.get(dataset.dataset_id)
         model = models_by_name.get(dataset.target_model)
@@ -154,22 +368,33 @@ def write_mapping_review_workbook(
             issues_by_field,
         )
         field_reviews.extend(reviews)
-        dataset_reviews.append((dataset, source_dataset, reviews))
 
-    _write_overview(overview, revision, validation, selection, schema, field_reviews)
+    _write_overview(
+        overview,
+        revision,
+        validation,
+        selection,
+        schema,
+        field_reviews,
+        row_projection,
+        recipe_context,
+    )
     _write_attention(attention, validation, source_by_id, models_by_name)
     _write_field_matches(field_matches, field_reviews)
-    _write_value_coverage(value_coverage, validation, source_by_id, models_by_name)
-    _write_checked_later(checked_later, validation, source_by_id)
-
-    used_names = {sheet.title for sheet in workbook.worksheets}
-    for index, (_dataset, source_dataset, reviews) in enumerate(dataset_reviews, start=1):
-        sheet_name = _unique_sheet_name(
-            f"{index} {source_dataset.name} fields",
-            used_names,
-        )
-        used_names.add(sheet_name)
-        _write_dataset_columns(workbook.create_sheet(sheet_name), source_dataset, reviews)
+    _write_transformed_data(
+        transformed_data,
+        field_reviews,
+        row_projection,
+        row_projection_error,
+    )
+    _write_value_coverage(
+        value_coverage,
+        revision,
+        validation,
+        source_by_id,
+        models_by_name,
+        recipe_context,
+    )
 
     workbook.calculation.fullCalcOnLoad = False
     workbook.calculation.forceFullCalc = False
@@ -424,6 +649,8 @@ def _write_overview(
     selection: SourceSelection,
     schema: OdooSchemaCatalog,
     field_reviews: list[_FieldReview],
+    row_projection: MappingReviewRowProjection | None,
+    recipe_context: MappingReviewRecipeContext | None,
 ) -> None:
     _title_band(
         sheet,
@@ -451,16 +678,48 @@ def _write_overview(
             "ready",
             "Review the field matches, then confirm them in Impodo.",
         )
+    coverage = validation.categorical_coverage
+    recipe_gap_count = (
+        sum(
+            max(len(result.uncovered_values), 1)
+            for result in coverage.field_results
+            if result.status in {"UNCOVERED", "UNSUPPORTED"}
+        )
+        if recipe_context is not None and coverage is not None
+        else 0
+    )
     rows = [
         ("Check result", status),
         ("Must fix", error_count),
         ("Review items", warning_count),
         ("Tables checked", len(revision.definition.datasets)),
         ("Fields shown", len(field_reviews)),
-        ("Next action", action),
-        ("Odoo target", f"{schema.database} — Odoo {schema.odoo_version}"),
-        ("Checked mapping", f"Version {revision.version}"),
+        (
+            "Rows shown",
+            len(row_projection.rows) if row_projection is not None else 0,
+        ),
+        (
+            "Changed values",
+            row_projection.changed_cell_count
+            if row_projection is not None
+            else 0,
+        ),
+        (
+            "Rule origin",
+            recipe_context.label
+            if recipe_context is not None
+            else "Current Stage 3 mapping",
+        ),
     ]
+    if recipe_context is not None:
+        rows.append(("Recipe coverage gaps", recipe_gap_count))
+    rows.extend(
+        (
+            ("Next action", action),
+            ("Odoo target", f"{schema.database} — Odoo {schema.odoo_version}"),
+            ("Checked mapping", f"Version {revision.version}"),
+        )
+    )
     _write_key_values(sheet, rows, start_row=4)
     _style_status_cell(sheet["B4"], style)
 
@@ -469,10 +728,11 @@ def _write_overview(
     sheet["D4"].font = Font(bold=True, color=_COLORS["white"])
     sheet.merge_cells("D4:H4")
     sheet["D5"] = (
-        "Start with Needs attention. Each table also has a field-column view: "
-        "red means Must fix, amber means Review required, green means mapped, "
-        "and blue means Impodo supplies or prepares the value. Correct data or "
-        "rules in Impodo, then run Check matches and recreate this workbook."
+        "Start with Needs attention. Field matches lists each decision once. "
+        "Transformed data shows proposed rows with blue changed cells and "
+        "notes containing the original values. Value coverage groups current "
+        "source choices. Correct data or rules in Impodo, then run Check "
+        "matches and recreate this workbook."
     )
     sheet["D5"].alignment = Alignment(vertical="top", wrap_text=True)
     sheet["D5"].fill = PatternFill("solid", fgColor=_COLORS["paper"])
@@ -486,10 +746,10 @@ def _write_overview(
         ("Impodo prepares", "Impodo supplies or transforms the value.", "prepared"),
         ("Not used", "No action is currently required.", "neutral"),
     )
-    sheet["A14"] = "Colour and status meanings"
-    sheet.merge_cells("A14:H14")
-    _style_header(sheet, 14, 1, 8, _COLORS["charcoal_dark"])
-    for row_index, (label, meaning, legend_style) in enumerate(legend, start=15):
+    sheet["A18"] = "Colour and status meanings"
+    sheet.merge_cells("A18:H18")
+    _style_header(sheet, 18, 1, 8, _COLORS["charcoal_dark"])
+    for row_index, (label, meaning, legend_style) in enumerate(legend, start=19):
         sheet.cell(row_index, 1, label)
         sheet.cell(row_index, 2, meaning)
         sheet.merge_cells(
@@ -499,17 +759,18 @@ def _write_overview(
             end_column=8,
         )
         _style_status_cell(sheet.cell(row_index, 1), legend_style)
-    sheet["A22"] = "What this workbook does not contain"
-    sheet.merge_cells("A22:H22")
-    _style_header(sheet, 22, 1, 8, _COLORS["charcoal_dark"])
-    sheet["A23"] = (
-        "Stage 4 still prepares every row and resolves duplicates and related "
-        "records. Stage 5 still compares the final prepared rows with fresh Odoo "
-        "evidence. Use the separate Stage 5 review workbook for the proposed load."
+    sheet["A26"] = "What this workbook does not contain"
+    sheet.merge_cells("A26:H26")
+    _style_header(sheet, 26, 1, 8, _COLORS["charcoal_dark"])
+    sheet["A27"] = (
+        "Transformed data is a Stage 3 preview. Stage 4 still publishes prepared "
+        "row evidence and resolves duplicates and related records. Stage 5 still "
+        "compares those rows with fresh Odoo evidence. Use the separate Stage 5 "
+        "review workbook for the proposed load."
     )
-    sheet.merge_cells("A23:H25")
-    sheet["A23"].alignment = Alignment(vertical="top", wrap_text=True)
-    sheet["A23"].fill = PatternFill("solid", fgColor=_COLORS["soft"])
+    sheet.merge_cells("A27:H29")
+    sheet["A27"].alignment = Alignment(vertical="top", wrap_text=True)
+    sheet["A27"].fill = PatternFill("solid", fgColor=_COLORS["soft"])
     sheet.freeze_panes = "A4"
     sheet.column_dimensions["A"].width = 24
     sheet.column_dimensions["B"].width = 24
@@ -524,9 +785,9 @@ def _write_attention(sheet, validation, source_by_id, models_by_name) -> None:
         "Odoo model",
         "Odoo field",
         "Source field",
+        "Affected rows",
         "Problem",
         "How to fix",
-        "Support code",
     )
     rows = []
     for issue in sorted(
@@ -557,13 +818,24 @@ def _write_attention(sheet, validation, source_by_id, models_by_name) -> None:
                     issue.source_column_key or "",
                     issue.source_column_key or "",
                 ),
+                _issue_affected_rows(validation, issue),
                 issue.message,
                 issue.remediation,
-                issue.code,
             )
         )
     if not rows:
-        rows.append(("Ready", "", "", "", "", "No current findings", "No action required", ""))
+        rows.append(
+            (
+                "Ready",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "No current findings",
+                "No action required",
+            )
+        )
     _write_table_sheet(
         sheet,
         "Needs attention",
@@ -590,7 +862,7 @@ def _write_field_matches(sheet, reviews: list[_FieldReview]) -> None:
         "Value source",
         "Source field",
         "Status",
-        "Next action or later check",
+        "Next action",
     )
     rows = [
         (
@@ -619,163 +891,353 @@ def _write_field_matches(sheet, reviews: list[_FieldReview]) -> None:
         _style_status_cell(sheet.cell(row_index, 9), review.style)
 
 
-def _write_value_coverage(sheet, validation, source_by_id, models_by_name) -> None:
+def _issue_affected_rows(validation, issue) -> int | str:
+    evidence = validation.categorical_coverage
+    if evidence is None or not issue.dataset_id or not issue.target_field:
+        return ""
+    result = next(
+        (
+            item
+            for item in evidence.field_results
+            if item.dataset_id == issue.dataset_id
+            and item.target_field == issue.target_field
+        ),
+        None,
+    )
+    if result is None or not result.uncovered_values:
+        return ""
+    counts = {item.values: item.count for item in result.distinct_values}
+    return sum(counts.get(values, 0) for values in result.uncovered_values)
+
+
+def _write_transformed_data(
+    sheet,
+    reviews: list[_FieldReview],
+    row_projection: MappingReviewRowProjection | None,
+    row_projection_error: str,
+) -> None:
+    if row_projection is None:
+        _write_table_sheet(
+            sheet,
+            "Transformed data",
+            "Stage 3 proposed values with original values in changed-cell notes",
+            ("Source table", "Source row", "Odoo model", "Row status", "Details"),
+            (
+                (
+                    "",
+                    "",
+                    "",
+                    "Not available",
+                    row_projection_error
+                    or "No file-source row preview is available for this check.",
+                ),
+            ),
+        )
+        _style_status_cell(sheet["D4"], "neutral")
+        return
+
+    column_reviews: dict[tuple[str, str], _FieldReview] = {}
+    for review in reviews:
+        column_reviews.setdefault(
+            (review.dataset.target_model, review.field.name),
+            review,
+        )
+    columns = tuple(column_reviews)
+    headers = (
+        "Source table",
+        "Source row",
+        "Odoo model",
+        "Row status",
+        *(
+            f"{model} · {column_reviews[(model, field)].field.label}"
+            for model, field in columns
+        ),
+    )
+    if len(headers) > _EXCEL_MAX_COLUMN:
+        raise MappingReviewGenerationError(
+            "Transformed data has too many Odoo fields for Excel"
+        )
+    rows: list[tuple[Any, ...]] = []
+    cell_styles: dict[tuple[int, int], str] = {}
+    cell_comments: dict[tuple[int, int], str] = {}
+    for row_offset, item in enumerate(row_projection.rows, start=4):
+        values: list[Any] = [
+            item.source_table,
+            item.source_row,
+            item.target_model,
+            item.status,
+        ]
+        cell_styles[(row_offset, 4)] = item.status_style
+        for column_index, (model, target_field) in enumerate(columns, start=5):
+            review = column_reviews[(model, target_field)]
+            if model != item.target_model:
+                values.append("")
+                continue
+            projected = item.cells.get(target_field)
+            if projected is None:
+                if review.style == "danger":
+                    values.append("Not produced")
+                    cell_styles[(row_offset, column_index)] = "danger"
+                else:
+                    values.append("")
+                continue
+            values.append(projected.value)
+            if projected.style != "neutral":
+                cell_styles[(row_offset, column_index)] = projected.style
+            elif review.style == "warning":
+                cell_styles[(row_offset, column_index)] = "warning"
+            if projected.comment:
+                cell_comments[(row_offset, column_index)] = projected.comment
+        rows.append(tuple(values))
+    if not rows:
+        rows.append(("", "", "", "No source rows", *("" for _ in columns)))
+        cell_styles[(4, 4)] = "neutral"
+    _write_table_sheet(
+        sheet,
+        "Transformed data",
+        "Stage 3 proposed values with original values in changed-cell notes",
+        headers,
+        rows,
+    )
+    for (row_index, column_index), style in cell_styles.items():
+        _style_status_cell(sheet.cell(row_index, column_index), style)
+    for (row_index, column_index), comment in cell_comments.items():
+        sheet.cell(row_index, column_index).comment = Comment(comment, "Impodo")
+    sheet.freeze_panes = "E4"
+    for column in range(5, len(headers) + 1):
+        sheet.column_dimensions[get_column_letter(column)].width = 24
+
+
+def _write_value_coverage(
+    sheet,
+    revision,
+    validation,
+    source_by_id,
+    models_by_name,
+    recipe_context,
+) -> None:
     headers = (
         "Status",
+        "Rule origin",
         "Source table",
         "Odoo field",
-        "Coverage rule",
         "Source columns",
-        "Distinct values",
+        "Current source value",
         "Source rows",
-        "Uncovered source value",
+        "Proposed Odoo value",
+        "Coverage rule",
+        "How to fix",
     )
     rows: list[tuple[Any, ...]] = []
     styles: list[str] = []
+    mapping_by_id = {
+        dataset.dataset_id: dataset for dataset in revision.definition.datasets
+    }
     evidence = validation.categorical_coverage
     if evidence is not None:
         for result in evidence.field_results:
             source = source_by_id.get(result.dataset_id)
-            definition_model = next(
-                (
-                    item.get("target_model")
-                    for item in validation.coverage
-                    if item.get("dataset_id") == result.dataset_id
-                ),
-                None,
+            mapping = mapping_by_id.get(result.dataset_id)
+            model = (
+                models_by_name.get(mapping.target_model)
+                if mapping is not None
+                else None
             )
-            model = models_by_name.get(str(definition_model or ""))
             fields = {item.name: item for item in model.fields} if model else {}
             field = fields.get(result.target_field)
-            distinct_count = len(result.distinct_values)
-            row_count = sum(item.count for item in result.distinct_values)
+            labels = (
+                {item.stable_key: item.source_name for item in source.columns}
+                if source is not None
+                else {}
+            )
+            source_columns = ", ".join(
+                labels.get(key, key) for key in result.source_column_keys
+            )
             protected_source = bool(
                 source is not None and source.origin is SourceOriginKind.ODOO
             )
-            uncovered = (
-                ((),)
-                if protected_source
-                else result.uncovered_values or ((),)
+            origin = (
+                recipe_context.label
+                if recipe_context is not None
+                else "Current Stage 3 mapping"
             )
-            for values in uncovered:
-                if result.status == "UNCOVERED":
-                    status, style = "Must fix", "danger"
-                elif result.status == "UNSUPPORTED":
-                    status, style = "Review required", "warning"
-                else:
-                    status, style = "Covered", "ready"
+            if protected_source:
+                rows.append(
+                    (
+                        "Protected",
+                        origin,
+                        source.name,
+                        field.label if field else result.target_field,
+                        source_columns,
+                        "Protected values remain in Impodo",
+                        sum(item.count for item in result.distinct_values),
+                        "",
+                        result.policy.replace("_", " ").title(),
+                        "Review the values in Impodo.",
+                    )
+                )
+                styles.append("neutral")
+                continue
+            if result.status == "UNSUPPORTED":
+                rows.append(
+                    (
+                        "Could not evaluate",
+                        origin,
+                        source.name if source else result.dataset_id,
+                        field.label if field else result.target_field,
+                        source_columns,
+                        "",
+                        0,
+                        "",
+                        result.policy.replace("_", " ").title(),
+                        "Change the rule so Impodo can prove every current value.",
+                    )
+                )
+                styles.append("danger")
+                continue
+            uncovered = set(result.uncovered_values)
+            listed: set[tuple[str, ...]] = set()
+            for value_count in result.distinct_values:
+                values = value_count.values
+                listed.add(values)
+                is_gap = values in uncovered
+                status = _coverage_status(recipe_context, is_gap=is_gap)
                 rows.append(
                     (
                         status,
+                        origin,
                         source.name if source else result.dataset_id,
                         field.label if field else result.target_field,
+                        source_columns,
+                        " | ".join(values),
+                        value_count.count,
+                        _coverage_proposed_value(mapping, result, values),
                         result.policy.replace("_", " ").title(),
-                        ", ".join(result.source_column_keys),
-                        distinct_count,
-                        row_count,
-                        (
-                            "Protected values remain in Impodo"
-                            if protected_source
-                            else " | ".join(values)
-                        ),
+                        _coverage_action(recipe_context, is_gap=is_gap),
                     )
                 )
-                styles.append(style)
+                styles.append("danger" if is_gap else "ready")
+            for values in result.uncovered_values:
+                if values in listed:
+                    continue
+                rows.append(
+                    (
+                        _coverage_status(recipe_context, is_gap=True),
+                        origin,
+                        source.name if source else result.dataset_id,
+                        field.label if field else result.target_field,
+                        source_columns,
+                        " | ".join(values),
+                        0,
+                        _coverage_proposed_value(mapping, result, values),
+                        result.policy.replace("_", " ").title(),
+                        _coverage_action(recipe_context, is_gap=True),
+                    )
+                )
+                styles.append("danger")
+            if not result.distinct_values and not result.uncovered_values:
+                rows.append(
+                    (
+                        _coverage_status(recipe_context, is_gap=False),
+                        origin,
+                        source.name if source else result.dataset_id,
+                        field.label if field else result.target_field,
+                        source_columns,
+                        "No nonblank current values",
+                        0,
+                        _coverage_proposed_value(mapping, result, ()),
+                        result.policy.replace("_", " ").title(),
+                        _coverage_action(recipe_context, is_gap=False),
+                    )
+                )
+                styles.append("ready")
     if not rows:
-        rows.append(("Not applicable", "", "", "", "", 0, 0, ""))
+        rows.append(("Not applicable", "", "", "", "", "", 0, "", "", ""))
         styles.append("neutral")
-    _write_table_sheet(
-        sheet,
-        "Value coverage",
-        "Source choices checked against captured Odoo choices or business keys",
-        headers,
-        rows,
+    subtitle = (
+        f"Current source choices checked against {recipe_context.label}"
+        if recipe_context is not None
+        else "Current source choices checked against Odoo choices or business keys"
     )
+    _write_table_sheet(sheet, "Value coverage", subtitle, headers, rows)
     for row_index, style in enumerate(styles, start=4):
         _style_status_cell(sheet.cell(row_index, 1), style)
-        if sheet.cell(row_index, 3).value:
-            _style_status_cell(sheet.cell(row_index, 3), style)
+        if style == "danger":
+            _style_status_cell(sheet.cell(row_index, 6), style)
 
 
-def _write_checked_later(sheet, validation, source_by_id) -> None:
-    headers = ("Status", "Source table", "Check", "Why it happens later")
-    rows = [
+def _coverage_status(recipe_context, *, is_gap: bool) -> str:
+    if recipe_context is not None:
+        return "Not covered by Recipe" if is_gap else "Covered by Recipe"
+    return "Must fix" if is_gap else "Covered"
+
+
+def _coverage_action(recipe_context, *, is_gap: bool) -> str:
+    if not is_gap:
+        return "No action is required."
+    if recipe_context is not None:
+        return "Match this current value in the Recipe-based rules and check again."
+    return "Match this current value in Impodo and check again."
+
+
+def _coverage_proposed_value(mapping, result, values: tuple[str, ...]) -> Any:
+    if mapping is None:
+        return ""
+    scalar = next(
         (
-            "Not yet checked",
-            (
-                source_by_id[item.dataset_id].name
-                if item.dataset_id in source_by_id
-                else item.dataset_id
-            ),
-            item.message,
-            "Stage 4 preparation or Stage 5 final comparison supplies the required evidence.",
-        )
-        for item in validation.deferred_runtime_checks
-    ]
-    if not rows:
-        rows.append(("None listed", "", "No deferred checks are listed", ""))
-    _write_table_sheet(
-        sheet,
-        "Checked later",
-        "These results are not claimed by the Stage 3 workbook",
-        headers,
-        rows,
+            field
+            for field in mapping.fields
+            if field.target_field == result.target_field
+        ),
+        None,
     )
-    for row_index in range(4, sheet.max_row + 1):
-        _style_status_cell(sheet.cell(row_index, 1), "neutral")
-
-
-def _write_dataset_columns(sheet, source_dataset, reviews) -> None:
-    if len(reviews) + 1 > _EXCEL_MAX_COLUMN:
-        raise MappingReviewGenerationError(
-            f"{source_dataset.name} has too many reviewed fields for Excel"
-        )
-    _title_band(
-        sheet,
-        source_dataset.name,
-        "Colour-coded Odoo field matching decisions",
-        max(len(reviews) + 1, 2),
-    )
-    labels = (
-        "Odoo field",
-        "Technical field",
-        "Status",
-        "Value source",
-        "Source field",
-        "Requirement",
-        "Next action or later check",
-    )
-    for row_index, label in enumerate(labels, start=3):
-        cell = sheet.cell(row_index, 1, label)
-        cell.fill = PatternFill("solid", fgColor=_COLORS["charcoal_dark"])
-        cell.font = Font(bold=True, color=_COLORS["white"])
-        cell.alignment = Alignment(vertical="top", wrap_text=True)
-    for column_index, review in enumerate(reviews, start=2):
-        values = (
-            review.field.label,
-            review.field.name,
-            review.status,
-            review.provider,
-            review.source_fields,
-            review.requirement,
-            review.next_action,
-        )
-        fill, font = _STYLE_COLORS[review.style]
-        for row_index, value in enumerate(values, start=3):
-            cell = sheet.cell(row_index, column_index, _safe_cell(value))
-            cell.fill = PatternFill("solid", fgColor=fill)
-            cell.font = Font(
-                bold=row_index in {3, 5},
-                color=font,
+    if scalar is not None:
+        if values and values[0].startswith("<fallback:"):
+            return values[0].removeprefix("<fallback:").removesuffix(">")
+        raw = values[0] if len(values) == 1 else None
+        try:
+            proposed = evaluate_scalar_mapping_value(
+                scalar,
+                raw,
+                source_values_by_key=dict(
+                    zip(result.source_column_keys, values, strict=True)
+                )
+                if len(result.source_column_keys) == len(values)
+                else {},
             )
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
-            cell.border = _THIN_BORDER
-        sheet.column_dimensions[get_column_letter(column_index)].width = 28
-    sheet.column_dimensions["A"].width = 24
-    for row_index in range(3, 10):
-        sheet.row_dimensions[row_index].height = 34 if row_index != 9 else 58
-    sheet.freeze_panes = "B3"
-    sheet.sheet_view.showGridLines = False
+        except (ScalarValueError, ValueError):
+            return "Not produced"
+        return "Blank" if proposed is None else _display_reference_value(proposed)
+    relationship = next(
+        (
+            item
+            for item in mapping.relationships
+            if item.target_field == result.target_field
+        ),
+        None,
+    )
+    if relationship is None:
+        return ""
+    if relationship.value_source is RelationshipValueSource.CONSTANT_EXISTING:
+        reference = relationship.constant_reference
+        if reference is None:
+            return "Not produced"
+        return " / ".join(
+            str(item.value)
+            for item in (*reference.key_values, *reference.scope_values)
+        )
+    if len(values) == 1:
+        matched = next(
+            (
+                item.target_value
+                for item in relationship.resolver.value_mappings
+                if item.source_value == values[0]
+            ),
+            None,
+        )
+        if matched is not None:
+            return matched
+    return " / ".join(values)
 
 
 def _write_table_sheet(sheet, title, subtitle, headers, rows) -> None:
@@ -806,10 +1268,20 @@ def _write_table_sheet(sheet, title, subtitle, headers, rows) -> None:
     sheet.sheet_view.showGridLines = False
     for column_index, header in enumerate(headers, start=1):
         width = 18
-        if header in {"Problem", "How to fix", "Next action or later check", "Check", "Why it happens later"}:
+        if header in {"Problem", "How to fix", "Next action", "Details"}:
             width = 42
-        elif header in {"Source table", "Odoo model", "Odoo field", "Source field", "Value source"}:
+        elif header in {
+            "Source table",
+            "Odoo model",
+            "Odoo field",
+            "Source field",
+            "Value source",
+            "Current source value",
+            "Proposed Odoo value",
+        }:
             width = 26
+        elif header in {"Source row", "Source rows", "Affected rows"}:
+            width = 14
         sheet.column_dimensions[get_column_letter(column_index)].width = width
 
 
@@ -827,6 +1299,10 @@ def _write_key_values(sheet, rows, *, start_row) -> None:
 
 def _title_band(sheet, title: str, subtitle: str, width: int) -> None:
     width = max(width, 1)
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=width)
     sheet["A1"] = title
     sheet["A1"].fill = PatternFill("solid", fgColor=_COLORS["charcoal_dark"])
@@ -855,18 +1331,6 @@ def _style_status_cell(cell, style: str) -> None:
     cell.fill = PatternFill("solid", fgColor=fill)
     cell.font = Font(bold=True, color=font)
     cell.alignment = Alignment(vertical="top", wrap_text=True)
-
-
-def _unique_sheet_name(value: str, used: set[str]) -> str:
-    base = _INVALID_SHEET_CHARACTERS.sub(" ", value).strip() or "Table fields"
-    base = re.sub(r"\s+", " ", base)[:31]
-    candidate = base
-    suffix = 2
-    while candidate in used:
-        marker = f" {suffix}"
-        candidate = f"{base[: 31 - len(marker)]}{marker}"
-        suffix += 1
-    return candidate
 
 
 def _safe_cell(value: Any) -> Any:

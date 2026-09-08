@@ -12,10 +12,12 @@ Match data builds a portable mapping definition from frozen source datasets to
 the governed Odoo schema. It owns recoverable drafts, immutable revisions,
 semantic validation, exact submission, and an optional transformation-impact
 preview with optional review decisions. It also projects one checked revision
-and its validation result into a portable matching review workbook.
+and its validation result into a portable matching review workbook. For a
+bounded file source, that workbook may re-evaluate the exact frozen rows in
+memory to show non-authoritative proposed values and changed-cell lineage.
 
-It does not prepare all rows, perform the final target comparison, or write to
-Odoo.
+It does not publish prepared evidence, perform the final target comparison, or
+write to Odoo.
 
 ## Entry conditions
 
@@ -92,28 +94,51 @@ concurrency guards. A grouped action performs one validation pass after all
 decisions are saved; it does not validate once per field.
 
 The `/mapping/review-workbook` routes create and download the workbook for the
-exact current checked revision. `write_mapping_review_workbook` consumes only
-the immutable revision, its bound validation result, the frozen source
-selection, and the captured Odoo schema. It makes no Odoo call and does not
-open a source or prepared-data artifact. An invalid validation result is a
-supported input because the workbook is intended to help the operator correct
-that result.
+exact current checked revision. `TransformationImpactService.prepare_mapping_review_rows`
+reuses `stage_browser_mapping` to read the exact frozen file snapshots and
+evaluate every row without publishing a preparation run. It returns canonical
+rows plus raw-to-proposed scalar impacts in memory.
+`build_mapping_review_row_projection` converts those values and their physical
+row lineage into workbook-safe cells; `write_mapping_review_workbook` renders
+the immutable revision, bound validation result, source selection, captured
+Odoo schema, optional row projection, and verified Recipe-application lineage.
+Neither path calls Odoo or opens prepared-data evidence. An invalid validation
+result is a supported input because the workbook is intended to help the
+operator correct that result. If the optional row evaluation cannot run
+safely, the workbook retains its checked mapping evidence and explains that
+the row preview is unavailable.
 
 The workbook keeps validation severity authoritative. An error produces red
 **Must fix** evidence, while a warning produces amber review evidence. A
 confirmed Odoo-default disposition remains amber because the operator chose to
 omit the value deliberately. A valid direct mapping is green, and a fixed or
-transformed value is blue. Each table receives a column-based field view so a
-required field remains visible even when it has no source provider. The
-workbook also contains a filterable issue queue, a row-based field inventory,
-bounded categorical coverage, and the validation contract's deferred checks.
-It always pairs colour with a status and next action.
+transformed value is blue. **Field matches** is the single row-based field
+inventory, including required fields with no source provider. **Transformed
+data** contains one canonical output row per evaluated row, retains every
+physical row reference for derived rows, and colours each changed, supplied,
+fallback, or invalid cell. Its Excel note records the source field, original
+value, applied rule, and any invalid result. **Value coverage** contains one
+row per distinct current source value with its count, proposed target value,
+policy, and correction action. The workbook always pairs colour with a status
+and next action.
+
+When the workspace comes from a Recipe application, the route verifies the
+application, Project, workspace, and Recipe lineage before exposing the Recipe
+name and revision. Value coverage then labels each current distinct value as
+covered or not covered by the Recipe-based rules. This is current validation
+evidence over the new accepted source data; it does not claim that a gap was
+absent from, or introduced after, the Recipe's original source data.
 
 The stored filename binds the mapping revision version and content-hash prefix.
 A checked revision can therefore use only its own workbook. A current saved
 draft with different content blocks workbook creation and download until the
 operator selects **Check matches** again. Protected Odoo-source business values
-remain outside the portable value-coverage projection.
+remain outside the portable row and value-coverage projections.
+
+The overview states the remaining evidence boundary once. There is no
+duplicate per-source field inventory and no separate deferred-check sheet.
+Stage 4 still publishes and reviews prepared rows, resolves duplicates and
+relationships, and Stage 5 still owns the fresh Odoo comparison workbook.
 
 For each conditional Selection rule, the impact snapshot records every
 evaluated row, every raw match before priority, every row selected by

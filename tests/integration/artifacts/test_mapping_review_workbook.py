@@ -3,13 +3,16 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 
 from openpyxl import load_workbook
 
 from impodo.adapters.artifacts.mapping_review import (
+    MappingReviewRecipeContext,
     _field_provider,
+    build_mapping_review_row_projection,
     mapping_review_workbook_name,
     write_mapping_review_workbook,
 )
@@ -41,6 +44,7 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -139,7 +143,7 @@ class MappingReviewWorkbookTests(unittest.TestCase):
 
         coverage_sheet = workbook["Value coverage"]
         self.assertEqual(
-            coverage_sheet["H4"].value,
+            coverage_sheet["F4"].value,
             "Protected values remain in Impodo",
         )
         all_text = "\n".join(
@@ -171,42 +175,175 @@ class MappingReviewWorkbookTests(unittest.TestCase):
         self.assertIn("Matching overview", workbook.sheetnames)
         self.assertIn("Needs attention", workbook.sheetnames)
         self.assertIn("Field matches", workbook.sheetnames)
-        self.assertIn("Checked later", workbook.sheetnames)
-        self.assertIn("1 Orders fields", workbook.sheetnames)
+        self.assertIn("Transformed data", workbook.sheetnames)
+        self.assertNotIn("Checked later", workbook.sheetnames)
+        self.assertNotIn("1 Orders fields", workbook.sheetnames)
         self.assertNotIn("Records to load", workbook.sheetnames)
         self.assertEqual(
             workbook["Matching overview"]["B4"].value,
             "Cannot confirm matches",
         )
 
-        columns = workbook["1 Orders fields"]
-        field_columns = {
-            columns.cell(3, column).value: column
-            for column in range(2, columns.max_column + 1)
+        field_matches = workbook["Field matches"]
+        field_rows = {
+            field_matches.cell(row, 3).value: row
+            for row in range(4, field_matches.max_row + 1)
         }
-        company_column = field_columns["Company"]
-        state_column = field_columns["Status"]
-        name_column = field_columns["Order Reference"]
-        note_column = field_columns["Notes"]
+        company_row = field_rows["Company"]
+        state_row = field_rows["Status"]
+        name_row = field_rows["Order Reference"]
+        note_row = field_rows["Notes"]
 
-        self.assertEqual(columns.cell(5, company_column).value, "Must fix")
+        self.assertEqual(field_matches.cell(company_row, 9).value, "Must fix")
         self.assertTrue(
-            columns.cell(3, company_column).fill.fgColor.rgb.endswith("FCE8E7")
-        )
-        self.assertEqual(columns.cell(5, state_column).value, "Odoo will choose")
-        self.assertTrue(
-            columns.cell(3, state_column).fill.fgColor.rgb.endswith("FFF5DF")
-        )
-        self.assertEqual(columns.cell(5, name_column).value, "Mapped")
-        self.assertTrue(
-            columns.cell(3, name_column).fill.fgColor.rgb.endswith("EDF7EF")
+            field_matches.cell(company_row, 3).fill.fgColor.rgb.endswith("FCE8E7")
         )
         self.assertEqual(
-            columns.cell(5, note_column).value,
+            field_matches.cell(state_row, 9).value,
+            "Odoo will choose",
+        )
+        self.assertTrue(
+            field_matches.cell(state_row, 3).fill.fgColor.rgb.endswith("FFF5DF")
+        )
+        self.assertEqual(field_matches.cell(name_row, 9).value, "Mapped")
+        self.assertTrue(
+            field_matches.cell(name_row, 3).fill.fgColor.rgb.endswith("EDF7EF")
+        )
+        self.assertEqual(
+            field_matches.cell(note_row, 9).value,
             "Impodo supplies or prepares",
         )
         self.assertTrue(
-            columns.cell(3, note_column).fill.fgColor.rgb.endswith("EAF2FB")
+            field_matches.cell(note_row, 3).fill.fgColor.rgb.endswith("EAF2FB")
+        )
+        workbook.close()
+
+    def test_transformed_data_keeps_one_source_row_and_notes_changed_cells(
+        self,
+    ) -> None:
+        revision, validation, selection, schema = self._evidence()
+        canonical = SimpleNamespace(
+            dataset="Orders",
+            source_row=2,
+            target_model="sale.order",
+            target_identity=("EXT-1",),
+            target_scope=(),
+            proposed_values={
+                "name": "ORDER A",
+                "note": "Imported by Impodo",
+            },
+            references={},
+            issues=(),
+            lineage=SimpleNamespace(physical_sources={"orders": (2,)}),
+        )
+        projection = build_mapping_review_row_projection(
+            revision,
+            selection,
+            selection,
+            (canonical,),
+            (
+                TransformationImpactRow(
+                    dataset="Orders",
+                    source_row=2,
+                    source_column="Order Reference",
+                    target_field="name",
+                    raw_value=" order a ",
+                    proposed_value="ORDER A",
+                    rules="Trim spaces and uppercase",
+                    outcome="changed",
+                ),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / mapping_review_workbook_name(revision)
+            write_mapping_review_workbook(
+                revision,
+                validation,
+                selection,
+                schema,
+                path,
+                row_projection=projection,
+            )
+            workbook = load_workbook(path, data_only=True)
+
+        sheet = workbook["Transformed data"]
+        headers = {
+            sheet.cell(3, column).value: column
+            for column in range(1, sheet.max_column + 1)
+        }
+        name_column = headers["sale.order · Order Reference"]
+        self.assertEqual(sheet["A4"].value, "Orders")
+        self.assertEqual(sheet["B4"].value, "2")
+        self.assertEqual(sheet.cell(4, name_column).value, "ORDER A")
+        self.assertTrue(
+            sheet.cell(4, name_column).fill.fgColor.rgb.endswith("EAF2FB")
+        )
+        self.assertIn(
+            "Original value:  order a ",
+            sheet.cell(4, name_column).comment.text,
+        )
+        self.assertIn(
+            "Rule: Trim spaces and uppercase",
+            sheet.cell(4, name_column).comment.text,
+        )
+        workbook.close()
+
+    def test_recipe_coverage_lists_each_current_value_and_gap(self) -> None:
+        revision, validation, selection, schema = self._evidence()
+        coverage = CategoricalCoverageEvidence(
+            mapping_content_hash=revision.definition.content_hash,
+            effective_source_selection_hash=selection.content_hash,
+            source_snapshot_hashes=(),
+            scan_contract_hash=HASH_A,
+            provider_and_normalization_semantics_hash=HASH_A,
+            target_schema_dependency_hash=HASH_A,
+            target_reference_evidence=None,
+            field_results=(
+                CategoricalFieldResult(
+                    path="datasets/0/fields/0",
+                    dataset_id="orders",
+                    target_field="name",
+                    policy="EXACT_TARGET_VALUE",
+                    source_column_keys=("name",),
+                    distinct_values=(
+                        CategoricalValueCount(values=("ORDER A",), count=2),
+                        CategoricalValueCount(values=("NEW",), count=1),
+                    ),
+                    uncovered_values=(("NEW",),),
+                    status="UNCOVERED",
+                ),
+            ),
+        )
+        validation = replace(validation, categorical_coverage=coverage)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / mapping_review_workbook_name(revision)
+            write_mapping_review_workbook(
+                revision,
+                validation,
+                selection,
+                schema,
+                path,
+                recipe_context=MappingReviewRecipeContext(
+                    display_name="Sales orders",
+                    revision=3,
+                ),
+            )
+            workbook = load_workbook(path, data_only=True)
+
+        coverage_sheet = workbook["Value coverage"]
+        self.assertEqual(coverage_sheet["A4"].value, "Covered by Recipe")
+        self.assertEqual(coverage_sheet["A5"].value, "Not covered by Recipe")
+        self.assertEqual(coverage_sheet["B5"].value, "Recipe Sales orders v3")
+        self.assertEqual(coverage_sheet["F5"].value, "NEW")
+        self.assertEqual(coverage_sheet["G5"].value, 1)
+        self.assertTrue(
+            coverage_sheet["F5"].fill.fgColor.rgb.endswith("FCE8E7")
+        )
+        self.assertEqual(
+            workbook["Matching overview"]["B12"].value,
+            1,
         )
         workbook.close()
 

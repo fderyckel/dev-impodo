@@ -369,8 +369,12 @@ because the protected capture identity—not the name—identifies the record.
 
 🔵 The matching review workbook shows the current Match data check. Its red
 **Must fix**, amber review, green valid, blue supplied or prepared, and grey
-no-action states include written next actions. It is not the prepared-data or
-final Odoo comparison workbook.
+no-action states include written next actions. **Field matches** lists each
+field decision once. **Transformed data** gives one row per accepted source row
+and colours a changed cell blue; open its Excel note to see the source field,
+original value, and rule. **Value coverage** lists every distinct current
+source choice and, for Recipe-based work, shows whether the Recipe rules cover
+it. This is not the published prepared-data or final Odoo comparison workbook.
 
 🔴 When you change a source choice, Odoo field, identity, relationship, or
 transformation, select **Check matches** again. Earlier checks, previews, and
