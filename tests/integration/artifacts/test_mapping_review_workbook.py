@@ -218,7 +218,7 @@ class MappingReviewWorkbookTests(unittest.TestCase):
         )
         workbook.close()
 
-    def test_transformed_data_keeps_one_source_row_and_notes_changed_cells(
+    def test_transformed_data_keeps_one_row_per_source_row_and_notes_changes(
         self,
     ) -> None:
         revision, validation, selection, schema = self._evidence()
@@ -236,11 +236,25 @@ class MappingReviewWorkbookTests(unittest.TestCase):
             issues=(),
             lineage=SimpleNamespace(physical_sources={"orders": (2,)}),
         )
+        unchanged = SimpleNamespace(
+            dataset="Orders",
+            source_row=3,
+            target_model="sale.order",
+            target_identity=("EXT-2",),
+            target_scope=(),
+            proposed_values={
+                "name": "ORDER B",
+                "note": "Imported by Impodo",
+            },
+            references={},
+            issues=(),
+            lineage=SimpleNamespace(physical_sources={"orders": (3,)}),
+        )
         projection = build_mapping_review_row_projection(
             revision,
             selection,
             selection,
-            (canonical,),
+            (canonical, unchanged),
             (
                 TransformationImpactRow(
                     dataset="Orders",
@@ -275,6 +289,9 @@ class MappingReviewWorkbookTests(unittest.TestCase):
         name_column = headers["sale.order · Order Reference"]
         self.assertEqual(sheet["A4"].value, "Orders")
         self.assertEqual(sheet["B4"].value, "2")
+        self.assertEqual(sheet["D4"].value, "Must fix")
+        self.assertEqual(sheet["A5"].value, "Orders")
+        self.assertEqual(sheet["B5"].value, "3")
         self.assertEqual(sheet.cell(4, name_column).value, "ORDER A")
         self.assertTrue(
             sheet.cell(4, name_column).fill.fgColor.rgb.endswith("EAF2FB")

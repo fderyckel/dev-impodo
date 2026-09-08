@@ -961,13 +961,14 @@ def _write_transformed_data(
     cell_styles: dict[tuple[int, int], str] = {}
     cell_comments: dict[tuple[int, int], str] = {}
     for row_offset, item in enumerate(row_projection.rows, start=4):
+        row_status = item.status
+        row_status_style = item.status_style
         values: list[Any] = [
             item.source_table,
             item.source_row,
             item.target_model,
-            item.status,
+            row_status,
         ]
-        cell_styles[(row_offset, 4)] = item.status_style
         for column_index, (model, target_field) in enumerate(columns, start=5):
             review = column_reviews[(model, target_field)]
             if model != item.target_model:
@@ -978,16 +979,26 @@ def _write_transformed_data(
                 if review.style == "danger":
                     values.append("Not produced")
                     cell_styles[(row_offset, column_index)] = "danger"
+                    row_status = "Must fix"
+                    row_status_style = "danger"
                 else:
                     values.append("")
                 continue
             values.append(projected.value)
             if projected.style != "neutral":
                 cell_styles[(row_offset, column_index)] = projected.style
+                if projected.style == "danger":
+                    row_status = "Must fix"
+                    row_status_style = "danger"
             elif review.style == "warning":
                 cell_styles[(row_offset, column_index)] = "warning"
+                if row_status_style not in {"danger", "warning"}:
+                    row_status = "Review required"
+                    row_status_style = "warning"
             if projected.comment:
                 cell_comments[(row_offset, column_index)] = projected.comment
+        values[3] = row_status
+        cell_styles[(row_offset, 4)] = row_status_style
         rows.append(tuple(values))
     if not rows:
         rows.append(("", "", "", "No source rows", *("" for _ in columns)))
