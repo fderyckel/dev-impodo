@@ -144,6 +144,7 @@ _TEMPLATE_LOCATION = {
         "Separate combined information",
     ),
     "workspace_schema.html": ("odoo", "Choose Odoo records"),
+    "project_recipe_target_matches.html": ("odoo", "Review target values"),
     "mapping/page.html": ("match", "Match fields"),
     "workspace_transformation_impact.html": (
         "match",
@@ -198,6 +199,7 @@ def build_workspace_navigation(
         navigation,
         project_id=workspace_view.project_id,
         migration_run_id=workspace_view.migration_run_id,
+        template_name=template_name,
     )
 
 
@@ -1427,10 +1429,12 @@ def _recipe_application_navigation(
     *,
     project_id: str,
     migration_run_id: str,
+    template_name: str = "",
 ) -> WorkspaceNavigation:
     """Collapse an application workspace into the run's review-and-load step."""
 
     run_home = f"/projects/{project_id}/runs/{migration_run_id}"
+    target_value_review = template_name == "project_recipe_target_matches.html"
     review_stages = tuple(
         stage
         for stage in navigation.stages
@@ -1460,19 +1464,25 @@ def _recipe_application_navigation(
                 number=2,
                 label="Check Odoo",
                 href=f"{run_home}/odoo",
-                status="complete",
-                status_label="Complete",
+                status="attention" if target_value_review else "complete",
+                status_label=(
+                    "Review target values" if target_value_review else "Complete"
+                ),
             ),
             WorkflowStage(
                 stage_id="review",
                 number=3,
                 label="Review and load",
                 href=f"/workspaces/{navigation.workspace_id}/prepare",
-                status=review_status,
-                status_label=review_label,
+                status="locked" if target_value_review else review_status,
+                status_label=(
+                    "Confirm target values first"
+                    if target_value_review
+                    else review_label
+                ),
             ),
         ),
-        "review",
+        "odoo" if target_value_review else "review",
     )
     return WorkspaceNavigation(
         workspace_id=navigation.workspace_id,
@@ -1482,9 +1492,11 @@ def _recipe_application_navigation(
         setup_href=run_home,
         overview_href=run_home,
         overview_active=False,
-        current_stage_id="review",
-        current_stage_label="Review and load",
-        viewed_stage_id="review",
+        current_stage_id="odoo" if target_value_review else "review",
+        current_stage_label=(
+            "Check Odoo" if target_value_review else "Review and load"
+        ),
+        viewed_stage_id="odoo" if target_value_review else "review",
         viewed_page_label=navigation.viewed_page_label,
         stages=stages,
         journey=WorkspaceJourney.RECIPE_APPLICATION.value,

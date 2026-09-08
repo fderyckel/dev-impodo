@@ -2828,15 +2828,22 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 for item in mapping_view.cards
                 if item.application.application_id == first.application_id
             ).action_label,
-            "Review field matches",
+            "Review target values",
         )
+        mapping_card = next(
+            item
+            for item in mapping_view.cards
+            if item.application.application_id == first.application_id
+        )
+        self.assertTrue(mapping_card.action_url.endswith("/target-matches"))
         self.assertEqual(
             next(
                 item
                 for item in mapping_view.cards
                 if item.application.application_id == first.application_id
             ).action_url,
-            f"/workspaces/{first.workspace_id}/mapping",
+            f"/projects/{first.project_id}/runs/{first.migration_run_id}/"
+            f"applications/{first.application_id}/target-matches",
         )
 
         materialization_blocker = replace(

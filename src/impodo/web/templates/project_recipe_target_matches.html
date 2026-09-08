@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Review target values &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ recipe.display_name }} &middot; Recipe v{{ application.recipe_revision }}</p>
+      <h1>Review values for this Odoo</h1>
+      <p>Impodo checked the values in the fresh data against this exact Odoo. Confirm the existing matches or resolve only the choices that differ.</p>
+    </div>
+    {% if review and review.needs_review_count == 0 and review.can_confirm %}
+      <span class="status ready">Ready</span>
+    {% else %}
+      <span class="status review">Review</span>
+    {% endif %}
+  </div>
+
+  {% if error %}
+    <div class="notice error" role="alert">
+      <strong>Target values could not be confirmed.</strong>
+      <p>{{ error }}</p>
+    </div>
+  {% endif %}
+
+  {% if review and review.fields %}
+    <section class="form-card target-match-summary" aria-labelledby="target-match-summary-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Odoo compatibility check</p>
+          {% if review.needs_review_count %}
+            <h2 id="target-match-summary-title">{{ review.needs_review_count }} value{% if review.needs_review_count != 1 %}s{% endif %} need a match</h2>
+            <p>{{ review.verified_count }} existing match{% if review.verified_count != 1 %}es{% endif %} are already valid for this Odoo.</p>
+          {% else %}
+            <h2 id="target-match-summary-title">All target-specific values already match</h2>
+            <p>No rematching is needed. Confirm this target check to continue with preparation.</p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <form method="post" class="target-match-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="expected_working_draft_version" value="{{ review.working_draft_version }}">
+      <input type="hidden" name="expected_definition_hash" value="{{ review.definition_hash }}">
+
+      {% for field in review.fields %}
+        <section class="form-card target-match-card" aria-labelledby="target-match-field-{{ loop.index }}">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">{{ field.dataset_name }} &middot; {{ field.kind_label }}</p>
+              <h2 id="target-match-field-{{ loop.index }}">{{ field.target_field_label }}</h2>
+              <p>Match <strong>{{ field.source_column_label }}</strong> to {{ field.target_model_label }} values.</p>
+            </div>
+            {% if field.needs_review_count %}
+              <span class="status review">{{ field.needs_review_count }} to review</span>
+            {% else %}
+              <span class="status ready">Matched</span>
+            {% endif %}
+          </div>
+
+          {% if field.blocking_reason %}
+            <div class="notice warning">
+              <strong>This field needs the full matcher.</strong>
+              <p>{{ field.blocking_reason }}</p>
+            </div>
+          {% elif field.review_rows %}
+            <div class="target-match-rows">
+              {% for row in field.review_rows %}
+                <div class="target-match-row">
+                  <div class="target-match-source">
+                    <span class="field-label">Fresh-data value</span>
+                    <strong>{{ row.source_value }}</strong>
+                    <small>{{ row.row_count }} row{% if row.row_count != 1 %}s{% endif %}</small>
+                  </div>
+                  <div class="target-match-arrow" aria-hidden="true">&rarr;</div>
+                  <label>
+                    <span>Value in this Odoo</span>
+                    <select name="{{ row.input_name }}" required>
+                      <option value="">Choose a match</option>
+                      {% for choice in field.choices %}
+                        <option value="{{ choice.value }}"{% if choice.value == row.selected_target_value %} selected{% endif %}>{{ choice.label }}{% if choice.label != choice.value %} ({{ choice.value }}){% endif %}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="target-match-complete">Every value used by this fresh data exists in the captured Odoo choices.</p>
+          {% endif %}
+
+          {% if field.verified_rows %}
+            <details class="technical-details target-match-verified">
+              <summary>{{ field.verified_rows|length }} verified match{% if field.verified_rows|length != 1 %}es{% endif %}</summary>
+              <dl class="summary-list">
+                {% for row in field.verified_rows %}
+                  <div>
+                    <dt>{{ row.source_value }} <small>&middot; {{ row.row_count }} row{% if row.row_count != 1 %}s{% endif %}</small></dt>
+                    <dd><strong>{{ row.current_target_label }}</strong>{% if row.current_target_label != row.current_target_value %} <code>{{ row.current_target_value }}</code>{% endif %}</dd>
+                  </div>
+                {% endfor %}
+              </dl>
+            </details>
+          {% endif %}
+
+          <details class="technical-details">
+            <summary>Technical details</summary>
+            <p><code>{{ field.target_model }}.{{ field.target_field }}</code></p>
+          </details>
+        </section>
+      {% endfor %}
+
+      <div class="actions">
+        {% if review.can_confirm %}
+          <button class="button primary" type="submit">
+            {% if review.needs_review_count %}Save matches and continue{% else %}Confirm and continue{% endif %}
+          </button>
+        {% endif %}
+        <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
+        <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/mapping">Open full field matcher</a>
+      </div>
+    </form>
+  {% else %}
+    <section class="form-card">
+      <h2>No simple target-value review is available</h2>
+      <p>Use the full field matcher for this Recipe application's remaining mapping work.</p>
+      <div class="actions">
+        <a class="button primary" href="/workspaces/{{ application.workspace_id }}/mapping">Open full field matcher</a>
+        <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

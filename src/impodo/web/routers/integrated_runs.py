@@ -6,13 +6,17 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from impodo.application.data_version.inspection import SourceInspectionError
 from impodo.domain.project.foundation import MigrationFoundationError
-from impodo.domain.run.contracts import MigrationRunPlanningError, RecipeDependency
+from impodo.domain.run.contracts import (
+    MigrationRunPlanningError,
+    RecipeApplicationStatus,
+    RecipeDependency,
+)
 from ...domain.run.models import MigrationRunPurpose
 from ...domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from ...domain.recipe.models import RecipeError
@@ -28,6 +32,10 @@ from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.schema import _render_schema
 from ..run_review import build_integrated_run_review, start_next_preparation
+from ..recipe_target_matches import (
+    apply_target_match_decisions,
+    build_target_match_review,
+)
 from ..security import require_session
 from ..source_file_commands import accept_source_uploads, remove_source_file
 
@@ -653,6 +661,172 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
+    @router.get(
+        "/projects/{project_id}/runs/{migration_run_id}/applications/"
+        "{application_id}/target-matches",
+        response_class=HTMLResponse,
+    )
+    async def review_application_target_matches(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+        application_id: str,
+    ):
+        """Show only target-specific Selection and Many2one decisions."""
+
+        require_session(request)
+        return _render_application_target_matches(
+            request,
+            context,
+            project_id,
+            migration_run_id,
+            application_id,
+        )
+
+    @router.post(
+        "/projects/{project_id}/runs/{migration_run_id}/applications/"
+        "{application_id}/target-matches"
+    )
+    async def confirm_application_target_matches(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+        application_id: str,
+    ):
+        """Save focused decisions, validate, and confirm the application mapping."""
+
+        require_session(request)
+        application = _run_application(
+            context,
+            project_id,
+            migration_run_id,
+            application_id,
+        )
+        form = await request.form()
+        submitted = {str(key): str(value) for key, value in form.items()}
+        try:
+            review = build_target_match_review(
+                context,
+                application,
+                submitted=submitted,
+            )
+            allowed = {
+                "csrf_token",
+                "expected_definition_hash",
+                "expected_working_draft_version",
+            } | {
+                row.input_name
+                for field in review.fields
+                for row in field.review_rows
+            }
+            _secure_form(request, form, allowed)
+            if not review.can_confirm:
+                raise WorkspaceError(
+                    "Open the full field matcher for the remaining unsupported value review"
+                )
+            try:
+                expected_working_version = int(
+                    _text(form, "expected_working_draft_version")
+                )
+            except ValueError as error:
+                raise WorkspaceError(
+                    "These target-value matches are no longer current"
+                ) from error
+            if (
+                expected_working_version != review.working_draft_version
+                or _text(form, "expected_definition_hash")
+                != review.definition_hash
+            ):
+                raise WorkspaceError(
+                    "These target-value matches changed. Reload and review the current values."
+                )
+            working = context.queries.get_mapping_working_draft(
+                application.workspace_id
+            )
+            if working is None:
+                raise WorkspaceError("The current field matches are unavailable")
+            datasets = apply_target_match_decisions(
+                working.definition,
+                review,
+                submitted,
+            )
+            if datasets != working.definition.datasets:
+                working = await run_in_threadpool(
+                    context.mapping_workspace.save_working_draft,
+                    application.workspace_id,
+                    datasets=datasets,
+                    expected_version=working.version,
+                    actor=context.actor,
+                )
+            revision, validation = await run_in_threadpool(
+                context.mapping_workspace.check_definition,
+                application.workspace_id,
+                datasets=working.definition.datasets,
+                expected_parent_version=review.parent_mapping_version,
+                expected_working_draft_version=working.version,
+                actor=context.actor,
+            )
+            if validation.status.value != "VALID":
+                first = next(iter(validation.issues), None)
+                detail = first.message if first is not None else "Review the field matches"
+                _flash(
+                    request,
+                    f"Target values saved. {detail}",
+                )
+                return RedirectResponse(
+                    f"/workspaces/{application.workspace_id}/mapping#next-step-blockers",
+                    status_code=303,
+                )
+            checked = context.queries.get_mapping_working_draft(
+                application.workspace_id
+            )
+            if checked is None:
+                raise WorkspaceError("The checked field matches are unavailable")
+            await run_in_threadpool(
+                context.mapping_workspace.submit_current,
+                application.workspace_id,
+                datasets=checked.definition.datasets,
+                expected_version=revision.version,
+                expected_working_draft_version=checked.version,
+                actor=context.actor,
+            )
+            confirmed = await run_in_threadpool(
+                context.run_planning.confirm_application_mapping,
+                application.application_id,
+                actor=context.actor,
+            )
+        except (MigrationRunPlanningError, WorkspaceError, ValueError) as error:
+            return _render_application_target_matches(
+                request,
+                context,
+                project_id,
+                migration_run_id,
+                application_id,
+                error=str(error),
+                status_code=422,
+                submitted=submitted,
+            )
+        _flash(request, "Target-specific values confirmed for this Recipe run.")
+        if (
+            confirmed.status is RecipeApplicationStatus.READY
+            and context.preparation_jobs is not None
+        ):
+            try:
+                await run_in_threadpool(
+                    start_next_preparation,
+                    context,
+                    migration_run_id,
+                )
+            except WorkspaceError as error:
+                _flash(
+                    request,
+                    f"Target values are confirmed. Review and load shows the next action: {error}",
+                )
+        return RedirectResponse(
+            f"/projects/{project_id}/runs/{migration_run_id}",
+            status_code=303,
+        )
+
     @router.get("/projects/{project_id}/runs/{migration_run_id}/status")
     async def integrated_run_status(
         request: Request,
@@ -940,6 +1114,69 @@ def _run_default_value_label(field) -> str:
     if field.type == "boolean":
         return "Yes" if value else "No"
     return str(value)
+
+
+def _run_application(
+    context: WebContext,
+    project_id: str,
+    migration_run_id: str,
+    application_id: str,
+):
+    """Return one application only inside the requested Project run."""
+
+    application = context.run_planning.repository.get_application(
+        application_id
+    )
+    if (
+        application.project_id != project_id
+        or application.migration_run_id != migration_run_id
+    ):
+        raise HTTPException(status_code=404, detail="RecipeApplication not found")
+    return application
+
+
+def _render_application_target_matches(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    migration_run_id: str,
+    application_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+    submitted: dict[str, str] | None = None,
+):
+    """Render the compact, target-bound Recipe value review."""
+
+    application = _run_application(
+        context,
+        project_id,
+        migration_run_id,
+        application_id,
+    )
+    review = None
+    try:
+        review = build_target_match_review(
+            context,
+            application,
+            submitted=submitted,
+        )
+    except WorkspaceError as review_error:
+        error = error or str(review_error)
+        status_code = 422
+    recipe = context.recipes.get(application.recipe_id, actor=context.actor)
+    workspace_state = context.queries.get(application.workspace_id)
+    return _render(
+        request,
+        "project_recipe_target_matches.html",
+        application=application,
+        project_id=project_id,
+        recipe=recipe,
+        review=review,
+        workspace_state=workspace_state,
+        error=error,
+        status_code=status_code,
+    )
 
 
 def _fresh_data_url(project_id: str, migration_run_id: str) -> str:

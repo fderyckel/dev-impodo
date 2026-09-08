@@ -147,6 +147,16 @@ Source, target, and reference incompatibility prevent mapping creation.
 Reviewable current-data quality or categorical issues may retain a fresh
 mapping draft while the application remains `BLOCKED`.
 
+An application blocked by categorical coverage may expose one run-owned
+target-value review during **Check Odoo**. The review may read the
+application's frozen categorical source domain, the run-projected Selection
+choices, and the governed supporting values already captured by the shared
+setup workspace. It must not contact Odoo again, accept an unbounded value
+domain, or mutate the protected Recipe revision. A submitted decision may
+change only the application mapping draft. The normal mapping validator and
+submission service must accept the complete mapping before the application can
+become `READY`.
+
 A required writable scalar field added by the current Odoo target follows the
 same create-field policy as an Authoring workspace. A target-bound
 `default_get` value creates a `REVIEW` issue and a fresh mapping disposition;

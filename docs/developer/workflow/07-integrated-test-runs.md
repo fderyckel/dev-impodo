@@ -157,6 +157,33 @@ kept as a pending candidate and still requires explicit confirmation before
 dependent evidence can be replaced. Successful assessment creates the
 application workspaces immediately and redirects to the integrated run page.
 
+If categorical coverage blocks an application, the activation route redirects
+to `GET /projects/{project_id}/runs/{migration_run_id}/applications/{application_id}/target-matches`
+before preparation. `build_target_match_review` rescans the application-owned
+frozen source snapshots. It obtains Selection choices from the run-projected
+schema and Many2one choices from the supporting lookup already captured in the
+shared setup workspace. The page therefore makes no new Odoo request. It is
+model-independent and supports a scalar Selection source or a Many2one source
+with one governed, scope-free business key. Composite and scoped relationships
+remain in the full mapping workflow.
+
+The focused page collapses choices whose current application mapping still
+exists in this target. It renders selectors only for uncovered, missing, or
+ambiguous source values. A page with no unresolved values still requires
+**Confirm and continue** so the normal mapping check can replace a stale
+application blocker. The POST route derives its form allowlist from the fresh
+review, verifies the working-draft version and content hash, and changes only
+the application mapping's `value_mappings` and categorical policy. It does not
+change the protected Recipe revision.
+
+After saving a decision, the route calls `MappingWorkspaceService` to check and
+submit the complete mapping, then calls
+`RunApplicationRecoveryUseCase.confirm_mapping`. Any other validation error or
+warning returns to the full mapping review. A valid application can then enter
+the existing preparation scheduler. The Recipe-run navigation presents this
+focused page inside **Check Odoo** and keeps **Review and load** unavailable
+until confirmation succeeds.
+
 ## Evidence and state
 
 ### Provisioning and recovery
@@ -306,6 +333,7 @@ queries must not scale with Recipe count.
 | Application materialization and recovery | [`RunApplicationMaterializer`](../../../src/impodo/application/run/application_materialization.py) and [`RunApplicationRecoveryUseCase`](../../../src/impodo/application/run/application_recovery.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |
+| Focused target-value review | [`recipe_target_matches.py`](../../../src/impodo/web/recipe_target_matches.py) |
 | Background preparation summary | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
 | Background load summary | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
@@ -323,6 +351,7 @@ queries must not scale with Recipe count.
 
 - [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
 - [`tests/application/run/test_integrated_recipe_runs.py`](../../../tests/application/run/test_integrated_recipe_runs.py)
+- [`tests/application/run/test_recipe_target_matches.py`](../../../tests/application/run/test_recipe_target_matches.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/application/workspace/test_journeys.py`](../../../tests/application/workspace/test_journeys.py)
 - [`tests/application/project/test_authoring.py`](../../../tests/application/project/test_authoring.py)

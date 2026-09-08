@@ -139,6 +139,7 @@ stages:
       - src/impodo/web/templates/project_test_run_fresh_data.html
       - src/impodo/web/templates/project_integrated_run.html
       - src/impodo/web/templates/project_recipe_odoo_defaults.html
+      - src/impodo/web/templates/project_recipe_target_matches.html
     code_references:
       - src/impodo/application/run/test_setup_service.py::TestRunSetupService
       - src/impodo/application/run/test_setup_start.py::TestRunSetupStartUseCase.start
@@ -154,6 +155,8 @@ stages:
       - src/impodo/web/composition/target_readers.py::_capture_recipe_supporting_values
       - src/impodo/web/run_review.py::build_integrated_run_review
       - src/impodo/web/run_review.py::start_next_preparation
+      - src/impodo/web/recipe_target_matches.py::build_target_match_review
+      - src/impodo/web/recipe_target_matches.py::apply_target_match_decisions
       - src/impodo/application/recipe/service.py::RecipeService.read_revisions
       - src/impodo/application/run/planning_service.py::MigrationRunPlanningService
       - src/impodo/application/run/test_activation.py::TestRunActivationUseCase.activate
@@ -173,6 +176,7 @@ stages:
     tests:
       - tests/application/run/test_odoo_requirements.py
       - tests/application/run/test_integrated_recipe_runs.py
+      - tests/application/run/test_recipe_target_matches.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/application/workspace/test_journeys.py
     contracts:

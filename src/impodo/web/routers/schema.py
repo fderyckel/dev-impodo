@@ -376,6 +376,40 @@ def build_schema_router(context: WebContext) -> APIRouter:
             request,
             f"Odoo is ready. Impodo created {len(result.applications)} Recipe work areas.",
         )
+        mapped_applications = tuple(
+            application
+            for application in result.applications
+            if getattr(application, "mapping_id", None) is not None
+        )
+        application_issues = (
+            context.run_planning.repository.list_run_issues(migration_run_id)
+            if mapped_applications
+            else {}
+        )
+        target_value_application = next(
+            (
+                application
+                for application in mapped_applications
+                if any(
+                    issue.code == "MAPPING_CATEGORICAL_COVERAGE_INCOMPLETE"
+                    for issue in application_issues.get(
+                        application.application_id,
+                        (),
+                    )
+                )
+            ),
+            None,
+        )
+        if target_value_application is not None:
+            _flash(
+                request,
+                "Odoo is ready. Confirm the target-specific values before preparation.",
+            )
+            return RedirectResponse(
+                f"/projects/{project_id}/runs/{migration_run_id}/applications/"
+                f"{target_value_application.application_id}/target-matches",
+                status_code=303,
+            )
         if context.preparation_jobs is not None:
             try:
                 await run_in_threadpool(

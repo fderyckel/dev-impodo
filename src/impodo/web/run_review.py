@@ -647,16 +647,40 @@ def _application_card(
             item.code.startswith("MAPPING_")
             for item in actionable_issues
         )
+        has_target_value_blocker = (
+            automatic_preparation
+            and application.mapping_id is not None
+            and any(
+                item.code == "MAPPING_CATEGORICAL_COVERAGE_INCOMPLETE"
+                for item in actionable_issues
+            )
+        )
         return RunApplicationCard(
             application,
             recipe_name,
             "ACTION_NEEDED",
-            "Review field matches" if has_mapping_blocker else "Action needed",
+            (
+                "Review target values"
+                if has_target_value_blocker
+                else "Review field matches"
+                if has_mapping_blocker
+                else "Action needed"
+            ),
             first.message if first is not None else "This Recipe needs review.",
             "blocked",
-            "Review field matches" if has_mapping_blocker else "",
             (
-                f"/workspaces/{application.workspace_id}/mapping"
+                "Review target values"
+                if has_target_value_blocker
+                else "Review field matches"
+                if has_mapping_blocker
+                else ""
+            ),
+            (
+                f"/projects/{application.project_id}/runs/"
+                f"{application.migration_run_id}/applications/"
+                f"{application.application_id}/target-matches"
+                if has_target_value_blocker
+                else f"/workspaces/{application.workspace_id}/mapping"
                 if has_mapping_blocker
                 else ""
             ),

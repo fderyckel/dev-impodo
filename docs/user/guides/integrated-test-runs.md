@@ -46,17 +46,23 @@ evidence.
 11. Select **Check this Odoo**. Impodo checks the required fields, refreshes
     the related Odoo values in bounded groups, checks every selected Recipe,
     and creates its separate Recipe work areas when everything is ready.
-12. Impodo takes you directly to **Review and load** and starts preparing the
-    first compatible Recipe. The page updates while Impodo works locally.
-13. If a card says **Action needed**, open only that card's named review. A
+12. If a Selection or linked-record value differs for this Odoo, Impodo keeps
+    **Check Odoo** current and opens **Review values for this Odoo**. Choose an
+    Odoo value only for each source value that needs attention. Existing valid
+    matches stay collapsed. If every value already matches, select **Confirm
+    and continue** without rematching anything.
+13. After the target values are confirmed, Impodo takes you to **Review and
+    load** and starts preparing the first compatible Recipe. The page updates
+    while Impodo works locally.
+14. If a card says **Action needed**, open only that card's named review. A
     later Recipe stays waiting until the earlier result is verified.
-14. When a card says **Ready for review**, review its prepared rows, exclusions,
+15. When a card says **Ready for review**, review its prepared rows, exclusions,
     warnings, relationships, and proposed load. **Check changes** remains
     read-only. If Odoo already matches every prepared row, Impodo records that
     verified result and returns to **Review and load** without asking you to
     confirm an empty load. Otherwise, **Confirm and load** remains your
     explicit decision.
-15. Review **Verify result**. After successful verification, Impodo starts the
+16. Review **Verify result**. After successful verification, Impodo starts the
     next compatible Recipe automatically. When every card is verified, review
     and qualify that exact Test run as the Production candidate.
 
@@ -71,6 +77,14 @@ the Recipe card opens **Review Odoo defaults** and shows their exact values.
 Confirm the group to keep the Recipe unchanged for this run. If Odoo returns
 no usable default, the card remains blocked and the Recipe needs a new version
 with a value provider. Impodo never guesses from an Odoo choice list.
+
+Target-specific choices follow a separate review. **Review values for this
+Odoo** works for any Recipe model that uses a bounded Odoo Selection field or
+a Many2one relationship with one governed business key. The page compares the
+fresh source values with the Selection options and linked records captured by
+**Check this Odoo**. Your decisions belong only to this Recipe application.
+They do not change the saved Recipe, and reviewing the page does not make
+another Odoo request.
 
 An older blocked Test run can select **Check Odoo defaults**. Impodo refreshes
 the one shared setup target, verifies that no other field behavior changed,
@@ -131,6 +145,13 @@ Test delivery was accepted before run details were stored, return to **Fresh
 data**, supply the missing details, and continue to **Check Odoo**.
 After the details are accepted with the fresh data, they are read-only. Start a
 new Test run if an accepted answer needs to change.
+
+**Review values for this Odoo** remains part of **Check Odoo**. It appears only
+when a Recipe application cannot use all target-specific values automatically.
+The page shows each affected field independently, so the same review works for
+contacts, products, transactions, and other Recipe models. If another mapping
+problem remains after these values are saved, Impodo directs you to the full
+field review instead of treating the target-value decision as complete.
 
 **Review and load** is the visible home from preparation through verification.
 It shows the saved Recipe order, one current action, background progress, and
