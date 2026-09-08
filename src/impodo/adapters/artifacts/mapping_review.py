@@ -110,18 +110,6 @@ class _FieldReview:
 
 
 @dataclass(frozen=True, slots=True)
-class MappingReviewRecipeContext:
-    """User-facing lineage for a mapping loaded from one Recipe revision."""
-
-    display_name: str
-    revision: int
-
-    @property
-    def label(self) -> str:
-        return f"Recipe {self.display_name} v{self.revision}"
-
-
-@dataclass(frozen=True, slots=True)
 class MappingReviewCell:
     """One proposed row value and its optional raw-to-proposed explanation."""
 
@@ -330,7 +318,7 @@ def write_mapping_review_workbook(
     *,
     row_projection: MappingReviewRowProjection | None = None,
     row_projection_error: str = "",
-    recipe_context: MappingReviewRecipeContext | None = None,
+    recipe_label: str | None = None,
 ) -> Path:
     """Write one read-only matching review from exact checked evidence."""
 
@@ -377,7 +365,7 @@ def write_mapping_review_workbook(
         schema,
         field_reviews,
         row_projection,
-        recipe_context,
+        recipe_label,
     )
     _write_attention(attention, validation, source_by_id, models_by_name)
     _write_field_matches(field_matches, field_reviews)
@@ -393,7 +381,7 @@ def write_mapping_review_workbook(
         validation,
         source_by_id,
         models_by_name,
-        recipe_context,
+        recipe_label,
     )
 
     workbook.calculation.fullCalcOnLoad = False
@@ -650,7 +638,7 @@ def _write_overview(
     schema: OdooSchemaCatalog,
     field_reviews: list[_FieldReview],
     row_projection: MappingReviewRowProjection | None,
-    recipe_context: MappingReviewRecipeContext | None,
+    recipe_label: str | None,
 ) -> None:
     _title_band(
         sheet,
@@ -685,7 +673,7 @@ def _write_overview(
             for result in coverage.field_results
             if result.status in {"UNCOVERED", "UNSUPPORTED"}
         )
-        if recipe_context is not None and coverage is not None
+        if recipe_label is not None and coverage is not None
         else 0
     )
     rows = [
@@ -706,12 +694,10 @@ def _write_overview(
         ),
         (
             "Rule origin",
-            recipe_context.label
-            if recipe_context is not None
-            else "Current Stage 3 mapping",
+            recipe_label or "Current Stage 3 mapping",
         ),
     ]
-    if recipe_context is not None:
+    if recipe_label is not None:
         rows.append(("Recipe coverage gaps", recipe_gap_count))
     rows.extend(
         (
@@ -1025,7 +1011,7 @@ def _write_value_coverage(
     validation,
     source_by_id,
     models_by_name,
-    recipe_context,
+    recipe_label,
 ) -> None:
     headers = (
         "Status",
@@ -1068,9 +1054,7 @@ def _write_value_coverage(
                 source is not None and source.origin is SourceOriginKind.ODOO
             )
             origin = (
-                recipe_context.label
-                if recipe_context is not None
-                else "Current Stage 3 mapping"
+                recipe_label or "Current Stage 3 mapping"
             )
             if protected_source:
                 rows.append(
@@ -1112,7 +1096,7 @@ def _write_value_coverage(
                 values = value_count.values
                 listed.add(values)
                 is_gap = values in uncovered
-                status = _coverage_status(recipe_context, is_gap=is_gap)
+                status = _coverage_status(recipe_label, is_gap=is_gap)
                 rows.append(
                     (
                         status,
@@ -1124,7 +1108,7 @@ def _write_value_coverage(
                         value_count.count,
                         _coverage_proposed_value(mapping, result, values),
                         result.policy.replace("_", " ").title(),
-                        _coverage_action(recipe_context, is_gap=is_gap),
+                        _coverage_action(recipe_label, is_gap=is_gap),
                     )
                 )
                 styles.append("danger" if is_gap else "ready")
@@ -1133,7 +1117,7 @@ def _write_value_coverage(
                     continue
                 rows.append(
                     (
-                        _coverage_status(recipe_context, is_gap=True),
+                        _coverage_status(recipe_label, is_gap=True),
                         origin,
                         source.name if source else result.dataset_id,
                         field.label if field else result.target_field,
@@ -1142,14 +1126,14 @@ def _write_value_coverage(
                         0,
                         _coverage_proposed_value(mapping, result, values),
                         result.policy.replace("_", " ").title(),
-                        _coverage_action(recipe_context, is_gap=True),
+                        _coverage_action(recipe_label, is_gap=True),
                     )
                 )
                 styles.append("danger")
             if not result.distinct_values and not result.uncovered_values:
                 rows.append(
                     (
-                        _coverage_status(recipe_context, is_gap=False),
+                        _coverage_status(recipe_label, is_gap=False),
                         origin,
                         source.name if source else result.dataset_id,
                         field.label if field else result.target_field,
@@ -1158,7 +1142,7 @@ def _write_value_coverage(
                         0,
                         _coverage_proposed_value(mapping, result, ()),
                         result.policy.replace("_", " ").title(),
-                        _coverage_action(recipe_context, is_gap=False),
+                        _coverage_action(recipe_label, is_gap=False),
                     )
                 )
                 styles.append("ready")
@@ -1166,8 +1150,8 @@ def _write_value_coverage(
         rows.append(("Not applicable", "", "", "", "", "", 0, "", "", ""))
         styles.append("neutral")
     subtitle = (
-        f"Current source choices checked against {recipe_context.label}"
-        if recipe_context is not None
+        f"Current source choices checked against {recipe_label}"
+        if recipe_label is not None
         else "Current source choices checked against Odoo choices or business keys"
     )
     _write_table_sheet(sheet, "Value coverage", subtitle, headers, rows)
@@ -1177,16 +1161,16 @@ def _write_value_coverage(
             _style_status_cell(sheet.cell(row_index, 6), style)
 
 
-def _coverage_status(recipe_context, *, is_gap: bool) -> str:
-    if recipe_context is not None:
+def _coverage_status(recipe_label, *, is_gap: bool) -> str:
+    if recipe_label is not None:
         return "Not covered by Recipe" if is_gap else "Covered by Recipe"
     return "Must fix" if is_gap else "Covered"
 
 
-def _coverage_action(recipe_context, *, is_gap: bool) -> str:
+def _coverage_action(recipe_label, *, is_gap: bool) -> str:
     if not is_gap:
         return "No action is required."
-    if recipe_context is not None:
+    if recipe_label is not None:
         return "Match this current value in the Recipe-based rules and check again."
     return "Match this current value in Impodo and check again."
 

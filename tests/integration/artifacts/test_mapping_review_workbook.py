@@ -10,7 +10,6 @@ import unittest
 from openpyxl import load_workbook
 
 from impodo.adapters.artifacts.mapping_review import (
-    MappingReviewRecipeContext,
     _field_provider,
     build_mapping_review_row_projection,
     mapping_review_workbook_name,
@@ -342,10 +341,7 @@ class MappingReviewWorkbookTests(unittest.TestCase):
                 selection,
                 schema,
                 path,
-                recipe_context=MappingReviewRecipeContext(
-                    display_name="Sales orders",
-                    revision=3,
-                ),
+                recipe_label="Recipe Sales orders v3",
             )
             workbook = load_workbook(path, data_only=True)
 

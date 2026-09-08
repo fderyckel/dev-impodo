@@ -33,7 +33,6 @@ from starlette.concurrency import run_in_threadpool
 
 from impodo.adapters.artifacts.mapping_review import (
     MappingReviewGenerationError,
-    MappingReviewRecipeContext,
     build_mapping_review_row_projection,
     mapping_review_workbook_name,
     write_mapping_review_workbook,
@@ -1497,7 +1496,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 capability=Capability.PROTECTED_EVIDENCE_MANAGE,
             )
             filename = mapping_review_workbook_name(revision)
-            recipe_context = _mapping_review_recipe_context(
+            recipe_label = _mapping_review_recipe_label(
                 context,
                 workspace_id,
                 access,
@@ -1555,7 +1554,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         workbook_path,
                         row_projection=row_projection,
                         row_projection_error=row_projection_error,
-                        recipe_context=recipe_context,
+                        recipe_label=recipe_label,
                     )
 
             await run_in_threadpool(write_workbook)
@@ -1948,11 +1947,11 @@ def _current_mapping_review_evidence(context: WebContext, workspace_id: str):
     return revision, validation, selection, schema
 
 
-def _mapping_review_recipe_context(
+def _mapping_review_recipe_label(
     context: WebContext,
     workspace_id: str,
     access,
-) -> MappingReviewRecipeContext | None:
+) -> str | None:
     """Return verified Recipe lineage for one Recipe-application workspace."""
 
     application_id = access.recipe_application_id
@@ -1976,10 +1975,7 @@ def _mapping_review_recipe_context(
             "The Recipe details for this matching review do not belong to this "
             "workspace"
         )
-    return MappingReviewRecipeContext(
-        display_name=recipe.display_name,
-        revision=application.recipe_revision,
-    )
+    return f"Recipe {recipe.display_name} v{application.recipe_revision}"
 
 
 def _mapping_review_chunks(
