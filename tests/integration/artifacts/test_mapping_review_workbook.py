@@ -171,12 +171,16 @@ class MappingReviewWorkbookTests(unittest.TestCase):
             workbook = load_workbook(path, data_only=True)
 
         self.assertEqual(WORKBOOK_NAME, "impodo_preflight_report.xlsx")
-        self.assertIn("Matching overview", workbook.sheetnames)
-        self.assertIn("Needs attention", workbook.sheetnames)
-        self.assertIn("Field matches", workbook.sheetnames)
-        self.assertIn("Transformed data", workbook.sheetnames)
-        self.assertNotIn("Checked later", workbook.sheetnames)
-        self.assertNotIn("1 Orders fields", workbook.sheetnames)
+        self.assertEqual(
+            workbook.sheetnames,
+            [
+                "Matching overview",
+                "Needs attention",
+                "Field matches",
+                "Transformed data",
+                "Value coverage",
+            ],
+        )
         self.assertNotIn("Records to load", workbook.sheetnames)
         self.assertEqual(
             workbook["Matching overview"]["B4"].value,

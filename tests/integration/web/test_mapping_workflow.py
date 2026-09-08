@@ -183,16 +183,6 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             workbook["Needs attention"]["A4"].value,
             "Must fix",
         )
-        self.assertEqual(
-            workbook.sheetnames,
-            [
-                "Matching overview",
-                "Needs attention",
-                "Field matches",
-                "Transformed data",
-                "Value coverage",
-            ],
-        )
         workbook.close()
 
     def test_active_table_fields_have_a_two_state_disclosure(self) -> None:
