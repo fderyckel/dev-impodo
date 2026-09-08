@@ -630,7 +630,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         migration_run_id: str,
         application_id: str,
     ):
-        """Confirm the already captured scalar defaults for one application."""
+        """Confirm the already captured create defaults for one application."""
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -1098,7 +1098,7 @@ def _render_test_run_form(
 
 
 def _run_default_value_label(field) -> str:
-    """Render one target-bound scalar default without exposing extra evidence."""
+    """Render one target-bound default without exposing extra evidence."""
 
     value = field.create_default_value
     if field.type == "selection":
@@ -1113,6 +1113,8 @@ def _run_default_value_label(field) -> str:
         return f"{label} ({value})"
     if field.type == "boolean":
         return "Yes" if value else "No"
+    if field.type == "many2one":
+        return f"Odoo record #{value}"
     return str(value)
 
 

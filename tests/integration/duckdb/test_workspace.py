@@ -420,17 +420,36 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(rebound.content_hash, schema.content_hash)
         self.assertEqual(rebound.models, schema.models)
 
-    def test_schema_capture_keeps_only_usable_required_scalar_defaults(
+    def test_schema_capture_keeps_only_usable_required_defaults(
         self,
     ) -> None:
-        snapshot = _metadata_snapshot(
+        base = _metadata_snapshot()
+        partner = base.models["res.partner"]
+        snapshot = replace(
+            base,
+            models={
+                "res.partner": replace(
+                    partner,
+                    fields={
+                        **partner.fields,
+                        "property_account_receivable_id": FieldMetadata(
+                            name="property_account_receivable_id",
+                            type="many2one",
+                            label="Account Receivable",
+                            required=True,
+                            relation="account.account",
+                        ),
+                    },
+                )
+            },
             create_defaults={
                 "res.partner": {
                     "name": "New contact",
+                    "property_account_receivable_id": 42,
                     "display_name": "Ignored readonly value",
                     "active": True,
                 }
-            }
+            },
         )
 
         schema = self._capture_authenticated_schema(snapshot)
@@ -438,6 +457,13 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         self.assertTrue(fields["name"].create_default_present)
         self.assertEqual(fields["name"].create_default_value, "New contact")
+        self.assertTrue(
+            fields["property_account_receivable_id"].create_default_present
+        )
+        self.assertEqual(
+            fields["property_account_receivable_id"].create_default_value,
+            42,
+        )
         self.assertFalse(fields["display_name"].create_default_present)
         self.assertFalse(fields["active"].create_default_present)
         restored = type(schema).from_json(schema.to_json())

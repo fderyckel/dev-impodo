@@ -229,7 +229,7 @@ class RunApplicationRecoveryUseCase:
         current_schema: OdooSchemaCatalog,
         actor: Actor,
     ) -> tuple[RunRecipeApplication, ...]:
-        """Reassess old required-field blockers with fresh scalar defaults."""
+        """Reassess old required-field blockers with fresh create defaults."""
 
         bundle = self._repository.get_bundle(migration_run_id)
         if bundle.run.purpose is not MigrationRunPurpose.TEST:

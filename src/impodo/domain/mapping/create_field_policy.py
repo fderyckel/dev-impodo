@@ -9,7 +9,7 @@ from typing import Protocol
 from .contracts import TargetFieldHandling
 
 
-CREATE_DEFAULT_SCALAR_TYPES = frozenset(
+CREATE_DEFAULT_TYPES = frozenset(
     {
         "boolean",
         "char",
@@ -18,6 +18,7 @@ CREATE_DEFAULT_SCALAR_TYPES = frozenset(
         "float",
         "html",
         "integer",
+        "many2one",
         "monetary",
         "selection",
         "text",
@@ -79,6 +80,8 @@ def evaluate_create_field(
         return CreateFieldAssessment(CreateFieldCoverage.PROVIDED)
     if not field.required:
         return CreateFieldAssessment(CreateFieldCoverage.OPTIONAL)
+    if field.computed is True or field.related is True:
+        return CreateFieldAssessment(CreateFieldCoverage.ODOO_MANAGED_CONFIRMED)
     if handling is TargetFieldHandling.ODOO_DEFAULT:
         return CreateFieldAssessment(
             (
@@ -113,10 +116,15 @@ def is_odoo_managed_candidate(field: CreateFieldView) -> bool:
 
 
 def supports_create_default_capture(field: CreateFieldView) -> bool:
-    """Return whether one field can receive bounded ``default_get`` evidence."""
+    """Return whether one field can receive bounded ``default_get`` evidence.
+
+    A Many2one default is safe here because Impodo never copies its numeric ID
+    into another target. The evidence belongs to this exact Odoo context and
+    confirming it means omitting the field so that Odoo applies the default.
+    """
 
     return bool(
         field.required
         and not field.readonly
-        and field.type in CREATE_DEFAULT_SCALAR_TYPES
+        and field.type in CREATE_DEFAULT_TYPES
     )

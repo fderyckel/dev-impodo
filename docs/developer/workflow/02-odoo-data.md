@@ -60,7 +60,7 @@ service compares its semantic fingerprint with the current catalogue:
 
 The semantic fingerprint binds technical target identity, selected model
 scope, field types and flags, relationship metadata, selection codes,
-constraints, usable required scalar create defaults, origin, and read-access
+constraints, usable required create defaults, origin, and read-access
 meaning. It excludes capture/check times, actors, credential generations, and
 translated display labels. Those facts are freshness, access provenance, or
 presentation rather than schema structure.

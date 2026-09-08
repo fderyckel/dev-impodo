@@ -20,7 +20,9 @@ from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.migration_workspace_engine_database import (
     FixedMigrationWorkspaceEngineDatabase,
 )
-from impodo.adapters.duckdb.source_repository import SourceRepository
+from impodo.adapters.duckdb.projected_preparation_source_repository import (
+    ProjectedPreparationSourceRepository,
+)
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
@@ -68,7 +70,11 @@ def create_preparation_worker(
     secrets = CredentialVault()
     workspace_states = WorkspaceStateReader(database, workspace)
     derived_entities = DerivedEntityRepository(database)
-    sources = SourceRepository(database, derived_entities)
+    sources = ProjectedPreparationSourceRepository(
+        database,
+        derived_entities,
+        workspace,
+    )
     mappings = MappingRepository(database)
     staging = StagingRepository(database, artifacts)
     sessions = PreparationSessionRepository(database, artifacts)

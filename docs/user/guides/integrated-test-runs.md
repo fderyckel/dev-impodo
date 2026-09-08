@@ -72,7 +72,8 @@ Odoo field. Reordering two conflicting Recipes is not a safe repair; one
 Recipe must own that field.
 
 An installed Odoo application may add required fields that were not part of a
-saved Recipe. If the current target returns usable scalar create defaults,
+saved Recipe. If the current target returns usable create defaults, including
+an exact Many2one default from this target,
 the Recipe card opens **Review Odoo defaults** and shows their exact values.
 Confirm the group to keep the Recipe unchanged for this run. If Odoo returns
 no usable default, the card remains blocked and the Recipe needs a new version

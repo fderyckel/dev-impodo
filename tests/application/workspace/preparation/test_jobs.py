@@ -41,6 +41,7 @@ from impodo.application.workspace.preparation.job_models import (
 )
 from impodo.web.routers.preparation import (
     _assert_recipe_application_can_prepare,
+    _preparation_workspace,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -202,6 +203,52 @@ class PreparationJobRegistryTests(unittest.TestCase):
             ),
         )
         _assert_recipe_application_can_prepare(context, workspace)
+
+
+class PreparationWorkspaceProjectionTests(unittest.TestCase):
+    def test_worker_packet_includes_the_exact_workspace_source_projection(self) -> None:
+        base = _workspace()
+        projection = SimpleNamespace(
+            package_hash="sha256:" + "2" * 64,
+            datasets=(
+                SimpleNamespace(dataset_id="customers"),
+                SimpleNamespace(dataset_id="addresses"),
+            ),
+        )
+        context = SimpleNamespace(
+            actor=LOCAL_ACTOR,
+            migration_workspaces=SimpleNamespace(
+                get=lambda workspace_id, **kwargs: SimpleNamespace(
+                    data_version_id=base.data_version_id,
+                    migration_run_id=base.migration_run_id,
+                )
+            ),
+            data_versions=SimpleNamespace(
+                get=lambda data_version_id, **kwargs: object()
+            ),
+            migration_runs=SimpleNamespace(
+                get=lambda migration_run_id, **kwargs: object()
+            ),
+            data_version_source_projection=SimpleNamespace(
+                projections=SimpleNamespace(
+                    repository=SimpleNamespace(
+                        get_workspace_source_projection=lambda workspace_id: projection
+                    )
+                )
+            ),
+        )
+        with patch.object(
+            PreparationWorkspace,
+            "from_context",
+            return_value=base,
+        ):
+            result = _preparation_workspace(context, base.workspace_id)
+
+        self.assertEqual(result.source_package_hash, projection.package_hash)
+        self.assertEqual(
+            result.source_dataset_ids,
+            ("addresses", "customers"),
+        )
 
 
 class PreparationCancellationBoundaryTests(unittest.TestCase):

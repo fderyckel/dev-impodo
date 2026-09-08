@@ -157,14 +157,18 @@ change only the application mapping draft. The normal mapping validator and
 submission service must accept the complete mapping before the application can
 become `READY`.
 
-A required writable scalar field added by the current Odoo target follows the
-same create-field policy as an Authoring workspace. A target-bound
+A supported required writable field added by the current Odoo target follows
+the same create-field policy as an Authoring workspace. A target-bound
 `default_get` value creates a `REVIEW` issue and a fresh mapping disposition;
 it does not change portable Recipe meaning. The application remains `BLOCKED`
-until the data manager confirms all displayed defaults together. Missing,
-relational, malformed, or context-mismatched defaults remain blockers. New
-read-only fields are ignored as inputs, while a Recipe-owned write field that
-became read-only remains incompatible.
+until the data manager confirms all displayed defaults together. A Many2one
+default is permitted because its numeric ID remains evidence for this exact
+target and Impodo omits the field instead of copying that ID into a create
+request. Missing, unsupported relational, malformed, or context-mismatched
+defaults remain blockers. New read-only fields are ignored as inputs. New
+computed or related fields are recorded as Odoo-managed information and need
+no source value. A Recipe-owned write field that became read-only remains
+incompatible.
 
 An activated Test run created before default evidence was captured may recheck
 the shared setup target. Recovery requires identical target, principal,

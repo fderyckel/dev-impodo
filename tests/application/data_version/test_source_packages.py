@@ -28,6 +28,13 @@ from impodo.adapters.duckdb.migration_foundation_database import (
 from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
+from impodo.adapters.duckdb.migration_workspace_engine_database import (
+    FixedMigrationWorkspaceEngineDatabase,
+)
+from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from impodo.adapters.duckdb.projected_preparation_source_repository import (
+    ProjectedPreparationSourceRepository,
+)
 from impodo.adapters.duckdb.schema.data_version_store import (
     DATA_VERSION_STORE_GENERATION,
 )
@@ -67,6 +74,8 @@ from impodo.domain.project.foundation import (
 from impodo.application.project.service import MigrationProjectService
 from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
+from impodo.application.workspace.preparation.job_models import PreparationWorkspace
+from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.workspace.contracts import SourceDatasetColumn
 
 
@@ -585,6 +594,56 @@ class DataVersionSourcePackageTests(unittest.TestCase):
         self.assertEqual(
             list(self.root.rglob("data-version.duckdb")),
             [data_path],
+        )
+
+    def test_preparation_worker_reads_projected_selection_from_data_version(self) -> None:
+        frozen = self._freeze()
+        customer, _product = self._run_and_workspaces()
+        projection = self.projections.materialize(
+            customer.workspace_id,
+            actor=LOCAL_ACTOR,
+            dataset_ids=("customers",),
+            expected_workspace_revision=customer.optimistic_revision,
+            operation_id=str(uuid4()),
+        )
+        accepted = self.data_versions.get(
+            self.data_version.data_version_id,
+            actor=LOCAL_ACTOR,
+        )
+        packet = PreparationWorkspace(
+            project_id=customer.project_id,
+            data_version_id=customer.data_version_id,
+            data_version_number=accepted.version_number,
+            data_version_purpose=accepted.purpose,
+            migration_run_id=customer.migration_run_id,
+            migration_run_purpose=MigrationRunPurpose.AUTHORING,
+            workspace_id=customer.workspace_id,
+            source_package_hash=projection.package_hash,
+            source_dataset_ids=("customers",),
+        )
+        database = FixedMigrationWorkspaceEngineDatabase(
+            self.root,
+            project_id=packet.project_id,
+            workspace_id=packet.workspace_id,
+            data_version_id=packet.data_version_id,
+            migration_run_id=packet.migration_run_id,
+            recipe_application_id=None,
+        )
+        repository = ProjectedPreparationSourceRepository(
+            database,
+            DerivedEntityRepository(database),
+            packet,
+        )
+
+        selection = repository.get_source_selection(customer.workspace_id)
+
+        self.assertIsNotNone(selection)
+        assert selection is not None
+        self.assertEqual(selection.data_version_id, frozen.data_version_id)
+        self.assertEqual(selection.content_hash, content_hash("physical-selection"))
+        self.assertEqual(
+            tuple(item.dataset_id for item in selection.datasets),
+            ("customers",),
         )
 
     def test_freeze_is_immutable_and_updates_data_version_identity(self) -> None:

@@ -569,8 +569,9 @@ def _application_card(
             "ACTION_NEEDED",
             "Review Odoo defaults",
             (
-                f"Odoo can provide {len(default_reviews)} required value"
-                f"{'s' if len(default_reviews) != 1 else ''} for this run."
+                f"Impodo found {len(default_reviews)} target-only required "
+                f"value{'s' if len(default_reviews) != 1 else ''} and can let "
+                "this Odoo provide them. No source match is needed."
             ),
             "review",
             "Review Odoo defaults",

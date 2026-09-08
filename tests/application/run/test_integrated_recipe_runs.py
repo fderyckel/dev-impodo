@@ -239,11 +239,34 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                             create_default_value="direct",
                         ),
                         SchemaField(
+                            name="receivable_account_id",
+                            label="Receivable Account",
+                            type="many2one",
+                            required=True,
+                            readonly=False,
+                            relation="account.account",
+                            relation_field=None,
+                            selection=(),
+                            create_default_present=True,
+                            create_default_value=42,
+                        ),
+                        SchemaField(
                             name="computed_reference",
                             label="Computed Reference",
                             type="char",
                             required=True,
                             readonly=True,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            computed=True,
+                        ),
+                        SchemaField(
+                            name="module_sequence",
+                            label="Module Sequence",
+                            type="char",
+                            required=True,
+                            readonly=False,
                             relation=None,
                             relation_field=None,
                             selection=(),
@@ -297,6 +320,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertEqual(
             default_fields,
             (
+                ("sale.order", "receivable_account_id"),
                 ("sale.order", "shipping_policy"),
                 ("stock.picking", "batch_code"),
             ),
@@ -305,15 +329,21 @@ class RecipeApplicationServiceTests(unittest.TestCase):
             [item.logical_id for item in issues],
             [
                 "sale.order.shipping_policy",
+                "sale.order.receivable_account_id",
+                "sale.order.module_sequence",
                 "stock.picking.batch_code",
             ],
         )
-        self.assertTrue(
-            all(
-                item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
-                for item in issues
-            )
+        self.assertEqual(
+            [item.code for item in issues],
+            [
+                "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+                "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+                "RECIPE_TARGET_ODOO_MANAGED",
+                "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+            ],
         )
+        self.assertFalse(issues[2].blocks)
 
     def test_customer_recipe_assesses_current_sources_target_and_references(self):
         definition = json.loads(

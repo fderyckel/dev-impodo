@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">{{ recipe.display_name }} &middot; Recipe v{{ application.recipe_revision }}</p>
       <h1>Review Odoo defaults</h1>
-      <p>These values come from this exact Odoo target and company context. Impodo will leave the fields out of the create request so Odoo can apply them.</p>
+      <p>These target-only values come from this exact Odoo and company context. No source column or value match is needed: Impodo will leave the fields out of the create request so Odoo can apply them.</p>
     </div>
     <span class="status review">Review</span>
   </div>
@@ -15,7 +15,7 @@
       <div>
         <p class="eyebrow">Required values added by Odoo</p>
         <h2 id="odoo-defaults-title">Confirm {{ defaults|length }} value{% if defaults|length != 1 %}s{% endif %} together</h2>
-        <p>If one value is not right, update the Recipe instead of confirming this group.</p>
+        <p>Impodo can handle all of these fields for this run. If one value is not right, update the Recipe instead of confirming this group.</p>
       </div>
     </div>
     <dl class="summary-list">

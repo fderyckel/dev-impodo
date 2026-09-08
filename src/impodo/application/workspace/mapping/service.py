@@ -777,7 +777,7 @@ class MappingWorkspaceService:
         *,
         actor: Actor,
     ) -> tuple[tuple[str, tuple[str, ...]], ...]:
-        """Return checked required scalar blockers eligible for ``default_get``."""
+        """Return checked required blockers eligible for ``default_get``."""
 
         self.authorization.require(
             actor,
@@ -823,7 +823,7 @@ class MappingWorkspaceService:
                 grouped.setdefault(issue.target_model, set()).add(field.name)
         if not grouped:
             raise WorkspaceError(
-                "No required scalar fields are waiting for an Odoo default check"
+                "No required fields are waiting for an Odoo default check"
             )
         return tuple(
             (model_name, tuple(sorted(field_names)))

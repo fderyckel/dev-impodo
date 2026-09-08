@@ -49,8 +49,9 @@ record identity automatically.
     continue without the optional rule-effects preview.
 
 When installed Odoo applications add required fields, Impodo checks the
-current create defaults for all required writable scalar fields in one bounded
-read per record type. **Review Odoo defaults** shows the exact current values
+current create defaults for supported required writable fields in one bounded
+read per record type. This includes a Many2one field when this exact Odoo
+provides the linked record as its default. **Review Odoo defaults** shows the exact current values
 and confirms them together. Impodo then checks the complete current mapping
 once. A resolved blocker disappears from the reason panel. If another problem
 remains, the refreshed panel shows that problem as the next action. Impodo does

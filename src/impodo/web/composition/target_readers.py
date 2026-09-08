@@ -644,7 +644,7 @@ def _refresh_mapping_odoo_defaults(
     schema: OdooSchemaCatalog,
     requested_fields: tuple[tuple[str, tuple[str, ...]], ...],
 ) -> OdooSchemaCatalog:
-    """Read required create defaults once per model and preserve saved mapping."""
+    """Read supported required create defaults and preserve saved mapping."""
 
     if schema.pending_refresh is not None:
         return schema

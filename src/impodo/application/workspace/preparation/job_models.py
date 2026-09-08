@@ -12,7 +12,12 @@ from impodo.domain.data_version.models import (
     DataVersionPurpose,
     DataVersionState,
 )
-from impodo.domain.project.foundation import MigrationFoundationError, require_uuid
+from impodo.domain.project.foundation import (
+    MigrationFoundationError,
+    require_hash,
+    required_text,
+    require_uuid,
+)
 from impodo.domain.run.models import MigrationRun, MigrationRunPurpose
 from impodo.domain.workspace.models import MigrationWorkspace, MigrationWorkspaceState
 
@@ -83,6 +88,8 @@ class PreparationWorkspace:
     migration_run_purpose: MigrationRunPurpose
     workspace_id: str
     recipe_application_id: str | None = None
+    source_package_hash: str | None = None
+    source_dataset_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         require_uuid(self.project_id, "project_id")
@@ -91,6 +98,21 @@ class PreparationWorkspace:
         require_uuid(self.workspace_id, "workspace_id")
         if self.recipe_application_id is not None:
             require_uuid(self.recipe_application_id, "recipe_application_id")
+        if (self.source_package_hash is None) != (not self.source_dataset_ids):
+            raise ValueError(
+                "Projected source package identity and datasets must be provided together"
+            )
+        if self.source_package_hash is not None:
+            require_hash(self.source_package_hash, "source_package_hash")
+            normalized_dataset_ids = tuple(
+                sorted(
+                    required_text(item, "source_dataset_id", maximum=300)
+                    for item in self.source_dataset_ids
+                )
+            )
+            if len(set(normalized_dataset_ids)) != len(normalized_dataset_ids):
+                raise ValueError("Projected source datasets are duplicated")
+            object.__setattr__(self, "source_dataset_ids", normalized_dataset_ids)
         if self.data_version_number < 1:
             raise ValueError("Data version number is invalid")
         object.__setattr__(

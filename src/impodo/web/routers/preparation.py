@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException, Request
@@ -235,7 +236,24 @@ def _preparation_workspace(
             workspace.migration_run_id,
             actor=context.actor,
         )
-        return PreparationWorkspace.from_context(workspace, data_version, run)
+        prepared_workspace = PreparationWorkspace.from_context(
+            workspace,
+            data_version,
+            run,
+        )
+        projection = (
+            context.data_version_source_projection.projections.repository
+            .get_workspace_source_projection(workspace_id)
+        )
+        if projection is None:
+            return prepared_workspace
+        return replace(
+            prepared_workspace,
+            source_package_hash=projection.package_hash,
+            source_dataset_ids=tuple(
+                item.dataset_id for item in projection.datasets
+            ),
+        )
     except MigrationFoundationError as error:
         raise WorkspaceError(
             f"{error}. No Odoo records were changed. Return to the Project "

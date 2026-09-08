@@ -1243,7 +1243,7 @@ def _schema_field_from_metadata(
     field: FieldMetadata,
     model_defaults: Mapping[str, object] | None,
 ) -> SchemaField:
-    """Bind only a usable required scalar default to captured field evidence."""
+    """Bind only a usable required create default to captured field evidence."""
 
     default_present, default_value = _usable_create_default(
         field,
@@ -1296,6 +1296,14 @@ def _usable_create_default(
             if isinstance(value, int) and not isinstance(value, bool)
             else (False, None)
         )
+    if field.type == "many2one":
+        return (
+            (True, value)
+            if isinstance(value, int)
+            and not isinstance(value, bool)
+            and value > 0
+            else (False, None)
+        )
     if field.type in {"float", "monetary"}:
         return (
             (True, value)
@@ -1319,7 +1327,7 @@ def _usable_create_default(
 
 
 def _supports_default_refresh(field: SchemaField) -> bool:
-    """Keep supplemental reads aligned with the connector's scalar allowlist."""
+    """Keep supplemental reads aligned with the connector's default allowlist."""
 
     return supports_create_default_capture(field)
 

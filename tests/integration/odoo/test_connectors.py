@@ -524,6 +524,45 @@ class Json2ConnectorTests(unittest.TestCase):
         ]
         self.assertEqual(len(default_calls), 1)
 
+    def test_schema_discovery_captures_required_many2one_default(self) -> None:
+        calls = []
+
+        def transport(url, _headers, body, _timeout, _method):
+            payload = json.loads(body) if body else None
+            calls.append((url, payload))
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            if url.endswith("/default_get"):
+                return 200, {"property_account_receivable_id": 42}
+            return 200, {
+                "property_account_receivable_id": {
+                    "string": "Account Receivable",
+                    "type": "many2one",
+                    "required": True,
+                    "readonly": False,
+                    "relation": "account.account",
+                }
+            }
+
+        snapshot = Json2ReadConnector(
+            self.config(),
+            transport=transport,
+        ).get_model_metadata(
+            [MetadataRequest("res.partner", (), all_fields=True)]
+        )
+
+        default_call = next(
+            item for item in calls if item[0].endswith("/default_get")
+        )
+        self.assertEqual(
+            default_call[1]["fields"],
+            ["property_account_receivable_id"],
+        )
+        self.assertEqual(
+            snapshot.create_defaults["res.partner"],
+            {"property_account_receivable_id": 42},
+        )
+
     def test_schema_constraint_evidence_is_batched_for_all_models(self) -> None:
         calls = []
 

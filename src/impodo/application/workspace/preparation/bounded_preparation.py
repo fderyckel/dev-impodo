@@ -304,27 +304,32 @@ def prepare_bounded_direct_session(
             source_file: SourceFile | None = None
             named_range: str | None = None
             if physical.origin is SourceOriginKind.FILE:
-                file_binding = require_file_source(binding)
-                source_file = source_file_by_id.get(file_binding.file_id)
-                catalog = catalog_by_file.get(file_binding.file_id)
-                table_catalog = next(
-                    (
-                        item
-                        for item in (catalog.tables if catalog else ())
-                        if item.table_key == file_binding.table_key
-                    ),
-                    None,
-                )
-                if source_file is None or catalog is None or table_catalog is None:
-                    raise ReadinessError("Frozen source evidence is incomplete")
-                named_range = (
-                    table_catalog.named_tables[0].cell_range
-                    if (
-                        table_catalog.kind == "NAMED_TABLE"
-                        and table_catalog.named_tables
+                if snapshot is None:
+                    file_binding = require_file_source(binding)
+                    source_file = source_file_by_id.get(file_binding.file_id)
+                    catalog = catalog_by_file.get(file_binding.file_id)
+                    table_catalog = next(
+                        (
+                            item
+                            for item in (catalog.tables if catalog else ())
+                            if item.table_key == file_binding.table_key
+                        ),
+                        None,
                     )
-                    else None
-                )
+                    if (
+                        source_file is None
+                        or catalog is None
+                        or table_catalog is None
+                    ):
+                        raise ReadinessError("Frozen source evidence is incomplete")
+                    named_range = (
+                        table_catalog.named_tables[0].cell_range
+                        if (
+                            table_catalog.kind == "NAMED_TABLE"
+                            and table_catalog.named_tables
+                        )
+                        else None
+                    )
             elif physical.origin is SourceOriginKind.ODOO:
                 if snapshot is None:
                     raise ReadinessError(

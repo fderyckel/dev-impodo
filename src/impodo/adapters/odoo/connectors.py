@@ -735,14 +735,14 @@ class Json2ReadConnector:
                 fields=fields,
                 unique_constraints=constraints.get(request.model, ()),
             )
-            required_scalar_fields = tuple(
+            required_default_fields = tuple(
                 sorted(
                     name
                     for name, field_metadata in fields.items()
                     if _captures_create_default(field_metadata)
                 )
             )
-            if not required_scalar_fields:
+            if not required_default_fields:
                 create_defaults[request.model] = {}
                 continue
             try:
@@ -750,12 +750,12 @@ class Json2ReadConnector:
                     request.model,
                     "default_get",
                     {
-                        "fields": list(required_scalar_fields),
+                        "fields": list(required_default_fields),
                         "context": dict(self._config.context),
                     },
                 )
                 if not isinstance(defaults, dict) or not set(defaults).issubset(
-                    required_scalar_fields
+                    required_default_fields
                 ):
                     raise ConnectorIncompleteResultError(
                         f"default_get returned invalid data for {request.model}"
@@ -1266,7 +1266,7 @@ def _parse_field_metadata(name: str, data: Mapping[str, Any]) -> FieldMetadata:
 
 
 def _captures_create_default(field_metadata: FieldMetadata) -> bool:
-    """Keep runtime-default reads bounded to required writable scalar fields."""
+    """Keep runtime-default reads bounded to supported required fields."""
 
     return supports_create_default_capture(field_metadata)
 

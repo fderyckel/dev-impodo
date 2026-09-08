@@ -416,10 +416,25 @@ class RecipeApplicationCompiler:
                         provided=False,
                         handling=handling,
                     )
-                    if assessment.coverage in {
-                        CreateFieldCoverage.DEFAULT_CONFIRMED,
-                        CreateFieldCoverage.ODOO_MANAGED_CONFIRMED,
-                    }:
+                    if assessment.coverage is CreateFieldCoverage.DEFAULT_CONFIRMED:
+                        continue
+                    if (
+                        assessment.coverage
+                        is CreateFieldCoverage.ODOO_MANAGED_CONFIRMED
+                    ):
+                        if handling is None:
+                            issues.append(
+                                self._info(
+                                    "RECIPE_TARGET_ODOO_MANAGED",
+                                    (
+                                        f"Odoo manages target-only field "
+                                        f"{model_name}.{field.name} when it "
+                                        "creates the record."
+                                    ),
+                                    "No source column or value match is required.",
+                                    f"{model_name}.{field.name}",
+                                )
+                            )
                         continue
                     if assessment.coverage is CreateFieldCoverage.DEFAULT_AVAILABLE:
                         available_defaults.append((model_name, field.name))

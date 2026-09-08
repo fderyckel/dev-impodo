@@ -1074,7 +1074,7 @@ def _mapping_next_step(
 
 
 def _odoo_default_value_label(field) -> str:
-    """Render one verified scalar default in business-readable form."""
+    """Render one verified create default in business-readable form."""
 
     value = field.create_default_value
     if field.type == "selection":
@@ -1089,6 +1089,8 @@ def _odoo_default_value_label(field) -> str:
         return f"{label} ({value})"
     if field.type == "boolean":
         return "Yes" if value else "No"
+    if field.type == "many2one":
+        return f"Odoo record #{value}"
     return str(value)
 
 

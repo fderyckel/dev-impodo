@@ -172,6 +172,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateNotFoundError,
     WorkspaceStateService,
 )
+from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
 from impodo.domain.workspace.models import MigrationWorkspaceState
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.application.data_version.source_packages import (
@@ -275,6 +276,9 @@ from .workspace_journeys import (
 )
 
 
+DEFAULT_BROWSER_DATABASE_LOCK_WAIT_SECONDS = 2.0
+
+
 def create_local_app(
     project_root: str | Path,
     *,
@@ -301,7 +305,9 @@ def create_local_app(
     preparation_jobs_enabled: bool = True,
     odoo_capture_jobs_enabled: bool = True,
     load_jobs_enabled: bool = True,
-    duckdb_lock_wait_timeout_seconds: float = 0.0,
+    duckdb_lock_wait_timeout_seconds: float = (
+        DEFAULT_BROWSER_DATABASE_LOCK_WAIT_SECONDS
+    ),
     application_build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
     diagnostic_recorder: LocalDiagnosticRecorder | None = None,
 ) -> FastAPI:
@@ -1256,6 +1262,27 @@ def create_local_app(
     @app.exception_handler(AuthorizationError)
     async def command_not_authorized(_request: Request, _error: AuthorizationError):
         return HTMLResponse("Not authorized", status_code=403)
+
+    @app.exception_handler(WorkspaceDatabaseBusyError)
+    async def project_data_temporarily_busy(
+        _request: Request,
+        _error: WorkspaceDatabaseBusyError,
+    ):
+        return HTMLResponse(
+            """<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Impodo is finishing a local task</title></head>
+  <body>
+    <main>
+      <h1>Impodo is finishing another local task</h1>
+      <p>Wait a moment, then reload this page. No Odoo records were changed.</p>
+      <p><a href="">Try again</a></p>
+    </main>
+  </body>
+</html>""",
+            status_code=503,
+            headers={"Cache-Control": "no-store", "Retry-After": "1"},
+        )
 
     @app.exception_handler(RecipeError)
     async def recipe_error(_request: Request, error: RecipeError):

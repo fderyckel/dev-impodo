@@ -31,7 +31,7 @@ from impodo.domain.odoo.contracts import (
     RecordRequest,
     RecordSnapshot,
 )
-from impodo.domain.mapping.create_field_policy import CREATE_DEFAULT_SCALAR_TYPES
+from impodo.domain.mapping.create_field_policy import CREATE_DEFAULT_TYPES
 from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.shared.models import (
     FieldMetadata,
@@ -699,7 +699,7 @@ for model_name in requested_models:
         allfields=[],
         attributes={list(_FIELD_ATTRIBUTES)!r},
     )
-    required_scalar_fields = sorted(
+    required_default_fields = sorted(
         field_name
         for field_name, details in fields.items()
         if details.get("required")
@@ -712,7 +712,7 @@ for model_name in requested_models:
     captured_models[model_name] = {{
         "description": model._description,
         "fields": fields,
-        "create_defaults": model.default_get(required_scalar_fields),
+        "create_defaults": model.default_get(required_default_fields),
         "unique_constraints": constraints_by_model[model_name],
     }}
 payload = {{
@@ -758,17 +758,17 @@ for request in metadata_requests:
         allfields=request["fields"],
         attributes={list(_FIELD_ATTRIBUTES)!r},
     )
-    required_scalar_fields = sorted(
+    required_default_fields = sorted(
         field_name
         for field_name, details in fields.items()
         if details.get("required")
         and not details.get("readonly")
-        and details.get("type") in {tuple(sorted(CREATE_DEFAULT_SCALAR_TYPES))!r}
+        and details.get("type") in {tuple(sorted(CREATE_DEFAULT_TYPES))!r}
     )
     captured_models[request["model"]] = {{
         "description": model._description,
         "fields": fields,
-        "create_defaults": model.default_get(required_scalar_fields),
+        "create_defaults": model.default_get(required_default_fields),
     }}
 captured_records = {{}}
 for request in record_requests:

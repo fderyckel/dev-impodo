@@ -627,18 +627,6 @@ def _load_browser_source_tables(
     with ExitStack() as stack:
         for physical in physical_selection.datasets:
             binding = require_file_source(physical.source)
-            source_file = source_file_by_id.get(binding.file_id)
-            catalog = catalog_by_file.get(binding.file_id)
-            table_catalog = next(
-                (
-                    item
-                    for item in (catalog.tables if catalog else ())
-                    if item.table_key == binding.table_key
-                ),
-                None,
-            )
-            if source_file is None or catalog is None or table_catalog is None:
-                raise ReadinessError("Frozen source evidence is incomplete")
             snapshot = snapshot_by_dataset.get(physical.dataset_id)
             if snapshot is not None:
                 try:
@@ -663,6 +651,18 @@ def _load_browser_source_tables(
                         "The frozen source snapshot could not be verified"
                     ) from error
                 continue
+            source_file = source_file_by_id.get(binding.file_id)
+            catalog = catalog_by_file.get(binding.file_id)
+            table_catalog = next(
+                (
+                    item
+                    for item in (catalog.tables if catalog else ())
+                    if item.table_key == binding.table_key
+                ),
+                None,
+            )
+            if source_file is None or catalog is None or table_catalog is None:
+                raise ReadinessError("Frozen source evidence is incomplete")
             path = stack.enter_context(
                 artifacts.materialize_source(
                     physical_selection.data_version_id,

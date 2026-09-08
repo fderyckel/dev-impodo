@@ -176,6 +176,14 @@ review, verifies the working-draft version and content hash, and changes only
 the application mapping's `value_mappings` and categorical policy. It does not
 change the protected Recipe revision.
 
+Target-only required fields follow the shared create-field policy before
+preparation. Impodo records computed and related fields as Odoo-managed. For a
+supported writable field, including Many2one, an exact `default_get` result
+creates one grouped **Review Odoo defaults** action. Confirmation adds an
+application-owned `ODOO_DEFAULT` disposition, so the create request omits that
+field and lets the same Odoo context apply its value. Missing, malformed, or
+unsupported defaults remain blockers and require a new Recipe value provider.
+
 After saving a decision, the route calls `MappingWorkspaceService` to check and
 submit the complete mapping, then calls
 `RunApplicationRecoveryUseCase.confirm_mapping`. Any other validation error or
