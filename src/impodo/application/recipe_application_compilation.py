@@ -43,6 +43,8 @@ from ..domain.mapping.contracts import (
 )
 from ..domain.mapping.create_field_policy import (
     CreateFieldCoverage,
+    VerifiedCreateDefaultAction,
+    decide_verified_create_default,
     evaluate_create_field,
 )
 from ..domain.recipe_applications import (
@@ -438,20 +440,41 @@ class RecipeApplicationCompiler:
                         continue
                     if assessment.coverage is CreateFieldCoverage.DEFAULT_AVAILABLE:
                         available_defaults.append((model_name, field.name))
-                        issues.append(
-                            self._review(
-                                "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
-                                (
-                                    f"Odoo can provide {model_name}.{field.name} "
-                                    "when it creates the record."
-                                ),
-                                (
-                                    "Review the current Odoo value and confirm "
-                                    "it for this run."
-                                ),
-                                f"{model_name}.{field.name}",
+                        default_decision = decide_verified_create_default(field)
+                        logical_id = f"{model_name}.{field.name}"
+                        if (
+                            default_decision.action
+                            is VerifiedCreateDefaultAction.APPLY_AUTOMATICALLY
+                        ):
+                            issues.append(
+                                self._info(
+                                    "RECIPE_TARGET_ODOO_DEFAULT_HANDLED",
+                                    (
+                                        f"Impodo will let Odoo provide target-only "
+                                        f"field {logical_id} when it creates the record."
+                                    ),
+                                    (
+                                        "Handled automatically from this checked "
+                                        "target context; no source match is required."
+                                    ),
+                                    logical_id,
+                                )
                             )
-                        )
+                        else:
+                            issues.append(
+                                self._review(
+                                    "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+                                    (
+                                        f"Odoo can provide {logical_id} when it "
+                                        "creates the record."
+                                    ),
+                                    (
+                                        f"{default_decision.reason} Review the "
+                                        "current value for this run."
+                                    ),
+                                    logical_id,
+                                )
+                            )
                         continue
                     issues.append(
                         self._block(

@@ -15,6 +15,23 @@ from impodo.domain.preparation.staging_contracts import (
     StagingReconciliation,
 )
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.workspace.contracts import SourceSelection
+
+
+class CanonicalStagingSourceReader(Protocol):
+    """Resolve the authoritative physical source selection for publication.
+
+    Authoring workspaces may keep this evidence locally, while integrated
+    Recipe applications resolve it from their immutable DataVersion package.
+    Staging publication must not depend on either storage layout.
+    """
+
+    def get_source_selection(
+        self,
+        workspace_id: str,
+    ) -> SourceSelection | None:
+        """Return the frozen physical selection bound to ``workspace_id``."""
+        ...
 
 
 class StagingRunStatus(StrEnum):

@@ -40,6 +40,58 @@ class RunApplicationCard:
     issues: tuple[MigrationRunPlanIssue, ...]
     current: bool
 
+    @property
+    def target_adaptation_issues(self) -> tuple[MigrationRunPlanIssue, ...]:
+        """Return Odoo-target differences separately from other run notes."""
+
+        return tuple(
+            item for item in self.issues if item.code.startswith("RECIPE_TARGET_")
+        )
+
+    @property
+    def other_issues(self) -> tuple[MigrationRunPlanIssue, ...]:
+        """Return source, mapping, and execution issues for their own summary."""
+
+        return tuple(
+            item for item in self.issues if not item.code.startswith("RECIPE_TARGET_")
+        )
+
+    @property
+    def target_adaptation_needs_attention(self) -> bool:
+        return any(
+            item.level.value != "INFORMATION"
+            for item in self.target_adaptation_issues
+        )
+
+    @property
+    def target_adaptation_attention_count(self) -> int:
+        return sum(
+            item.level.value != "INFORMATION"
+            for item in self.target_adaptation_issues
+        )
+
+    @property
+    def automatic_target_adaptation_count(self) -> int:
+        return sum(
+            item.level.value == "INFORMATION"
+            for item in self.target_adaptation_issues
+        )
+
+    @property
+    def other_issues_need_attention(self) -> bool:
+        return any(item.level.value != "INFORMATION" for item in self.other_issues)
+
+    @property
+    def other_issue_attention_count(self) -> int:
+        return sum(item.level.value != "INFORMATION" for item in self.other_issues)
+
+    @property
+    def automatic_target_default_count(self) -> int:
+        return sum(
+            item.code == "RECIPE_TARGET_ODOO_DEFAULT_HANDLED"
+            for item in self.issues
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class IntegratedRunReviewView:
@@ -562,6 +614,9 @@ def _application_card(
         if item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
         and item.level.value == "REVIEW"
     )
+    automatic_default_count = sum(
+        item.code == "RECIPE_TARGET_ODOO_DEFAULT_HANDLED" for item in issues
+    )
     if default_reviews and len(default_reviews) == len(actionable_issues):
         return RunApplicationCard(
             application,
@@ -748,7 +803,14 @@ def _application_card(
         "READY_TO_PREPARE",
         "Ready to prepare",
         (
-            "Impodo can apply the saved Recipe to this fresh data now."
+            (
+                f"Impodo handled {automatic_default_count} "
+                "target-only required field"
+                f"{'s' if automatic_default_count != 1 else ''} "
+                "with verified Odoo defaults and can prepare this Recipe now."
+            )
+            if automatic_preparation and automatic_default_count
+            else "Impodo can apply the saved Recipe to this fresh data now."
             if automatic_preparation
             else "Continue with this Recipe when the Production checks are complete."
         ),

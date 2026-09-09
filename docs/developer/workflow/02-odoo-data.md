@@ -79,11 +79,13 @@ related models are never silently added to the permitted scope.
 Field capture records the effective inherited Odoo 19 field set. For each
 field, it records requirements, read-only state, relationships, inverse fields,
 and selection codes. It performs one `fields_get` request per selected model,
-then at most one `default_get` request for that model's required writable scalar
-fields; neither request runs per field or source row. Relational defaults and
-unusable scalar values are not retained as default evidence. Impodo fetches
-optional uniqueness metadata in one bounded model batch. If it cannot read
-that metadata, it does not present a recommendation as confirmed governance.
+then at most one `default_get` request for that model's supported required
+writable fields; neither request runs per field or source row. A positive
+Many2one record identity can be retained only as evidence for this exact target
+context. Other relational defaults and unusable scalar values are not retained.
+Impodo fetches optional uniqueness metadata in one bounded model batch. If it
+cannot read that metadata, it does not present a recommendation as confirmed
+governance.
 
 Business keys are explicit, versioned, and actor-confirmed. A recommendation
 may come from one exact supported rule or one unambiguous Odoo uniqueness

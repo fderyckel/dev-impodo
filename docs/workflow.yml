@@ -162,6 +162,8 @@ stages:
       - src/impodo/application/run/test_activation.py::TestRunActivationUseCase.activate
       - src/impodo/application/run/application_recovery.py::RunApplicationRecoveryUseCase.confirm_odoo_defaults
       - src/impodo/application/run/application_recovery.py::RunApplicationRecoveryUseCase.recover_blocked_test_defaults
+      - src/impodo/application/run/target_defaults.py::mapped_target_defaults
+      - src/impodo/domain/mapping/create_field_policy.py::decide_verified_create_default
       - src/impodo/adapters/duckdb/test_run_repository.py::TestRunRepository
       - src/impodo/adapters/duckdb/schema/migration_registry.py::ensure_migration_registry_schema
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService
@@ -177,6 +179,7 @@ stages:
       - tests/application/run/test_odoo_requirements.py
       - tests/application/run/test_integrated_recipe_runs.py
       - tests/application/run/test_recipe_target_matches.py
+      - tests/application/run/test_target_defaults.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/application/workspace/test_journeys.py
     contracts:

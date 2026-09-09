@@ -35,6 +35,7 @@ class CreateFieldView(Protocol):
     readonly: bool
     computed: bool | None
     related: bool | None
+    company_dependent: bool | None
     create_default_present: bool
     create_default_value: bool | int | float | str | None
 
@@ -60,6 +61,21 @@ class CreateFieldAssessment:
 
     coverage: CreateFieldCoverage
     default_value: bool | int | float | str | None = None
+
+
+class VerifiedCreateDefaultAction(StrEnum):
+    """Decide whether exact target evidence still needs business review."""
+
+    APPLY_AUTOMATICALLY = "APPLY_AUTOMATICALLY"
+    REQUIRE_REVIEW = "REQUIRE_REVIEW"
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedCreateDefaultDecision:
+    """Explain how one verified Odoo default may be used for this target."""
+
+    action: VerifiedCreateDefaultAction
+    reason: str
 
 
 def evaluate_create_field(
@@ -127,4 +143,54 @@ def supports_create_default_capture(field: CreateFieldView) -> bool:
         field.required
         and not field.readonly
         and field.type in CREATE_DEFAULT_TYPES
+    )
+
+
+def decide_verified_create_default(
+    field: CreateFieldView,
+) -> VerifiedCreateDefaultDecision:
+    """Classify one usable ``default_get`` value without model-name rules.
+
+    Impodo may automatically omit low-risk target-only fields because the exact
+    target will apply its own value. Defaults that select another record, a
+    workflow choice, a monetary amount, or an unproven company scope retain a
+    deliberate review step.
+    """
+
+    if (
+        not supports_create_default_capture(field)
+        or not field.create_default_present
+    ):
+        raise ValueError("A verified required Odoo create default is required")
+    if field.type == "many2one":
+        return VerifiedCreateDefaultDecision(
+            VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+            "This default selects a linked Odoo record.",
+        )
+    if field.type == "selection":
+        return VerifiedCreateDefaultDecision(
+            VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+            "This default selects an Odoo workflow choice.",
+        )
+    if field.type == "monetary":
+        return VerifiedCreateDefaultDecision(
+            VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+            "This default supplies a business amount.",
+        )
+    if field.company_dependent is True:
+        return VerifiedCreateDefaultDecision(
+            VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+            "This default can differ by Odoo company.",
+        )
+    if field.company_dependent is None:
+        return VerifiedCreateDefaultDecision(
+            VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+            "Odoo did not prove whether this default is company-specific.",
+        )
+    return VerifiedCreateDefaultDecision(
+        VerifiedCreateDefaultAction.APPLY_AUTOMATICALLY,
+        (
+            "The exact target supplies this non-company-specific value, so "
+            "Impodo can leave the field to Odoo."
+        ),
     )

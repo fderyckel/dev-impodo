@@ -158,17 +158,22 @@ submission service must accept the complete mapping before the application can
 become `READY`.
 
 A supported required writable field added by the current Odoo target follows
-the same create-field policy as an Authoring workspace. A target-bound
-`default_get` value creates a `REVIEW` issue and a fresh mapping disposition;
-it does not change portable Recipe meaning. The application remains `BLOCKED`
-until the data manager confirms all displayed defaults together. A Many2one
-default is permitted because its numeric ID remains evidence for this exact
-target and Impodo omits the field instead of copying that ID into a create
-request. Missing, unsupported relational, malformed, or context-mismatched
-defaults remain blockers. New read-only fields are ignored as inputs. New
-computed or related fields are recorded as Odoo-managed information and need
-no source value. A Recipe-owned write field that became read-only remains
-incompatible.
+the shared create-field policy. A usable `default_get` value creates a fresh,
+application-owned `ODOO_DEFAULT` disposition; it does not change portable
+Recipe meaning. Impodo records a non-company-specific scalar default as
+`INFORMATION` and submits the mapping without stopping the application. A
+Many2one, Selection, monetary, company-dependent, or company-scope-unproven
+default creates a `REVIEW` issue because it can choose a business record,
+workflow behavior, amount, or company-specific value. The application remains
+`BLOCKED` until the data manager confirms all displayed review defaults
+together.
+
+A Many2one default is permitted as target-bound evidence because Impodo omits
+the field instead of copying its numeric ID into a create request. Missing,
+unsupported relational, malformed, or context-mismatched defaults remain
+blockers. New read-only fields are ignored as inputs. New computed or related
+fields are recorded as Odoo-managed information and need no source value. A
+Recipe-owned write field that became read-only remains incompatible.
 
 An activated Test run created before default evidence was captured may recheck
 the shared setup target. Recovery requires identical target, principal,

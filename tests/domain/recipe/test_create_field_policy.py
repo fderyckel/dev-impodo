@@ -6,6 +6,8 @@ import unittest
 from impodo.domain.mapping.contracts import TargetFieldHandling
 from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
+    VerifiedCreateDefaultAction,
+    decide_verified_create_default,
     evaluate_create_field,
     supports_create_default_capture,
 )
@@ -103,6 +105,73 @@ class CreateFieldPolicyTests(unittest.TestCase):
             ).coverage,
             CreateFieldCoverage.DEFAULT_AVAILABLE,
         )
+        self.assertIs(
+            decide_verified_create_default(field).action,
+            VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+        )
+
+    def test_non_company_scalar_default_can_be_applied_automatically(self) -> None:
+        field = replace(
+            self.field,
+            type="char",
+            selection=(),
+            company_dependent=False,
+            create_default_present=True,
+            create_default_value="AUTO",
+        )
+
+        decision = decide_verified_create_default(field)
+
+        self.assertIs(
+            decision.action,
+            VerifiedCreateDefaultAction.APPLY_AUTOMATICALLY,
+        )
+        self.assertIn("exact target", decision.reason)
+
+    def test_context_sensitive_defaults_retain_review(self) -> None:
+        cases = (
+            (replace(self.field, create_default_present=True), "workflow"),
+            (
+                replace(
+                    self.field,
+                    type="monetary",
+                    selection=(),
+                    create_default_present=True,
+                    create_default_value=12.5,
+                ),
+                "amount",
+            ),
+            (
+                replace(
+                    self.field,
+                    type="char",
+                    selection=(),
+                    company_dependent=True,
+                    create_default_present=True,
+                    create_default_value="UC",
+                ),
+                "company",
+            ),
+            (
+                replace(
+                    self.field,
+                    type="char",
+                    selection=(),
+                    company_dependent=None,
+                    create_default_present=True,
+                    create_default_value="UC",
+                ),
+                "prove",
+            ),
+        )
+        for field, reason_fragment in cases:
+            with self.subTest(field_type=field.type, company=field.company_dependent):
+                decision = decide_verified_create_default(field)
+                self.assertIs(
+                    decision.action,
+                    VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+                )
+                self.assertIn(reason_fragment, decision.reason)
 
 
 if __name__ == "__main__":

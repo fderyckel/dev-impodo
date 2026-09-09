@@ -100,7 +100,7 @@ from impodo.domain.coverage import (
     ReferenceEntry,
     ReferenceValueKind,
 )
-from impodo.domain.mapping.contracts import ScalarValueSource
+from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import SchemaGovernance
@@ -287,6 +287,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                             relation=None,
                             relation_field=None,
                             selection=(),
+                            company_dependent=False,
                             create_default_present=True,
                             create_default_value="AUTO",
                         ),
@@ -340,10 +341,11 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
                 "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
                 "RECIPE_TARGET_ODOO_MANAGED",
-                "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
+                "RECIPE_TARGET_ODOO_DEFAULT_HANDLED",
             ],
         )
         self.assertFalse(issues[2].blocks)
+        self.assertFalse(issues[3].blocks)
 
     def test_customer_recipe_assesses_current_sources_target_and_references(self):
         definition = json.loads(
@@ -936,6 +938,13 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             recovery_action="No action is required.",
             recipe_ids=(recipe_id,),
         )
+        automatic = MigrationRunPlanIssue(
+            code="RECIPE_TARGET_ODOO_DEFAULT_HANDLED",
+            level=MigrationRunPlanIssueLevel.INFORMATION,
+            message="Impodo will let Odoo provide res.partner.module_code.",
+            recovery_action="Handled automatically.",
+            recipe_ids=(recipe_id,),
+        )
         definition = SimpleNamespace(
             datasets=(
                 SimpleNamespace(
@@ -946,7 +955,12 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
                             value_source=ScalarValueSource.ODOO_DEFAULT,
                         ),
                     ),
-                    target_field_dispositions=(),
+                    target_field_dispositions=(
+                        SimpleNamespace(
+                            target_field="module_code",
+                            handling=TargetFieldHandling.ODOO_DEFAULT,
+                        ),
+                    ),
                 ),
             ),
             content_hash=content_hash("mapping definition"),
@@ -970,7 +984,7 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
         )
         repository = SimpleNamespace(
             get_application=lambda current_id: application,
-            list_issues=lambda current_id: (review, information),
+            list_issues=lambda current_id: (review, information, automatic),
             save_application_materialization=lambda current_id, **values: (
                 saved.append((current_id, values)) or confirmed
             ),
@@ -988,15 +1002,37 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             get_mapping_revision=lambda current_id: revision,
             get_mapping_working_draft=lambda current_id: working,
         )
+        base_schema = self._schema(workspace_id, default_present=True)
+        confirmed_schema = replace(
+            base_schema,
+            models=(
+                replace(
+                    base_schema.models[0],
+                    fields=(
+                        *base_schema.models[0].fields,
+                        SchemaField(
+                            name="module_code",
+                            label="Module code",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            company_dependent=False,
+                            create_default_present=True,
+                            create_default_value="AUTO",
+                        ),
+                    ),
+                ),
+            ),
+        )
         service = object.__new__(MigrationRunPlanningService)
         service.repository = repository
         service.authorization = SimpleNamespace(require=lambda *args, **kwargs: None)
         service.compiler = SimpleNamespace(
             schemas=SimpleNamespace(
-                get_odoo_schema_catalog=lambda current_id: self._schema(
-                    workspace_id,
-                    default_present=True,
-                )
+                get_odoo_schema_catalog=lambda current_id: confirmed_schema
             ),
             mappings=SimpleNamespace(
                 mappings=mapping_state,
@@ -1024,7 +1060,7 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
         self.assertIs(result, confirmed)
         self.assertEqual(len(submitted), 1)
         self.assertEqual(saved[0][1]["status"], RecipeApplicationStatus.READY)
-        self.assertEqual(saved[0][1]["issues"], (information,))
+        self.assertEqual(saved[0][1]["issues"], (information, automatic))
         self.assertEqual(saved_runs, [])
 
     def test_confirmed_run_mapping_clears_only_stale_mapping_blockers(self):
@@ -2809,6 +2845,32 @@ class IntegratedRecipeRunTests(unittest.TestCase):
         )
         self.assertEqual(card.action_label, "Review Odoo defaults")
         self.assertTrue(card.action_url.endswith("/odoo-defaults"))
+        automatic = replace(
+            review,
+            code="RECIPE_TARGET_ODOO_DEFAULT_HANDLED",
+            level=MigrationRunPlanIssueLevel.INFORMATION,
+            message="Impodo will let Odoo provide one required value.",
+            recovery_action="Handled automatically.",
+        )
+        issue_map[first.application_id] = (automatic,)
+        automatic_view = build_integrated_run_review(
+            SimpleNamespace(preparation_jobs=None, load_jobs=None),
+            result,
+            recipes=recipes,
+            issues=issue_map,
+        )
+        automatic_card = next(
+            item
+            for item in automatic_view.cards
+            if item.application.application_id == first.application_id
+        )
+        self.assertEqual(automatic_card.state, "READY_TO_PREPARE")
+        self.assertEqual(automatic_card.automatic_target_default_count, 1)
+        self.assertFalse(automatic_card.target_adaptation_needs_attention)
+        self.assertIn(
+            "handled 1 target-only required field",
+            automatic_card.message,
+        )
         blocker = replace(
             review,
             code="RECIPE_TARGET_NEW_REQUIRED_FIELD",

@@ -72,12 +72,16 @@ Odoo field. Reordering two conflicting Recipes is not a safe repair; one
 Recipe must own that field.
 
 An installed Odoo application may add required fields that were not part of a
-saved Recipe. If the current target returns usable create defaults, including
-an exact Many2one default from this target,
-the Recipe card opens **Review Odoo defaults** and shows their exact values.
-Confirm the group to keep the Recipe unchanged for this run. If Odoo returns
-no usable default, the card remains blocked and the Recipe needs a new version
-with a value provider. Impodo never guesses from an Odoo choice list.
+saved Recipe. If the current target returns a straightforward create default,
+the Recipe continues and its card says that the Odoo target difference was
+handled automatically. You can open that note to see the affected field.
+
+Impodo still opens **Review Odoo defaults** when a default selects a linked
+record, workflow choice, company-sensitive value, or business amount. The page
+shows the exact value and explains why it needs review. Confirm the group to
+keep the Recipe unchanged for this run. If Odoo returns no usable default, the
+card remains blocked and the Recipe needs a new version with a value provider.
+Impodo never guesses from an Odoo choice list.
 
 Target-specific choices follow a separate review. **Review values for this
 Odoo** works for any Recipe model that uses a bounded Odoo Selection field or
@@ -90,8 +94,8 @@ another Odoo request.
 An older blocked Test run can select **Check Odoo defaults**. Impodo refreshes
 the one shared setup target, verifies that no other field behavior changed,
 and rebuilds only applications whose earlier required-field blockers are now
-covered. The data manager still reviews the values before the application
-becomes ready.
+covered. The application continues automatically for straightforward defaults.
+Impodo asks you to review only the context-sensitive defaults described above.
 
 ## What to check
 

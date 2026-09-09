@@ -26,7 +26,11 @@ from impodo.domain.shared.access import Actor
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
-from impodo.domain.preparation.staging import StagingRunStatus, StagingRunSummary
+from impodo.domain.preparation.staging import (
+    CanonicalStagingSourceReader,
+    StagingRunStatus,
+    StagingRunSummary,
+)
 from impodo.domain.preparation.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
@@ -66,9 +70,12 @@ class StagingRepository(DuckDbRepository):
         self,
         database,
         artifacts: WorkspaceArtifactStore | None = None,
+        *,
+        source_selections: CanonicalStagingSourceReader,
     ) -> None:
         super().__init__(database)
         self._artifacts = artifacts or LocalArtifactStore(database.root)
+        self._source_selections = source_selections
 
     def publish_canonical_staging(
         self,
@@ -89,6 +96,17 @@ class StagingRepository(DuckDbRepository):
         ):
             raise WorkspaceError(
                 "Prepared data must be regenerated with the current evaluator"
+            )
+        physical_selection = self._source_selections.get_source_selection(
+            workspace_id
+        )
+        if physical_selection is None:
+            raise WorkspaceError(
+                "Freeze the source datasets before saving prepared data"
+            )
+        if physical_selection.content_hash != run.physical_selection_hash:
+            raise WorkspaceError(
+                "Prepared data no longer matches the frozen source datasets"
             )
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
@@ -142,22 +160,25 @@ class StagingRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Prepared data no longer matches the submitted field matches"
                     )
-                selection = connection.execute(
+                local_selection = connection.execute(
                     """
                     SELECT selection_json
                       FROM source_selection
                      WHERE singleton_id = 1
                     """
                 ).fetchone()
-                if selection is None:
-                    raise WorkspaceError(
-                        "Freeze the source datasets before saving prepared data"
+                if local_selection is not None:
+                    local_physical = SourceSelection.from_json(
+                        str(local_selection[0])
                     )
-                physical = SourceSelection.from_json(str(selection[0]))
-                if physical.content_hash != run.physical_selection_hash:
-                    raise WorkspaceError(
-                        "Prepared data no longer matches the frozen source datasets"
-                    )
+                    if (
+                        local_physical.content_hash
+                        != physical_selection.content_hash
+                    ):
+                        raise WorkspaceError(
+                            "The frozen source datasets changed during "
+                            "prepared-data publication"
+                        )
                 plan = connection.execute(
                     """
                     SELECT revision.content_hash

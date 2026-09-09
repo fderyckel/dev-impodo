@@ -14,6 +14,10 @@ from uuid import uuid4
 
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.derived_entity_repository import (
+    DerivedEntityRepository,
+)
+from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.domain.source_binding import FileSourceBinding
@@ -46,13 +50,38 @@ SCHEMA_HASH = "sha256:" + "3" * 64
 SOURCE_HASH = "sha256:" + "4" * 64
 
 
+class _ProjectedSourceSelectionReader:
+    """Expose immutable DataVersion evidence without a workspace-local copy."""
+
+    def __init__(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+    ) -> None:
+        self.workspace_id = workspace_id
+        self.selection = selection
+
+    def get_source_selection(
+        self,
+        workspace_id: str,
+    ) -> SourceSelection | None:
+        return self.selection if workspace_id == self.workspace_id else None
+
+
 class CanonicalStagingStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbWorkspaceDatabase(self.temporary.name)
-        self.workspace_states = WorkspaceStateRepository(database)
-        self.repository = StagingRepository(database)
+        self.database = DuckDbWorkspaceDatabase(self.temporary.name)
+        self.workspace_states = WorkspaceStateRepository(self.database)
+        self.sources = SourceRepository(
+            self.database,
+            DerivedEntityRepository(self.database),
+        )
+        self.repository = StagingRepository(
+            self.database,
+            source_selections=self.sources,
+        )
         now = datetime.now(timezone.utc)
         self.workspace_state = WorkspaceState(
             workspace_id=str(uuid4()),
@@ -66,7 +95,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             registered_at=now,
         )
         self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)
-        selection = SourceSelection(
+        self.selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
             data_version_id=data_version_id(self.workspace_state.workspace_id),
@@ -105,7 +134,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         with self.repository._connect(database_path) as connection:
             connection.execute(
                 "INSERT INTO source_selection VALUES (1, ?)",
-                [selection.to_json()],
+                [self.selection.to_json()],
             )
             connection.execute(
                 """
@@ -179,6 +208,100 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertEqual(run_count, (1,))
         self.assertEqual(row_count, (1,))
         self.assertEqual(audit_count, (1,))
+
+    def test_projected_source_selection_publishes_without_local_source_copy(
+        self,
+    ) -> None:
+        database_path = (
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
+            / "workspace-engine.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute("DELETE FROM source_selection")
+        repository = StagingRepository(
+            self.database,
+            source_selections=_ProjectedSourceSelectionReader(
+                self.workspace_state.workspace_id,
+                self.selection,
+            ),
+        )
+        template = _run(
+            self.workspace_state.workspace_id,
+            value="Storage location A",
+            row_token="7",
+        )
+        row = replace(template.rows[0], target_model="stock.location")
+        run = replace(
+            template,
+            rows=(row,),
+            datasets=(
+                replace(
+                    template.datasets[0],
+                    target_model="stock.location",
+                ),
+            ),
+            reconciliation=StagingReconciliation.from_rows((row,)),
+        )
+
+        published = repository.publish_canonical_staging(
+            self.workspace_state.workspace_id,
+            run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(published.content_hash, run.content_hash)
+        self.assertEqual(
+            repository.get_current_staging_summary(
+                self.workspace_state.workspace_id
+            ).run_id,
+            published.run_id,
+        )
+        with repository._connect(database_path) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM source_selection"
+                ).fetchone(),
+                (0,),
+            )
+
+    def test_projected_source_selection_hash_mismatch_is_rejected(self) -> None:
+        database_path = (
+            self.repository.workspace_directory(self.workspace_state.workspace_id)
+            / "workspace-engine.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute("DELETE FROM source_selection")
+        repository = StagingRepository(
+            self.database,
+            source_selections=_ProjectedSourceSelectionReader(
+                self.workspace_state.workspace_id,
+                replace(
+                    self.selection,
+                    content_hash="sha256:" + "9" * 64,
+                ),
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "no longer matches the frozen source datasets",
+        ):
+            repository.publish_canonical_staging(
+                self.workspace_state.workspace_id,
+                _run(
+                    self.workspace_state.workspace_id,
+                    value="Alice",
+                    row_token="8",
+                ),
+                mapping_version=1,
+                actor=LOCAL_ACTOR,
+            )
+        self.assertIsNone(
+            repository.get_current_staging_summary(
+                self.workspace_state.workspace_id
+            )
+        )
 
     def test_durable_rows_restore_typed_values_for_downstream_evaluation(
         self,

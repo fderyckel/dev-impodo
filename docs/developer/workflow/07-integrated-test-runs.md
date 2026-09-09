@@ -178,11 +178,22 @@ change the protected Recipe revision.
 
 Target-only required fields follow the shared create-field policy before
 preparation. Impodo records computed and related fields as Odoo-managed. For a
-supported writable field, including Many2one, an exact `default_get` result
-creates one grouped **Review Odoo defaults** action. Confirmation adds an
+supported writable field, an exact `default_get` result adds an
 application-owned `ODOO_DEFAULT` disposition, so the create request omits that
-field and lets the same Odoo context apply its value. Missing, malformed, or
-unsupported defaults remain blockers and require a new Recipe value provider.
+field and lets the same Odoo context apply its value.
+
+[`decide_verified_create_default`](../../../src/impodo/domain/mapping/create_field_policy.py)
+owns the generic risk decision. A verified,
+non-company-specific scalar default becomes
+`RECIPE_TARGET_ODOO_DEFAULT_HANDLED` information and does not stop the
+application. Many2one, Selection, monetary, company-dependent, and
+company-scope-unproven defaults become
+`RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE` review issues. The shared
+[`mapped_target_defaults`](../../../src/impodo/application/run/target_defaults.py)
+projection ensures that the confirmation use case and route show the same
+review subset. Missing, malformed, or unsupported defaults remain blockers and
+require a new Recipe value provider. This policy does not use model or field
+names.
 
 After saving a decision, the route calls `MappingWorkspaceService` to check and
 submit the complete mapping, then calls
@@ -360,6 +371,7 @@ queries must not scale with Recipe count.
 - [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
 - [`tests/application/run/test_integrated_recipe_runs.py`](../../../tests/application/run/test_integrated_recipe_runs.py)
 - [`tests/application/run/test_recipe_target_matches.py`](../../../tests/application/run/test_recipe_target_matches.py)
+- [`tests/application/run/test_target_defaults.py`](../../../tests/application/run/test_target_defaults.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/application/workspace/test_journeys.py`](../../../tests/application/workspace/test_journeys.py)
 - [`tests/application/project/test_authoring.py`](../../../tests/application/project/test_authoring.py)

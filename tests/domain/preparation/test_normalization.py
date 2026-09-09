@@ -51,7 +51,11 @@ from impodo.domain.preparation.normalization import (
     start_dry_run,
 )
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.derived_entity_repository import (
+    DerivedEntityRepository,
+)
 from impodo.adapters.duckdb.normalization_repository import NormalizationRepository
+from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
@@ -677,7 +681,14 @@ class NormalizationStoreTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspace_states = WorkspaceStateRepository(database)
-        self.staging = StagingRepository(database)
+        self.sources = SourceRepository(
+            database,
+            DerivedEntityRepository(database),
+        )
+        self.staging = StagingRepository(
+            database,
+            source_selections=self.sources,
+        )
         self.quality = QualityRepository(database, self.workspace_states)
         self.repository = NormalizationRepository(database, self.workspace_states)
         self.workspace_state = _workspace_state()

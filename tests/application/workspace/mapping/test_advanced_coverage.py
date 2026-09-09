@@ -16,6 +16,10 @@ from impodo.adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.derived_entity_repository import (
+    DerivedEntityRepository,
+)
+from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
@@ -1299,7 +1303,14 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspace_states = WorkspaceStateRepository(self.database)
-        self.staging = StagingRepository(self.database)
+        self.sources = SourceRepository(
+            self.database,
+            DerivedEntityRepository(self.database),
+        )
+        self.staging = StagingRepository(
+            self.database,
+            source_selections=self.sources,
+        )
         self.repository = AdvancedCoverageRepository(self.database)
         self.quality = QualityRepository(self.database, self.workspace_states)
         self.workspace_state = WorkspaceState(

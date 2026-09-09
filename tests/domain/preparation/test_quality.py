@@ -17,6 +17,10 @@ from uuid import uuid4
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.models import Issue, LogicalReference, PreparedRecord
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.derived_entity_repository import (
+    DerivedEntityRepository,
+)
+from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
@@ -1201,7 +1205,14 @@ class QualityStoreTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspace_states = WorkspaceStateRepository(database)
-        self.staging = StagingRepository(database)
+        self.sources = SourceRepository(
+            database,
+            DerivedEntityRepository(database),
+        )
+        self.staging = StagingRepository(
+            database,
+            source_selections=self.sources,
+        )
         self.quality = QualityRepository(database, self.workspace_states)
         self.workspace_state = _workspace_state()
         self.workspace_states.initialize_workbench(self.workspace_state, actor=LOCAL_ACTOR)

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
+from impodo.domain.mapping.create_field_policy import VerifiedCreateDefaultAction
 from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from impodo.domain.run.models import MigrationRunPurpose, MigrationRunState
 from impodo.domain.serialization import content_hash
@@ -18,6 +18,7 @@ from impodo.domain.run.contracts import (
     RunRecipeApplication,
 )
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
+from .target_defaults import mapped_target_defaults
 
 
 class RunApplicationRecoveryUseCase:
@@ -91,32 +92,12 @@ class RunApplicationRecoveryUseCase:
                 "Recheck Odoo and rebuild this Recipe application before "
                 "confirming defaults"
             )
-        fields_by_model = {
-            model.name: {field.name: field for field in model.fields}
-            for model in schema.models
-        }
-        mapped_default_fields = {
-            (dataset.target_model, field.target_field)
-            for dataset in revision.definition.datasets
-            for field in dataset.fields
-            if field.value_source is ScalarValueSource.ODOO_DEFAULT
-        }
-        mapped_default_fields.update(
-            (dataset.target_model, disposition.target_field)
-            for dataset in revision.definition.datasets
-            for disposition in dataset.target_field_dispositions
-            if disposition.handling is TargetFieldHandling.ODOO_DEFAULT
+        review_defaults = mapped_target_defaults(
+            revision.definition,
+            schema,
+            action=VerifiedCreateDefaultAction.REQUIRE_REVIEW,
         )
-        default_fields = tuple(
-            sorted(
-                (model_name, field_name)
-                for model_name, field_name in mapped_default_fields
-                if fields_by_model.get(model_name, {}).get(field_name) is not None
-                and fields_by_model[model_name][field_name].required
-                and fields_by_model[model_name][field_name].create_default_present
-            )
-        )
-        if not default_fields or len(default_fields) != len(default_reviews):
+        if not review_defaults or len(review_defaults) != len(default_reviews):
             raise MigrationRunPlanningError(
                 "One or more Odoo defaults are no longer verified for this target"
             )
@@ -131,7 +112,9 @@ class RunApplicationRecoveryUseCase:
         evidence_hash = content_hash(
             {
                 "application_id": application.application_id,
-                "confirmed_odoo_defaults": [list(item) for item in default_fields],
+                "confirmed_odoo_defaults": [
+                    list(item.key) for item in review_defaults
+                ],
                 "mapping_content_hash": revision.definition.content_hash,
                 "previous_evidence_hash": application.evidence_hash,
                 "schema_hash": schema.content_hash,

@@ -76,7 +76,11 @@ def create_preparation_worker(
         workspace,
     )
     mappings = MappingRepository(database)
-    staging = StagingRepository(database, artifacts)
+    staging = StagingRepository(
+        database,
+        artifacts,
+        source_selections=sources,
+    )
     sessions = PreparationSessionRepository(database, artifacts)
     coverage = AdvancedCoverageRepository(database)
     quality_repository = QualityRepository(database, workspace_states)

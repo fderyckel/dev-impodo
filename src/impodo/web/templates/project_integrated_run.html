@@ -76,10 +76,34 @@
                 </div>
               {% endif %}
 
-              {% if card.issues %}
+              {% if card.target_adaptation_issues %}
                 <details class="technical-details">
-                  <summary>Review {{ card.issues|length }} saved issue{% if card.issues|length != 1 %}s{% endif %}</summary>
-                  {% for issue in card.issues %}
+                  <summary>
+                    {% if card.target_adaptation_needs_attention %}
+                      Review {{ card.target_adaptation_attention_count }} Odoo target decision{% if card.target_adaptation_attention_count != 1 %}s{% endif %}{% if card.automatic_target_adaptation_count %}; {{ card.automatic_target_adaptation_count }} handled automatically{% endif %}
+                    {% else %}
+                      {{ card.target_adaptation_issues|length }} Odoo target difference{% if card.target_adaptation_issues|length != 1 %}s{% endif %} handled automatically
+                    {% endif %}
+                  </summary>
+                  {% for issue in card.target_adaptation_issues %}
+                    <div class="notice {% if issue.blocks %}blocked{% endif %}">
+                      <strong>{{ issue.message }}</strong>
+                      <p>{{ issue.recovery_action }}</p>
+                    </div>
+                  {% endfor %}
+                </details>
+              {% endif %}
+
+              {% if card.other_issues %}
+                <details class="technical-details">
+                  <summary>
+                    {% if card.other_issues_need_attention %}
+                      Review {{ card.other_issue_attention_count }} saved issue{% if card.other_issue_attention_count != 1 %}s{% endif %}
+                    {% else %}
+                      {{ card.other_issues|length }} run note{% if card.other_issues|length != 1 %}s{% endif %}
+                    {% endif %}
+                  </summary>
+                  {% for issue in card.other_issues %}
                     <div class="notice {% if issue.blocks %}blocked{% endif %}">
                       <strong>{{ issue.message }}</strong>
                       <p>{{ issue.recovery_action }}</p>

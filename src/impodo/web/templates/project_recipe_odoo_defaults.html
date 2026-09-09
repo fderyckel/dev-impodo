@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Review Odoo defaults &middot; Impodo{% endblock %}
+{% block title %}Review context-sensitive Odoo defaults &middot; Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{{ recipe.display_name }} &middot; Recipe v{{ application.recipe_revision }}</p>
-      <h1>Review Odoo defaults</h1>
-      <p>These target-only values come from this exact Odoo and company context. No source column or value match is needed: Impodo will leave the fields out of the create request so Odoo can apply them.</p>
+      <h1>Review context-sensitive Odoo defaults</h1>
+      <p>Odoo can supply these target-only values, but they choose a linked record, workflow behavior, company-specific setting, or business amount. Confirm that the values are right for this run.</p>
     </div>
     <span class="status review">Review</span>
   </div>
@@ -15,20 +15,24 @@
       <div>
         <p class="eyebrow">Required values added by Odoo</p>
         <h2 id="odoo-defaults-title">Confirm {{ defaults|length }} value{% if defaults|length != 1 %}s{% endif %} together</h2>
-        <p>Impodo can handle all of these fields for this run. If one value is not right, update the Recipe instead of confirming this group.</p>
+        <p>No source match is needed. Impodo will leave each confirmed field out of the create request so this exact Odoo context can apply its value. If one value is not right, update the Recipe instead of confirming this group.</p>
       </div>
     </div>
     <dl class="summary-list">
       {% for item in defaults %}
         <div>
           <dt>{{ item.field.label }}</dt>
-          <dd><strong>{{ item.value }}</strong></dd>
+          <dd>
+            <strong>{{ item.value }}</strong>
+            <span class="muted">{{ item.reason }}</span>
+          </dd>
         </div>
       {% endfor %}
     </dl>
     <details class="technical-details">
       <summary>Support details</summary>
       <ul>
+        <li>Checked Odoo database: <code>{{ target_database }}</code></li>
         {% for item in defaults %}
           <li><code>{{ item.model }}.{{ item.field.name }}</code></li>
         {% endfor %}

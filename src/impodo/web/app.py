@@ -384,7 +384,11 @@ def create_local_app(
     mapping_repository = MappingRepository(database, workspace_mapping_sources)
     supporting_lookup_repository = SupportingLookupRepository(database)
     mapping_field_catalog_repository = MappingFieldCatalogRepository(database)
-    staging_repository = StagingRepository(database, artifacts)
+    staging_repository = StagingRepository(
+        database,
+        artifacts,
+        source_selections=source_repository,
+    )
     preparation_session_repository = PreparationSessionRepository(
         database,
         artifacts,

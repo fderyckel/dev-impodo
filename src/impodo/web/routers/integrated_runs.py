@@ -11,6 +11,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from impodo.application.data_version.inspection import SourceInspectionError
+from impodo.application.run.target_defaults import mapped_target_defaults
+from impodo.domain.mapping.create_field_policy import VerifiedCreateDefaultAction
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.run.contracts import (
     MigrationRunPlanningError,
@@ -18,7 +20,6 @@ from impodo.domain.run.contracts import (
     RecipeDependency,
 )
 from ...domain.run.models import MigrationRunPurpose
-from ...domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from ...domain.recipe.models import RecipeError
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
@@ -545,10 +546,6 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 "Recheck Odoo before reviewing these defaults",
                 status_code=422,
             )
-        fields_by_model = {
-            model.name: {field.name: field for field in model.fields}
-            for model in schema.models
-        }
         default_reviews = tuple(
             item
             for item in context.run_planning.repository.list_issues(
@@ -562,49 +559,19 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 "No verified Odoo defaults are waiting for review",
                 status_code=422,
             )
-        defaults = []
-        for dataset in revision.definition.datasets:
-            for field_mapping in dataset.fields:
-                key = (dataset.target_model, field_mapping.target_field)
-                if (
-                    field_mapping.value_source
-                    is not ScalarValueSource.ODOO_DEFAULT
-                ):
-                    continue
-                field = fields_by_model.get(key[0], {}).get(key[1])
-                if (
-                    field is not None
-                    and field.required
-                    and field.create_default_present
-                ):
-                    defaults.append(
-                        {
-                            "field": field,
-                            "model": key[0],
-                            "value": _run_default_value_label(field),
-                        }
-                    )
-            for disposition in dataset.target_field_dispositions:
-                key = (dataset.target_model, disposition.target_field)
-                if (
-                    disposition.handling
-                    is not TargetFieldHandling.ODOO_DEFAULT
-                ):
-                    continue
-                field = fields_by_model.get(key[0], {}).get(key[1])
-                if (
-                    field is None
-                    or not field.required
-                    or not field.create_default_present
-                ):
-                    continue
-                defaults.append(
-                    {
-                        "field": field,
-                        "model": key[0],
-                        "value": _run_default_value_label(field),
-                    }
-                )
+        defaults = tuple(
+            {
+                "field": item.field,
+                "model": item.model,
+                "value": _run_default_value_label(item.field),
+                "reason": item.decision.reason,
+            }
+            for item in mapped_target_defaults(
+                revision.definition,
+                schema,
+                action=VerifiedCreateDefaultAction.REQUIRE_REVIEW,
+            )
+        )
         if not defaults or len(defaults) != len(default_reviews):
             return HTMLResponse(
                 "No verified Odoo defaults are waiting for review",
@@ -615,7 +582,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             request,
             "project_recipe_odoo_defaults.html",
             application=application,
-            defaults=tuple(defaults),
+            defaults=defaults,
+            target_database=schema.database,
             project_id=project_id,
             recipe=recipe,
         )

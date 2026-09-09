@@ -237,7 +237,11 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 "DELETE FROM preparation_session_snapshot WHERE session_id = ?",
                 [bounded.session_id],
             )
-        staging_repository = StagingRepository(self.database, self.artifacts)
+        staging_repository = StagingRepository(
+            self.database,
+            self.artifacts,
+            source_selections=self.repository,
+        )
         restored = staging_repository.get_canonical_staging_run(
             workspace_state.workspace_id,
             bounded.session_id,
