@@ -255,6 +255,15 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     "Accept the fresh data before checking this Odoo target"
                 )
             workspace_id = binding.setup_workspace_id
+            resumed = await run_in_threadpool(
+                context.test_runs.resume_activation_if_needed,
+                migration_run_id, actor=context.actor,
+            )
+            if resumed is not None:
+                _flash(request, "The saved Test activation is complete. Continue with Review and load.")
+                return RedirectResponse(
+                    f"/projects/{project_id}/runs/{migration_run_id}", status_code=303,
+                )
             workspace_state = context.queries.get(workspace_id)
             plan = context.test_runs.odoo_check_requirements_for_workspace(
                 workspace_id,
@@ -333,7 +342,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 raise OdooReadCredentialMissingError(
                     "Enter and verify the read-only Odoo key for this Test run first"
                 )
-            result = context.test_runs.activate(
+            result = await run_in_threadpool(
+                context.test_runs.activate,
                 project_id,
                 migration_run_id,
                 expected_workspace_revision=int(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from tests.support.paths import REPOSITORY_ROOT
 
 from pathlib import Path
@@ -172,6 +174,9 @@ class PreparationJobRegistryTests(unittest.TestCase):
         application = SimpleNamespace(
             status=RecipeApplicationStatus.BLOCKED,
             workspace_id=workspace_id,
+            application_id=application_id,
+            recipe_id="recipe",
+            mapping_content_hash="sha256:" + "1" * 64,
         )
         default_review = SimpleNamespace(
             code="RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE",
@@ -180,11 +185,16 @@ class PreparationJobRegistryTests(unittest.TestCase):
         repository = SimpleNamespace(
             get_application=lambda current_id: application,
             list_issues=lambda current_id: (default_review,),
+            get_bundle=lambda run_id: SimpleNamespace(
+                applications=(application,),
+                requirement_plan=SimpleNamespace(application_order=("recipe",)),
+            ),
         )
         context = SimpleNamespace(
             run_planning=SimpleNamespace(repository=repository)
         )
-        workspace = SimpleNamespace(
+        workspace = replace(
+            _workspace(),
             recipe_application_id=application_id,
             workspace_id=workspace_id,
         )
@@ -202,7 +212,23 @@ class PreparationJobRegistryTests(unittest.TestCase):
                 level=SimpleNamespace(value="INFORMATION"),
             ),
         )
-        _assert_recipe_application_can_prepare(context, workspace)
+        accepted = _assert_recipe_application_can_prepare(context, workspace)
+        self.assertEqual(accepted.mapping_content_hash, application.mapping_content_hash)
+
+        earlier = SimpleNamespace(
+            application_id="earlier-application",
+            recipe_id="earlier-recipe",
+            status=RecipeApplicationStatus.EXECUTED,
+        )
+        repository.get_bundle = lambda run_id: SimpleNamespace(
+            applications=(application, earlier),
+            requirement_plan=SimpleNamespace(application_order=("earlier-recipe", "recipe")),
+        )
+        with self.assertRaisesRegex(WorkspaceError, "Finish and verify the earlier Recipe"):
+            _assert_recipe_application_can_prepare(context, workspace)
+        earlier.status = RecipeApplicationStatus.RECONCILED
+        accepted = _assert_recipe_application_can_prepare(context, workspace)
+        self.assertEqual(accepted.mapping_content_hash, application.mapping_content_hash)
 
 
 class PreparationWorkspaceProjectionTests(unittest.TestCase):

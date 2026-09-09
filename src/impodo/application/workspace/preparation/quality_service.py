@@ -104,6 +104,7 @@ class QualityService:
     ) -> QualityRuleSet:
         """Persist a complete immutable ruleset version."""
 
+        self._assert_recipe_rules(ruleset, self._recipe_rules(workspace_id, ruleset.mapping_hash))
         return self.quality.publish_quality_ruleset(
             workspace_id,
             ruleset,
@@ -169,6 +170,7 @@ class QualityService:
 
         current = self.quality.get_current_quality_ruleset(context.workspace_id)
         combined = list(manager_rules)
+        seed = self._recipe_rules(context.workspace_id, context.revision.definition.content_hash)
         if (
             current is not None
             and current.mapping_hash == context.revision.definition.content_hash
@@ -179,15 +181,11 @@ class QualityService:
                 for item in current.manager_rules
                 if item.dataset != context.dataset_name
             )
-        elif self.recipe_quality is not None:
-            combined.extend(
-                item
-                for item in self.recipe_quality.get_quality_seed(
-                    context.workspace_id,
-                    context.revision.definition.content_hash,
-                )
-                if item.dataset != context.dataset_name
-            )
+        seed_by_id = {item.rule_id: item for item in seed}
+        if any(item.rule_id in seed_by_id and item != seed_by_id[item.rule_id] for item in combined):
+            raise WorkspaceError("Publish a new Recipe version to change its business checks")
+        combined = [item for item in combined if item.rule_id not in seed_by_id]
+        combined.extend(seed)
         ruleset = default_quality_ruleset(
             workspace_id=context.workspace_id,
             mapping_hash=context.revision.definition.content_hash,
@@ -216,7 +214,23 @@ class QualityService:
                     coverage_scope_hash=current.coverage_scope_hash,
                     reference_bundle_hash=current.reference_bundle_hash,
                 )
-        return self.publish_ruleset(context.workspace_id, ruleset, actor=actor)
+        return self.quality.publish_quality_ruleset(context.workspace_id, ruleset, actor=actor)
+
+    def _recipe_rules(self, workspace_id: str, mapping_hash: str) -> tuple[QualityRule, ...]:
+        return (
+            self.recipe_quality.get_quality_seed(workspace_id, mapping_hash)
+            if self.recipe_quality is not None else ()
+        )
+
+    @staticmethod
+    def _contains_recipe_rules(ruleset: QualityRuleSet, seed: tuple[QualityRule, ...]) -> bool:
+        by_id = {rule.rule_id: rule for rule in ruleset.rules}
+        return all(by_id.get(rule.rule_id) == rule for rule in seed)
+
+    @classmethod
+    def _assert_recipe_rules(cls, ruleset: QualityRuleSet, seed: tuple[QualityRule, ...]) -> None:
+        if not cls._contains_recipe_rules(ruleset, seed):
+            raise WorkspaceError("Publish a new Recipe version to change its business checks")
 
     def evaluate_and_publish(
         self,
@@ -242,6 +256,7 @@ class QualityService:
         """
 
         ruleset = self.quality.get_current_quality_ruleset(workspace_state.workspace_id)
+        seed = self._recipe_rules(workspace_state.workspace_id, revision.definition.content_hash)
         if (
             ruleset is None
             or ruleset.mapping_hash != revision.definition.content_hash
@@ -254,19 +269,25 @@ class QualityService:
                 datasets=(item.name for item in selection.datasets),
                 version=(ruleset.version + 1 if ruleset is not None else 1),
                 parent_version=(ruleset.version if ruleset is not None else None),
-                manager_rules=(
-                    self.recipe_quality.get_quality_seed(
-                        workspace_state.workspace_id,
-                        revision.definition.content_hash,
-                    )
-                    if self.recipe_quality is not None
-                    else ()
-                ),
+                manager_rules=seed,
             )
             ruleset = self.quality.publish_quality_ruleset(
                 workspace_state.workspace_id,
                 ruleset,
                 actor=actor,
+            )
+        elif not self._contains_recipe_rules(ruleset, seed):
+            # Restore checks omitted by older builds before evaluating rows.
+            seed_ids = {rule.rule_id for rule in seed}
+            ruleset = replace(
+                ruleset, version=ruleset.version + 1, parent_version=ruleset.version,
+                rules=tuple(sorted(
+                    (*(rule for rule in ruleset.rules if rule.rule_id not in seed_ids), *seed),
+                    key=lambda rule: rule.rule_id,
+                )),
+            )
+            ruleset = self.quality.publish_quality_ruleset(
+                workspace_state.workspace_id, ruleset, actor=actor,
             )
         with timed_preparation_stage(timing, "quality_evaluation"):
             try:

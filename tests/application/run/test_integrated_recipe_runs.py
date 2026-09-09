@@ -101,6 +101,8 @@ from impodo.domain.coverage import (
     ReferenceValueKind,
 )
 from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
+from impodo.domain.mapping.validation.evidence import MappingValidationIssue
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import SchemaGovernance
@@ -866,6 +868,36 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertIsNotNone(mapping_state.revision)
         self.assertIsNotNone(mapping_state.submission)
 
+        missing_control = MappingValidationIssue(
+            code="MAPPING_CONTROL_EXPECTATION_REQUIRED", severity="error",
+            path="/datasets/0/control_expectations",
+            message="Enter this delivery's expected total.",
+            remediation="Confirm the current expected total.",
+        )
+        with (
+            patch.object(mapping_workspace, "check_definition", return_value=(
+                mapping_state.revision, SimpleNamespace(issues=(missing_control,)),
+            )),
+            patch.object(mapping_workspace, "submit_current", side_effect=AssertionError("submitted blocked mapping")),
+        ):
+            blocked = materializing_compiler.materialize(
+                workspace_id, application_id=str(uuid4()), recipe_id=str(uuid4()),
+                data_version_id=controls.data_version_id, definition=definition,
+                assessment=assessment, actor=LOCAL_ACTOR,
+            )
+        self.assertTrue(blocked.completed)
+        self.assertEqual(blocked.status, RecipeApplicationStatus.BLOCKED)
+        self.assertEqual(blocked.mapping_id, ready.mapping_id)
+        self.assertIn(missing_control.code, {item.code for item in blocked.issues})
+        with patch.object(mapping_workspace, "submit_current", side_effect=WorkspaceError("Interrupted save")):
+            interrupted = materializing_compiler.materialize(
+                workspace_id, application_id=str(uuid4()), recipe_id=str(uuid4()),
+                data_version_id=controls.data_version_id, definition=definition,
+                assessment=assessment, actor=LOCAL_ACTOR,
+            )
+        self.assertFalse(interrupted.completed)
+        self.assertEqual(interrupted.mapping_id, ready.mapping_id)
+
         schema = replace(
             schema,
             models=tuple(
@@ -1191,6 +1223,7 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             ),
         )
         service.compiler = SimpleNamespace(
+            application_state=SimpleNamespace(rebind_quality_seed=lambda *args, **kwargs: None),
             mappings=SimpleNamespace(
                 mappings=SimpleNamespace(
                     get_mapping_revision=lambda current_id: revision,
@@ -2691,14 +2724,15 @@ class IntegratedRecipeRunTests(unittest.TestCase):
         envelope["recipe"]["odoo_target_contract"]["approved_write_fields"] = {
             "res.partner": ["name"]
         }
-        original = self.recipe_service.read_revision
+        original = self.recipe_service.read_revisions
 
-        def read(recipe_id, version, *, actor):
-            if recipe_id == self.product.recipe.recipe_id:
-                return envelope
-            return original(recipe_id, version, actor=actor)
+        def read(project_id, selections, *, actor):
+            revisions = dict(original(project_id, selections, actor=actor))
+            key = (self.product.recipe.recipe_id, self.product.revision.version)
+            revisions[key] = replace(revisions[key], envelope=envelope)
+            return revisions
 
-        self.recipe_service.read_revision = read
+        self.recipe_service.read_revisions = read
         review = self.planning.review_test_run(
             self.bundle.project.project_id,
             data_version_id=self.test_data_version.data_version_id,
@@ -3728,6 +3762,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
                 "get",
                 return_value=active_setup_binding,
             ),
+            patch.object(context.test_runs, "resume_activation_if_needed", return_value=None),
             patch.object(
                 context.test_runs,
                 "setup_binding_for_workspace",

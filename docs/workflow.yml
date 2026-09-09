@@ -155,6 +155,9 @@ stages:
       - src/impodo/web/composition/target_readers.py::_capture_recipe_supporting_values
       - src/impodo/web/run_review.py::build_integrated_run_review
       - src/impodo/web/run_review.py::start_next_preparation
+      - src/impodo/application/run/progress.py::application_resume_step
+      - src/impodo/domain/recipe/mapping_adaptation.py::recipe_mapping_shape
+      - src/impodo/adapters/duckdb/recipe_quality_seed_repository.py::RecipeQualitySeedRepository
       - src/impodo/web/recipe_target_matches.py::build_target_match_review
       - src/impodo/web/recipe_target_matches.py::apply_target_match_decisions
       - src/impodo/application/recipe/service.py::RecipeService.read_revisions
@@ -179,6 +182,8 @@ stages:
       - tests/application/run/test_odoo_requirements.py
       - tests/application/run/test_integrated_recipe_runs.py
       - tests/application/run/test_recipe_target_matches.py
+      - tests/application/run/test_stabilization.py
+      - tests/integration/duckdb/test_recipe_application_evidence.py
       - tests/application/run/test_target_defaults.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/application/workspace/test_journeys.py

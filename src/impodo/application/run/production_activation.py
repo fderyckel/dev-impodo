@@ -150,7 +150,7 @@ class ProductionRunActivationUseCase:
                 actor=actor,
                 fault=fault,
             )
-            return self._materializer.materialize(
+            self._materializer.materialize(
                 resumed,
                 review=review,
                 operation_id=operation_id,
@@ -160,6 +160,7 @@ class ProductionRunActivationUseCase:
                 ),
                 actor=actor,
             )
+            return self._repository.commit_provisioning(operation_id)
         if production_binding.state is not ProductionRunBindingState.SETUP:
             raise ProductionRunError("Production run activation is inconsistent")
         current_run = self._repository.foundation.get_migration_run(
@@ -317,7 +318,7 @@ class ProductionRunActivationUseCase:
             actor=actor,
             fault=fault,
         )
-        return self._materializer.materialize(
+        self._materializer.materialize(
             bundle,
             review=review,
             operation_id=operation_id,
@@ -327,6 +328,7 @@ class ProductionRunActivationUseCase:
             ),
             actor=actor,
         )
+        return self._repository.commit_provisioning(operation_id)
 
     def _assert_retry_matches(
         self,

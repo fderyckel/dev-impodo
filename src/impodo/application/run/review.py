@@ -134,13 +134,13 @@ class RunReviewUseCase:
         supplied_parameters = parameter_values or {}
         supplied_controls = control_values or {}
         applications = []
+        revisions = self._recipes.read_revisions(
+            project_id, normalized, actor=actor
+        )
         for recipe_id, version in normalized:
-            recipe = self._recipes.get(recipe_id, actor=actor)
-            if recipe.project_id != project_id:
-                raise self._planning_error(
-                    "Every selected Recipe must belong to this Project"
-                )
-            envelope = self._recipes.read_revision(recipe_id, version, actor=actor)
+            selected_revision = revisions[(recipe_id, version)]
+            recipe = selected_revision.recipe
+            envelope = selected_revision.envelope
             semantic_hash = str(envelope["semantic_hash"])
             definition = dict(envelope["recipe"])
             selection = RecipeRevisionSelection(

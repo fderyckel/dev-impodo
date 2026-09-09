@@ -146,6 +146,7 @@ class PreparationService:
         progress: Callable[[PreparationPhase, int, int, str], None] | None = None,
         cancellation_checkpoint: Callable[[], None] | None = None,
         timing: PreparationTimingReporter | None = None,
+        expected_mapping_hash: str | None = None,
     ) -> NormalizationRunSummary:
         """Prepare every frozen row for review without contacting Odoo.
 
@@ -182,6 +183,14 @@ class PreparationService:
         revision = self.mappings.get_mapping_revision(workspace_id)
         if revision is None:
             raise ReadinessError("Submit the mapping before checking data")
+        if (
+            expected_mapping_hash is not None
+            and revision.definition.content_hash != expected_mapping_hash
+        ):
+            raise ReadinessError(
+                "The Recipe mapping changed after preparation was requested. "
+                "Continue from Review and load to prepare the current decisions."
+            )
         submission = self.mappings.get_mapping_submission(
             workspace_id, revision.version
         )

@@ -17,6 +17,7 @@ from impodo.adapters.duckdb.preparation_session_repository import (
 )
 from impodo.adapters.duckdb.workspace_state_reader import WorkspaceStateReader
 from impodo.adapters.duckdb.quality_repository import QualityRepository
+from impodo.adapters.duckdb.recipe_quality_seed_repository import RecipeQualitySeedRepository
 from impodo.adapters.duckdb.migration_workspace_engine_database import (
     FixedMigrationWorkspaceEngineDatabase,
 )
@@ -89,6 +90,7 @@ def create_preparation_worker(
         mappings,
         sources,
         quality_repository,
+        recipe_quality=RecipeQualitySeedRepository(database),
     )
     normalization = NormalizationService(
         normalization_repository,

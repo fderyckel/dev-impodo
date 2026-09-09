@@ -13,6 +13,13 @@
 {% endblock %}
 {% block content %}
   {% include "mapping/_heading.html" %}
+  {% if migration_workspace and migration_workspace.recipe_application_id %}
+    <div class="notice" role="status">
+      <strong>These decisions apply to this Recipe run.</strong>
+      <p>You can confirm target value matches and this delivery's control totals. Changes to field providers, transformations, record identities, or relationships require a new Recipe version.</p>
+      <a href="/projects/{{ migration_project.project_id }}/runs/{{ migration_run.migration_run_id }}">Return to Review and load</a>
+    </div>
+  {% endif %}
   {% if revision and revision.definition.contract_version != current_mapping_contract_version %}
     <div class="notice warning" role="status">
       <strong>This mapping was created with mapping contract v{{ revision.definition.contract_version }}.</strong>

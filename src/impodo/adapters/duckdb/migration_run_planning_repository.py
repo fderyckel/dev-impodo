@@ -179,6 +179,7 @@ class MigrationRunPlanningRepository:
         self,
         operation_id: str,
         *,
+        migration_run_id: str,
         actor: Actor,
         fault: FaultInjector | None = None,
     ) -> IntegratedRunBundle:
@@ -187,6 +188,7 @@ class MigrationRunPlanningRepository:
         if (
             intent.kind is not MigrationOperationKind.TEST_RUN_ACTIVATE
             or intent.owner_kind != "MIGRATION_RUN"
+            or intent.owner_id != require_uuid(migration_run_id, "migration_run_id")
             or intent.actor.issuer != actor.identity.issuer
             or intent.actor.subject_id != actor.identity.subject_id
         ):
@@ -202,6 +204,21 @@ class MigrationRunPlanningRepository:
             actor=actor,
             fault=fault,
         )
+
+    def test_activation_operation(self, migration_run_id: str):
+        """Find the durable activation identity when a browser has restarted."""
+
+        migration_run_id = require_uuid(migration_run_id, "migration_run_id")
+        with self.database.connect(self.registry_path) as connection:
+            rows = self.foundation._rows(
+                connection,
+                "SELECT * FROM project_operation_intent WHERE owner_kind = 'MIGRATION_RUN' "
+                "AND owner_id = ? AND kind = 'TEST_RUN_ACTIVATE' ORDER BY created_at",
+                [migration_run_id],
+            )
+        if len(rows) != 1:
+            raise MigrationConflictError("The saved Test activation could not be identified")
+        return self.foundation._intent_from_row(rows[0])
 
     def _continue_test_activation(
         self,

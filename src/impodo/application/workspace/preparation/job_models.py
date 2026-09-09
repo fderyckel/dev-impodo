@@ -90,6 +90,7 @@ class PreparationWorkspace:
     recipe_application_id: str | None = None
     source_package_hash: str | None = None
     source_dataset_ids: tuple[str, ...] = ()
+    mapping_content_hash: str | None = None
 
     def __post_init__(self) -> None:
         require_uuid(self.project_id, "project_id")
@@ -98,6 +99,8 @@ class PreparationWorkspace:
         require_uuid(self.workspace_id, "workspace_id")
         if self.recipe_application_id is not None:
             require_uuid(self.recipe_application_id, "recipe_application_id")
+        if self.mapping_content_hash is not None:
+            require_hash(self.mapping_content_hash, "mapping_content_hash")
         if (self.source_package_hash is None) != (not self.source_dataset_ids):
             raise ValueError(
                 "Projected source package identity and datasets must be provided together"

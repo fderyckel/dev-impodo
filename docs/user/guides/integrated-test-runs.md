@@ -91,6 +91,12 @@ fresh source values with the Selection options and linked records captured by
 They do not change the saved Recipe, and reviewing the page does not make
 another Odoo request.
 
+The run keeps the Recipe's business checks after you confirm these choices.
+The field review can also collect this delivery's expected control totals.
+Changing field providers, transformations, record identities, or relationships
+requires a new Recipe version. Impodo rejects those changes when you confirm
+the run's field matches.
+
 An older blocked Test run can select **Check Odoo defaults**. Impodo refreshes
 the one shared setup target, verifies that no other field behavior changed,
 and rebuilds only applications whose earlier required-field blockers are now
@@ -170,6 +176,12 @@ verification still needs attention. Restarting Impodo may clear an in-memory
 progress message, but it does not discard the saved Recipe application state
 or silently repeat an Odoo load.
 
+Reopening a verified Recipe takes you to its saved result. Reopening a Recipe
+whose Odoo changes were checked takes you to the load review. Background
+percentages update in place, so routine progress does not close expanded details.
+The **Fresh data** and **Review and load** navigation links return to the
+corresponding pages for this run.
+
 The setup and Recipe workspaces still keep the detailed evidence. Their browser
 navigation belongs to the run: setup permits fresh-data and Odoo-check pages,
 while an application permits only preparation, review, load, and verification.
@@ -188,6 +200,12 @@ action. Typical examples are a missing source column, a changed Odoo field, a
 missing supporting list, a required parameter, uncovered values, or a quality
 scope that must be reviewed again. A blocked application may still contain a
 fresh draft when the issue can be reviewed in that workspace.
+
+If Impodo stops while creating Recipe work areas, return to **Check Odoo** and
+retry the saved check. It finishes the original setup and preserves application
+work already created. If an older application reports that its saved Recipe
+baseline is missing, start a new Test run with the same Recipe version before
+changing its run decisions.
 
 ## What Complete means
 

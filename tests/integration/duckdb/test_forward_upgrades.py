@@ -99,6 +99,7 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE schema_migration")
     tables = {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()}
     if "workspace_projection_cache" in tables:
+        connection.execute("ALTER TABLE recipe_quality_seed DROP COLUMN mapping_definition_json")
         for column in (
             "destination_odoo_connection_mode",
             "destination_odoo_base_url",
@@ -372,6 +373,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         9,
                         "workspace-engine-v8-to-v9-transfer-preflight",
                     ),
+                    (9, 10, "workspace-engine-v9-to-v10-recipe-mapping-baseline"),
                 ],
             )
             self.assertEqual(

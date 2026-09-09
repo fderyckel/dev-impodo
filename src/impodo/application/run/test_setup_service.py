@@ -8,9 +8,11 @@ from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
+    MigrationNotFoundError,
+    MigrationOperationState,
     require_uuid,
 )
-from impodo.domain.run.contracts import RecipeDependency
+from impodo.domain.run.contracts import RecipeDependency, MigrationRunTargetSchema, MigrationRunReferenceBundle
 from impodo.domain.run.test_setup import (
     TestRunParameterValues,
     TestRunSetupBinding,
@@ -151,6 +153,40 @@ class TestRunSetupService:
             project_id=binding.project_id,
         )
         return binding
+
+    def resume_activation_if_needed(self, migration_run_id: str, *, actor: Actor):
+        """Finish the original activation before collecting any new Odoo evidence."""
+
+        binding = self.get(migration_run_id, actor=actor)
+        if binding.state.value != "ACTIVE":
+            return None
+        operation = self.run_planning.repository.test_activation_operation(
+            migration_run_id,
+        )
+        if operation.state is MigrationOperationState.COMMITTED:
+            try:
+                self.run_planning.cutover_plans.get_run_binding(migration_run_id)
+                return None
+            except MigrationNotFoundError:
+                # Repair runs committed by the earlier activation implementation.
+                pass
+        schema = MigrationRunTargetSchema.from_json(
+            str(operation.detail["target_schema_json"])
+        ).source_schema
+        reference_payload = operation.detail.get("reference_bundle")
+        references = (
+            MigrationRunReferenceBundle.from_dict(dict(reference_payload)).for_workspace(
+                binding.setup_workspace_id
+            )
+            if reference_payload is not None else None
+        )
+        return self.activate(
+            binding.project_id, migration_run_id,
+            expected_workspace_revision=operation.expected_revision,
+            target_schema=schema, target_reference_bundle=references,
+            credential_generation=schema.read_credential_binding_hash,
+            operation_id=operation.operation_id, actor=actor,
+        )
 
     def list(self, project_id: str, *, actor: Actor) -> tuple[TestRunSetupBinding, ...]:
         project_id = require_uuid(project_id, "project_id")

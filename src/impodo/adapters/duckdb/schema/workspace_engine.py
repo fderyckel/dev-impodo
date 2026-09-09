@@ -998,6 +998,16 @@ def _upgrade_workspace_engine_v8_to_v9(
     )
 
 
+def _upgrade_workspace_engine_v9_to_v10(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Retain the compiler baseline for constrained Recipe run decisions."""
+
+    connection.execute(
+        "ALTER TABLE recipe_quality_seed ADD COLUMN mapping_definition_json VARCHAR"
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1030,5 +1040,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     8: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v8-to-v9-transfer-preflight",
         apply=_upgrade_workspace_engine_v8_to_v9,
+    ),
+    9: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v9-to-v10-recipe-mapping-baseline",
+        apply=_upgrade_workspace_engine_v9_to_v10,
     ),
 }

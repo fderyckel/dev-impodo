@@ -60,6 +60,7 @@ class RecipeMaterialization:
     mapping_content_hash: str | None
     issues: tuple[MigrationRunPlanIssue, ...]
     evidence_hash: str
+    completed: bool = True
 
 
 class RecipeApplicationService(RecipeApplicationCompiler):
@@ -207,6 +208,9 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         """Create one fresh mapping draft using only this workspace projection."""
 
         issues = list(assessment.issues)
+        mapping_id = None
+        mapping_hash = None
+        completed = True
         if not any(item.blocks for item in issues):
             try:
                 application_definition = self._application_definition(definition)
@@ -307,6 +311,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     workspace_id,
                     application_id=application_id,
                     mapping_content_hash=mapping_hash,
+                    mapping_definition=draft.definition,
                     rules=self._quality_rules(
                         application_definition,
                         effective_bindings,
@@ -323,7 +328,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     current_revision = (
                         self.mappings.mappings.get_mapping_revision(workspace_id)
                     )
-                    revision, _validation = self.mappings.check_definition(
+                    revision, validation = self.mappings.check_definition(
                         workspace_id,
                         datasets=draft.definition.datasets,
                         expected_parent_version=(
@@ -334,12 +339,25 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                         expected_working_draft_version=draft.version,
                         actor=actor,
                     )
+                    issues.extend(
+                        MigrationRunPlanIssue(
+                            code=item.code,
+                            level=MigrationRunPlanIssueLevel.BLOCKER,
+                            message=item.message,
+                            recovery_action=item.remediation,
+                            recipe_ids=(recipe_id,),
+                        )
+                        for item in validation.issues
+                        if item.severity in {"error", "warning"}
+                    )
                     checked_draft = (
                         self.mappings.mappings.get_mapping_working_draft(
                             workspace_id
                         )
                     )
-                    if not default_review_required:
+                    if not default_review_required and not any(
+                        item.blocks for item in issues
+                    ):
                         self.mappings.submit_current(
                             workspace_id,
                             datasets=revision.definition.datasets,
@@ -373,6 +391,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 RecipeApplicationError,
                 WorkspaceError,
             ) as error:
+                completed = False
                 issues.append(
                     MigrationRunPlanIssue(
                         code="RECIPE_MAPPING_MATERIALIZATION_BLOCKED",
@@ -387,11 +406,12 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 )
         return self._result(
             RecipeApplicationStatus.BLOCKED,
-            None,
-            None,
+            mapping_id,
+            mapping_hash,
             issues,
             application_id=application_id,
             assessment=assessment,
+            completed=completed,
         )
 
     @staticmethod
@@ -556,6 +576,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         *,
         application_id,
         assessment,
+        completed=True,
     ) -> RecipeMaterialization:
         ordered = tuple(
             sorted(
@@ -579,4 +600,5 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             mapping_content_hash=mapping_hash,
             issues=ordered,
             evidence_hash=evidence_hash,
+            completed=completed,
         )

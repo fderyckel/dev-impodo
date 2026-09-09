@@ -338,6 +338,22 @@ document.addEventListener("DOMContentLoaded", () => {
           window.location.reload();
           return;
         }
+        const progressById = new Map(
+          (status.applications || []).map((item) => [item.application_id, item])
+        );
+        integratedRun.querySelectorAll("[data-application-id]").forEach((card) => {
+          const item = progressById.get(card.dataset.applicationId);
+          if (!item) return;
+          const progress = card.querySelector("progress");
+          const detail = card.querySelector("[data-progress-message]");
+          const message = card.querySelector("[data-application-message]");
+          if (progress && item.progress_percent !== null) {
+            progress.value = item.progress_percent;
+            progress.textContent = `${item.progress_percent}%`;
+          }
+          if (detail) detail.textContent = `${item.progress_message} · ${item.progress_percent}%`;
+          if (message) message.textContent = item.message;
+        });
         if (status.active) {
           pollTimer = window.setTimeout(pollIntegratedRun, 1000);
         }

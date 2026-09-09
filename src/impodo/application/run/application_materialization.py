@@ -139,6 +139,11 @@ class RunApplicationMaterializer:
         project = self._projects.get(bundle.run.project_id, actor=actor)
         stored_applications = []
         for application in bundle.applications:
+            # A published mapping is a durable per-application checkpoint.
+            # Replaying activation must not replace subsequent run decisions.
+            if application.mapping_id is not None:
+                stored_applications.append(application)
+                continue
             item = reviewed[application.recipe_id]
             workspace = workspace_by_id[application.workspace_id]
             if item.assessment.dataset_ids:
@@ -174,6 +179,12 @@ class RunApplicationMaterializer:
                 assessment=item.assessment,
                 actor=actor,
             )
+            if not materialized.completed:
+                raise MigrationRunPlanningError(
+                    "Recipe application setup did not finish. Its draft is retained; "
+                    "retry the saved activation. "
+                    + next(item.message for item in materialized.issues if item.blocks)
+                )
             stored_applications.append(
                 self._repository.save_application_materialization(
                     application.application_id,
@@ -203,7 +214,7 @@ class RunApplicationMaterializer:
                     event_type=ready_event_type,
                     actor=actor,
                 )
-        return self._repository.commit_provisioning(operation_id)
+        return self._repository.get_bundle(bundle.run.migration_run_id)
 
     def _provision_engine(
         self,

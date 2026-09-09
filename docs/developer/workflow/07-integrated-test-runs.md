@@ -134,6 +134,10 @@ deterministic topological order and rejects missing nodes, duplicate edges,
 self-dependencies, cycles, and incompatible versions of one named reference
 dataset.
 
+The review uses the same bulk `RecipeService.read_revisions` operation as
+Fresh data. It reads Recipe registry metadata once for the selection while
+retaining one protected-envelope verification per selected revision.
+
 The write contract deliberately uses conservative ownership: two
 selected Recipes may not both claim the same Odoo model and writable field.
 There is no last-writer-wins or reordering escape. General record-domain merge
@@ -214,7 +218,17 @@ stores the TargetBinding, requirement plan, target schema, reference bundle,
 applications, application workspaces, requirements, and initial issues. One
 activation transaction advances the Project revision. Application workspace
 stores are created afterward; the activation intent remains pending until
-every compiler attempt is recorded.
+every compiler attempt and the required CutoverPlan binding are recorded.
+An incomplete compiler attempt retains its workspace draft and leaves
+activation pending. A completed mapping is a per-application checkpoint;
+retrying activation does not recompile that application or reset later work.
+
+`TestRunSetupService.resume_activation_if_needed` finds the saved operation
+by run identity. The Odoo-check command finishes that operation using its
+original target evidence before collecting new evidence. The same recovery
+also repairs an older committed activation whose CutoverPlan binding is
+missing. The repository checks the owning run and original actor before
+resuming writes.
 
 Replaying either operation after a registry or store fault reconstructs its
 stored identities and does not add a data version, run, target binding,
@@ -228,6 +242,27 @@ already provisioned application workspace. It never calls the superseded
 Recipe-owned DataVersion or application-creation paths. It rebuilds governance
 and structural preparation, rebinds logical source columns, creates a normal
 mapping working draft, and stores a mapping-bound quality seed.
+
+The seed also retains the compiled mapping baseline. The domain projection
+`recipe_mapping_shape` preserves the Recipe's providers, transformations,
+identities, relationships, write ownership, and invariant controls. It excludes
+permitted categorical choices and non-invariant control expectations.
+`MappingWorkspaceService.submit_current` checks that projection before
+submission. `confirm_mapping` checks it again while rebinding the same quality
+rules to the newly confirmed mapping. A full matching draft can therefore be
+reviewed without granting permission to change the pinned Recipe's meaning.
+
+Both the web composition and spawned preparation worker supply the Recipe
+quality repository to `QualityService`. Missing or stale Recipe seeds block
+evaluation. A cached ruleset that an older build published without those rules
+is repaired before any row is evaluated. Run-local rule editing retains the
+Recipe rules; changing their meaning requires a new Recipe version.
+
+Workspace engine schema version 10 adds the saved mapping baseline through a
+structural forward upgrade. Older seeds keep their checks for the exact
+original mapping. An older application without a baseline cannot accept new
+mapping choices; create a new application of the pinned Recipe in that case.
+The upgrade does not infer a baseline from an edited draft.
 
 When the current application has no blocker, the same service checks and
 submits the freshly rebound mapping through `MappingWorkspaceService`. It does
@@ -255,9 +290,24 @@ continues to belong to the workspace services.
 `build_integrated_run_review` reads all application identities and issues from
 the registry, obtains latest preparation and load snapshots with one in-memory
 pass per manager, and builds the ordered cards. It does not open a workspace
-database. The status endpoint returns only a view hash and aggregate progress;
-it does not reread Recipe definitions. The browser reloads the bounded page
-when that projection changes.
+database. The status endpoint returns aggregate progress and compact progress
+fields for each application without rereading Recipe definitions. The browser
+updates percentages and messages in place. Its structural view hash changes
+when application state, actions, or issues change, rather than for each progress
+message. Those structural changes still refresh the page.
+
+`application/run/progress.py` owns dependency ordering, durable completion,
+attempt relevance, and resume-step selection. A completed session snapshot
+does not release the next Recipe before verification is recorded in the run
+registry. The run command and direct preparation routes use the same order.
+New preparation requests carry their mapping hash. Old attempts cannot advance
+a changed mapping or prevent a new preparation request after confirmation.
+Saved comparison and verification milestones take precedence over older
+preparation snapshots when the application is reopened.
+
+Activation and focused target-value GET rendering run outside the async request
+thread. This avoids blocking that thread during local compilation or coverage
+reads; it is not a claim of faster source processing.
 
 A preparation success opens the normal prepared-data review. The existing
 preflight and execution routes still own **Check changes**, **Confirm and
@@ -353,6 +403,9 @@ queries must not scale with Recipe count.
 | Application materialization and recovery | [`RunApplicationMaterializer`](../../../src/impodo/application/run/application_materialization.py) and [`RunApplicationRecoveryUseCase`](../../../src/impodo/application/run/application_recovery.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |
+| Application order and resume decisions | [`progress.py`](../../../src/impodo/application/run/progress.py) |
+| Immutable Recipe mapping meaning | [`mapping_adaptation.py`](../../../src/impodo/domain/recipe/mapping_adaptation.py) |
+| Mapping baseline and business checks | [`RecipeQualitySeedRepository`](../../../src/impodo/adapters/duckdb/recipe_quality_seed_repository.py) |
 | Focused target-value review | [`recipe_target_matches.py`](../../../src/impodo/web/recipe_target_matches.py) |
 | Background preparation summary | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
 | Background load summary | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
@@ -369,6 +422,8 @@ queries must not scale with Recipe count.
 
 ## Verification
 
+- [`tests/application/run/test_stabilization.py`](../../../tests/application/run/test_stabilization.py)
+- [`tests/integration/duckdb/test_recipe_application_evidence.py`](../../../tests/integration/duckdb/test_recipe_application_evidence.py)
 - [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
 - [`tests/application/run/test_integrated_recipe_runs.py`](../../../tests/application/run/test_integrated_recipe_runs.py)
 - [`tests/application/run/test_recipe_target_matches.py`](../../../tests/application/run/test_recipe_target_matches.py)

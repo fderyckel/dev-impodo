@@ -167,11 +167,19 @@ class RunApplicationRecoveryUseCase:
             raise MigrationRunPlanningError(
                 "Confirm the current field matches before continuing this Recipe"
             )
+        self._compiler.application_state.rebind_quality_seed(
+            application.workspace_id,
+            definition=revision.definition,
+            actor=actor,
+        )
+        issues = self._repository.list_issues(application.application_id)
         remaining = tuple(
             item
-            for item in self._repository.list_issues(application.application_id)
+            for item in issues
             if not item.code.startswith("MAPPING_")
         )
+        if remaining == issues and application.mapping_content_hash == revision.definition.content_hash:
+            return application
         default_review_required = any(
             item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
             and item.level is MigrationRunPlanIssueLevel.REVIEW

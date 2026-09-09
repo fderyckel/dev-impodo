@@ -199,6 +199,7 @@ def build_workspace_navigation(
         navigation,
         project_id=workspace_view.project_id,
         migration_run_id=workspace_view.migration_run_id,
+        run_purpose=workspace_view.migration_run.purpose.value,
         template_name=template_name,
     )
 
@@ -1429,11 +1430,17 @@ def _recipe_application_navigation(
     *,
     project_id: str,
     migration_run_id: str,
+    run_purpose: str = "TEST",
     template_name: str = "",
 ) -> WorkspaceNavigation:
     """Collapse an application workspace into the run's review-and-load step."""
 
     run_home = f"/projects/{project_id}/runs/{migration_run_id}"
+    fresh_home = (
+        f"/projects/{project_id}/test-runs/{migration_run_id}/fresh-data"
+        if run_purpose == "TEST" else
+        f"/projects/{project_id}/production-runs/{migration_run_id}/activate"
+    )
     target_value_review = template_name == "project_recipe_target_matches.html"
     review_stages = tuple(
         stage
@@ -1455,7 +1462,7 @@ def _recipe_application_navigation(
                 stage_id="fresh",
                 number=1,
                 label="Fresh data",
-                href=run_home,
+                href=fresh_home,
                 status="complete",
                 status_label="Complete",
             ),
@@ -1473,7 +1480,7 @@ def _recipe_application_navigation(
                 stage_id="review",
                 number=3,
                 label="Review and load",
-                href=f"/workspaces/{navigation.workspace_id}/prepare",
+                href=run_home,
                 status="locked" if target_value_review else review_status,
                 status_label=(
                     "Confirm target values first"
@@ -1599,6 +1606,7 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
         navigation,
         project_id=job.workspace.project_id,
         migration_run_id=job.workspace.migration_run_id,
+        run_purpose=job.workspace.migration_run_purpose.value,
     )
 
 
@@ -1722,6 +1730,7 @@ def build_load_workspace_navigation(job: LoadJob) -> WorkspaceNavigation:
         navigation,
         project_id=job.access_context.project_id,
         migration_run_id=job.access_context.migration_run_id,
+        run_purpose=job.access_context.run_purpose or "TEST",
     )
 
 

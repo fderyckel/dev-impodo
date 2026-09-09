@@ -14,6 +14,7 @@ from ...application.workspace.preparation.preparation_job_registry import (
 )
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.run.contracts import RecipeApplicationStatus
+from impodo.application.run.progress import assert_application_is_current
 from impodo.application.workspace.preparation.job_models import PreparationJob, PreparationJobStatus
 from impodo.application.workspace.preparation.job_models import PreparationWorkspace
 from impodo.domain.workspace.errors import WorkspaceError
@@ -44,7 +45,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
             )
         try:
             workspace = _preparation_workspace(context, workspace_id)
-            _assert_recipe_application_can_prepare(context, workspace)
+            workspace = _assert_recipe_application_can_prepare(context, workspace)
         except WorkspaceError as error:
             request.session["summary_error"] = str(error)
             return RedirectResponse(
@@ -158,7 +159,7 @@ def enqueue_preparation(context: WebContext, workspace_id: str) -> PreparationJo
     """Capture lightweight display/scale metadata before starting the process."""
 
     workspace = _preparation_workspace(context, workspace_id)
-    _assert_recipe_application_can_prepare(context, workspace)
+    workspace = _assert_recipe_application_can_prepare(context, workspace)
     total_rows = _preparation_row_count(context, workspace_id)
     return _manager(context).enqueue(
         workspace_id,
@@ -172,15 +173,18 @@ def enqueue_preparation(context: WebContext, workspace_id: str) -> PreparationJo
 def _assert_recipe_application_can_prepare(
     context: WebContext,
     workspace: PreparationWorkspace,
-) -> None:
+) -> PreparationWorkspace:
     """Keep preparation behind the run's remaining Recipe reviews."""
 
     application_id = workspace.recipe_application_id
     if application_id is None:
-        return
+        return workspace
     application = context.run_planning.repository.get_application(application_id)
     if application.workspace_id != workspace.workspace_id:
         raise WorkspaceError("This Recipe work area no longer matches its run")
+    assert_application_is_current(
+        context.run_planning.repository.get_bundle(workspace.migration_run_id), application,
+    )
     issues = context.run_planning.repository.list_issues(application_id)
     actionable = tuple(
         item for item in issues if item.level.value != "INFORMATION"
@@ -206,6 +210,7 @@ def _assert_recipe_application_can_prepare(
         raise WorkspaceError(
             "Continue this Recipe from its current Review and load step"
         )
+    return replace(workspace, mapping_content_hash=application.mapping_content_hash)
 
 
 def _migration_project_name(context: WebContext, migration_project_id: str) -> str:

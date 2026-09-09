@@ -12,6 +12,9 @@ from starlette.concurrency import run_in_threadpool
 
 from impodo.application.data_version.inspection import SourceInspectionError
 from impodo.application.run.target_defaults import mapped_target_defaults
+from impodo.application.run.progress import (
+    ApplicationResumeStep, application_resume_step, next_unverified_application,
+)
 from impodo.domain.mapping.create_field_policy import VerifiedCreateDefaultAction
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.run.contracts import (
@@ -643,7 +646,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Show only target-specific Selection and Many2one decisions."""
 
         require_session(request)
-        return _render_application_target_matches(
+        return await run_in_threadpool(
+            _render_application_target_matches,
             request,
             context,
             project_id,
@@ -822,6 +826,15 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 "completed_count": review.completed_count,
                 "total_count": review.total_count,
                 "view_hash": review.view_hash,
+                "applications": [
+                    {
+                        "application_id": card.application.application_id,
+                        "progress_percent": card.progress_percent,
+                        "progress_message": card.progress_message,
+                        "message": card.message,
+                    }
+                    for card in review.cards
+                ],
             },
             headers={"Cache-Control": "no-store"},
         )
@@ -885,19 +898,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         )
         if application is None or application.project_id != project.project_id:
             return HTMLResponse("Recipe application not found", status_code=404)
-        applications = {item.recipe_id: item for item in bundle.applications}
-        ordered = tuple(
-            applications[recipe_id]
-            for recipe_id in bundle.requirement_plan.application_order
-        )
-        first_unverified = next(
-            (
-                item
-                for item in ordered
-                if item.status.value not in {"RECONCILED", "QUALIFIED"}
-            ),
-            None,
-        )
+        first_unverified = next_unverified_application(bundle)
         if (
             first_unverified is not None
             and application.status.value not in {"RECONCILED", "QUALIFIED"}
@@ -925,36 +926,20 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             if context.load_jobs is not None
             else None
         )
-        if load is not None:
-            if load.active:
-                destination = (
-                    f"/workspaces/{application.workspace_id}/load/progress/"
-                    f"{load.job_id}"
-                )
-            elif load.status.value == "SUCCEEDED":
-                destination = f"/workspaces/{application.workspace_id}/load/outcome"
-            else:
-                destination = f"/workspaces/{application.workspace_id}/load/review"
-        elif preparation is not None:
-            if preparation.active:
-                destination = (
-                    f"/workspaces/{application.workspace_id}/preparation/"
-                    f"{preparation.job_id}"
-                )
-            elif preparation.status.value == "REVIEW_REQUIRED":
-                destination = f"/workspaces/{application.workspace_id}/resolution"
-            elif preparation.status.value == "SUCCEEDED":
-                destination = f"/workspaces/{application.workspace_id}/normalization"
-            else:
-                destination = f"/workspaces/{application.workspace_id}/prepare"
-        elif application.status.value == "EXECUTED":
-            destination = f"/workspaces/{application.workspace_id}/load/outcome"
-        elif application.status.value == "COMPARED":
-            destination = f"/workspaces/{application.workspace_id}/load/review"
-        elif application.status.value == "PREPARED":
-            destination = f"/workspaces/{application.workspace_id}/normalization"
+        step = application_resume_step(application, preparation, load)
+        if step is ApplicationResumeStep.LOAD_PROGRESS:
+            suffix = f"load/progress/{load.job_id}"
+        elif step is ApplicationResumeStep.PREPARATION_PROGRESS:
+            suffix = f"preparation/{preparation.job_id}"
         else:
-            destination = f"/workspaces/{application.workspace_id}/prepare"
+            suffix = {
+                ApplicationResumeStep.LOAD_RESULT: "load/outcome",
+                ApplicationResumeStep.LOAD_REVIEW: "load/review",
+                ApplicationResumeStep.RESOLVE: "resolution",
+                ApplicationResumeStep.PREPARED_REVIEW: "normalization",
+                ApplicationResumeStep.PREPARE: "prepare",
+            }[step]
+        destination = f"/workspaces/{application.workspace_id}/{suffix}"
         return RedirectResponse(
             destination,
             status_code=303,

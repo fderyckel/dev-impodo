@@ -534,6 +534,7 @@ def create_local_app(
         schema_repository,
         workspace_access,
     )
+    recipe_application_state = RecipeQualitySeedRepository(database)
     mapping_workspace = MappingWorkspaceService(
         workspace_mapping_sources,
         schema_repository,
@@ -542,6 +543,7 @@ def create_local_app(
         categorical_coverage=categorical_coverage,
         supporting_lookups=supporting_lookup_repository,
         downstream_invalidator=correction_repository,
+        recipe_applications=recipe_application_state,
     )
     recipe_application_service = RecipeApplicationService(
         sources=workspace_mapping_sources,
@@ -551,7 +553,7 @@ def create_local_app(
         preparation=derived_entity_repository,
         mappings=mapping_workspace,
         categorical=categorical_coverage,
-        application_state=RecipeQualitySeedRepository(database),
+        application_state=recipe_application_state,
     )
     run_planning = MigrationRunPlanningService(
         projects=migration_projects,
@@ -597,6 +599,7 @@ def create_local_app(
         mapping_repository,
         source_repository,
         quality_repository,
+        recipe_quality=recipe_application_state,
     )
     normalization = NormalizationService(
         normalization_repository,

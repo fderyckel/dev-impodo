@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping
 
 from ..domain.serialization import content_hash
+from impodo.application.run.progress import (
+    application_is_verified, current_preparation, next_unverified_application,
+    ordered_applications,
+)
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.run.contracts import (
@@ -110,6 +114,19 @@ class IntegratedRunReviewView:
     active: bool
     view_hash: str
 
+    @property
+    def odoo_needs_attention(self) -> bool:
+        """Keep unresolved run-target decisions visible in the shared stepper."""
+
+        return any(
+            issue.level is not MigrationRunPlanIssueLevel.INFORMATION
+            and (
+                issue.code.startswith("RECIPE_TARGET_")
+                or issue.code == "MAPPING_CATEGORICAL_COVERAGE_INCOMPLETE"
+            )
+            for card in self.cards for issue in card.issues
+        )
+
 
 def build_integrated_run_review(
     context: WebContext,
@@ -120,11 +137,7 @@ def build_integrated_run_review(
 ) -> IntegratedRunReviewView:
     """Build the final-page projection without opening application stores."""
 
-    by_recipe = {item.recipe_id: item for item in bundle.applications}
-    ordered = tuple(
-        by_recipe[recipe_id]
-        for recipe_id in bundle.requirement_plan.application_order
-    )
+    ordered = ordered_applications(bundle)
     workspace_ids = tuple(item.workspace_id for item in ordered)
     preparations = (
         context.preparation_jobs.latest_many(workspace_ids)
@@ -139,7 +152,7 @@ def build_integrated_run_review(
     complete_ids = {
         item.application_id
         for item in ordered
-        if _application_is_complete(item, loads.get(item.workspace_id))
+        if application_is_verified(item)
     }
     current_id = next(
         (
@@ -169,8 +182,12 @@ def build_integrated_run_review(
                 "application_id": card.application.application_id,
                 "application_status": card.application.status.value,
                 "state": card.state,
-                "progress_percent": card.progress_percent,
-                "progress_message": card.progress_message,
+                "action_url": card.action_url,
+                "action_method": card.action_method,
+                "action_label": card.action_label,
+                "state_label": card.state_label,
+                "status_class": card.status_class,
+                "issues": [item.to_dict() for item in card.issues],
             }
             for card in cards
         ]
@@ -197,23 +214,7 @@ def start_next_preparation(
         raise WorkspaceError(
             "Automatic preparation is currently available for Test runs only"
         )
-    by_recipe = {item.recipe_id: item for item in bundle.applications}
-    ordered = tuple(
-        by_recipe[recipe_id]
-        for recipe_id in bundle.requirement_plan.application_order
-    )
-    next_application = next(
-        (
-            item
-            for item in ordered
-            if item.status
-            not in {
-                RecipeApplicationStatus.RECONCILED,
-                RecipeApplicationStatus.QUALIFIED,
-            }
-        ),
-        None,
-    )
+    next_application = next_unverified_application(bundle)
     if next_application is None:
         raise WorkspaceError("Every Recipe in this Test run is already verified")
     if next_application.status is RecipeApplicationStatus.BLOCKED:
@@ -233,6 +234,7 @@ def start_next_preparation(
     latest = context.preparation_jobs.latest_many(
         (next_application.workspace_id,)
     ).get(next_application.workspace_id)
+    latest = current_preparation(next_application, latest)
     if latest is not None:
         if latest.active:
             return latest
@@ -262,6 +264,10 @@ def publish_preparation_progress(
     application_id = job.workspace.recipe_application_id
     if application_id is None:
         return
+    if getattr(job.workspace, "mapping_content_hash", None) is not None:
+        application = context.run_planning.repository.get_application(application_id)
+        if current_preparation(application, job) is None:
+            return
     if job.status is PreparationJobStatus.RUNNING:
         target = RecipeApplicationStatus.RUNNING
         expected = (
@@ -450,20 +456,6 @@ def _try_start_after_reconciliation(
         return
 
 
-def _application_is_complete(
-    application: RunRecipeApplication,
-    load: LoadJob | None,
-) -> bool:
-    return application.status in {
-        RecipeApplicationStatus.RECONCILED,
-        RecipeApplicationStatus.QUALIFIED,
-    } or bool(
-        load is not None
-        and load.status is LoadJobStatus.SUCCEEDED
-        and load.verification_complete
-    )
-
-
 def _application_card(
     application: RunRecipeApplication,
     *,
@@ -474,11 +466,16 @@ def _application_card(
     current: bool,
     automatic_preparation: bool,
 ) -> RunApplicationCard:
+    preparation = current_preparation(application, preparation)
+    if application.status in {
+        RecipeApplicationStatus.COMPARED, RecipeApplicationStatus.EXECUTED,
+    }:
+        preparation = None
     base_url = (
         f"/projects/{application.project_id}/runs/"
         f"{application.migration_run_id}/applications/{application.application_id}"
     )
-    if _application_is_complete(application, load):
+    if application_is_verified(application):
         return RunApplicationCard(
             application,
             recipe_name,

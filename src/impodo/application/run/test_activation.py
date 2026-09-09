@@ -244,7 +244,7 @@ class TestRunActivationUseCase:
             operation_id=operation_id,
             actor=actor,
         )
-        return committed
+        return self._repository.commit_provisioning(operation_id)
 
     def activate(
         self,
@@ -305,12 +305,41 @@ class TestRunActivationUseCase:
             first = next(item for item in review.planning_issues if item.blocks)
             raise MigrationRunPlanningError(f"{first.message} {first.recovery_action}")
         if test_binding.state is TestRunSetupState.ACTIVE:
+            stored_target = self._repository.get_target_binding(
+                test_binding.migration_run_id
+            )
+            retry_schema = MigrationRunTargetSchema.capture(
+                test_binding.migration_run_id, target_schema,
+                {item.model for item in review.model_requirements},
+            )
+            if stored_target.schema_dependency_hash != retry_schema.content_hash:
+                raise MigrationRunPlanningError(
+                    "Resume activation with its saved Odoo evidence before rechecking the target"
+                )
+            required_reference_names = {item.name for item in review.reference_requirements}
+            retry_reference_hashes = tuple(sorted(
+                item.content_hash
+                for item in (target_reference_bundle.datasets if target_reference_bundle else ())
+                if item.name in required_reference_names
+            ))
+            if tuple(sorted(stored_target.reference_snapshot_hashes)) != retry_reference_hashes:
+                raise MigrationRunPlanningError("Test run references changed after activation was reserved")
             resumed = self._repository.resume_test_activation(
                 operation_id,
+                migration_run_id=test_binding.migration_run_id,
                 actor=actor,
                 fault=fault,
             )
-            return self._materializer.materialize(
+            if resumed.run.migration_run_id != test_binding.migration_run_id:
+                raise MigrationRunPlanningError("This activation belongs to another Test run")
+            reviewed = {item.selection.recipe_id: item for item in review.applications}
+            if any(
+                item.parameter_values_hash != reviewed[item.recipe_id].assessment.parameter_values_hash
+                or item.physical_binding_hash != reviewed[item.recipe_id].assessment.physical_binding_hash
+                for item in resumed.applications
+            ):
+                raise MigrationRunPlanningError("Test run inputs changed after activation was reserved")
+            materialized = self._materializer.materialize(
                 resumed,
                 review=review,
                 operation_id=operation_id,
@@ -320,6 +349,13 @@ class TestRunActivationUseCase:
                 ),
                 actor=actor,
             )
+            self._ensure_cutover_plan(
+                materialized,
+                review=review,
+                operation_id=operation_id,
+                actor=actor,
+            )
+            return self._repository.commit_provisioning(operation_id)
         current_run = self._repository.foundation.get_migration_run(
             test_binding.migration_run_id
         )
@@ -444,7 +480,7 @@ class TestRunActivationUseCase:
             operation_id=operation_id,
             actor=actor,
         )
-        return committed
+        return self._repository.commit_provisioning(operation_id)
 
     def _ensure_cutover_plan(
         self,

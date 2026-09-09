@@ -53,6 +53,12 @@ or retry therefore cannot create a second set of Recipe work areas. The former
 Test activation page and routes do not remain as a second decision or write
 path.
 
+Activation is complete only after application materialization and the
+CutoverPlan binding have both succeeded. Recovery uses the original operation
+and target evidence, preserves completed application mappings, and never
+resumes an operation owned by another run. An incomplete compiler attempt
+cannot become a committed activation merely because it saved a working draft.
+
 The Test DataVersion owns the complete immutable source package. Each
 application workspace stores only its selected logical dataset and snapshot
 references. It never copies source rows or another workspace database.
@@ -156,6 +162,18 @@ domain, or mutate the protected Recipe revision. A submitted decision may
 change only the application mapping draft. The normal mapping validator and
 submission service must accept the complete mapping before the application can
 become `READY`.
+
+Submitting or confirming a run mapping must preserve its compiled Recipe
+baseline. Permitted run choices are target categorical matches and current
+non-invariant control expectations. Providers, transformations, source and
+target identities, relationship structure, write ownership, and invariant
+expectations cannot change through this path. Verified Odoo-default recovery
+remains an explicit compiler operation against the pinned Recipe.
+
+Preparation must evaluate the Recipe's business checks against the confirmed
+mapping, including after a permitted choice changes its hash. Missing evidence
+must block evaluation; it must not be treated as an empty rule set. A cached
+ruleset cannot bypass this requirement.
 
 A supported required writable field added by the current Odoo target follows
 the shared create-field policy. A usable `default_get` value creates a fresh,

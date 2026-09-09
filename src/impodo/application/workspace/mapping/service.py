@@ -247,6 +247,14 @@ class MappingDownstreamInvalidator(Protocol):
     ) -> None: ...
 
 
+class RecipeMappingPolicy(Protocol):
+    """Constrain submitted run mappings to their compiled Recipe meaning."""
+
+    def assert_mapping_adaptation(
+        self, workspace_id: str, definition: MappingDefinition,
+    ) -> None: ...
+
+
 class MappingWorkspaceService:
     """Own Stage D concurrency, evidence binding, and submission gates.
 
@@ -265,6 +273,7 @@ class MappingWorkspaceService:
         categorical_coverage: CategoricalCoverageService,
         supporting_lookups: MappingSupportingLookupRepository | None = None,
         downstream_invalidator: MappingDownstreamInvalidator | None = None,
+        recipe_applications: RecipeMappingPolicy | None = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
@@ -273,6 +282,7 @@ class MappingWorkspaceService:
         self.categorical_coverage = categorical_coverage
         self.supporting_lookups = supporting_lookups
         self.downstream_invalidator = downstream_invalidator
+        self.recipe_applications = recipe_applications
         self.validator = MappingSemanticValidator()
 
     def begin_mutation(
@@ -1049,6 +1059,8 @@ class MappingWorkspaceService:
                 datasets=tuple(datasets),
             )
         )
+        if self.recipe_applications is not None:
+            self.recipe_applications.assert_mapping_adaptation(workspace_id, candidate)
         if candidate.content_hash != revision.definition.content_hash:
             raise WorkspaceError(
                 "These field matches changed after they were checked. "

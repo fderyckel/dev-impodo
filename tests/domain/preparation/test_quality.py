@@ -33,6 +33,7 @@ from impodo.application.workspace.preparation.quality_service import (
     QualityService,
 )
 from impodo.domain.errors import ReadinessError
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.compiler import compile_profile_document
 from impodo.domain.execution.planner import plan_record_requests
 from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bundle
@@ -909,6 +910,39 @@ class QualityEvaluationTests(unittest.TestCase):
         self.assertTrue(by_source_row[3].requires_review)
         self.assertEqual(by_source_row[4].issue_ids, ())
         self.assertFalse(by_source_row[4].requires_review)
+
+    def test_recipe_seed_repairs_cached_rules_and_runs_before_quality_publication(self) -> None:
+        row = replace(_canonical_row("5", 2), proposed_values={"start": 10, "end": 5})
+        staging = _staging(self.workspace_state.workspace_id, (row,))
+        seed = manager_quality_rule(
+            workspace_id=self.workspace_state.workspace_id, dataset="contacts",
+            family=QualityRuleFamily.ORDERED_COMPARISON, name="Start before end",
+            input_fields=("start", "end"), outcome=QualityOutcomePolicy.WARNING,
+        )
+        existing = default_quality_ruleset(
+            workspace_id=self.workspace_state.workspace_id, mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH, datasets=("contacts",),
+        )
+        repository = MagicMock()
+        repository.get_current_quality_ruleset.return_value = existing
+        repository.publish_quality_ruleset.side_effect = lambda workspace_id, ruleset, **kwargs: ruleset
+        repository.publish_quality_run.return_value = SimpleNamespace(can_compare=True)
+        seeds = MagicMock()
+        seeds.get_quality_seed.return_value = (seed,)
+        service = QualityService(MagicMock(), MagicMock(), repository, recipe_quality=seeds)
+        run, _ = service.evaluate_and_publish(
+            self.workspace_state,
+            SimpleNamespace(definition=SimpleNamespace(content_hash=MAPPING_HASH, schema_hash=SCHEMA_HASH)),
+            SimpleNamespace(datasets=(SimpleNamespace(name="contacts"),)), staging,
+            {"dataset:contacts": (2,)}, SimpleNamespace(content_hash=staging.content_hash, run_id="staging:1"),
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(run.review_count, 1)
+        repaired = repository.publish_quality_ruleset.call_args.args[1]
+        self.assertIn(seed, repaired.rules)
+        self.assertEqual(repaired.parent_version, existing.version)
+        with self.assertRaisesRegex(WorkspaceError, "new Recipe version"):
+            service.publish_ruleset(self.workspace_state.workspace_id, existing, actor=LOCAL_ACTOR)
 
     def test_guided_warning_remains_review_without_removing_record(self) -> None:
         row = replace(

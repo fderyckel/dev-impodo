@@ -470,6 +470,7 @@ def _run_preparation_worker(
             progress=progress,
             cancellation_checkpoint=cancellation_checkpoint,
             timing=diagnostic_timing,
+            expected_mapping_hash=workspace.mapping_content_hash,
         )
         finish_timing("succeeded")
         events.put(("succeeded", normalization.run_id))

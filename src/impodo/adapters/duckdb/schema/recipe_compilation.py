@@ -24,7 +24,8 @@ def create_recipe_compilation_schema(
             mapping_content_hash VARCHAR NOT NULL,
             rules_json VARCHAR NOT NULL,
             content_hash VARCHAR NOT NULL,
-            created_at VARCHAR NOT NULL
+            created_at VARCHAR NOT NULL,
+            mapping_definition_json VARCHAR
         );
         """
     )
