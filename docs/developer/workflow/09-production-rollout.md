@@ -31,12 +31,20 @@ source package, Production MigrationRun, and setup MigrationWorkspace. A
 `ProductionRunBinding` records their exact selection lineage in `SETUP` state.
 No target binding or write credential generation exists yet.
 
-The normal source workflow accepts the complete latest delivery into the new
-DataVersion. The normal Odoo-data workflow captures current Production schema,
-references, read identity, and read credential generation in the setup
-workspace. Activation fails early for an Odoo-source CutoverPlan because the current
-Odoo-source product path stops after capture and cannot safely round-trip to
-Production.
+`RunSetupService` coordinates Test and Production setup through their separate
+aggregate owners. The shared `run_fresh_data.py` router matches detected tables
+against the pinned Recipe inputs. The operator saves valid typed answers, then
+accepts the matched delivery. `ProductionRunValues` stores those answers against
+the exact Production binding and plan. Its repository checks the expected
+revision and binding hash in one transaction. Accepted or activating answers
+cannot be replaced; an identical retry returns the saved version.
+
+The shared `RunOdooRequirementsUseCase` reads the selected Recipe revisions in
+one batch and derives the required Odoo models and supporting lists. The shared
+Odoo-check route captures this scope through the existing schema and reference
+services, then opens Production readiness. This read-only check creates no
+application or write authority. Activation rejects Odoo-source plans because
+the current Odoo-source product path cannot round-trip them to Production.
 
 ### Exact activation
 
@@ -45,9 +53,11 @@ qualification, reads the qualified Test target identity, and delegates to
 `MigrationRunPlanningService.activate_production_run`. Its
 `ProductionRunValuesUseCase` reads the pinned Recipe revisions in one batch
 and uses the same typed prompts and canonical parameter/control validators
-as Test. The form binds its answers to the exact plan and delivery. Invalid
-answers and stale forms are rejected before the write probe or vault update.
-Failed forms retain editable answers without redisplaying secrets. Review uses the exact
+as Test. Fresh data owns answer entry; readiness displays the accepted answers
+as a summary. The activation form carries their evidence hash and rejects
+stale meaning before the write probe or vault update. Direct activation calls
+are also checked against saved answers. Existing API setups without a saved
+answer record retain canonical validation at activation. Review uses the exact
 plan revisions and dependency graph. It recompiles current physical source
 bindings, parameters, controls, Odoo requirements, references, and write
 claims without creating an application.
@@ -109,6 +119,13 @@ principal, permissions, or context requires a new Production setup. The
 existing dependency guard still stops downstream applications until
 predecessors reconcile.
 
+Read-key reconnection updates the current access evidence in the application
+schema projection. `RunAwareSchemaRepository` delegates this to the local
+repository's compare-and-swap transaction, which preserves schema meaning and
+mapping governance. The original run capture and target binding stay immutable.
+A changed identity still requires a new setup; the refreshed comparison must
+carry the current credential generation.
+
 Activation has one registry transaction followed by application-store creation
 and compiler materialization. The versioned `activation_inputs` payload in
 its existing operation intent stores canonical answers and the observed write
@@ -130,7 +147,8 @@ can establish what happened before retry.
 
 The exact registry generation is
 `impodo-migration-registry-2026-08-project-root`. Supported older versions in
-that generation upgrade transactionally before use. Other generations remain
+that generation upgrade transactionally before use. Version 7 adds the separate
+`production_run_values` table. The upgrade preserves Test answer JSON and hashes. Other generations remain
 unchanged and fail closed.
 
 Project overview loads Production bindings with one registry query and setup
@@ -146,11 +164,13 @@ call per source row, or N+1 workspace open for Project status.
 | --- | --- |
 | Domain binding | [`migration_production.py`](../../../src/impodo/domain/run/production.py) |
 | Setup and authority guard | [`production_cutover_service.py`](../../../src/impodo/application/production_cutover_service.py) |
+| Saved Production answer contract | [`ProductionRunValues`](../../../src/impodo/domain/run/production_values.py) |
 | Typed Production answers | [`production_values.py`](../../../src/impodo/application/run/production_values.py) |
 | Shared Test and Production prompts | [`fresh_data_values.py`](../../../src/impodo/application/run/fresh_data_values.py), [`_run_value_fields.html`](../../../src/impodo/web/templates/_run_value_fields.html), [`_run_control_fields.html`](../../../src/impodo/web/templates/_run_control_fields.html) |
 | Shared review and compiler path | [`planning_service.py`](../../../src/impodo/application/run/planning_service.py) |
 | Production registry binding | [`production_run_repository.py`](../../../src/impodo/adapters/duckdb/production_run_repository.py) |
 | Run activation and recovery | [`migration_run_planning_repository.py`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
+| Shared setup | [`setup_service.py`](../../../src/impodo/application/run/setup_service.py), [`run_fresh_data.py`](../../../src/impodo/web/routers/run_fresh_data.py), [`odoo_requirements.py`](../../../src/impodo/application/run/odoo_requirements.py) |
 | Browser workflow | [`production_runs.py`](../../../src/impodo/web/routers/production_runs.py), [`execution.py`](../../../src/impodo/web/routers/execution.py), [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
 
 ## Verification
@@ -165,20 +185,23 @@ workspaces, stale credential-generation rejection, same-identity rotation
 after fresh comparison, target-reuse rejection, browser separation language,
 and recovery after a registry/store boundary fault.
 
-The browser journey uses real qualification publication, Recipe compilation,
-source acceptance, and preparation. Its Production total differs from Test.
-It substitutes Odoo metadata, the write probe, and completed Test execution
-evidence. It therefore does not establish live Odoo qualification-to-load
-acceptance or representative performance.
+The lifecycle fixture uses real Recipe compilation, preparation, approval,
+comparison, execution journals, read-back reconciliation, and Test qualification.
+Only Odoo metadata, identity probes, and record transport use fictional adapters.
+The Production total differs from Test, and interrupted activation resumes after
+restart before Production completes its own evidence stages. See the
+[phase 6 report](../../testing/recipe-workflow-phase-6-2026-09-09.md) for the
+executed checks and their limits.
 
 ## Current limitations
 
-Production still uses the generic source confirmation and Odoo capture pages.
-Its upload and logical table matching do not yet share the complete guided
-Test Fresh data flow. Unsubmitted Production answers are retained on form
-errors but are not a durable draft. Large-plan setup compilation remains
-synchronous within its worker thread; no background activation queue or
-whole-workflow timing improvement is claimed.
+**Save run details** stores valid answers, not partial invalid values or table
+choices. Source acceptance still spans the workspace source store and parent
+DataVersion store. Revision checks protect answer writes; there is no single
+transaction covering the whole browser acceptance action across those stores.
+Large-plan compilation remains synchronous within its worker thread. Live Odoo
+acceptance and representative timing and peak-memory measurements are separate
+gates; this change does not establish production throughput.
 
 ## Related documentation
 

@@ -81,6 +81,7 @@ from ..application.cutover_plan_service import (
 )
 from ..application.production_cutover_service import ProductionCutoverService
 from ..application.run.test_setup_service import TestRunSetupService
+from ..application.run.setup_service import RunSetupService
 from ..application.recipe_application_service import RecipeApplicationService
 from ..application.recipe_publication_service import RecipePublicationService
 from ..application.workspace_source_projection import (
@@ -245,6 +246,7 @@ from .routers.execution import build_execution_router
 from .routers.corrections import build_corrections_router
 from .routers.preparation import build_preparation_router
 from .routers.integrated_runs import build_integrated_runs_router
+from .routers.run_fresh_data import build_run_fresh_data_router
 from .routers.cutover_plans import build_cutover_plans_router
 from .routers.production_runs import build_production_runs_router
 from .routers.migration_projects import build_migration_projects_router
@@ -598,6 +600,8 @@ def create_local_app(
         run_planning=run_planning,
         authorization=resolved_authorization,
     )
+    run_setups = RunSetupService(test_runs=test_runs, production_runs=production_runs,
+        runs=migration_runs, recipes=recipes, authorization=resolved_authorization)
     quality = QualityService(
         mapping_repository,
         source_repository,
@@ -956,6 +960,7 @@ def create_local_app(
         cutover_plans=cutover_plans,
         test_runs=test_runs,
         production_runs=production_runs,
+        run_setups=run_setups,
         data_version_source_projection=data_version_source_projection,
         workspace_states=workspace_states,
         intake=SourceIntakeService(
@@ -1326,6 +1331,7 @@ def create_local_app(
         build_concepts_router(),
         build_migration_projects_router(context),
         build_integrated_runs_router(context),
+        build_run_fresh_data_router(context),
         build_cutover_plans_router(context),
         build_production_runs_router(context),
         build_workspace_setup_router(context),

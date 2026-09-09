@@ -9,6 +9,8 @@ from impodo.domain.recipe.models import RecipeError
 from impodo.domain.recipe.control_values import normalize_recipe_control_values
 from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID, normalize_recipe_parameter_values
 from impodo.domain.run.production import ProductionRunBinding, ProductionRunError
+from impodo.domain.run.production_values import ProductionRunValues
+from impodo.domain.project.foundation import MigrationConflictError, utc_now
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor
 from .fresh_data_matching import FreshDataRecipeRequirement
@@ -27,6 +29,7 @@ class ProductionValueReview:
     definitions: Mapping[str, Mapping[str, object]]
     export_as_of: str
     values: FreshDataRunValuePlan
+    requirements: tuple[FreshDataRecipeRequirement, ...]
 
     def with_answers(
         self, parameters: Mapping[str, object], controls: Mapping[str, Mapping[str, object]],
@@ -50,8 +53,9 @@ class ProductionValueReview:
 class ProductionRunValuesUseCase:
     """Reuse Test's typed prompts and the canonical Recipe value validators."""
 
-    def __init__(self, recipes) -> None:
+    def __init__(self, recipes, repository=None) -> None:
         self._recipes = recipes
+        self._repository = repository
 
     def review(
         self, binding: ProductionRunBinding, plan: CutoverPlanRevision, data_version: DataVersion,
@@ -84,16 +88,50 @@ class ProductionRunValuesUseCase:
                 parameters=fresh_parameter_requirements(definition, data_version.export_as_of),
                 controls=fresh_control_requirements(definition),
             ))
+        current = self._repository.get_run_values(binding.migration_run_id) if self._repository else None
+        if current and (current.migration_run_id != binding.migration_run_id
+                        or current.production_run_binding_id != binding.production_run_binding_id
+                        or current.project_id != binding.project_id or current.plan_content_hash != plan.content_hash):
+            raise ProductionRunError("Saved values do not match this Production setup")
         return ProductionValueReview(
             evidence_hash=content_hash({
                 "binding": binding.content_hash, "plan": plan.content_hash,
                 "data_version": data_version.data_version_id,
                 "source_package": data_version.source_package_hash,
                 "export_as_of": data_version.export_as_of,
+                "values": current.content_hash if current else None,
             }),
             definitions=definitions, export_as_of=normalize_export_date(data_version.export_as_of),
-            values=build_fresh_data_run_value_plan(tuple(requirements), None),
+            values=build_fresh_data_run_value_plan(tuple(requirements), current), requirements=tuple(requirements),
         )
+
+    def save(self, binding: ProductionRunBinding, review: ProductionValueReview,
+             parameters: Mapping[str, object], controls: Mapping[str, Mapping[str, object]],
+             *, expected_revision: int | None, actor: Actor) -> ProductionRunValues:
+        """Persist canonical answers before accepting the delivery."""
+
+        normalized = self.submitted_values(review, parameters, controls, expected_evidence_hash=review.evidence_hash)
+        values = ProductionRunValues(
+            production_run_binding_id=binding.production_run_binding_id, project_id=binding.project_id,
+            migration_run_id=binding.migration_run_id, plan_content_hash=binding.plan_content_hash,
+            revision=1 if expected_revision is None else expected_revision + 1,
+            parameters=normalized.parameters, controls=normalized.controls, updated_by=actor.identity, updated_at=utc_now(),
+        )
+        return self._repository.replace_run_values(values, expected_revision=expected_revision,
+            expected_binding_hash=binding.content_hash, actor=actor)
+
+    def activation_values(self, binding, review, parameters, controls) -> FreshDataActivationValues:
+        """Use saved delivery answers and reject an activation-time replacement."""
+
+        saved = self._repository.get_run_values(binding.migration_run_id)
+        if saved is None:
+            return self.normalize(review, parameters, controls)
+        normalized = self.normalize(review, saved.by_recipe if parameters is None else parameters,
+                                    saved.controls_by_recipe if controls is None else controls)
+        expected = self.normalize(review, saved.by_recipe, saved.controls_by_recipe)
+        if normalized != expected:
+            raise MigrationConflictError("Run details were accepted with this fresh data; start a new Production run to change them")
+        return normalized
 
     @staticmethod
     def normalize(

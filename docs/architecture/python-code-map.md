@@ -192,13 +192,18 @@ that review. It verifies complete composite and scope values without changing
 their matching rule. The normal mapping service remains the authority for
 validation and submission. Browser routes handle the form and navigation.
 
+`RunSetupService` and `web/routers/run_fresh_data.py` share the guided source
+journey. Production stores typed answers in its own `ProductionRunValues`
+contract and registry table; Test retains its existing versioned answer format.
+Readiness uses accepted answers rather than a second editable form.
+
 1. The Project route creates one Test setup over exact Recipe revisions and
    explicit dependencies, then accepts one fresh Test DataVersion.
-2. `TestRunOdooRequirementsUseCase.for_workspace` authorizes the run-owned
+2. `RunOdooRequirementsUseCase.for_workspace` authorizes the run-owned
    query, bulk-reads the selected revisions, and unions their Odoo models,
    fields, and Recipe-owned relationship paths without contacting Odoo per
-   Recipe. `TestRunSetupService` retains the stable query used by browser
-   contexts and delegates the decision.
+   Recipe. `RunSetupService` projects the selected Test revisions or qualified
+   Production plan into that query while retaining separate aggregate owners.
 3. The run-owned **Check Odoo** route presents that scope as read-only and
    delegates field capture to the existing shared schema service. A setup
    workspace schema URL redirects to the run; Authoring keeps the editable

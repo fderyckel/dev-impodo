@@ -13,7 +13,6 @@ from starlette.concurrency import run_in_threadpool
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.application.shared.secrets import SecretStoreError
-from impodo.domain.workspace.workbench import SourceMode
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -78,18 +77,12 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 export_as_of=_text(form, "export_as_of"),
                 operation_id=_text(form, "operation_id"),
             )
-        setup_state = context.workspace_states.repository.get(
-            bundle.setup_workspace.workspace_id
-        )
-        destination = (
-            "files" if setup_state.source_mode is SourceMode.FILE else "target"
-        )
         _flash(
             request,
             "Production setup is separate from Integrated Test evidence.",
         )
         return RedirectResponse(
-            f"/workspaces/{bundle.setup_workspace.workspace_id}/{destination}",
+            f"/projects/{project_id}/production-runs/{bundle.run.migration_run_id}/fresh-data",
             status_code=303,
         )
 
@@ -121,7 +114,6 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         form = await request.form()
         require_session(request)
         view = await run_in_threadpool(_activation_view, context, project_id, migration_run_id)
-        value_plan = view["run_value_plan"]
         allowed = {
             "csrf_token",
             "expected_workspace_revision",
@@ -129,11 +121,8 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             "remember_write_api_key",
             "write_api_key",
             "values_evidence_hash",
-        } | {f"parameter_{index}" for index, _ in enumerate(value_plan.editable_values)} | {
-            f"control_{index}" for index, _ in enumerate(value_plan.editable_controls)
         }
         _secure_form(request, form, allowed)
-        submitted_parameters, submitted_controls = _submitted_values(form, value_plan)
         try:
             if (view["activation_complete"] and view["saved_operation"].operation_id == _text(form, "operation_id")):
                 return RedirectResponse(f"/projects/{project_id}/runs/{migration_run_id}", status_code=303)
@@ -141,10 +130,12 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 raise MigrationFoundationError("Continue the saved Production setup from its current step")
             if int(_text(form, "expected_workspace_revision")) != view["project"].optimistic_revision:
                 raise MigrationFoundationError("The Project changed. Reload and review Production setup.")
-            values = context.production_runs.values.submitted_values(
-                view["value_review"], submitted_parameters, submitted_controls,
-                expected_evidence_hash=_text(form, "values_evidence_hash"),
-            )
+            if _text(form, "values_evidence_hash") != view["value_review"].evidence_hash:
+                raise MigrationFoundationError("Production setup changed. Reload and review its current values.")
+            if not view["run_value_plan"].ready_to_continue:
+                raise MigrationFoundationError("Confirm the Recipe details on Fresh data before continuing")
+            values = context.production_runs.values.activation_values(
+                view["binding"], view["value_review"], None, None)
             setup_state = view["setup_state"]
             target_schema, target_references = await run_in_threadpool(
                 context.run_planning.target_evidence_from_workspace,
@@ -232,9 +223,6 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
                 operation_id=_text(form, "operation_id"),
-                submitted_parameters=submitted_parameters,
-                submitted_controls=submitted_controls,
-                submitted_evidence_hash=_text(form, "values_evidence_hash"),
             )
         _flash(
             request,
@@ -311,15 +299,8 @@ def _render_activation(
     error=None,
     status_code=200,
     operation_id=None,
-    submitted_parameters=None,
-    submitted_controls=None,
-    submitted_evidence_hash=None,
 ):
     view = _activation_view(context, project_id, migration_run_id)
-    if submitted_evidence_hash == view["value_review"].evidence_hash:
-        view["run_value_plan"] = view["value_review"].with_answers(
-            submitted_parameters or {}, submitted_controls or {},
-        )
     return _render(
         request,
         "project_production_activation.html",
@@ -375,15 +356,11 @@ def _activation_view(context, project_id, migration_run_id):
     else:
         target_ready = True
         target_error = ""
-    if data_version.state.value != "FROZEN":
-        setup_destination = (
-            f"/workspaces/{setup_workspace.workspace_id}/files"
-            if setup_state.status.value == "DRAFT"
-            else f"/workspaces/{setup_workspace.workspace_id}/sources"
-        )
+    if data_version.state.value != "FROZEN" or not value_review.values.ready_to_continue:
+        setup_destination = f"/projects/{project_id}/production-runs/{migration_run_id}/fresh-data"
         setup_action_label = "Continue fresh data"
     elif not target_ready:
-        setup_destination = f"/workspaces/{setup_workspace.workspace_id}/schema"
+        setup_destination = f"/projects/{project_id}/runs/{migration_run_id}/odoo"
         setup_action_label = "Continue Odoo check"
     else:
         setup_destination = (
@@ -394,6 +371,7 @@ def _activation_view(context, project_id, migration_run_id):
         "binding": binding,
         "value_review": value_review,
         "run_value_plan": value_review.values,
+        "fresh_data_complete": data_version.state.value == "FROZEN" and value_review.values.ready_to_continue,
         "activation_pending": activation_pending,
         "activation_resumable": bool(operation and isinstance(operation.detail.get("activation_inputs"), dict)
                                      and operation.detail["activation_inputs"].get("contract_version") == 1),
@@ -412,14 +390,3 @@ def _activation_view(context, project_id, migration_run_id):
         "target_ready": target_ready,
         "write_status": write_status,
     }
-
-
-def _submitted_values(form, plan):
-    parameters = {
-        item.logical_parameter_id: _text(form, f"parameter_{index}")
-        for index, item in enumerate(plan.editable_values)
-    }
-    controls = {}
-    for index, item in enumerate(plan.editable_controls):
-        controls.setdefault(item.recipe_id, {})[item.requirement.logical_control_id] = _text(form, f"control_{index}")
-    return parameters, controls

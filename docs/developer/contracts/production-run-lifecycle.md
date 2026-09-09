@@ -26,6 +26,25 @@ The setup state grants no Odoo write authority. It pins one current Project
 cutover selection, its authenticated qualification, and the exact immutable
 CutoverPlan revision.
 
+## Delivery answers
+
+Test and Production use the same Recipe-derived source matching and Odoo
+requirements. Each run retains its own delivery, answers, credentials, and
+evidence. Production answers belong to `ProductionRunValues`, identified by
+the Production binding, run, Project, plan hash, and revision. They are stored
+separately from the legacy Test answer contract.
+
+Saving valid answers does not accept the source delivery. The repository
+compares the current answer revision and binding hash transactionally. Once
+the delivery is accepted or activation has an intent, changed answers fail
+closed. A legacy accepted setup without an answer record may confirm its
+answers once before activation. Readiness displays accepted answers without
+an editing control; activation cannot override them.
+
+Registry version 7 adds this answer table without rewriting existing Test
+records. Source acceptance remains a cross-store operation; answer revision
+checks do not make the entire acceptance action one database transaction.
+
 ## Activation boundary
 
 Activation requires all of the following:

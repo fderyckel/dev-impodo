@@ -39,10 +39,9 @@ class RunAwareSchemaRepository:
         return self.local.save_odoo_schema_catalog(workspace_id, catalog, actor=actor)
 
     def rebind_odoo_schema_access(self, workspace_id, catalog, **kwargs):
-        if self.runs.get_workspace_target_schema(workspace_id) is not None:
-            raise MigrationRunPlanningError(
-                "Refresh target evidence once from the integrated run"
-            )
+        # The local mapping-governance projection owns current access evidence.
+        # Its atomic rebind preserves schema meaning, mapping hashes and the
+        # immutable run capture while checking the previous credential generation.
         return self.local.rebind_odoo_schema_access(
             workspace_id,
             catalog,

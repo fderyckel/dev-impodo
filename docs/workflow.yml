@@ -134,9 +134,10 @@ stages:
     developer_doc: docs/developer/workflow/07-integrated-test-runs.md
     router_modules:
       - src/impodo/web/routers/integrated_runs.py
+      - src/impodo/web/routers/run_fresh_data.py
     templates:
       - src/impodo/web/templates/project_test_run_new.html
-      - src/impodo/web/templates/project_test_run_fresh_data.html
+      - src/impodo/web/templates/project_run_fresh_data.html
       - src/impodo/web/templates/project_integrated_run.html
       - src/impodo/web/templates/project_recipe_odoo_defaults.html
       - src/impodo/web/templates/project_recipe_target_matches.html
@@ -149,7 +150,7 @@ stages:
       - src/impodo/application/run/fresh_data_setup.py::TestRunFreshDataUseCase.replace_run_values
       - src/impodo/domain/run/test_setup.py::TestRunValues
       - src/impodo/domain/recipe/control_values.py::normalize_recipe_control_values
-      - src/impodo/application/run/odoo_requirements.py::TestRunOdooRequirementsUseCase.for_workspace
+      - src/impodo/application/run/odoo_requirements.py::RunOdooRequirementsUseCase.for_workspace
       - src/impodo/domain/recipe_parameters.py::normalize_recipe_parameter_values
       - src/impodo/domain/recipe/source_binding.py::logical_dataset_storage_name
       - src/impodo/web/source_file_commands.py::accept_source_uploads
@@ -200,6 +201,7 @@ stages:
       - tests/application/run/test_target_defaults.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/application/workspace/test_journeys.py
+      - tests/application/workspace/test_run_navigation.py
     contracts:
       - docs/developer/contracts/integrated-run-lifecycle.md
       - docs/developer/contracts/project-lifecycle.md
@@ -241,8 +243,11 @@ stages:
       - src/impodo/web/templates/project_production_run_new.html
       - src/impodo/web/templates/project_production_activation.html
     code_references:
+      - src/impodo/web/routers/run_fresh_data.py::build_run_fresh_data_router
       - src/impodo/application/production_cutover_service.py::ProductionCutoverService
       - src/impodo/application/run/production_values.py::ProductionRunValuesUseCase
+      - src/impodo/application/run/setup_service.py::RunSetupService
+      - src/impodo/domain/run/production_values.py::ProductionRunValues
       - src/impodo/application/run/planning_service.py::MigrationRunPlanningService.activate_production_run
       - src/impodo/adapters/duckdb/production_run_repository.py::ProductionRunRepository
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository.activate_production_run

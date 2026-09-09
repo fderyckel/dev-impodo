@@ -8,7 +8,7 @@
     <div>
       <p class="eyebrow">{{ project.display_name }} &middot; {{ run.label }}</p>
       <h1>Fresh data</h1>
-      <p>The selected Recipe versions already define the source tables and columns this Test run needs. Add the current files; you do not need to choose the Recipe relationships again.</p>
+      <p>The selected Recipe versions already define the source tables and columns this {{ run_label }} run needs. Add the current files; you do not need to choose the Recipe relationships again.</p>
     </div>
     <span class="status {% if fresh_data_complete %}registered{% else %}draft{% endif %}">{% if fresh_data_complete %}Complete{% else %}Current{% endif %}</span>
   </div>
@@ -33,9 +33,9 @@
           <div class="file-row">
             <div><strong>{{ file.display_name }}</strong><span>{{ file.size_bytes }} bytes</span></div>
             <div class="source-file-actions">
-              <span>Added to this Test data version</span>
+              <span>Added to this {{ run_label }} data version</span>
               {% if can_edit_files %}
-                {% set source_file_remove_action = '/projects/' ~ project.project_id ~ '/test-runs/' ~ run.migration_run_id ~ '/fresh-data/files/' ~ file.file_id ~ '/remove' %}
+                {% set source_file_remove_action = fresh_data_url ~ '/files/' ~ file.file_id ~ '/remove' %}
                 {% include "_source_file_remove_form.html" %}
               {% endif %}
             </div>
@@ -47,7 +47,7 @@
       <p>No fresh files have been added yet.</p>
     {% endif %}
     {% if can_edit_files %}
-      <form method="post" enctype="multipart/form-data" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/files">
+      <form method="post" enctype="multipart/form-data" action="{{ fresh_data_url }}/files">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ setup_state.revision }}">
         <label>
@@ -60,7 +60,7 @@
         </div>
       </form>
       {% if setup_state.source_files %}
-        <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/register">
+        <form method="post" action="{{ fresh_data_url }}/register">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="revision" value="{{ setup_state.revision }}">
           <div class="actions">
@@ -91,7 +91,7 @@
         </div>
       </div>
 
-      <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/accept">
+      <form method="post" action="{{ fresh_data_url }}/accept">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if run_value_plan.has_values %}<input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">{% include "_run_value_fields.html" %}{% endif %}
         <div class="recipe-match-list">
@@ -159,6 +159,9 @@
           </div>
         {% endif %}
 
+        {% if run_value_plan.requires_confirmation and run_value_plan.can_confirm %}
+          <div class="actions"><button class="button secondary" type="submit" name="intent" value="save" formnovalidate>Save run details</button></div>
+        {% endif %}
         {% if match_plan.can_submit and run_value_plan.can_confirm %}
           <div class="actions"><button class="button primary" type="submit">Use this fresh data</button></div>
         {% else %}
@@ -177,23 +180,16 @@
     <section class="form-card" aria-labelledby="run-details-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Known for this Test run</p>
+          <p class="eyebrow">Known for this {{ run_label }} run</p>
           <h2 id="run-details-title">Details for this run</h2>
           <p>These answers belong to this fresh delivery. The Recipe definitions remain unchanged.</p>
         </div>
       </div>
       {% if run_value_plan.ready_to_continue %}
-        <dl class="summary-list">
-          {% for item in run_value_plan.values %}
-            <div><dt>{{ item.label }}</dt><dd>{{ item.supplied_value }}</dd></div>
-          {% endfor %}
-          {% for item in run_value_plan.controls %}
-            <div><dt>{{ item.requirement.label }} · {{ item.recipe_name }}</dt><dd>{{ item.supplied_value }} {{ item.requirement.unit }}{% if item.automatic %} · Fixed by the Recipe{% endif %}</dd></div>
-          {% endfor %}
-        </dl>
-        {% if run_value_plan.requires_confirmation %}<p class="muted">These details were accepted with this fresh data. Start a new Test run if they need to change.</p>{% endif %}
+        {% include "_run_value_summary.html" %}
+        {% if run_value_plan.requires_confirmation %}<p class="muted">These details were accepted with this fresh data. Start a new {{ run_label }} run if they need to change.</p>{% endif %}
       {% else %}
-        <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/accept">
+        <form method="post" action="{{ fresh_data_url }}/accept">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">{% include "_run_value_fields.html" %}
           {% if run_value_plan.can_confirm %}<div class="actions"><button class="button primary" type="submit">Save run details</button></div>{% endif %}

@@ -92,6 +92,7 @@ def _workspace() -> MigrationWorkspace:
 
 
 def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute("DROP TABLE IF EXISTS production_run_values")
     connection.execute("DROP TABLE IF EXISTS correction_run_binding")
     connection.execute("DROP TABLE IF EXISTS mapping_mutation_receipt")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
@@ -237,6 +238,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     (3, 4, "migration-registry-v3-to-v4-test-run-values"),
                     (4, 5, "migration-registry-v4-to-v5-correction-binding"),
                     (5, 6, "migration-registry-v5-to-v6-run-control-values"),
+                    (6, 7, "migration-registry-v6-to-v7-production-values"),
                 ],
             )
             self.assertEqual(
@@ -247,6 +249,24 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
             )
         finally:
             connection.close()
+
+    def test_registry_v6_adds_production_values_without_rewriting_test_answers(self):
+        with duckdb.connect(":memory:") as connection:
+            path = Path("C:/impodo/registry.duckdb")
+            ensure_migration_registry_schema(connection, path)
+            connection.execute("INSERT INTO migration_project_identity VALUES (?)", [PROJECT_ID])
+            connection.execute("INSERT INTO migration_run_identity VALUES (?)", [RUN_ID])
+            connection.execute("INSERT INTO test_run_parameter_values VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 2)",
+                [WORKSPACE_ID, PROJECT_ID, RUN_ID, '{"values":[],"controls":[]}', "sha256:" + "1" * 64,
+                 "local", "operator", "Data manager", CREATED_AT.isoformat()])
+            original = connection.execute("SELECT * FROM test_run_parameter_values").fetchall()
+            connection.execute("DROP TABLE production_run_values")
+            connection.execute("UPDATE schema_version SET version = 6")
+            ensure_migration_registry_schema(connection, path)
+            ensure_migration_registry_schema(connection, path)
+            self.assertEqual(connection.execute("SELECT * FROM test_run_parameter_values").fetchall(), original)
+            self.assertEqual(connection.execute("SELECT * FROM production_run_values").fetchall(), [])
+            self.assertEqual(connection.execute("SELECT from_version, to_version FROM schema_migration").fetchall(), [(6, 7)])
 
     def test_data_version_v1_upgrades_without_rewriting_package_data(self) -> None:
         connection = duckdb.connect(":memory:")

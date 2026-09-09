@@ -111,7 +111,7 @@ def recipe_run_home(
         )
     return (
         f"/projects/{access_context.project_id}/production-runs/"
-        f"{access_context.migration_run_id}/activate"
+        f"{access_context.migration_run_id}/fresh-data"
     )
 
 

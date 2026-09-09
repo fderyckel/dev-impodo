@@ -133,6 +133,9 @@ missing or invalid numbers prevent acceptance.
 
 ![Fresh data asks for the opening balance total and shows the Recipe, table, currency, and allowed difference before acceptance.](../../images/user/03a-fresh-data-control-totals.png)
 
+**Save run details** keeps valid answers while you review the table matches.
+It does not accept the files or save unsubmitted table choices.
+
 Once accepted, the totals appear as a summary. Field review cannot replace
 them; start a new Test run if a total was wrong. An older setup that saved its
 other answers before this feature may request its missing totals once. Its

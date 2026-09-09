@@ -389,6 +389,20 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(event, ("ODOO_SCHEMA_ACCESS_REBOUND",))
 
+    def test_inherited_schema_reconnects_without_authoring_registration(self):
+        from impodo.domain.workspace.workbench import WorkspaceStatus
+
+        schema = self._capture_authenticated_schema()
+        current = self.schemas.workspaces.get(self.workspace_state.workspace_id)
+        inherited = replace(current, status=WorkspaceStatus.DRAFT)
+        with patch.object(self.schemas.workspaces, "get", return_value=inherited), \
+                patch.object(self.schemas.sources, "get_source_selection", side_effect=AssertionError("Reconnection must use saved schema")):
+            rebound = self.schemas.rebind_current_access(inherited.workspace_id, _metadata_snapshot(),
+                read_credential_binding_hash="sha256:" + "7" * 64,
+                read_identity=_read_identity(("res.partner",)), actor=LOCAL_ACTOR)
+        self.assertEqual(rebound.content_hash, schema.content_hash)
+        self.assertEqual(rebound.models, schema.models)
+
     def test_schema_access_rebind_ignores_display_label_only_changes(self) -> None:
         schema = self._capture_authenticated_schema()
         snapshot = _metadata_snapshot()

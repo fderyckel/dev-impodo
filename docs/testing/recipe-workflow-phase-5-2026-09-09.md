@@ -110,3 +110,6 @@ converged with the guided Test flow. Unsubmitted Production answers are not
 persisted as a draft. The next acceptance boundary is a representative
 qualified Test through Production comparison, controlled load, and verified
 read-back, followed by timing and peak-memory measurements at realistic sizes.
+
+The subsequent [phase 6 report](recipe-workflow-phase-6-2026-09-09.md) records
+the shared setup implementation and stronger lifecycle acceptance evidence.

@@ -28,7 +28,7 @@
     {% if not target_ready %}
       <div class="notice"><strong>Production Odoo evidence needs attention.</strong><p>{{ target_error }}</p></div>
     {% endif %}
-    {% if data_version.state.value != 'FROZEN' or not target_ready %}
+    {% if data_version.state.value != 'FROZEN' or not run_value_plan.ready_to_continue or not target_ready %}
     <div class="actions"><a class="button secondary" href="{{ setup_destination }}">{{ setup_action_label }}</a></div>
     {% endif %}
   </section>
@@ -48,14 +48,18 @@
     </section>
   {% elif activation_complete %}
     <section class="next-action-card current"><div><p class="eyebrow">Ready</p><h2>Production Recipe work areas were created</h2><p>Each work area must still prepare, compare, receive approval, load, and verify its result using fresh Production evidence.</p></div><a class="button primary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Production run</a></section>
-  {% elif data_version.state.value == 'FROZEN' and target_ready and read_status.available %}
+  {% elif data_version.state.value == 'FROZEN' and run_value_plan.ready_to_continue and target_ready and read_status.available %}
     <form method="post" action="/projects/{{ project.project_id }}/production-runs/{{ run.migration_run_id }}/activate" class="form-card">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="operation_id" value="{{ operation_id }}">
       <input type="hidden" name="expected_workspace_revision" value="{{ project.optimistic_revision }}">
       <input type="hidden" name="values_evidence_hash" value="{{ value_review.evidence_hash }}">
 
-      {% include "_run_value_fields.html" %}
+      {% if run_value_plan.has_values %}
+      <h2>Accepted details for this delivery</h2>
+      {% include "_run_value_summary.html" %}
+      <p>These values were accepted on Fresh data. Start a new Production setup if they need to change.</p>
+      {% endif %}
 
       <label>
         Separate Production write API key

@@ -1,0 +1,8 @@
+<dl class="summary-grid">
+  {% for item in run_value_plan.values %}
+    <div><dt>{{ item.label }}</dt><dd>{{ item.supplied_value }}</dd></div>
+  {% endfor %}
+  {% for item in run_value_plan.controls %}
+    <div><dt>{{ item.requirement.label }} &middot; {{ item.recipe_name }}</dt><dd>{{ item.supplied_value }} {{ item.requirement.unit }}{% if item.automatic %} &middot; Fixed by the Recipe{% endif %}</dd></div>
+  {% endfor %}
+</dl>

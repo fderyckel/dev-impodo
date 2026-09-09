@@ -8,15 +8,20 @@ from typing import Protocol
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.recipe.models import RecipeError
-from impodo.domain.run.test_setup import TestRunSetupBinding
+from impodo.domain.run.contracts import RecipeRevisionSelection
 
 from .fresh_data_values import recipe_definition
 
 
-class TestRunSelectionReader(Protocol):
-    """Read the Test setup selection that owns one setup workspace."""
+class SelectedRunSetup(Protocol):
+    project_id: str
+    selected_revisions: tuple[RecipeRevisionSelection, ...]
 
-    def for_workspace(self, workspace_id: str) -> TestRunSetupBinding | None: ...
+
+class RunSetupSelectionReader(Protocol):
+    """Read the Recipe selection that owns one setup workspace."""
+
+    def for_workspace(self, workspace_id: str) -> SelectedRunSetup | None: ...
 
 
 class SelectedRecipe(Protocol):
@@ -33,7 +38,7 @@ class SelectedRecipeRevision(Protocol):
 
 
 class SelectedRecipeRevisionReader(Protocol):
-    """Bulk-read the exact Recipe revisions pinned by one Test run."""
+    """Bulk-read the exact Recipe revisions pinned by one run."""
 
     def read_revisions(
         self,
@@ -85,17 +90,17 @@ class OdooCheckRequirementPlan:
         return tuple(item.model_name for item in self.models)
 
 
-class TestRunOdooRequirementsUseCase:
-    """Build an authorized, bounded Odoo requirement projection for a Test run."""
+class RunOdooRequirementsUseCase:
+    """Build an authorized, bounded Odoo requirement projection for either run."""
 
     def __init__(
         self,
         *,
-        test_runs: TestRunSelectionReader,
+        setups: RunSetupSelectionReader,
         recipes: SelectedRecipeRevisionReader,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self._test_runs = test_runs
+        self._setups = setups
         self._recipes = recipes
         self._authorization = authorization
 
@@ -118,7 +123,7 @@ class TestRunOdooRequirementsUseCase:
     ) -> OdooCheckRequirementPlan | None:
         """Read all selected revisions once and combine their Odoo needs."""
 
-        binding = self._test_runs.for_workspace(workspace_id)
+        binding = self._setups.for_workspace(workspace_id)
         if binding is None:
             return None
         self._authorization.require(

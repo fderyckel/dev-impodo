@@ -13,7 +13,7 @@ different compatible Odoo 19 Production database. The Recipe rules come from
 the qualified plan. The data, access, checks, approval, load results, and
 verification are all new Production evidence.
 
-![Production readiness asks for the opening balance total from the latest delivery and a separate Production write key.](../../images/user/05a-production-readiness.png)
+![Production readiness shows the accepted delivery total and asks for a separate Production write key.](../../images/user/05a-production-readiness.png)
 
 ## Before you start
 
@@ -33,20 +33,24 @@ Production check.
 
 1. Open the data project and select **Start Production setup**.
 2. Name the rollout and enter the latest export cutoff.
-3. Under **Fresh data**, add the complete latest file delivery.
-4. Review every required file and table, then accept the Production data
-   version.
-5. Under **Check Odoo**, connect the Production Odoo 19 database with the read-only key and capture
-   its current fields and supporting lists.
-6. Select **Return to Production run setup**.
-7. Under **Details for this run**, enter the values requested by the Recipes.
-   Shared values are entered once. Under **Expected totals for this delivery**,
-   enter each Recipe's latest totals. The export date comes from this delivery;
-   checks fixed by a Recipe are shown without an editing control.
-8. Enter the separate Production write key and select **Create Production work
-   areas**.
-9. Open the Production run and follow its current **Review and load** action.
-   Prepare, compare, approve, load, and verify each Recipe in dependency order.
+3. Under **Fresh data**, add the complete latest file delivery and select
+   **Check files and match tables**. Impodo matches the files against the saved
+   Recipe inputs. Resolve missing columns, unused inputs, or ambiguous tables.
+4. Enter the requested details and each Recipe's expected totals for this
+   delivery. **Save run details** keeps valid answers while you review the
+   tables. Select **Use this fresh data** when the delivery is ready.
+5. Under **Check Odoo**, connect the Production Odoo 19 database with the
+   read-only key. Impodo selects the required record types and supporting
+   lists from the qualified Recipes. Check the selected data with Odoo.
+6. On Production readiness, review **Accepted details for this delivery**.
+   These values are fixed. Enter the separate Production write key and select
+   **Create Production work areas**.
+7. Open the Production run and follow its current **Review and load** action.
+   Prepare, review, approve, compare, load, and verify each Recipe in order.
+
+![The Production Fresh data page shows its separate accepted delivery and Recipe requirements.](../../images/user/05c-production-fresh-data.png)
+
+![Check Odoo shows the Production requirements derived from the qualified Recipes.](../../images/user/05d-production-odoo-check.png)
 
 Impodo creates one Recipe work area for each Recipe in the selected plan.
 They share the accepted Production data version and reviewed target identity,
@@ -100,10 +104,11 @@ does not load records. You still need current access for comparison and load.
 ![An interrupted Production setup offers Finish Production setup and keeps the existing work areas.](../../images/user/05b-production-resume.png)
 
 For example, a customer balances Test might total 125.50 EUR while the latest
-Production delivery totals 200.00 EUR. Enter 200.00 for Production. If a value
-needs correction, the page retains your other entries; it never redisplays
-the write key. Once setup starts creating work areas, its saved values are
-fixed. Older interrupted setups that lack saved values direct you to
+Production delivery totals 200.00 EUR. Enter 200.00 on Production Fresh data. You can save valid answers and
+return after closing Impodo. Unsaved edits and table choices are not saved
+automatically. Once you accept the delivery, its values are fixed; start a
+new Production run to change them. The readiness page never redisplays the
+write key. Older interrupted setups that lack saved values direct you to
 **Start Production setup** again.
 
 Correct reusable transformation meaning in authoring and qualify a new plan

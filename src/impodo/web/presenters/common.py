@@ -101,6 +101,7 @@ def _render(
             migration_project_name=workspace_view.migration_project.display_name,
             workspace_view=workspace_view,
             run_setup_complete=context.get("activation_complete"),
+            fresh_data_complete=context.get("fresh_data_complete"),
         )
     if (
         isinstance(workspace_state, WorkspaceState)

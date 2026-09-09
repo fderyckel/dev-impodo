@@ -818,7 +818,22 @@ class SchemaWorkspaceService:
         rows, but it also must not silently bless changed fields or access.
         """
 
-        workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
+        self.authorization.require(actor, Capability.SCHEMA_DISCOVER, workspace_id=workspace_id)
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.status is WorkspaceStatus.CLOSED:
+            raise WorkspaceError("Reopen the workspace before reconnecting read access")
+        if workspace_state.odoo_connection_mode is None:
+            raise WorkspaceError("Configure the Odoo target before reconnecting read access")
+        current = self.schemas.get_odoo_schema_catalog(workspace_id)
+        if current is None:
+            raise WorkspaceError("Capture the Odoo schema before reconnecting read access")
+        if current.origin is not SchemaOrigin.LIVE_API:
+            raise WorkspaceError("Refresh the live Odoo schema before reconnecting read access")
+        # Recipe applications inherit captured evidence without Authoring
+        # registration. Reconnection verifies that existing evidence only.
+        permitted = {model.name for model in current.models}
+        if not permitted or not permitted.issubset(workspace_state.intended_models):
+            raise WorkspaceError("The permitted Odoo model scope changed; review the connection")
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
             raise WorkspaceError("Odoo schema response is incomplete")
@@ -844,15 +859,6 @@ class SchemaWorkspaceService:
             read_identity,
             required_models=tuple(sorted(permitted)),
         )
-        current = self.schemas.get_odoo_schema_catalog(workspace_id)
-        if current is None:
-            raise WorkspaceError(
-                "Capture the Odoo schema before reconnecting read access"
-            )
-        if current.origin is not SchemaOrigin.LIVE_API:
-            raise WorkspaceError(
-                "Refresh the live Odoo schema before reconnecting read access"
-            )
         models = self._schema_models_from_snapshot(
             workspace_state,
             permitted,

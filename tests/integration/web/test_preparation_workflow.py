@@ -164,7 +164,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         recovery = self.client.get(failed.headers["location"])
         self.assertEqual(recovery.status_code, 200)
         self.assertIn("Needs attention", recovery.text)
-        self.assertIn("Stored source selection is invalid", recovery.text)
+        self.assertIn("The prepared columnar snapshot could not be verified", recovery.text)
         self.assertIn("No source file or Odoo record was changed", recovery.text)
         self.assertIn("data-preparation-failure-code", recovery.text)
         self.assertIn(str(completed_job["failure_code"]), recovery.text)

@@ -41,8 +41,8 @@ source package, and `TestRunSetupBinding`. The binding pins exact Recipe
 semantic hashes and dependency order before the browser redirects to
 `GET /projects/{project_id}/test-runs/{migration_run_id}/fresh-data`.
 
-The run-owned **Fresh data** page calls
-`TestRunSetupService.fresh_data_requirements`. It shows the logical source
+The shared Test and Production **Fresh data** router delegates through
+`RunSetupService`. For Test it calls `TestRunSetupService.fresh_data_requirements`. It shows the logical source
 tables and columns declared by each exact Recipe revision, ordered by the
 run's dependencies. `RecipeService.read_revisions` reads the selected Recipe
 and revision rows through one registry connection, including archived Recipe
@@ -75,7 +75,7 @@ source engine or change Authoring navigation.
 
 When the data manager saves the Test target, the target route reads the setup
 binding and preselects the union of models declared by the selected Recipe
-revisions. `TestRunOdooRequirementsUseCase.for_workspace` authorizes the
+revisions. `RunOdooRequirementsUseCase.for_workspace` authorizes the
 Project, bulk-reads the exact protected revisions once, and combines their
 models, fields, Recipe names, and Recipe-owned Odoo relationship paths in
 memory. Portable reference tables remain separate Recipe dependencies. This
@@ -463,6 +463,12 @@ Per-application source projection and compiler writes are required
 because mutable state is isolated; Odoo calls, Project lookups, and source-row
 queries must not scale with Recipe count.
 
+Credential reconnection uses the existing captured schema as its authority.
+`SchemaWorkspaceService.rebind_current_access` requires equivalent fields,
+target, read identity, and context, but does not require Authoring registration
+or reopen source data. Recipe application workspaces inherit their schema and
+source projection. Initial schema capture retains its registration checks.
+
 ## Code references
 
 | Role | Code |
@@ -472,7 +478,7 @@ queries must not scale with Recipe count.
 | Stable Test setup facade | [`TestRunSetupService`](../../../src/impodo/application/run/test_setup_service.py) |
 | Restart-safe Test setup creation | [`TestRunSetupStartUseCase`](../../../src/impodo/application/run/test_setup_start.py) |
 | Fresh-data values and matching | [`TestRunFreshDataUseCase`](../../../src/impodo/application/run/fresh_data_setup.py) |
-| Run-owned Odoo requirement query | [`TestRunOdooRequirementsUseCase`](../../../src/impodo/application/run/odoo_requirements.py) |
+| Run-owned Odoo requirement query | [`RunOdooRequirementsUseCase`](../../../src/impodo/application/run/odoo_requirements.py) |
 | Stable logical source binding | [`recipe_source_binding.py`](../../../src/impodo/domain/recipe/source_binding.py) |
 | Bounded exact Recipe reads | [`RecipeService.read_revisions`](../../../src/impodo/application/recipe/service.py) |
 | Stable run-planning facade | [`MigrationRunPlanningService`](../../../src/impodo/application/run/planning_service.py) |
@@ -498,6 +504,7 @@ queries must not scale with Recipe count.
 | Forward-compatible registry schema | [`migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) |
 | Run-owned schema projection | [`RunAwareSchemaRepository`](../../../src/impodo/adapters/duckdb/run_aware_schema_repository.py) |
 | Run-owned reference projection | [`RunAwareAdvancedCoverageRepository`](../../../src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py) |
+| Shared setup routes | [`run_fresh_data.py`](../../../src/impodo/web/routers/run_fresh_data.py), [`setup_service.py`](../../../src/impodo/application/run/setup_service.py) |
 | Browser routes | [`integrated_runs.py`](../../../src/impodo/web/routers/integrated_runs.py) |
 | Shared file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Workspace journey policy | [`workspace_journeys.py`](../../../src/impodo/web/workspace_journeys.py) |
@@ -520,6 +527,7 @@ queries must not scale with Recipe count.
 - [`tests/application/run/test_target_defaults.py`](../../../tests/application/run/test_target_defaults.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/application/workspace/test_journeys.py`](../../../tests/application/workspace/test_journeys.py)
+- [Recipe setup navigation and breadcrumbs](../../../tests/application/workspace/test_run_navigation.py)
 - [`tests/application/project/test_authoring.py`](../../../tests/application/project/test_authoring.py)
 - [`tests/application/data_version/test_source_packages.py`](../../../tests/application/data_version/test_source_packages.py)
 

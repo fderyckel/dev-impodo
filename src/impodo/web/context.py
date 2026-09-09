@@ -49,6 +49,7 @@ from ..application.run.planning_service import (
 from ..application.cutover_plan_service import CutoverPlanService
 from ..application.production_cutover_service import ProductionCutoverService
 from ..application.run.test_setup_service import TestRunSetupService
+from ..application.run.setup_service import RunSetupService
 from ..application.recipe_publication_service import RecipePublicationService
 from ..application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
@@ -189,6 +190,7 @@ class WebContext:
     cutover_plans: CutoverPlanService
     test_runs: TestRunSetupService
     production_runs: ProductionCutoverService
+    run_setups: RunSetupService
     data_version_source_projection: WorkspaceDataVersionSourceService
     workspace_states: WorkspaceStateService
     intake: SourceIntakeService

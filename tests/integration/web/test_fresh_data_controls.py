@@ -9,6 +9,9 @@ from uuid import uuid4
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
+from impodo.domain.shared.models import OdooReadIdentity, target_identity_hash
+from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
+from tests.support.recipe_lifecycle import metadata_for_schema
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin, SchemaModel, SchemaField
 from tests.application.run import test_integrated_recipe_runs as fixtures
 
@@ -138,8 +141,16 @@ class FreshDataControlBrowserTests(TestCase):
             )),), content_hash=content_hash("schema evidence"), origin=SchemaOrigin.LIVE_API,
             read_credential_binding_hash=content_hash("read credential"), read_principal_hash=content_hash("principal"),
             read_permission_hash=content_hash("permissions"), read_context_hash=content_hash("context"),
-            connection_target_hash=content_hash("target"),
+            connection_target_hash=target_identity_hash(connection_mode="REMOTE", base_url="https://fictional.example.test", database="fictional_test"),
         )
+        state = context.workspace_states.repository.get(state.workspace_id)
+        credential = store_target_credential(context.secret_store, state, TargetCredentialRole.READ,
+            "fictional-test-read", persistent=False)
+        schema = context.schema_workspace.capture(state.workspace_id, metadata_for_schema(schema),
+            read_credential_binding_hash=credential.binding_hash, read_identity=OdooReadIdentity(
+                target_hash=schema.connection_target_hash, principal_hash=schema.read_principal_hash,
+                permission_hash=schema.read_permission_hash, context_hash=schema.read_context_hash,
+                readable_models=("res.partner",), observed_at=datetime.now(UTC).isoformat()), actor=actor)
         result = context.test_runs.activate(setup.binding.project_id, setup.run.migration_run_id,
             expected_workspace_revision=context.migration_projects.get(setup.binding.project_id, actor=actor).optimistic_revision,
             target_schema=schema, target_reference_bundle=None, credential_generation=schema.read_credential_binding_hash,

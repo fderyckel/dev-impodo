@@ -121,7 +121,7 @@ class WorkspaceJourneyTests(unittest.TestCase):
         )
         self.assertIn("saved Recipe rules", request.session["flash"])
 
-    def test_production_setup_returns_to_its_own_activation_page(self) -> None:
+    def test_production_setup_returns_to_its_guided_fresh_data_page(self) -> None:
         setup_access = WorkspaceAccessContext(
             project_id=self.access.project_id,
             workspace_id=str(uuid4()),
@@ -141,7 +141,7 @@ class WorkspaceJourneyTests(unittest.TestCase):
         self.assertEqual(
             response.headers["location"],
             f"/projects/{setup_access.project_id}/production-runs/"
-            f"{setup_access.migration_run_id}/activate",
+            f"{setup_access.migration_run_id}/fresh-data",
         )
 
 

@@ -522,7 +522,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 odoo_database=_text(form, "odoo_database"),
                 intended_applications=form.getlist("intended_applications"),
                 intended_models=(
-                    context.test_runs.required_models_for_workspace(
+                    context.run_setups.required_models_for_workspace(
                         workspace_id,
                         actor=context.actor,
                     )

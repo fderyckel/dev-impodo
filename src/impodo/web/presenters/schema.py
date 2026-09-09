@@ -456,7 +456,7 @@ def _render_schema(
     capture_plans_complete = bool(schema and schema.models) and {
         item.model for item in current_capture_plans
     } == {item.name for item in schema.models}
-    odoo_check_plan = context.test_runs.odoo_check_requirements_for_workspace(
+    odoo_check_plan = context.run_setups.odoo_check_requirements_for_workspace(
         workspace_id,
         actor=context.actor,
     )

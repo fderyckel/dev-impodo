@@ -16,10 +16,11 @@ from .forward_upgrades import (
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 6
+MIGRATION_REGISTRY_VERSION = 7
 
 
 EXPECTED_REGISTRY_COLUMNS = {
+    "production_run_values": ("migration_run_id", "revision", "values_json", "content_hash"),
     "schema_version": (
         "singleton_id",
         "generation",
@@ -642,6 +643,17 @@ def _upgrade_migration_registry_v5_to_v6(
     connection.execute("DROP TABLE test_run_values_v1")
 
 
+def _create_production_run_values(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute("""
+        CREATE TABLE production_run_values (
+            migration_run_id VARCHAR PRIMARY KEY REFERENCES migration_run_identity(migration_run_id),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            values_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL
+        )
+    """)
+
+
 MIGRATION_REGISTRY_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="migration-registry-v1-to-v2-migration-ledger",
@@ -662,6 +674,10 @@ MIGRATION_REGISTRY_UPGRADES = {
     5: ForwardSchemaUpgrade(
         migration_id="migration-registry-v5-to-v6-run-control-values",
         apply=_upgrade_migration_registry_v5_to_v6,
+    ),
+    6: ForwardSchemaUpgrade(
+        migration_id="migration-registry-v6-to-v7-production-values",
+        apply=_create_production_run_values,
     ),
 }
 
@@ -1225,6 +1241,7 @@ def _initialize_migration_registry(
             """
         )
         _create_test_run_parameter_values(connection, with_controls=True)
+        _create_production_run_values(connection)
         _create_correction_run_binding(connection)
         create_schema_migration_ledger(connection)
         connection.commit()

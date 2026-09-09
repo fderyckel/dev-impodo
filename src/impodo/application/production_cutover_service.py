@@ -64,7 +64,7 @@ class ProductionCutoverService:
         self.production_runs = production_runs
         self.run_planning = run_planning
         self.authorization = authorization
-        self.values = ProductionRunValuesUseCase(run_planning.recipes)
+        self.values = ProductionRunValuesUseCase(run_planning.recipes, production_runs)
 
     def start_setup(
         self,
@@ -332,7 +332,7 @@ class ProductionCutoverService:
         value_review = self.values.review(
             binding, plan, self.data_versions.get(binding.data_version_id, actor=actor), actor=actor,
         )
-        normalized = self.values.normalize(value_review, parameter_values, control_values)
+        normalized = self.values.activation_values(binding, value_review, parameter_values, control_values)
         return self.run_planning.activate_production_run(
             project_id,
             expected_workspace_revision=expected_workspace_revision,

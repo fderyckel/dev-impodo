@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 from impodo.application.run.odoo_requirements import (
-    TestRunOdooRequirementsUseCase,
+    RunOdooRequirementsUseCase,
 )
 from impodo.domain.recipe.models import RecipeError
 
@@ -69,7 +69,7 @@ def _revision(display_name: str, semantic_hash: str, models):
     )
 
 
-class TestRunOdooRequirementsUseCaseTests(unittest.TestCase):
+class RunOdooRequirementsUseCaseTests(unittest.TestCase):
     def test_bulk_reads_selected_revisions_once_and_merges_in_memory(self) -> None:
         selections = (
             _selection("recipe-product", "sha256:product"),
@@ -117,8 +117,8 @@ class TestRunOdooRequirementsUseCaseTests(unittest.TestCase):
         selections_reader = _SelectionReader(binding)
         revisions_reader = _RevisionReader(revisions)
         authorization = _Authorization()
-        use_case = TestRunOdooRequirementsUseCase(
-            test_runs=selections_reader,
+        use_case = RunOdooRequirementsUseCase(
+            setups=selections_reader,
             recipes=revisions_reader,
             authorization=authorization,
         )
@@ -177,8 +177,8 @@ class TestRunOdooRequirementsUseCaseTests(unittest.TestCase):
         selections_reader = _SelectionReader(None)
         revisions_reader = _RevisionReader({})
         authorization = _Authorization()
-        use_case = TestRunOdooRequirementsUseCase(
-            test_runs=selections_reader,
+        use_case = RunOdooRequirementsUseCase(
+            setups=selections_reader,
             recipes=revisions_reader,
             authorization=authorization,
         )
@@ -193,8 +193,8 @@ class TestRunOdooRequirementsUseCaseTests(unittest.TestCase):
             project_id="project-1",
             selected_revisions=(selection,),
         )
-        use_case = TestRunOdooRequirementsUseCase(
-            test_runs=_SelectionReader(binding),
+        use_case = RunOdooRequirementsUseCase(
+            setups=_SelectionReader(binding),
             recipes=_RevisionReader(
                 {
                     ("recipe-customer", 1): _revision(

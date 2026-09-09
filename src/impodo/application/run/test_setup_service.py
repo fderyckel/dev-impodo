@@ -29,7 +29,7 @@ from .fresh_data_values import (
 )
 from .odoo_requirements import (
     OdooCheckRequirementPlan,
-    TestRunOdooRequirementsUseCase,
+    RunOdooRequirementsUseCase,
 )
 from .test_credential_workspace import TestRunCredentialWorkspaceUseCase
 from .test_setup_start import TestRunSetupStartUseCase
@@ -67,8 +67,8 @@ class TestRunSetupService:
             workspace_states=workspace_states,
             authorization=authorization,
         )
-        self._odoo_requirements = TestRunOdooRequirementsUseCase(
-            test_runs=test_runs,
+        self._odoo_requirements = RunOdooRequirementsUseCase(
+            setups=test_runs,
             recipes=recipes,
             authorization=authorization,
         )

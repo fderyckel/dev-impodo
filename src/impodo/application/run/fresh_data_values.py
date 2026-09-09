@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from typing import Protocol
 
 from ...domain.recipe.models import RecipeError
 from ...domain.serialization import canonical_json
@@ -244,9 +245,19 @@ def fresh_control_requirements(definition: Mapping[str, object]) -> tuple[FreshD
     )
 
 
+class SavedRunValues(Protocol):
+    """Read shared prompts without coupling them to a Test or Production store."""
+
+    revision: int
+    @property
+    def by_recipe(self) -> Mapping[str, Mapping[str, object]]: ...
+    @property
+    def controls_by_recipe(self) -> Mapping[str, Mapping[str, str]]: ...
+
+
 def build_fresh_data_run_value_plan(
     requirements: tuple[FreshDataRecipeRequirement, ...],
-    current: TestRunValues | None,
+    current: SavedRunValues | None,
 ) -> FreshDataRunValuePlan:
     """Merge compatible Recipe requests so the data manager answers once."""
 

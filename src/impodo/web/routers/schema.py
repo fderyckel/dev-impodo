@@ -36,6 +36,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateError,
 )
 from ..context import WebContext
+from ..run_urls import RunSetupKind
 from ..forms import (
     _checked,
     _revision,
@@ -198,7 +199,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
     async def workspace_schema(request: Request, workspace_id: str):
         require_session(request)
         workspace_state = context.queries.get(workspace_id)
-        test_setup = context.test_runs.setup_binding_for_workspace(
+        test_setup = context.run_setups.setup_binding_for_workspace(
             workspace_id,
             actor=context.actor,
         )
@@ -220,14 +221,15 @@ def build_schema_router(context: WebContext) -> APIRouter:
         return _render_schema(request, context, workspace_id)
 
     @router.post(
-        "/projects/{project_id}/test-runs/{migration_run_id}/odoo/check"
+        "/projects/{project_id}/{run_kind}/{migration_run_id}/odoo/check"
     )
-    async def check_test_run_odoo(
+    async def check_run_odoo(
         request: Request,
         project_id: str,
         migration_run_id: str,
+        run_kind: RunSetupKind,
     ):
-        """Check one Recipe-derived target scope and activate its Test run."""
+        """Check Recipe-owned Odoo requirements, then continue the owning run."""
 
         form = await request.form()
         _secure_form(
@@ -237,14 +239,15 @@ def build_schema_router(context: WebContext) -> APIRouter:
         )
         workspace_id = ""
         try:
-            binding = context.test_runs.get(
+            binding = context.run_setups.get(
                 migration_run_id,
                 actor=context.actor,
             )
-            if binding.project_id != project_id:
+            run = context.migration_runs.get(migration_run_id, actor=context.actor)
+            if binding.project_id != project_id or run.purpose.value != run_kind.purpose:
                 raise HTTPException(
                     status_code=404,
-                    detail="Test run not found",
+                    detail="Recipe run not found",
                 )
             data_version = context.data_versions.get(
                 binding.data_version_id,
@@ -255,17 +258,24 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     "Accept the fresh data before checking this Odoo target"
                 )
             workspace_id = binding.setup_workspace_id
+            _, values = context.run_setups.fresh_data_details(binding, actor=context.actor)
+            if not values.ready_to_continue:
+                raise MigrationFoundationError("Confirm the Recipe details on Fresh data before checking Odoo")
+            if run_kind is RunSetupKind.PRODUCTION:
+                operation = context.production_runs.activation_operation(migration_run_id, actor=context.actor)
+                if operation is not None:
+                    return RedirectResponse(f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303)
             resumed = await run_in_threadpool(
                 context.test_runs.resume_activation_if_needed,
                 migration_run_id, actor=context.actor,
-            )
+            ) if run_kind is RunSetupKind.TEST else None
             if resumed is not None:
                 _flash(request, "The saved Test activation is complete. Continue with Review and load.")
                 return RedirectResponse(
                     f"/projects/{project_id}/runs/{migration_run_id}", status_code=303,
                 )
             workspace_state = context.queries.get(workspace_id)
-            plan = context.test_runs.odoo_check_requirements_for_workspace(
+            plan = context.run_setups.odoo_check_requirements_for_workspace(
                 workspace_id,
                 actor=context.actor,
             )
@@ -313,6 +323,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     actor=context.actor,
                 )
             )
+            if run_kind is RunSetupKind.PRODUCTION:
+                _flash(request, "Production Odoo fields and supporting values are checked. Review readiness and write access next.")
+                return RedirectResponse(f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303)
             if binding.state.value == "ACTIVE":
                 recovered = await run_in_threadpool(
                     context.run_planning.recover_blocked_test_run_defaults,
@@ -377,7 +390,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 read_credential_required=read_failure.asks_for_read_credential,
                 read_credential_resume="submit",
                 read_credential_resume_action=(
-                    f"/projects/{project_id}/test-runs/"
+                    f"/projects/{project_id}/{run_kind}/"
                     f"{migration_run_id}/odoo/check"
                 ),
                 status_code=422,
@@ -521,7 +534,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
         workspace_state = context.queries.get(workspace_id)
-        test_setup = context.test_runs.setup_binding_for_workspace(
+        test_setup = context.run_setups.setup_binding_for_workspace(
             workspace_id,
             actor=context.actor,
         )
@@ -621,7 +634,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         )
         return_to_sources = _checked(form, "return_to_sources")
         workspace_state = context.queries.get(workspace_id)
-        test_setup = context.test_runs.setup_binding_for_workspace(
+        test_setup = context.run_setups.setup_binding_for_workspace(
             workspace_id,
             actor=context.actor,
         )

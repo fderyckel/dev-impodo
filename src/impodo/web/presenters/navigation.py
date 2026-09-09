@@ -172,6 +172,7 @@ def build_workspace_navigation(
     migration_project_name: str | None = None,
     workspace_view: WorkspaceOwnerView | None = None,
     run_setup_complete: bool | None = None,
+    fresh_data_complete: bool | None = None,
 ) -> WorkspaceNavigation:
     """Return the one user journey allowed by canonical workspace ownership."""
 
@@ -196,6 +197,7 @@ def build_workspace_navigation(
             workspace_view,
             template_name=template_name,
             run_setup_complete=run_setup_complete,
+            fresh_data_complete=fresh_data_complete,
         )
     return _recipe_application_navigation(
         navigation,
@@ -1319,6 +1321,7 @@ def _recipe_run_setup_navigation(
     *,
     template_name: str,
     run_setup_complete: bool | None = None,
+    fresh_data_complete: bool | None = None,
 ) -> WorkspaceNavigation:
     """Present fresh data and Odoo review as one run-owned setup journey."""
 
@@ -1326,38 +1329,25 @@ def _recipe_run_setup_navigation(
     purpose = workspace_view.migration_run.purpose.value
     run_kind = "test-runs" if purpose == "TEST" else "production-runs"
     fresh_home = (
-        f"/projects/{workspace_view.project_id}/test-runs/"
-        f"{workspace_view.migration_run_id}/fresh-data"
-        if purpose == "TEST"
-        else None
-    )
-    run_home = fresh_home or (
         f"/projects/{workspace_view.project_id}/{run_kind}/"
-        f"{workspace_view.migration_run_id}/activate"
+        f"{workspace_view.migration_run_id}/fresh-data"
+    )
+    run_home = (
+        f"/projects/{workspace_view.project_id}/{run_kind}/"
+        f"{workspace_view.migration_run_id}/activate" if purpose == "PRODUCTION" else fresh_home
     )
     odoo_home = (
         f"/projects/{workspace_view.project_id}/runs/"
         f"{workspace_view.migration_run_id}/odoo"
-        if purpose == "TEST"
-        else f"/workspaces/{workspace_id}/schema"
     )
-    fresh_complete = workspace_view.data_version.state.value == "FROZEN"
-    source_stage = _find_stage(navigation.stages, "source")
+    fresh_complete = (workspace_view.data_version.state.value == "FROZEN"
+                      if fresh_data_complete is None else fresh_data_complete)
     odoo_stage = _find_stage(navigation.stages, "odoo")
-    fresh_href = fresh_home or (
-        f"/workspaces/{workspace_id}/datasets#tables-ready"
-        if fresh_complete
-        else (
-            source_stage.href
-            if navigation.registered and source_stage is not None and source_stage.href
-            else navigation.setup_href
-        )
-    )
     fresh = WorkflowStage(
         stage_id="fresh",
         number=1,
         label="Fresh data",
-        href=fresh_href,
+        href=fresh_home,
         status="complete" if fresh_complete else "current",
         status_label="Complete" if fresh_complete else "Current",
     )
@@ -1373,10 +1363,10 @@ def _recipe_run_setup_navigation(
         odoo_status = odoo_stage.status
         odoo_label = odoo_stage.status_label
         odoo_href = odoo_home
-    if purpose == "PRODUCTION" and run_setup_complete is not None and fresh_complete:
+    if purpose == "PRODUCTION" and fresh_complete:
         odoo_status = "complete" if run_setup_complete else "current"
         odoo_label = "Complete" if run_setup_complete else "Current"
-        odoo_href = run_home
+        odoo_href = run_home if run_setup_complete else odoo_home
     odoo = WorkflowStage(
         stage_id="odoo",
         number=2,
@@ -1397,7 +1387,7 @@ def _recipe_run_setup_navigation(
             "Current" if fresh_complete and odoo_complete else "Finish Odoo check first"
         ),
     )
-    if template_name in {"workspace_files.html", "workspace_sources.html", "workspace_datasets.html", "workspace_derived_entities.html"}:
+    if template_name in {"workspace_files.html", "workspace_sources.html", "workspace_datasets.html", "workspace_derived_entities.html", "project_run_fresh_data.html"}:
         viewed_stage_id = "fresh"
     elif template_name in {"workspace_schema.html", "workspace_target.html", "project_production_activation.html"}:
         viewed_stage_id = "odoo"
@@ -1411,12 +1401,17 @@ def _recipe_run_setup_navigation(
         else "review"
     )
     stages = _activate_run_stages((fresh, odoo, review), viewed_stage_id)
+    viewed_page_label = {
+        "project_run_fresh_data.html": "Fresh data",
+        "workspace_schema.html": "Review Odoo requirements",
+        "project_production_activation.html": "Review Production readiness",
+    }.get(template_name, navigation.viewed_page_label)
     return WorkspaceNavigation(
         workspace_id=workspace_id,
         migration_project_name=navigation.migration_project_name,
         registered=True,
         setup_active=False,
-        setup_href=fresh_href,
+        setup_href=fresh_home,
         overview_href=run_home,
         overview_active=False,
         current_stage_id=current_stage_id,
@@ -1424,7 +1419,7 @@ def _recipe_run_setup_navigation(
             stage.label for stage in stages if stage.stage_id == current_stage_id
         ),
         viewed_stage_id=viewed_stage_id,
-        viewed_page_label=navigation.viewed_page_label,
+        viewed_page_label=viewed_page_label,
         stages=stages,
         journey=WorkspaceJourney.RECIPE_RUN_SETUP.value,
         journey_label="Recipe run",
@@ -1447,7 +1442,7 @@ def _recipe_application_navigation(
     fresh_home = (
         f"/projects/{project_id}/test-runs/{migration_run_id}/fresh-data"
         if run_purpose == "TEST" else
-        f"/projects/{project_id}/production-runs/{migration_run_id}/activate"
+        f"/projects/{project_id}/production-runs/{migration_run_id}/fresh-data"
     )
     target_value_review = template_name == "project_recipe_target_matches.html"
     review_stages = tuple(
@@ -1478,7 +1473,7 @@ def _recipe_application_navigation(
                 stage_id="odoo",
                 number=2,
                 label="Check Odoo",
-                href=f"{run_home}/odoo" if run_purpose == "TEST" else fresh_home,
+                href=f"{run_home}/odoo",
                 status="attention" if target_value_review else "complete",
                 status_label=(
                     "Review target values" if target_value_review else "Complete"
