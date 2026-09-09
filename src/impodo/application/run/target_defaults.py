@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
+from impodo.domain.mapping.contracts import (
+    MappingDefinition,
+    ScalarValueSource,
+    TargetFieldHandling,
+)
 from impodo.domain.mapping.create_field_policy import (
     VerifiedCreateDefaultAction,
     VerifiedCreateDefaultDecision,
@@ -27,7 +31,7 @@ class MappedTargetDefault:
 
 
 def mapped_target_defaults(
-    definition,
+    definition: MappingDefinition,
     schema: OdooSchemaCatalog,
     *,
     action: VerifiedCreateDefaultAction | None = None,

@@ -25,6 +25,11 @@ CREATE_DEFAULT_TYPES = frozenset(
     }
 )
 
+# Increment when the automatic-versus-review decision changes. Recipe
+# application bindings include this value so a policy revision cannot be
+# mistaken for the earlier assessment.
+CREATE_DEFAULT_DECISION_POLICY_VERSION = 1
+
 
 class CreateFieldView(Protocol):
     """Minimal field evidence used by workspace and Recipe compatibility."""

@@ -193,7 +193,8 @@ company-scope-unproven defaults become
 projection ensures that the confirmation use case and route show the same
 review subset. Missing, malformed, or unsupported defaults remain blockers and
 require a new Recipe value provider. This policy does not use model or field
-names.
+names. Its explicit version is part of the application's physical binding hash,
+so a later policy change cannot be mistaken for the earlier assessment.
 
 After saving a decision, the route calls `MappingWorkspaceService` to check and
 submit the complete mapping, then calls

@@ -11,6 +11,7 @@ from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.run.contracts import (
     IntegratedRunBundle,
     MigrationRunPlanIssue,
+    MigrationRunPlanIssueLevel,
     RecipeApplicationStatus,
     RunRecipeApplication,
 )
@@ -59,31 +60,37 @@ class RunApplicationCard:
     @property
     def target_adaptation_needs_attention(self) -> bool:
         return any(
-            item.level.value != "INFORMATION"
+            item.level is not MigrationRunPlanIssueLevel.INFORMATION
             for item in self.target_adaptation_issues
         )
 
     @property
     def target_adaptation_attention_count(self) -> int:
         return sum(
-            item.level.value != "INFORMATION"
+            item.level is not MigrationRunPlanIssueLevel.INFORMATION
             for item in self.target_adaptation_issues
         )
 
     @property
     def automatic_target_adaptation_count(self) -> int:
         return sum(
-            item.level.value == "INFORMATION"
+            item.level is MigrationRunPlanIssueLevel.INFORMATION
             for item in self.target_adaptation_issues
         )
 
     @property
     def other_issues_need_attention(self) -> bool:
-        return any(item.level.value != "INFORMATION" for item in self.other_issues)
+        return any(
+            item.level is not MigrationRunPlanIssueLevel.INFORMATION
+            for item in self.other_issues
+        )
 
     @property
     def other_issue_attention_count(self) -> int:
-        return sum(item.level.value != "INFORMATION" for item in self.other_issues)
+        return sum(
+            item.level is not MigrationRunPlanIssueLevel.INFORMATION
+            for item in self.other_issues
+        )
 
     @property
     def automatic_target_default_count(self) -> int:
@@ -606,13 +613,15 @@ def _application_card(
             current,
         )
     actionable_issues = tuple(
-        item for item in issues if item.level.value != "INFORMATION"
+        item
+        for item in issues
+        if item.level is not MigrationRunPlanIssueLevel.INFORMATION
     )
     default_reviews = tuple(
         item
         for item in actionable_issues
         if item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
-        and item.level.value == "REVIEW"
+        and item.level is MigrationRunPlanIssueLevel.REVIEW
     )
     automatic_default_count = sum(
         item.code == "RECIPE_TARGET_ODOO_DEFAULT_HANDLED" for item in issues

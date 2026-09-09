@@ -866,6 +866,69 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertIsNotNone(mapping_state.revision)
         self.assertIsNotNone(mapping_state.submission)
 
+        schema = replace(
+            schema,
+            models=tuple(
+                replace(
+                    model,
+                    fields=(
+                        *model.fields,
+                        SchemaField(
+                            name="module_code",
+                            label="Module code",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            company_dependent=False,
+                            create_default_present=True,
+                            create_default_value="AUTO",
+                        ),
+                    ),
+                )
+                if model.name == "res.partner"
+                else model
+                for model in schema.models
+            ),
+            content_hash=content_hash("schema with safe module default"),
+        )
+        automatic_assessment = materializing_compiler.assess(
+            recipe_id=str(uuid4()),
+            definition=definition,
+            source_selection=selection,
+            target_schema=schema,
+            reference_bundle=ReferenceBundle(
+                workspace_id=workspace_id,
+                datasets=(reference,),
+            ),
+            parameter_values={
+                "parameter:batch_reference": "TEST-2026-08-22",
+                "parameter:export_as_of_date": "2026-08-20",
+            },
+            control_values={"control:customers.open_balance": "100.00"},
+        )
+        automatically_ready = materializing_compiler.materialize(
+            workspace_id,
+            application_id=str(uuid4()),
+            recipe_id=str(uuid4()),
+            data_version_id=controls.data_version_id,
+            definition=definition,
+            assessment=automatic_assessment,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(
+            automatically_ready.status,
+            RecipeApplicationStatus.READY,
+            automatically_ready.issues,
+        )
+        self.assertIn(
+            "RECIPE_TARGET_ODOO_DEFAULT_HANDLED",
+            {item.code for item in automatically_ready.issues},
+        )
+
 
 class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
     """Keep default recovery target-bound without changing Recipe meaning."""

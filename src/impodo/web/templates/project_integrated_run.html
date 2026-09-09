@@ -86,7 +86,7 @@
                     {% endif %}
                   </summary>
                   {% for issue in card.target_adaptation_issues %}
-                    <div class="notice {% if issue.blocks %}blocked{% endif %}">
+                    <div class="notice {% if issue.blocks %}error{% elif issue.level.value == 'REVIEW' %}warning{% endif %}">
                       <strong>{{ issue.message }}</strong>
                       <p>{{ issue.recovery_action }}</p>
                     </div>
@@ -104,7 +104,7 @@
                     {% endif %}
                   </summary>
                   {% for issue in card.other_issues %}
-                    <div class="notice {% if issue.blocks %}blocked{% endif %}">
+                    <div class="notice {% if issue.blocks %}error{% elif issue.level.value == 'REVIEW' %}warning{% endif %}">
                       <strong>{{ issue.message }}</strong>
                       <p>{{ issue.recovery_action }}</p>
                     </div>

@@ -10,6 +10,9 @@ from uuid import uuid4
 
 from impodo.domain.shared.access import Actor
 from ..domain.mapping.contracts import MappingDefinition
+from ..domain.mapping.create_field_policy import (
+    CREATE_DEFAULT_DECISION_POLICY_VERSION,
+)
 from ..domain.coverage import ReferenceBundle
 from ..domain.recipe_applications import (
     RecipeApplicationError,
@@ -169,6 +172,9 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 "control_values": dict(sorted(normalized_controls.items())),
                 "parameter_values": dict(sorted(normalized_parameters.items())),
                 "source_bindings": dict(sorted(bindings.items())),
+                "target_default_policy_version": (
+                    CREATE_DEFAULT_DECISION_POLICY_VERSION
+                ),
                 "target_default_fields": [
                     list(item) for item in target_default_fields
                 ],
