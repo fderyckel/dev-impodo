@@ -113,6 +113,12 @@ class IntegratedRunReviewView:
     view_hash: str
 
     @property
+    def current_card(self) -> RunApplicationCard | None:
+        """Expose the same dependency-safe action above the progress details."""
+
+        return next((card for card in self.cards if card.current), None)
+
+    @property
     def odoo_needs_attention(self) -> bool:
         """Keep unresolved run-target decisions visible in the shared stepper."""
 

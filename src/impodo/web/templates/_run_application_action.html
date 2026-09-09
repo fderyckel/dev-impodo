@@ -1,0 +1,8 @@
+{% if card.action_method == 'post' %}
+  <form method="post" action="{{ card.action_url }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="button primary" type="submit">{{ card.action_label }}</button>
+  </form>
+{% else %}
+  <a class="button {% if card.current %}primary{% else %}secondary{% endif %}" href="{{ card.action_url }}">{{ card.action_label }}</a>
+{% endif %}

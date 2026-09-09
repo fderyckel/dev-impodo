@@ -9,6 +9,7 @@ from impodo.domain.run.models import MigrationRunPurpose
 from impodo.web.presenters.navigation import (
     WorkflowStage,
     WorkspaceNavigation,
+    build_recipe_run_navigation,
     _recipe_run_setup_navigation,
 )
 
@@ -121,6 +122,41 @@ class RunSetupNavigationTests(unittest.TestCase):
             result.stages[2].href,
             f"/projects/{self.project_id}/runs/{self.run_id}",
         )
+
+    def test_run_overview_keeps_both_purposes_in_their_own_recipe_journey(self):
+        for purpose, kind in (("TEST", "test-runs"), ("PRODUCTION", "production-runs")):
+            with self.subTest(purpose=purpose):
+                navigation = build_recipe_run_navigation(
+                    project_id=self.project_id, migration_run_id=self.run_id,
+                    migration_project_name="Customer balances", run_purpose=purpose,
+                    complete=False, odoo_needs_attention=False,
+                )
+                self.assertFalse(hasattr(navigation, "workspace_id"))
+                self.assertEqual(navigation.journey_label, "Recipe run")
+                self.assertEqual(navigation.current_stage_id, "review")
+                self.assertEqual(navigation.viewed_stage_id, "review")
+                self.assertEqual(navigation.stages[0].href,
+                    f"/projects/{self.project_id}/{kind}/{self.run_id}/fresh-data")
+                self.assertEqual(navigation.stages[1].href,
+                    f"/projects/{self.project_id}/runs/{self.run_id}/odoo")
+                self.assertEqual(navigation.stages[2].status, "current")
+
+    def test_run_navigation_distinguishes_odoo_attention_and_verified_results(self):
+        for complete, attention, expected_stage, expected_status in (
+            (False, True, "odoo", "current"),
+            (True, False, "review", "complete"),
+        ):
+            with self.subTest(complete=complete, attention=attention):
+                navigation = build_recipe_run_navigation(
+                    project_id=self.project_id, migration_run_id=self.run_id,
+                    migration_project_name="Customer balances", run_purpose="TEST",
+                    complete=complete, odoo_needs_attention=attention,
+                )
+                self.assertEqual(navigation.current_stage_id, expected_stage)
+                self.assertEqual(navigation.stages[1].status,
+                    "attention" if attention else "complete")
+                self.assertEqual(navigation.stages[2].status, expected_status)
+                self.assertTrue(navigation.stages[2].active)
 
 
 if __name__ == "__main__":

@@ -204,9 +204,13 @@ def _render_summary(
     if error is None and isinstance(session_error, str):
         error = session_error
     workspace_state = context.queries.get(workspace_id)
+    credential_owner = context.target_credential_workspace(
+        workspace_id,
+        workspace_state=workspace_state,
+    )
     read_credential_status = get_target_credential_status(
         context.secret_store,
-        workspace_state,
+        credential_owner,
         TargetCredentialRole.READ,
     )
     schema_catalog = (

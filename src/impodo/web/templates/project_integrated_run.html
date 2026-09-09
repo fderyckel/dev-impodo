@@ -24,11 +24,28 @@
       </span>
     </div>
 
-    <nav class="setup-steps" aria-label="Recipe run steps">
-      <a class="setup-step complete" href="{% if bundle.run.purpose.value == 'TEST' %}/projects/{{ project.project_id }}/test-runs/{{ bundle.run.migration_run_id }}/fresh-data{% else %}/projects/{{ project.project_id }}/production-runs/{{ bundle.run.migration_run_id }}/fresh-data{% endif %}">1. Fresh data</a>
-      <a class="setup-step {% if review.odoo_needs_attention %}attention{% else %}complete{% endif %}" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/odoo">2. Check Odoo{% if review.odoo_needs_attention %} · Needs attention{% endif %}</a>
-      <span class="setup-step current" aria-current="step">3. Review and load</span>
+    <nav class="steps steps-3" aria-label="Recipe run steps">
+      {% for stage in workspace_navigation.stages %}
+        {% if stage.active %}
+          <span class="setup-step {{ stage.status }} current" aria-current="step">{{ stage.number }}. {{ stage.label }}</span>
+        {% else %}
+          <a class="setup-step {{ stage.status }}" href="{{ stage.href }}">{{ stage.number }}. {{ stage.label }}{% if stage.status == 'attention' %} · Needs attention{% endif %}</a>
+        {% endif %}
+      {% endfor %}
     </nav>
+
+    {% with card = review.current_card %}
+      {% if card and card.action_url %}
+        <section class="next-action-card {{ card.status_class }}" aria-labelledby="run-next-action-title" data-run-next-action>
+          <div>
+            <p class="eyebrow">Next action &middot; {{ card.recipe_name }}</p>
+            <h2 id="run-next-action-title">{{ card.action_label }}</h2>
+            <p>{{ card.message }}</p>
+          </div>
+          {% include "_run_application_action.html" %}
+        </section>
+      {% endif %}
+    {% endwith %}
 
     {% if review.active %}
       <div class="notice" role="status">
@@ -112,15 +129,8 @@
                 </details>
               {% endif %}
 
-              {% if card.action_url %}
-                {% if card.action_method == 'post' %}
-                  <form method="post" action="{{ card.action_url }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button class="button primary" type="submit">{{ card.action_label }}</button>
-                  </form>
-                {% else %}
-                  <a class="button {% if card.current %}primary{% else %}secondary{% endif %}" href="{{ card.action_url }}">{{ card.action_label }}</a>
-                {% endif %}
+              {% if card.action_url and not card.current %}
+                {% include "_run_application_action.html" %}
               {% endif %}
             </div>
           </li>
@@ -149,8 +159,8 @@
     <details class="technical-details form-card">
       <summary>Run evidence</summary>
       <dl class="summary-list">
-        <div><dt>Odoo database</dt><dd>{{ target_schema.database }}</dd></div>
-        <div><dt>Odoo version reported by target</dt><dd>{{ target_schema.odoo_version }}</dd></div>
+        <div><dt>Odoo database</dt><dd>{{ target_schema.source_schema.database }}</dd></div>
+        <div><dt>Odoo version reported by target</dt><dd>{{ target_schema.source_schema.odoo_version }}</dd></div>
         <div><dt>Cutover plan version</dt><dd>{{ plan_revision.version }}</dd></div>
         <div><dt>Recipe applications</dt><dd>{{ review.total_count }}</dd></div>
       </dl>

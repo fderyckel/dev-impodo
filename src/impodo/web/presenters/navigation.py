@@ -56,10 +56,9 @@ class WorkflowStage:
 
 
 @dataclass(frozen=True, slots=True)
-class WorkspaceNavigation:
-    """Complete navigation context for one rendered workspace page."""
+class WorkflowNavigation:
+    """Shared sidebar presentation for a workspace or a whole Recipe run."""
 
-    workspace_id: str
     migration_project_name: str
     registered: bool
     setup_active: bool
@@ -97,6 +96,60 @@ class WorkspaceNavigation:
             ),
             None,
         )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WorkspaceNavigation(WorkflowNavigation):
+    """Navigation attached to one actual workspace."""
+
+    workspace_id: str
+
+
+def build_recipe_run_navigation(
+    *,
+    project_id: str,
+    migration_run_id: str,
+    migration_project_name: str,
+    run_purpose: str,
+    complete: bool,
+    odoo_needs_attention: bool,
+) -> WorkflowNavigation:
+    """Render run progress without opening an application's workspace store."""
+
+    run_home = f"/projects/{project_id}/runs/{migration_run_id}"
+    run_kind = "test-runs" if run_purpose == "TEST" else "production-runs"
+    fresh_home = f"/projects/{project_id}/{run_kind}/{migration_run_id}/fresh-data"
+    stages = (
+        WorkflowStage("fresh", 1, "Fresh data", fresh_home, "complete", "Complete"),
+        WorkflowStage(
+            "odoo", 2, "Check Odoo", f"{run_home}/odoo",
+            "attention" if odoo_needs_attention else "complete",
+            "Needs attention" if odoo_needs_attention else "Complete",
+        ),
+        WorkflowStage(
+            "review", 3, "Review and load", run_home,
+            "complete" if complete else "current",
+            "Verified" if complete else "Current", active=True,
+        ),
+    )
+    current = stages[1] if odoo_needs_attention else stages[2]
+    return WorkflowNavigation(
+        migration_project_name=migration_project_name,
+        registered=True,
+        setup_active=False,
+        setup_href=fresh_home,
+        overview_href=run_home,
+        overview_active=False,
+        current_stage_id=current.stage_id,
+        current_stage_label=current.label,
+        viewed_stage_id="review",
+        viewed_page_label="",
+        stages=stages,
+        journey="RECIPE_RUN",
+        journey_label="Recipe run",
+        overview_label="Run overview",
+        current_work_label="Current run work",
+    )
 
 
 _TEMPLATE_LOCATION = {

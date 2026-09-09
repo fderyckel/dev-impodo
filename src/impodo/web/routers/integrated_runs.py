@@ -28,6 +28,7 @@ from ..context import WebContext
 from ..run_urls import fresh_data_url as _fresh_data_url
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..presenters.navigation import build_recipe_run_navigation
 from ..presenters.schema import _render_schema
 from ..run_review import build_integrated_run_review
 from ..run_commands import start_next_preparation, recover_run_preparation
@@ -214,6 +215,15 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             qualification=(qualifications[0] if qualifications else None),
             selection=selection,
             review=review,
+            migration_context=run,
+            workspace_navigation=build_recipe_run_navigation(
+                project_id=project_id,
+                migration_run_id=migration_run_id,
+                migration_project_name=project.display_name,
+                run_purpose=run.purpose.value,
+                complete=bool(review.total_count) and review.completed_count == review.total_count,
+                odoo_needs_attention=review.odoo_needs_attention,
+            ),
         )
 
     @router.get(

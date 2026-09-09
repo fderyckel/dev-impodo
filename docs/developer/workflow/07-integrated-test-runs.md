@@ -512,6 +512,20 @@ source projection. Initial schema capture retains its registration checks.
 
 ## Verification
 
+The run overview builds its sidebar from the bounded run projection through
+[`build_recipe_run_navigation`](../../../src/impodo/web/presenters/navigation.py). `WorkflowNavigation` contains the shared display
+fields; `WorkspaceNavigation` adds an actual workspace identity for workspace
+pages. Rendering the run sidebar does not open a representative application
+store. The step bar uses the same stages as the sidebar. Target display values
+come from the captured `MigrationRunTargetSchema.source_schema`.
+
+`IntegratedRunReviewView.current_card` exposes the first unverified Recipe's
+existing action above the progress cards. Its URL and method retain the same
+dependency and command guards. The [authenticated browser regression](../../../tests/integration/web/test_recipe_comparison_recovery.py) follows
+**Review prepared data** into normalization and exercises the later comparison
+and credential recovery. The screenshot capture also checks that the action
+is visible in the initial viewport and the step bar has three styled columns.
+
 - [`Worker and recovery boundaries`](../../../tests/application/workspace/preparation/test_recovery.py)
 - [`Duplicate publication recovery`](../../../tests/integration/duckdb/test_preparation_recovery.py)
 - [`Actual worker and browser recovery`](../../../tests/integration/web/test_recipe_preparation_recovery.py)

@@ -55,10 +55,13 @@ evidence.
 13. After the target values are confirmed, Impodo takes you to **Review and
     load** and starts preparing the first compatible Recipe. The page updates
     while Impodo works locally.
-14. If a card says **Action needed**, open only that card's named review. A
-    later Recipe stays waiting until the earlier result is verified.
-15. When a card says **Ready for review**, review its prepared rows, exclusions,
-    warnings, relationships, and proposed load. **Check changes** remains
+14. Use the red button under **Next action** near the top of the run page.
+    It opens the current Recipe's review or recovery step. A later Recipe
+    stays waiting until the earlier result is verified.
+15. When a card says **Ready for review**, select **Review prepared data**.
+    Review its prepared rows, exclusions, warnings, and relationships. Approve
+    the prepared data when ready, then select **Compare with Odoo**. After a
+    successful comparison, continue to the load review. **Check changes** remains
     read-only. If Odoo already matches every prepared row, Impodo records that
     verified result and returns to **Review and load** without asking you to
     confirm an empty load. Otherwise, **Confirm and load** remains your
@@ -66,6 +69,14 @@ evidence.
 16. Review **Verify result**. After successful verification, Impodo starts the
     next compatible Recipe automatically. When every card is verified, review
     and qualify that exact Test run as the Production candidate.
+
+The Recipe sidebar stays visible on the run overview and its work areas:
+**Fresh data**, **Check Odoo**, and **Review and load**. A Recipe's preparation
+can reach 100% while the run still shows **0 of 1 Recipes verified**. Preparation
+has finished; review, comparison, load, and verification still follow. A note
+that an unused source column needs no action does not block this review.
+
+![The Recipe sidebar shows all three stages, and the red Review prepared data action appears above the progress details.](../../images/user/03b-recipe-run-review.png)
 
 Before creating Recipe work areas, the same Odoo check confirms that the
 Recipe order has no cycle and that two Recipes do not claim the same writable

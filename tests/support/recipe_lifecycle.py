@@ -8,6 +8,9 @@ from impodo.domain.shared.models import FieldMetadata, ModelMetadata, OdooReadId
 from impodo.domain.execution.odoo_readback import ReadbackRecord, ExternalIdBinding
 from impodo.domain.serialization import content_hash
 from impodo.web.run_commands import publish_compared_application, publish_reconciled_application
+from impodo.web.run_commands import publish_preparation_progress, start_next_preparation
+from impodo.web.composition.preparation_job_manager import PreparationJobManager
+from impodo.application.workspace.preparation.job_models import PreparationJobStatus
 from impodo.web.target_credentials import TargetCredentialRole, get_target_credential, store_target_credential
 
 
@@ -68,6 +71,25 @@ class FictionalOdoo:
 
     def read_external_ids(self, external_ids):
         return tuple(self.external_ids[item] for item in external_ids if item in self.external_ids)
+
+
+def prepare_test_application(case, context, application, root):
+    """Use the actual worker and publish the run milestone before browser review."""
+
+    manager = PreparationJobManager(root)
+    case.addCleanup(manager.shutdown)
+    context.preparation_jobs = manager
+    manager.set_result_reader(lambda job: context.preparation_recovery.current(
+        job.workspace_id, job.workspace.mapping_content_hash, actor=context.actor,
+    ))
+    manager.set_status_listener(lambda job: publish_preparation_progress(context, job))
+    job = start_next_preparation(context, application.migration_run_id)
+    worker = manager._workers[job.job_id]
+    worker.supervisor.join(timeout=60)
+    case.assertFalse(worker.supervisor.is_alive(), "The preparation worker did not finish")
+    completed = manager.get(application.workspace_id, job.job_id)
+    case.assertEqual(completed.status, PreparationJobStatus.SUCCEEDED, completed.failure_message)
+    return completed
 
 
 def complete_application(case, context, application, *, expected_total, write_identity=None):

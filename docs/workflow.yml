@@ -185,6 +185,7 @@ stages:
       - src/impodo/adapters/duckdb/run_aware_schema_repository.py::RunAwareSchemaRepository
       - src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py::RunAwareAdvancedCoverageRepository
       - src/impodo/web/workspace_journeys.py::enforce_workspace_journey
+      - src/impodo/web/presenters/navigation.py::build_recipe_run_navigation
     tests:
       - tests/application/run/test_odoo_requirements.py
       - tests/application/run/test_integrated_recipe_runs.py
@@ -425,6 +426,7 @@ stages:
       - tests/integration/odoo/test_connectors.py
       - tests/application/workspace/review/test_odoo_comparison.py
       - tests/integration/web/test_review_workflow.py
+      - tests/integration/web/test_recipe_comparison_recovery.py
     contracts:
       - docs/developer/contracts/preflight.md
       - docs/developer/contracts/quality-and-quarantine.md

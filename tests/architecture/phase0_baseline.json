@@ -1,7 +1,7 @@
 {
   "application_to_adapter_edges": [],
   "cycles_including_type_only": [],
-  "import_edge_digest": "9156f87fc8892d524b758a8d599bda56260b2c199eafa6a7a81831db556dfa27",
+  "import_edge_digest": "dd75feb1cf247cf6b9e7a5e11be5b0bb262dea4df95391a2952bda3712e43f72",
   "module_count": 428,
   "module_digest": "92a2c749a993a881158008c5e40baa3e200fa9823a2275f62aed3167b9185f43",
   "modules_by_location": {
@@ -12,7 +12,7 @@
     "web": 66
   },
   "runtime_cycles": [],
-  "runtime_import_edge_count": 2500,
+  "runtime_import_edge_count": 2501,
   "schema_version": 1,
   "type_only_import_edge_count": 4,
   "unclassified_modules": []

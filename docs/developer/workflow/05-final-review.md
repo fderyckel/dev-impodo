@@ -96,6 +96,15 @@ presenter maps the stable failure to one owning action. It renders the
 read-key form only for missing, rejected, or insufficient read access; schema,
 mapping, preparation, transport, and storage failures never open that form.
 
+For a Recipe application, the summary and execution preview resolve the shared
+run credential through `WebContext.target_credential_workspace`. They retain
+the application's current target details and use the verified setup workspace
+identity only to address its vault entry. They do not open the setup workspace
+store inside a request authorized for the application workspace. This keeps a
+saved comparison readable and prevents an available shared key from being
+misreported as missing. Reconnection still verifies unchanged schema and access
+meaning before a new comparison can use the replacement credential generation.
+
 ## Code references
 
 | Role | Code |
@@ -185,6 +194,7 @@ contact Odoo while writing them.
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
+- [Recipe comparison and shared-key recovery](../../../tests/integration/web/test_recipe_comparison_recovery.py)
 
 Verify fixed classification precedence, batched requests, portable identities,
 snapshot completeness, stale bindings, deterministic artifacts, and absence of

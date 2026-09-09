@@ -644,13 +644,9 @@ def create_local_app(
     )
 
     def current_read_credential_binding(workspace_state: WorkspaceState) -> str:
-        test_credential_owner = test_runs.credential_workspace(
+        credential_owner = context.target_credential_workspace(
             workspace_state.workspace_id,
-            actor=actor,
-        )
-        credential_owner = production_runs.credential_workspace(
-            test_credential_owner.workspace_id,
-            actor=actor,
+            workspace_state=workspace_state,
         )
         if credential_owner.odoo_connection_mode is OdooConnectionMode.LOCAL:
             return local_read_credential_binding_hash(credential_owner)
