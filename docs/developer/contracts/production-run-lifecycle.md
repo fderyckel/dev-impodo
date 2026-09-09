@@ -46,13 +46,19 @@ plan item through the same compiler and six-stage engine used by Integrated
 Test. It copies no Test mapping draft, comparison, approval, execution,
 read-back, reconciliation, credential, or source row.
 
+The application validates all delivery answers using the Recipe parameter and
+control contracts. Export date is derived from the Production DataVersion;
+invariant expectations remain fixed by the Recipe. Required delivery totals
+must be finite numbers. Browser answers identify the reviewed plan and delivery
+so an old form cannot silently apply its fields to different meaning.
+
 ## Execution authority and invalidation
 
 Before a Production Odoo writer is constructed, the browser repeats the
 dependency guard and Production authority guard. The current selection,
 qualified plan, frozen DataVersion, target identity, read principal,
 permissions, context, and write principal, permissions, and context must match
-activation. The current read generation must match the fresh comparison
+activation. Its saved activation operation must also be `COMMITTED`. The current read generation must match the fresh comparison
 snapshot. A replacement key for the same evidenced identity can therefore be
 used after fresh comparison and a fresh write probe; changed identity or
 context requires a new Production setup.
@@ -79,10 +85,26 @@ results are committed last. A retry resumes the immutable stored intent after
 a registry or store fault. Reusing an operation identity with different
 authority or values fails closed.
 
+The active binding marks registry publication, not completion of compiler
+materialization. Readiness presentation and application preparation must wait
+for the operation's final commit. Project status must distinguish completed
+setup from a completed Production run.
+
+New activation intents retain versioned canonical parameter/control answers
+and the observed non-secret write identity alongside the existing schema,
+reference, and credential-generation evidence. Resume belongs to the original
+actor and operation. It revalidates current qualification and plan meaning,
+reuses completed mappings, and grants no new Odoo write permission. Browser
+resume requires session authentication and CSRF protection; it does not probe
+Odoo or restore vault secrets. Older pending intents without reconstructable
+inputs direct the operator to fresh setup. Committed older operations remain
+readable without migration.
+
 ## Performance contract
 
 Project overview reads all Production bindings with one bounded registry
-query. Resolving a setup or application credential owner uses one registry
+query. Setup completion adds one Project-scoped registry query without loading
+intent payloads or opening child stores. Resolving a setup or application credential owner uses one registry
 query. Activation performs one plan-level schema/reference review and one
 bounded write-identity probe; it must not add an Odoo call per Recipe or per
 source row. Each application receives a filtered immutable target projection
@@ -91,6 +113,8 @@ and source dataset references without source copying.
 ## Verification
 
 - `tests/application/run/test_production_rollout.py`
+- `tests/application/run/test_production_values.py`
+- `tests/integration/web/test_production_readiness.py`
 - `tests/application/cutover/test_qualification.py`
 - `tests/application/run/test_integrated_recipe_runs.py`
 

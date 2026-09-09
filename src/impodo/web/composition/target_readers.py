@@ -25,7 +25,6 @@ from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.schema.governance import BusinessKeyDefinition
 from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
-from impodo.domain.serialization import canonical_json
 from impodo.domain.execution.planner import PreflightRequirementPlan
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError, SourceMode
 from impodo.domain.workspace.reference_keys import (
@@ -40,6 +39,7 @@ from impodo.domain.workspace.reference_keys import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupChoice,
+    portable_supporting_value,
 )
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
@@ -1132,7 +1132,7 @@ def _capture_recipe_supporting_values(
             raw_values = tuple(record.values.get(name) for name in identity_fields)
             if any(value is None or str(value).strip() == "" for value in raw_values):
                 continue
-            value = _portable_supporting_value(raw_values)
+            value = portable_supporting_value(raw_values)
             by_key.setdefault(value, []).append(record)
         ambiguous_values = tuple(
             value for value, matches in by_key.items() if len(matches) != 1
@@ -1168,14 +1168,6 @@ def _capture_recipe_supporting_values(
             )
         )
     return tuple(stored)
-
-
-def _portable_supporting_value(values: tuple[object, ...]) -> str:
-    """Keep existing single-field values readable and composite keys exact."""
-
-    if len(values) == 1:
-        return str(values[0])
-    return canonical_json([str(value) for value in values])
 
 
 def _read_supporting_lookup_batches(

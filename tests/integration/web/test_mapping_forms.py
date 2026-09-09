@@ -4,11 +4,14 @@ from tests.support.paths import REPOSITORY_ROOT
 
 import json
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 
 from starlette.datastructures import FormData
 
-from impodo.domain.mapping.contracts import RelationshipValueSource, ResolverOrigin
+from impodo.domain.mapping.contracts import (
+    BusinessControlDefinition, MappingControlExpectation, RelationshipValueSource, ResolverOrigin,
+)
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
@@ -141,6 +144,20 @@ class OrderedTextStepFormTests(unittest.TestCase):
         )
 
         scope = datasets[1].target_scope[0]
+        accepted = replace(datasets[1],
+            control_definitions=(BusinessControlDefinition(
+                control_id="control:lines.sequence", name="Line sequence total", target_field="sequence",
+                invariant_expectation=True,
+            ),),
+            control_expectations=(MappingControlExpectation("control:lines.sequence", "6"),),
+        )
+        tampered = FormData((*form.multi_items(), ("control_expected_1_0", "999")))
+        preserved = _mapping_datasets_from_form(
+            tampered, selection, schema, SimpleNamespace(business_keys=(order_key, line_key)),
+            fixed_controls={accepted.dataset_id: accepted},
+        )[1]
+        self.assertEqual(preserved.control_definitions, accepted.control_definitions)
+        self.assertEqual(preserved.control_expectations, accepted.control_expectations)
         assert scope.resolver is not None
         self.assertIs(scope.resolver.origin, ResolverOrigin.TARGET_THEN_DATASET)
         self.assertEqual(scope.resolver.dataset_id, "dataset:orders")

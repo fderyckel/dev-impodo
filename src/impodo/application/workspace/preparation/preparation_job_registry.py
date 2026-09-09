@@ -219,11 +219,12 @@ class PreparationJobRegistry:
             result_run_id=result_run_id[:200],
         )
 
-    def mark_review_required(self, job_id: str) -> PreparationJob:
+    def mark_review_required(self, job_id: str, *, result_run_id: str = "") -> PreparationJob:
         return self._finish(
             job_id,
             status=PreparationJobStatus.REVIEW_REQUIRED,
             message="Possible duplicate records need your review",
+            result_run_id=result_run_id,
         )
 
     def mark_cancelled(self, job_id: str) -> PreparationJob:

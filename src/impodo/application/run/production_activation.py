@@ -134,10 +134,16 @@ class ProductionRunActivationUseCase:
         if not review.can_start:
             first = next(item for item in review.planning_issues if item.blocks)
             raise ProductionRunError(f"{first.message} {first.recovery_action}")
-        if production_binding.state is ProductionRunBindingState.ACTIVE:
+        reserved = self._repository.production_activation_operation(production_binding.migration_run_id)
+        if reserved is not None:
+            if reserved.operation_id != operation_id:
+                raise ProductionRunError("Continue the saved Production activation before starting another request")
             self._assert_retry_matches(
                 production_binding,
+                reserved.detail,
                 target_schema=target_schema,
+                reference_bundle=target_reference_bundle,
+                reference_names={item.name for item in review.reference_requirements},
                 read_credential_generation=read_credential_generation,
                 write_identity=write_identity,
                 write_credential_generation=write_credential_generation,
@@ -316,6 +322,12 @@ class ProductionRunActivationUseCase:
             operation_id=operation_id,
             request_hash=request_hash,
             actor=actor,
+            activation_inputs={
+                "contract_version": 1,
+                "parameters": parameter_values or {},
+                "controls": control_values or {},
+                "write_identity": write_identity_values,
+            },
             fault=fault,
         )
         self._materializer.materialize(
@@ -333,8 +345,11 @@ class ProductionRunActivationUseCase:
     def _assert_retry_matches(
         self,
         binding: ProductionRunBinding,
+        saved: Mapping[str, object],
         *,
         target_schema: OdooSchemaCatalog,
+        reference_bundle: ReferenceBundle | None,
+        reference_names: set[str],
         read_credential_generation: str,
         write_identity: OdooWriteIdentity,
         write_credential_generation: str,
@@ -342,7 +357,17 @@ class ProductionRunActivationUseCase:
         control_values: Mapping[str, Mapping[str, str]] | None,
         shared_control_values: Mapping[str, bool],
     ) -> None:
-        target = self._repository.get_target_binding(binding.migration_run_id)
+        """Check reserved meaning before replay, including before registry commit."""
+
+        authority = saved["production_binding"]
+        target = saved["target_binding"]
+        current_binding = binding.to_dict()
+        saved_schema = MigrationRunTargetSchema.from_json(str(saved["target_schema_json"]))
+        schema = MigrationRunTargetSchema.capture(binding.migration_run_id, target_schema, set(saved_schema.model_names))
+        reference_hashes = tuple(sorted(
+            item.content_hash for item in (reference_bundle.datasets if reference_bundle else ())
+            if item.name in reference_names
+        ))
         parameter_hash = content_hash(parameter_values or {})
         control_hash = content_hash(
             {
@@ -351,17 +376,24 @@ class ProductionRunActivationUseCase:
             }
         )
         if (
-            target.connection_target_hash != target_schema.connection_target_hash
-            or target.principal_hash != target_schema.read_principal_hash
-            or target.permission_hash != target_schema.read_permission_hash
-            or target.context_hash != target_schema.read_context_hash
-            or binding.read_credential_generation != read_credential_generation
-            or binding.write_credential_generation != write_credential_generation
-            or binding.write_principal_hash != write_identity.principal_hash
-            or binding.write_permission_hash != write_identity.permission_hash
-            or binding.write_context_hash != write_identity.context_hash
-            or binding.parameter_values_hash != parameter_hash
-            or binding.control_values_hash != control_hash
+            any(current_binding[key] != authority[key] for key in (
+                "production_run_binding_id", "project_id", "migration_run_id", "data_version_id", "setup_workspace_id",
+                "cutover_selection_id", "qualification_id", "cutover_plan_id", "cutover_plan_revision", "plan_content_hash",
+                "test_target_binding_hash",
+            ))
+            or schema.content_hash != saved_schema.content_hash
+            or target["connection_target_hash"] != target_schema.connection_target_hash
+            or target["principal_hash"] != target_schema.read_principal_hash
+            or target["permission_hash"] != target_schema.read_permission_hash
+            or target["context_hash"] != target_schema.read_context_hash
+            or reference_hashes != tuple(sorted(target["reference_snapshot_hashes"]))
+            or authority["read_credential_generation"] != read_credential_generation
+            or authority["write_credential_generation"] != write_credential_generation
+            or authority["write_principal_hash"] != write_identity.principal_hash
+            or authority["write_permission_hash"] != write_identity.permission_hash
+            or authority["write_context_hash"] != write_identity.context_hash
+            or authority["parameter_values_hash"] != parameter_hash
+            or authority["control_values_hash"] != control_hash
         ):
             raise ProductionRunError(
                 "Production activation was already recorded with different evidence"

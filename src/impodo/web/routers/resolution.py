@@ -13,7 +13,7 @@ from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
 from ..security import require_session
-from .preparation import enqueue_preparation
+from ..run_commands import enqueue_preparation
 
 
 def build_resolution_router(context: WebContext) -> APIRouter:
@@ -195,7 +195,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 expected_lifecycle_version=int(str(form["lifecycle_version"])),
                 actor=context.actor,
             )
-            job = enqueue_preparation(context, workspace_id)
+            job = await run_in_threadpool(enqueue_preparation, context, workspace_id)
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, workspace_id, error=str(error), status_code=422)
         _flash(request, "Duplicate review approved. Preparation is continuing.")

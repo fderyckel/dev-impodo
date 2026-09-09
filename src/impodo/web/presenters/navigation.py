@@ -171,6 +171,7 @@ def build_workspace_navigation(
     current_path: str = "",
     migration_project_name: str | None = None,
     workspace_view: WorkspaceOwnerView | None = None,
+    run_setup_complete: bool | None = None,
 ) -> WorkspaceNavigation:
     """Return the one user journey allowed by canonical workspace ownership."""
 
@@ -194,6 +195,7 @@ def build_workspace_navigation(
             navigation,
             workspace_view,
             template_name=template_name,
+            run_setup_complete=run_setup_complete,
         )
     return _recipe_application_navigation(
         navigation,
@@ -1316,6 +1318,7 @@ def _recipe_run_setup_navigation(
     workspace_view: WorkspaceOwnerView,
     *,
     template_name: str,
+    run_setup_complete: bool | None = None,
 ) -> WorkspaceNavigation:
     """Present fresh data and Odoo review as one run-owned setup journey."""
 
@@ -1370,6 +1373,10 @@ def _recipe_run_setup_navigation(
         odoo_status = odoo_stage.status
         odoo_label = odoo_stage.status_label
         odoo_href = odoo_home
+    if purpose == "PRODUCTION" and run_setup_complete is not None and fresh_complete:
+        odoo_status = "complete" if run_setup_complete else "current"
+        odoo_label = "Complete" if run_setup_complete else "Current"
+        odoo_href = run_home
     odoo = WorkflowStage(
         stage_id="odoo",
         number=2,
@@ -1383,7 +1390,8 @@ def _recipe_run_setup_navigation(
         stage_id="review",
         number=3,
         label="Review and load",
-        href=run_home if fresh_complete and odoo_complete else None,
+        href=(f"/projects/{workspace_view.project_id}/runs/{workspace_view.migration_run_id}"
+              if purpose == "PRODUCTION" else run_home) if fresh_complete and odoo_complete else None,
         status="current" if fresh_complete and odoo_complete else "locked",
         status_label=(
             "Current" if fresh_complete and odoo_complete else "Finish Odoo check first"
@@ -1391,7 +1399,7 @@ def _recipe_run_setup_navigation(
     )
     if template_name in {"workspace_files.html", "workspace_sources.html", "workspace_datasets.html", "workspace_derived_entities.html"}:
         viewed_stage_id = "fresh"
-    elif template_name in {"workspace_schema.html", "workspace_target.html"}:
+    elif template_name in {"workspace_schema.html", "workspace_target.html", "project_production_activation.html"}:
         viewed_stage_id = "odoo"
     else:
         viewed_stage_id = "review"
@@ -1470,7 +1478,7 @@ def _recipe_application_navigation(
                 stage_id="odoo",
                 number=2,
                 label="Check Odoo",
-                href=f"{run_home}/odoo",
+                href=f"{run_home}/odoo" if run_purpose == "TEST" else fresh_home,
                 status="attention" if target_value_review else "complete",
                 status_label=(
                     "Review target values" if target_value_review else "Complete"

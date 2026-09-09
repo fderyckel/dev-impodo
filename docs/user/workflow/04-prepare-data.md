@@ -81,6 +81,11 @@ Investigate blocked rows, unresolved relationships, unexpected quarantine,
 count differences, or a stopped background job. A cancelled or failed attempt
 may be retried only after its recorded outcome is understood.
 
+For a Recipe run, return to **Review and load** after preparation stops or you
+reopen Impodo. If the Recipe already has a complete, current saved result,
+Impodo offers its review without preparing the rows again. See
+[returning to a Recipe run](../guides/integrated-test-runs.md#needs-attention).
+
 If Impodo reports that it was updated while preparation was starting, restart
 Impodo. The stopped attempt did not open the workspace or contact Odoo. Do not
 repeat the same attempt from the old browser session.

@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.recipe.models import RecipeError
+from impodo.domain.recipe.control_values import normalize_control_total, normalize_recipe_control_values
+from impodo.domain.recipe_applications import RecipeApplicationError
 from impodo.domain.recipe_parameters import (
     EXPORT_AS_OF_PARAMETER_ID,
     RecipeParameterValueError,
@@ -20,7 +22,8 @@ from impodo.domain.project.foundation import (
 )
 from impodo.domain.run.test_setup import (
     RecipeRunParameterValue,
-    TestRunParameterValues,
+    RecipeRunControlValue,
+    TestRunValues,
     TestRunSetupBinding,
 )
 
@@ -31,9 +34,13 @@ from .fresh_data_matching import (
 )
 from .fresh_data_values import (
     FreshDataRunValuePlan,
+    FreshDataActivationValues,
+    FreshDataControlValue,
     assert_run_value_ownership,
     build_fresh_data_run_value_plan,
     fresh_input_requirements,
+    fresh_control_requirements,
+    control_definitions,
     fresh_parameter_requirements,
     normalize_export_date,
     parameter_definitions,
@@ -101,6 +108,7 @@ class TestRunFreshDataUseCase:
                         definition,
                         data_version.export_as_of,
                     ),
+                    controls=fresh_control_requirements(definition),
                 )
             )
         return tuple(requirements)
@@ -117,7 +125,7 @@ class TestRunFreshDataUseCase:
         current_binding = self._binding(binding.migration_run_id, actor=actor)
         if current_binding.content_hash != binding.content_hash:
             raise MigrationConflictError("Test setup changed; reload and retry")
-        current = self._test_runs.get_parameter_values(binding.migration_run_id)
+        current = self._test_runs.get_run_values(binding.migration_run_id)
         assert_run_value_ownership(binding, current)
         return build_fresh_data_run_value_plan(requirements, current)
 
@@ -128,7 +136,8 @@ class TestRunFreshDataUseCase:
         *,
         expected_revision: int | None,
         actor: Actor,
-    ) -> TestRunParameterValues | None:
+        supplied_controls: Mapping[str, Mapping[str, object]] | None = None,
+    ) -> TestRunValues | None:
         """Validate and save only the answers declared by selected Recipes."""
 
         self._authorization.require(
@@ -140,7 +149,7 @@ class TestRunFreshDataUseCase:
         if current_binding.content_hash != binding.content_hash:
             raise MigrationConflictError("Test setup changed; reload and retry")
         requirements = self.requirements(binding.migration_run_id, actor=actor)
-        current = self._test_runs.get_parameter_values(binding.migration_run_id)
+        current = self._test_runs.get_run_values(binding.migration_run_id)
         assert_run_value_ownership(binding, current)
         current_revision = current.revision if current is not None else None
         if expected_revision != current_revision:
@@ -156,7 +165,30 @@ class TestRunFreshDataUseCase:
             raise MigrationFoundationError(
                 f"Run value {unknown[0]} is not requested by the selected Recipes"
             )
-        if not editable:
+        requested_controls: dict[str, dict[str, FreshDataControlValue]] = {}
+        for item in plan.editable_controls:
+            requested_controls.setdefault(item.recipe_id, {})[item.requirement.logical_control_id] = item
+        controls_by_recipe = supplied_controls or {}
+        if set(controls_by_recipe) - set(requested_controls):
+            raise MigrationFoundationError("Control totals must belong to a selected Recipe that requests them")
+        saved_controls = []
+        for recipe_id, requested in requested_controls.items():
+            submitted = controls_by_recipe.get(recipe_id, {})
+            if set(submitted) - set(requested):
+                raise MigrationFoundationError("A submitted control total is not editable in this Recipe")
+            for logical_id, item in requested.items():
+                try:
+                    saved_controls.append(RecipeRunControlValue(
+                        recipe_id=recipe_id,
+                        logical_control_id=logical_id,
+                        expected_total=normalize_control_total(
+                            submitted.get(logical_id, ""), label=item.requirement.label,
+                        ),
+                    ))
+                except RecipeApplicationError as error:
+                    raise MigrationFoundationError(str(error)) from error
+        ordered_controls = tuple(sorted(saved_controls, key=lambda item: (item.recipe_id, item.logical_control_id)))
+        if not plan.requires_confirmation:
             return current
 
         saved_values: list[RecipeRunParameterValue] = []
@@ -197,27 +229,26 @@ class TestRunFreshDataUseCase:
                 key=lambda item: (item.recipe_id, item.logical_parameter_id),
             )
         )
-        if current is not None and current.values == ordered:
+        if current is not None and current.values == ordered and current.controls == ordered_controls:
             return current
         data_version = self._data_versions.get(
             binding.data_version_id,
             actor=actor,
         )
-        if current is not None and data_version.state is DataVersionState.FROZEN:
-            raise MigrationConflictError(
-                "Run details were accepted with this fresh data; start a new "
-                "Test run to change them"
-            )
-        replacement = TestRunParameterValues(
+        replacement = TestRunValues(
             test_run_setup_id=binding.test_run_setup_id,
             project_id=binding.project_id,
             migration_run_id=binding.migration_run_id,
             revision=1 if current is None else current.revision + 1,
             values=ordered,
+            controls=ordered_controls,
+            recipe_revisions=binding.selected_revisions,
             updated_by=actor.identity,
             updated_at=utc_now(),
         )
-        return self._test_runs.replace_parameter_values(
+        if data_version.state is DataVersionState.FROZEN:
+            replacement.assert_frozen_answers_preserved(current)
+        return self._test_runs.replace_run_values(
             replacement,
             expected_revision=expected_revision,
             actor=actor,
@@ -238,13 +269,13 @@ class TestRunFreshDataUseCase:
             overrides=overrides,
         )
 
-    def activation_parameter_values(
+    def activation_values(
         self,
         binding: TestRunSetupBinding,
         export_as_of: object,
         *,
         actor: Actor,
-    ) -> dict[str, dict[str, object]]:
+    ) -> FreshDataActivationValues:
         """Revalidate saved run values against exact Recipes before activation."""
 
         selected = tuple(
@@ -256,18 +287,22 @@ class TestRunFreshDataUseCase:
             selected,
             actor=actor,
         )
-        stored = self._test_runs.get_parameter_values(binding.migration_run_id)
+        stored = self._test_runs.get_run_values(binding.migration_run_id)
         assert_run_value_ownership(binding, stored)
         stored_by_recipe = stored.by_recipe if stored is not None else {}
+        stored_controls = stored.controls_by_recipe if stored is not None else {}
         selected_recipe_ids = {item.recipe_id for item in binding.selected_revisions}
-        if set(stored_by_recipe) - selected_recipe_ids:
+        if (set(stored_by_recipe) | set(stored_controls)) - selected_recipe_ids:
             raise MigrationConflictError(
                 "Saved run values do not match the selected Recipes"
             )
         values: dict[str, dict[str, object]] = {}
+        controls: dict[str, dict[str, str]] = {}
         editable_declared = False
         for selection in binding.selected_revisions:
             revision = revisions[(selection.recipe_id, selection.recipe_revision)]
+            if revision.envelope.get("semantic_hash") != selection.semantic_hash:
+                raise RecipeError("The selected Recipe version has changed")
             definition = recipe_definition(revision.envelope)
             definitions = parameter_definitions(definition)
             declared = {
@@ -287,13 +322,17 @@ class TestRunFreshDataUseCase:
                     definitions,
                     recipe_values,
                 )
-            except RecipeParameterValueError as error:
+                controls[selection.recipe_id] = normalize_recipe_control_values(
+                    control_definitions(definition),
+                    stored_controls.get(selection.recipe_id, {}), require_all=True,
+                )
+            except (RecipeParameterValueError, RecipeApplicationError) as error:
                 raise MigrationFoundationError(str(error)) from error
         if editable_declared and stored is None:
             raise MigrationFoundationError(
                 "Confirm the Recipe details for this run on Fresh data"
             )
-        return values
+        return FreshDataActivationValues(parameters=values, controls=controls)
 
     def _binding(
         self,

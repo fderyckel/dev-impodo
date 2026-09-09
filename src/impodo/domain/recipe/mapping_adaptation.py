@@ -18,8 +18,10 @@ from impodo.domain.mapping.contracts import (
 )
 
 
-def recipe_mapping_shape(definition: MappingDefinition) -> str:
-    """Hash the immutable meaning, retaining invariant control expectations."""
+def recipe_mapping_shape(
+    definition: MappingDefinition, *, fixed_control_ids: frozenset[str] = frozenset(),
+) -> str:
+    """Retain Recipe meaning and totals already accepted before compilation."""
 
     datasets = []
     for dataset in definition.datasets:
@@ -63,7 +65,7 @@ def recipe_mapping_shape(definition: MappingDefinition) -> str:
             relationships=relationships,
             control_expectations=tuple(
                 expectation for expectation in dataset.control_expectations
-                if expectation.control_id in invariant_ids
+                if expectation.control_id in invariant_ids or expectation.control_id in fixed_control_ids
             ),
         ))
     return replace(definition, datasets=tuple(datasets)).content_hash

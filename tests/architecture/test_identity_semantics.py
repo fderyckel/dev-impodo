@@ -68,7 +68,7 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/run/models.py::MigrationRun",
         "domain/run/setup.py::MigrationRunTargetSetup",
         "domain/workspace/models.py::MigrationWorkspace",
-        "domain/run/test_setup.py::TestRunParameterValues",
+        "domain/run/test_setup.py::TestRunValues",
         "domain/run/test_setup.py::TestRunSetupBinding",
         "application/workspace/preparation/job_models.py::PreparationWorkspace",
         "domain/recipe/models.py::Recipe",

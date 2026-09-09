@@ -259,6 +259,7 @@ class TestRunActivationUseCase:
         operation_id: str,
         actor: Actor,
         fault: FaultInjector | None = None,
+        control_values: Mapping[str, Mapping[str, str]] | None = None,
     ) -> IntegratedRunBundle:
         """Activate one fresh Test setup and create isolated Recipe work areas."""
 
@@ -296,7 +297,7 @@ class TestRunActivationUseCase:
             target_schema=target_schema,
             target_reference_bundle=target_reference_bundle,
             parameter_values=parameter_values,
-            control_values=None,
+            control_values=control_values,
             purpose=DataVersionPurpose.TEST,
             required_target_workspace_id=None,
             actor=actor,
@@ -459,6 +460,7 @@ class TestRunActivationUseCase:
                     "target_schema_hash": run_target_schema.content_hash,
                     "test_setup_hash": test_binding.content_hash,
                     "parameter_values": parameter_values or {},
+                    "control_values": control_values or {},
                 }
             ),
             actor=actor,

@@ -41,9 +41,8 @@ from impodo.application.workspace.preparation.job_models import (
     PreparationPhase,
     PreparationWorkspace,
 )
-from impodo.web.routers.preparation import (
-    _assert_recipe_application_can_prepare,
-    _preparation_workspace,
+from impodo.web.run_commands import (
+    _preparation_workspace, _assert_recipe_application_can_prepare,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 

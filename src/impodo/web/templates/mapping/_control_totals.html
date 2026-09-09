@@ -1,3 +1,16 @@
+          {% if migration_workspace and migration_workspace.recipe_application_id and view.mapping and view.mapping.effective_control_totals|length == view.mapping.control_definitions|length %}
+            {% if view.mapping.control_definitions %}
+              <details class="technical-evidence" open>
+                <summary>Accepted control totals <small>Fixed for this run</small></summary>
+                <dl class="summary-list">
+                  {% for control in view.mapping.effective_control_totals %}
+                    <div><dt>{{ control.name }}</dt><dd>{{ control.expected_total }} {{ control.unit }} · Allowed difference: {{ control.tolerance }}</dd></div>
+                  {% endfor %}
+                </dl>
+                <p class="muted">These totals were fixed before this Recipe was applied. Start a new run if the delivery totals need to change.</p>
+              </details>
+            {% endif %}
+          {% else %}
           <details class="technical-evidence" {% if view.mapping and view.mapping.effective_control_totals %}open{% endif %}>
             <summary>
               Check a known total (optional)
@@ -50,3 +63,4 @@
               <p class="empty-state compact">This Odoo record type has no numeric fields available for a totals check.</p>
             {% endif %}
           </details>
+          {% endif %}

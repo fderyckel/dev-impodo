@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from impodo.application.data_version.inspection import SourceInspectionError
 from impodo.application.run.target_defaults import mapped_target_defaults
+from impodo.application.run.target_matches import TargetMatchReviewChanged
 from impodo.application.run.progress import (
     ApplicationResumeStep, application_resume_step, next_unverified_application,
 )
@@ -35,11 +36,8 @@ from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.schema import _render_schema
-from ..run_review import build_integrated_run_review, start_next_preparation
-from ..recipe_target_matches import (
-    apply_target_match_decisions,
-    build_target_match_review,
-)
+from ..run_review import build_integrated_run_review
+from ..run_commands import start_next_preparation, recover_run_preparation
 from ..security import require_session
 from ..source_file_commands import accept_source_uploads, remove_source_file
 
@@ -296,7 +294,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Accept the exact current logical-to-physical table matches."""
 
         form = await request.form()
-        initial_view = _test_fresh_data_view(
+        initial_view = await run_in_threadpool(
+            _test_fresh_data_view,
             context,
             project_id,
             migration_run_id,
@@ -304,6 +303,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         initial_plan = initial_view["match_plan"]
         run_value_plan = initial_view["run_value_plan"]
         editable_run_values = run_value_plan.editable_values
+        editable_controls = run_value_plan.editable_controls
         allowed = {
             "csrf_token",
             "parameter_revision",
@@ -317,6 +317,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             f"parameter_{index}"
             for index, _item in enumerate(editable_run_values)
         )
+        allowed.update(f"control_{index}" for index, _item in enumerate(editable_controls))
         _secure_form(request, form, allowed)
         overrides = (
             {
@@ -331,6 +332,11 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             item.logical_parameter_id: _text(form, f"parameter_{index}")
             for index, item in enumerate(editable_run_values)
         }
+        submitted_controls: dict[str, dict[str, str]] = {}
+        for index, item in enumerate(editable_controls):
+            submitted_controls.setdefault(item.recipe_id, {})[
+                item.requirement.logical_control_id
+            ] = _text(form, f"control_{index}")
         expected_parameter_revision = None
         try:
             expected_parameter_revision = _optional_parameter_revision(form)
@@ -377,11 +383,12 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                     dataset_names[(candidate.file_id, candidate.table_key)] = (
                         input_match.dataset_name
                     )
-            if editable_run_values:
+            if run_value_plan.requires_confirmation:
                 await run_in_threadpool(
                     context.test_runs.replace_fresh_data_run_values,
                     view["binding"],
                     submitted_run_values,
+                    supplied_controls=submitted_controls,
                     expected_revision=expected_parameter_revision,
                     actor=context.actor,
                 )
@@ -416,7 +423,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
         except (MigrationFoundationError, WorkspaceError) as error:
-            return _render_test_fresh_data(
+            return await run_in_threadpool(
+                _render_test_fresh_data,
                 request,
                 context,
                 project_id,
@@ -425,6 +433,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 status_code=422,
                 match_overrides=overrides,
                 parameter_overrides=submitted_run_values,
+                control_overrides=submitted_controls,
             )
         _flash(
             request,
@@ -459,6 +468,18 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 f"/projects/{project_id}/production-runs/{migration_run_id}/activate",
                 status_code=303,
             )
+        if run.purpose is MigrationRunPurpose.PRODUCTION:
+            activation = await run_in_threadpool(
+                context.production_runs.activation_operation, migration_run_id, actor=context.actor,
+            )
+            if activation is None or activation.state.value != "COMMITTED":
+                return RedirectResponse(
+                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303,
+                )
+        try:
+            await run_in_threadpool(recover_run_preparation, context, migration_run_id)
+        except WorkspaceError as error:
+            _flash(request, str(error))
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
         progress = context.run_planning.repository.progress(migration_run_id)
         issues = context.run_planning.repository.list_run_issues(migration_run_id)
@@ -482,8 +503,10 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         target_schema = context.run_planning.repository.get_run_target_schema(
             migration_run_id
         )
-        plan_binding = context.cutover_plans.repository.get_run_binding(
-            migration_run_id
+        plan_binding = (
+            context.production_runs.production_runs.get(migration_run_id)
+            if run.purpose is MigrationRunPurpose.PRODUCTION else
+            context.cutover_plans.repository.get_run_binding(migration_run_id)
         )
         plan_revision = context.cutover_plans.repository.get_revision(
             plan_binding.cutover_plan_id,
@@ -677,98 +700,23 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         form = await request.form()
         submitted = {str(key): str(value) for key, value in form.items()}
         try:
-            review = build_target_match_review(
-                context,
-                application,
-                submitted=submitted,
-            )
             allowed = {
-                "csrf_token",
-                "expected_definition_hash",
-                "expected_working_draft_version",
-            } | {
-                row.input_name
-                for field in review.fields
-                for row in field.review_rows
-            }
+                "csrf_token", "expected_definition_hash",
+                "expected_working_draft_version", "expected_evidence_hash",
+            } | {key for key in submitted if key.startswith("match_")}
             _secure_form(request, form, allowed)
-            if not review.can_confirm:
-                raise WorkspaceError(
-                    "Open the full field matcher for the remaining unsupported value review"
-                )
-            try:
-                expected_working_version = int(
-                    _text(form, "expected_working_draft_version")
-                )
-            except ValueError as error:
-                raise WorkspaceError(
-                    "These target-value matches are no longer current"
-                ) from error
-            if (
-                expected_working_version != review.working_draft_version
-                or _text(form, "expected_definition_hash")
-                != review.definition_hash
-            ):
-                raise WorkspaceError(
-                    "These target-value matches changed. Reload and review the current values."
-                )
-            working = context.queries.get_mapping_working_draft(
-                application.workspace_id
-            )
-            if working is None:
-                raise WorkspaceError("The current field matches are unavailable")
-            datasets = apply_target_match_decisions(
-                working.definition,
-                review,
-                submitted,
-            )
-            if datasets != working.definition.datasets:
-                working = await run_in_threadpool(
-                    context.mapping_workspace.save_working_draft,
-                    application.workspace_id,
-                    datasets=datasets,
-                    expected_version=working.version,
-                    actor=context.actor,
-                )
-            revision, validation = await run_in_threadpool(
-                context.mapping_workspace.check_definition,
-                application.workspace_id,
-                datasets=working.definition.datasets,
-                expected_parent_version=review.parent_mapping_version,
-                expected_working_draft_version=working.version,
-                actor=context.actor,
-            )
-            if validation.status.value != "VALID":
-                first = next(iter(validation.issues), None)
-                detail = first.message if first is not None else "Review the field matches"
-                _flash(
-                    request,
-                    f"Target values saved. {detail}",
-                )
-                return RedirectResponse(
-                    f"/workspaces/{application.workspace_id}/mapping#next-step-blockers",
-                    status_code=303,
-                )
-            checked = context.queries.get_mapping_working_draft(
-                application.workspace_id
-            )
-            if checked is None:
-                raise WorkspaceError("The checked field matches are unavailable")
-            await run_in_threadpool(
-                context.mapping_workspace.submit_current,
-                application.workspace_id,
-                datasets=checked.definition.datasets,
-                expected_version=revision.version,
-                expected_working_draft_version=checked.version,
-                actor=context.actor,
-            )
             confirmed = await run_in_threadpool(
-                context.run_planning.confirm_application_mapping,
-                application.application_id,
+                context.recipe_target_matches.confirm,
+                application,
+                decisions={key: value for key, value in submitted.items() if key.startswith("match_")},
+                expected_working_draft_version=int(_text(form, "expected_working_draft_version")),
+                expected_definition_hash=_text(form, "expected_definition_hash"),
+                expected_evidence_hash=_text(form, "expected_evidence_hash"),
                 actor=context.actor,
             )
         except (MigrationRunPlanningError, WorkspaceError, ValueError) as error:
-            return _render_application_target_matches(
+            return await run_in_threadpool(
+                _render_application_target_matches,
                 request,
                 context,
                 project_id,
@@ -776,7 +724,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 application_id,
                 error=str(error),
                 status_code=422,
-                submitted=submitted,
+                submitted=None if isinstance(error, TargetMatchReviewChanged) else submitted,
             )
         _flash(request, "Target-specific values confirmed for this Recipe run.")
         if (
@@ -887,6 +835,14 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         run = context.migration_runs.get(migration_run_id, actor=context.actor)
         if run.project_id != project.project_id:
             return HTMLResponse("MigrationRun not found", status_code=404)
+        if run.purpose is MigrationRunPurpose.PRODUCTION:
+            activation = await run_in_threadpool(
+                context.production_runs.activation_operation, migration_run_id, actor=context.actor,
+            )
+            if activation is None or activation.state.value != "COMMITTED":
+                return RedirectResponse(
+                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303,
+                )
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
         application = next(
             (
@@ -912,6 +868,11 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 f"/projects/{project_id}/runs/{migration_run_id}",
                 status_code=303,
             )
+        try:
+            await run_in_threadpool(recover_run_preparation, context, migration_run_id)
+            application = context.run_planning.repository.get_application(application_id)
+        except WorkspaceError as error:
+            _flash(request, str(error))
         preparation = (
             context.preparation_jobs.latest_many((application.workspace_id,)).get(
                 application.workspace_id
@@ -1111,10 +1072,8 @@ def _render_application_target_matches(
     )
     review = None
     try:
-        review = build_target_match_review(
-            context,
-            application,
-            submitted=submitted,
+        review = context.recipe_target_matches.build_review(
+            application, actor=context.actor, submitted=submitted,
         )
     except WorkspaceError as review_error:
         error = error or str(review_error)
@@ -1149,6 +1108,7 @@ def _render_test_fresh_data(
     status_code: int = 200,
     match_overrides: dict[str, str] | None = None,
     parameter_overrides: dict[str, str] | None = None,
+    control_overrides: dict[str, dict[str, str]] | None = None,
 ):
     view = _test_fresh_data_view(
         context,
@@ -1156,6 +1116,7 @@ def _render_test_fresh_data(
         migration_run_id,
         match_overrides=match_overrides,
         parameter_overrides=parameter_overrides,
+        control_overrides=control_overrides,
     )
     return _render(
         request,
@@ -1189,6 +1150,7 @@ def _test_fresh_data_view(
     *,
     match_overrides=None,
     parameter_overrides=None,
+    control_overrides=None,
 ):
     project = context.migration_projects.get(project_id, actor=context.actor)
     binding = context.test_runs.get(migration_run_id, actor=context.actor)
@@ -1215,19 +1177,26 @@ def _test_fresh_data_view(
         requirements,
         actor=context.actor,
     )
-    if parameter_overrides:
+    if parameter_overrides is not None or control_overrides is not None:
         run_value_plan = replace(
             run_value_plan,
             values=tuple(
                 replace(
                     item,
-                    supplied_value=parameter_overrides.get(
+                    supplied_value=(parameter_overrides or {}).get(
                         item.logical_parameter_id,
                         item.supplied_value,
                     ),
                 )
                 for item in run_value_plan.values
             ),
+            controls=tuple(
+                replace(item, supplied_value=(control_overrides or {}).get(item.recipe_id, {}).get(
+                    item.requirement.logical_control_id, item.supplied_value,
+                ))
+                for item in run_value_plan.controls
+            ),
+            confirmed=False,
         )
     source_selection = context.queries.get_source_selection(
         binding.setup_workspace_id

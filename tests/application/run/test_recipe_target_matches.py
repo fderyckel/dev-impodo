@@ -15,7 +15,7 @@ from impodo.domain.mapping.contracts import (
     ScalarFieldMapping,
     ValueMapping,
 )
-from impodo.web.recipe_target_matches import (
+from impodo.application.run.target_matches import (
     TargetMatchField,
     TargetMatchReview,
     TargetValueChoice,

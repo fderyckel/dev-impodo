@@ -37,8 +37,9 @@ evidence.
 7. Select **Check files and match tables**. Impodo shows the table chosen for
    each Recipe input. If two tables could be right, choose one. If a file is not
    used by the Recipe, remove it and check the files again.
-8. Select **Use this fresh data**. This accepts the matched tables as the Test
-   data version.
+8. Enter the requested **Details for this run** and **Expected totals for this
+   delivery**, then select **Use this fresh data**. This accepts the matched
+   tables and answers for the Test data version.
 9. Under **Check Odoo**, connect the Odoo target for this Test run.
 10. Review the Odoo record types, fields, and current supporting values taken from the
     exact selected Recipe versions. You cannot replace them with other Odoo
@@ -91,8 +92,22 @@ fresh source values with the Selection options and linked records captured by
 They do not change the saved Recipe, and reviewing the page does not make
 another Odoo request.
 
+For a linked record identified by several values, Impodo checks the complete
+combination, including any company value. For example, category code **SALES**
+in company **North** does not match the same code in company **South**.
+These exact matches are read-only. If a combination is missing or ambiguous,
+correct the data in a new run, or correct Odoo and select **Recheck Odoo**.
+Changing the matching rule requires a new Recipe version.
+
+The review keeps you in the run when a check fails. It explains the remaining
+problem without opening field-authoring controls. If the Odoo evidence changes
+while the page is open, reload the page and review the current choices before
+confirming.
+
+![The target-value review shows one French language choice to confirm and one verified English match.](../../images/user/03b-recipe-target-values.png)
+
 The run keeps the Recipe's business checks after you confirm these choices.
-The field review can also collect this delivery's expected control totals.
+The expected totals you accepted on **Fresh data** stay fixed during field review.
 Changing field providers, transformations, record identities, or relationships
 requires a new Recipe version. Impodo rejects those changes when you confirm
 the run's field matches.
@@ -102,6 +117,26 @@ the one shared setup target, verifies that no other field behavior changed,
 and rebuilds only applications whose earlier required-field blockers are now
 covered. The application continues automatically for straightforward defaults.
 Impodo asks you to review only the context-sensitive defaults described above.
+
+## Expected totals for this delivery
+
+Some Recipes check a known amount or quantity. Enter this delivery's expected
+total under **Expected totals for this delivery** before you accept the data.
+For example, if the customer balances in your delivery should total EUR 125.50,
+enter **125.50** for **Opening balance total**. Impodo compares that answer with
+the prepared rows using the Recipe's allowed difference.
+
+Each total names its Recipe and source table. Enter separate answers when two
+Recipes request totals, even if their labels are similar. A value marked
+**Fixed by the Recipe** is read-only. Zero and negative totals are accepted;
+missing or invalid numbers prevent acceptance.
+
+![Fresh data asks for the opening balance total and shows the Recipe, table, currency, and allowed difference before acceptance.](../../images/user/03a-fresh-data-control-totals.png)
+
+Once accepted, the totals appear as a summary. Field review cannot replace
+them; start a new Test run if a total was wrong. An older setup that saved its
+other answers before this feature may request its missing totals once. Its
+previous answers stay unchanged.
 
 ## What to check
 
@@ -223,6 +258,19 @@ rollout authority. Test credentials belong to the shared Test setup and never
 become Recipe content.
 
 ## Needs attention
+
+If preparation stops or you reopen Impodo, return to **Review and load**.
+Impodo checks whether the current Recipe already has saved work to review.
+For example, if the customer balances finished preparing before the progress
+page stopped updating, the card returns to **Ready for review**. Select
+**Review prepared data** to continue with those saved rows.
+
+![After reopening the run, Customer balances is ready for review and offers Review prepared data.](../../images/user/03c-recovered-recipe-review.png)
+
+An unfinished duplicate review opens its existing decisions. After you approve
+that review, preparation continues. If preparation did not save a complete,
+current result, the card keeps its existing attention or retry action.
+Recovering prepared rows does not load them into Odoo or verify the result.
 
 If planning stops before workspace creation, correct the named missing
 dataset, target field, supporting list, dependency cycle, or overlapping field

@@ -261,6 +261,7 @@ class MigrationRunPlanningService:
         operation_id: str,
         actor: Actor,
         fault: FaultInjector | None = None,
+        control_values: Mapping[str, Mapping[str, str]] | None = None,
     ) -> IntegratedRunBundle:
         return self._test_activation.activate(
             project_id,
@@ -270,6 +271,7 @@ class MigrationRunPlanningService:
             target_reference_bundle=target_reference_bundle,
             credential_generation=credential_generation,
             parameter_values=parameter_values,
+            control_values=control_values,
             operation_id=operation_id,
             actor=actor,
             fault=fault,

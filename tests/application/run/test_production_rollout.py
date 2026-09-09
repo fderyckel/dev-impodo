@@ -36,6 +36,24 @@ class ProductionRolloutTests(unittest.TestCase):
         self.qualification_fixture.setUp()
         self.fixture = self.qualification_fixture.fixture
         self.test_bundle = self.fixture._start()
+        self._select_test_bundle()
+        self.production_repository = ProductionRunRepository(
+            self.fixture.foundation
+        )
+        self.production = ProductionCutoverService(
+            projects=self.fixture.projects,
+            data_versions=self.fixture.data_versions,
+            runs=self.fixture.runs,
+            migration_workspaces=self.fixture.workspaces,
+            source_packages=self.fixture.packages,
+            workspace_states=self.fixture.workspace_states,
+            cutover_plans=self.fixture.cutover_repository,
+            production_runs=self.production_repository,
+            run_planning=self.fixture.planning,
+            authorization=self.fixture.authorization,
+        )
+
+    def _select_test_bundle(self):
         review = self.qualification_fixture.service.review(
             self.test_bundle.run.project_id,
             self.test_bundle.run.migration_run_id,
@@ -64,22 +82,6 @@ class ProductionRolloutTests(unittest.TestCase):
             operation_id=str(uuid4()),
             actor=LOCAL_ACTOR,
         )
-        self.production_repository = ProductionRunRepository(
-            self.fixture.foundation
-        )
-        self.production = ProductionCutoverService(
-            projects=self.fixture.projects,
-            data_versions=self.fixture.data_versions,
-            runs=self.fixture.runs,
-            migration_workspaces=self.fixture.workspaces,
-            source_packages=self.fixture.packages,
-            workspace_states=self.fixture.workspace_states,
-            cutover_plans=self.fixture.cutover_repository,
-            production_runs=self.production_repository,
-            run_planning=self.fixture.planning,
-            authorization=self.fixture.authorization,
-        )
-
     def tearDown(self) -> None:
         self.qualification_fixture.tearDown()
 
@@ -163,6 +165,7 @@ class ProductionRolloutTests(unittest.TestCase):
         *,
         operation_id: str | None = None,
         fault=None,
+        reference_bundle=None,
     ):
         project = self.fixture.projects.get(
             setup.run.project_id,
@@ -173,13 +176,16 @@ class ProductionRolloutTests(unittest.TestCase):
             setup.run.migration_run_id,
             expected_workspace_revision=project.optimistic_revision,
             target_schema=schema,
-            target_reference_bundle=None,
+            target_reference_bundle=reference_bundle,
             read_credential_generation=schema.read_credential_binding_hash,
             write_identity=self._write_identity(schema),
             write_credential_generation=content_hash(
                 "production-write-generation"
             ),
-            parameter_values={},
+            parameter_values={
+                item.recipe_id: {"parameter:batch_reference": "PROD-2026-08-23"}
+                for item in self.test_bundle.applications
+            },
             control_values={},
             operation_id=operation_id or str(uuid4()),
             actor=LOCAL_ACTOR,
@@ -372,10 +378,13 @@ class ProductionRolloutTests(unittest.TestCase):
                 operation_id=operation_id,
                 fault=fault,
             )
-        recovered = self._activate(
-            setup,
-            schema,
-            operation_id=operation_id,
+        other_actor = replace(LOCAL_ACTOR, identity=replace(LOCAL_ACTOR.identity, subject_id="other-operator"))
+        with self.assertRaisesRegex(ProductionRunError, "another actor"):
+            self.production.resume_activation(setup.run.project_id, setup.run.migration_run_id, actor=other_actor)
+        self.assertNotIn(setup.run.migration_run_id,
+                         self.production.completed_activations(setup.run.project_id, actor=LOCAL_ACTOR))
+        recovered = self.production.resume_activation(
+            setup.run.project_id, setup.run.migration_run_id, actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(
@@ -386,6 +395,8 @@ class ProductionRolloutTests(unittest.TestCase):
             self.fixture.foundation.get_operation_intent(operation_id).state.value,
             "COMMITTED",
         )
+        self.assertIn(setup.run.migration_run_id,
+                      self.production.completed_activations(setup.run.project_id, actor=LOCAL_ACTOR))
 
     def test_activation_retry_reuses_reserved_meaning_before_registry_commit(self):
         setup = self._start_setup()
@@ -404,10 +415,14 @@ class ProductionRolloutTests(unittest.TestCase):
                 operation_id=operation_id,
                 fault=fault,
             )
-        recovered = self._activate(
-            setup,
-            schema,
-            operation_id=operation_id,
+        with self.assertRaisesRegex(ProductionRunError, "saved Production activation"):
+            self._activate(setup, schema, operation_id=str(uuid4()))
+        with self.assertRaisesRegex(ProductionRunError, "different evidence"):
+            self._activate(setup, replace(schema, content_hash=content_hash("refreshed schema")), operation_id=operation_id)
+        with self.assertRaisesRegex(ProductionRunError, "different evidence"):
+            self._activate(setup, replace(schema, read_principal_hash=content_hash("another reader")), operation_id=operation_id)
+        recovered = self.production.resume_activation(
+            setup.run.project_id, setup.run.migration_run_id, actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(
@@ -418,6 +433,48 @@ class ProductionRolloutTests(unittest.TestCase):
             self.fixture.foundation.get_operation_intent(operation_id).state.value,
             "COMMITTED",
         )
+
+    def test_reserved_references_resume_without_recapturing_unused_lists(self):
+        reference = integrated_runs.ReferenceDataSet(
+            reference_id=str(uuid4()), version=1, name="Customer type", key_fields=("source_value",),
+            value_kinds={"target_value": integrated_runs.ReferenceValueKind.ODOO_SELECTION_KEY},
+            entries=(integrated_runs.ReferenceEntry(key=("Company",), values={"target_value": "company"}),),
+            owner="Data manager", classification="INTERNAL", effective_label="Current delivery",
+        )
+        unused = replace(reference, reference_id=str(uuid4()), name="Unused list")
+        self.fixture.compiler.reference_requirement = integrated_runs.ReferenceRequirement(
+            name=reference.name, content_hash=reference.content_hash,
+        )
+        test_references = integrated_runs.ReferenceBundle(
+            workspace_id=self.fixture.bundle.workspace.workspace_id, datasets=(reference,),
+        )
+        self.fixture.plan_workspace_revision = self.fixture.projects.get(
+            self.test_bundle.run.project_id, actor=LOCAL_ACTOR,
+        ).optimistic_revision
+        self.test_bundle = self.fixture._start(reference_bundle=test_references)
+        self._select_test_bundle()
+        setup = self._start_setup()
+        self._accept_latest_data(setup)
+        schema = self._production_schema(setup)
+        references = integrated_runs.ReferenceBundle(
+            workspace_id=setup.setup_workspace.workspace_id,
+            datasets=tuple(sorted((reference, unused), key=lambda item: item.reference_id)),
+        )
+        operation_id = str(uuid4())
+
+        def interrupt(stage):
+            if stage == "INTENT_RESERVED":
+                raise integrated_runs.SimulatedCrash(stage)
+
+        with self.assertRaises(integrated_runs.SimulatedCrash):
+            self._activate(setup, schema, reference_bundle=references, operation_id=operation_id, fault=interrupt)
+        resumed = self.production.resume_activation(setup.run.project_id, setup.run.migration_run_id, actor=LOCAL_ACTOR)
+        self.assertEqual({item.status.value for item in resumed.applications}, {"READY"})
+        stored = self.fixture.planning_repository.get_run_reference_bundle(setup.run.migration_run_id)
+        self.assertEqual(stored.datasets, (reference,))
+        self.assertEqual(stored.source_bundle_hash, references.content_hash)
+        # Extra source lists are unnecessary to reconstruct the reserved request.
+        self.assertNotEqual(stored.for_workspace(setup.setup_workspace.workspace_id).content_hash, references.content_hash)
 
 
 if __name__ == "__main__":

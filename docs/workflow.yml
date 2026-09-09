@@ -147,6 +147,8 @@ stages:
       - src/impodo/application/run/fresh_data_setup.py::TestRunFreshDataUseCase.match_plan
       - src/impodo/application/run/fresh_data_setup.py::TestRunFreshDataUseCase.run_value_plan
       - src/impodo/application/run/fresh_data_setup.py::TestRunFreshDataUseCase.replace_run_values
+      - src/impodo/domain/run/test_setup.py::TestRunValues
+      - src/impodo/domain/recipe/control_values.py::normalize_recipe_control_values
       - src/impodo/application/run/odoo_requirements.py::TestRunOdooRequirementsUseCase.for_workspace
       - src/impodo/domain/recipe_parameters.py::normalize_recipe_parameter_values
       - src/impodo/domain/recipe/source_binding.py::logical_dataset_storage_name
@@ -154,12 +156,16 @@ stages:
       - src/impodo/web/source_file_commands.py::remove_source_file
       - src/impodo/web/composition/target_readers.py::_capture_recipe_supporting_values
       - src/impodo/web/run_review.py::build_integrated_run_review
-      - src/impodo/web/run_review.py::start_next_preparation
+      - src/impodo/web/run_commands.py::start_next_preparation
+      - src/impodo/web/run_commands.py::recover_run_preparation
+      - src/impodo/application/workspace/preparation/recovery.py::PreparationRecoveryService
+      - src/impodo/adapters/duckdb/preparation_recovery_repository.py::PreparationRecoveryRepository
       - src/impodo/application/run/progress.py::application_resume_step
       - src/impodo/domain/recipe/mapping_adaptation.py::recipe_mapping_shape
       - src/impodo/adapters/duckdb/recipe_quality_seed_repository.py::RecipeQualitySeedRepository
-      - src/impodo/web/recipe_target_matches.py::build_target_match_review
-      - src/impodo/web/recipe_target_matches.py::apply_target_match_decisions
+      - src/impodo/application/run/target_matches.py::RecipeTargetMatchService
+      - src/impodo/application/run/target_matches.py::apply_target_match_decisions
+      - src/impodo/domain/workspace/supporting_lookups.py::portable_supporting_value
       - src/impodo/application/recipe/service.py::RecipeService.read_revisions
       - src/impodo/application/run/planning_service.py::MigrationRunPlanningService
       - src/impodo/application/run/test_activation.py::TestRunActivationUseCase.activate
@@ -182,7 +188,14 @@ stages:
       - tests/application/run/test_odoo_requirements.py
       - tests/application/run/test_integrated_recipe_runs.py
       - tests/application/run/test_recipe_target_matches.py
+      - tests/application/run/test_target_match_service.py
+      - tests/integration/web/test_recipe_target_matches.py
       - tests/application/run/test_stabilization.py
+      - tests/application/run/test_fresh_data_controls.py
+      - tests/integration/web/test_fresh_data_controls.py
+      - tests/application/workspace/preparation/test_recovery.py
+      - tests/integration/duckdb/test_preparation_recovery.py
+      - tests/integration/web/test_recipe_preparation_recovery.py
       - tests/integration/duckdb/test_recipe_application_evidence.py
       - tests/application/run/test_target_defaults.py
       - tests/integration/duckdb/test_forward_upgrades.py
@@ -229,6 +242,7 @@ stages:
       - src/impodo/web/templates/project_production_activation.html
     code_references:
       - src/impodo/application/production_cutover_service.py::ProductionCutoverService
+      - src/impodo/application/run/production_values.py::ProductionRunValuesUseCase
       - src/impodo/application/run/planning_service.py::MigrationRunPlanningService.activate_production_run
       - src/impodo/adapters/duckdb/production_run_repository.py::ProductionRunRepository
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository.activate_production_run
@@ -236,6 +250,8 @@ stages:
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
       - tests/application/run/test_production_rollout.py
+      - tests/application/run/test_production_values.py
+      - tests/integration/web/test_production_readiness.py
     contracts:
       - docs/developer/contracts/production-run-lifecycle.md
       - docs/developer/contracts/cutover-plan-lifecycle.md

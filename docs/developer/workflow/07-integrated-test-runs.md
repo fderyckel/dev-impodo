@@ -105,23 +105,41 @@ recoverable errors so an interrupted activation resumes instead of duplicating
 work. The former Test activation form and both of its routes are removed;
 **Check this Odoo** is the only Test activation command. Ordinary Authoring
 schema pages retain their editable model picker and existing service path.
-**Fresh data** reads parameter definitions from the exact selected Recipe
+**Fresh data** reads parameter and control definitions from the exact selected Recipe
 revisions in the same bounded bulk read used for source requirements. It asks
 for every non-automatic value on the run page. Identical logical parameter IDs
 are shown once only when their type, requirement, and constraints agree across
 Recipes; a disagreement fails closed. The standard export-as-of value remains
 read-only and comes from the Test delivery cutoff.
 
+Control prompts stay scoped to one Recipe and retain the table, unit, and
+tolerance from that revision. Non-invariant controls require a finite decimal
+total from this delivery. Invariant totals come from the Recipe and are
+read-only. The shared domain control normalizer validates both Fresh data
+answers and compiler inputs, bounds decimal expansion, and rejects a supplied
+value that changes an invariant total.
+
 `TestRunSetupService.replace_fresh_data_run_values` validates submitted values
 through the same normalizer used by the Recipe application compiler. The
-repository stores normalized Recipe-scoped answers in
+repository stores one `TestRunValues` record containing separate typed
+parameter and control answers, plus the selected Recipe revisions and semantic
+hashes. It keeps the existing table name
 `test_run_parameter_values` with an optimistic revision, content hash, stable
 actor identity, timestamp, and audit event. A normal run accepts these answers
 with the fresh source selection and does not replace them after the Test
 DataVersion is frozen. An older frozen delivery may add its missing answers
-once. Activation reads this evidence once, adds
+once. A legacy record may add missing controls once while preserving its
+accepted parameters. Both service validation and the repository transaction
+enforce that exception through the same domain rule. Registry schema version
+6 permits contract versions 1 and 2 and preserves the exact existing JSON and
+content hashes during upgrade. New records use version 2; old records remain
+readable without being reinterpreted.
+
+Activation reads this evidence once, adds
 the standard export-as-of date where declared, validates every exact Recipe
-definition again, and supplies the resulting per-Recipe values to planning.
+definition again, and supplies separate parameter and control maps to planning.
+The activation request and application binding hash include control values.
+Activation retries and required-default recovery retain these saved inputs.
 An older accepted Test delivery with no saved answers stays on **Fresh data**
 until its required Recipe values are supplied.
 
@@ -163,22 +181,38 @@ application workspaces immediately and redirects to the integrated run page.
 
 If categorical coverage blocks an application, the activation route redirects
 to `GET /projects/{project_id}/runs/{migration_run_id}/applications/{application_id}/target-matches`
-before preparation. `build_target_match_review` rescans the application-owned
+before preparation. `RecipeTargetMatchService.build_review` rescans the application-owned
 frozen source snapshots. It obtains Selection choices from the run-projected
 schema and Many2one choices from the supporting lookup already captured in the
 shared setup workspace. The page therefore makes no new Odoo request. It is
 model-independent and supports a scalar Selection source or a Many2one source
-with one governed, scope-free business key. Composite and scoped relationships
-remain in the full mapping workflow.
+with one governed, scope-free business key. It also verifies exact composite
+and scoped Many2one keys against the complete ordered captured value. Those
+keys remain read-only: the existing mapping contract does not permit explicit
+translations for composite or scoped relationships. Missing and ambiguous
+keys block confirmation and explain the source, Odoo, or Recipe correction
+needed. The focused review does not offer the full mapping editor as recovery.
 
 The focused page collapses choices whose current application mapping still
 exists in this target. It renders selectors only for uncovered, missing, or
 ambiguous source values. A page with no unresolved values still requires
 **Confirm and continue** so the normal mapping check can replace a stale
-application blocker. The POST route derives its form allowlist from the fresh
-review, verifies the working-draft version and content hash, and changes only
-the application mapping's `value_mappings` and categorical policy. It does not
-change the protected Recipe revision.
+application blocker. The POST route validates the session and form envelope,
+then runs `RecipeTargetMatchService.confirm` in the thread pool. The service
+derives the permitted decision keys from a fresh review and rejects unknown
+keys, fixed choices, and values outside the current unambiguous choices.
+It verifies the working-draft version, mapping hash, and a review hash covering
+source evidence, schemas, read identity, and supporting lookup contents before
+writing. Stale forms cannot replay answers onto changed rows.
+
+The service checks the compiled Recipe baseline before saving. It changes only
+permitted value maps and policies, then calls the existing mapping check,
+submission, and application-confirmation services. Validation failures render
+on the focused page. Unsupported source domains and uncovered fixed providers
+cannot appear as a successful check. Each review collects source coverage once
+and reads each distinct supporting lookup once. Suggestion construction indexes
+labels and values once per field, avoiding a target-list search for every source
+value. These bounds do not establish an overall workflow speedup.
 
 Target-only required fields follow the shared create-field policy before
 preparation. Impodo records computed and related fields as Odoo-managed. For a
@@ -246,7 +280,11 @@ mapping working draft, and stores a mapping-bound quality seed.
 The seed also retains the compiled mapping baseline. The domain projection
 `recipe_mapping_shape` preserves the Recipe's providers, transformations,
 identities, relationships, write ownership, and invariant controls. It excludes
-permitted categorical choices and non-invariant control expectations.
+permitted categorical choices and control expectations missing from a legacy
+compiler baseline. Totals already present in the compiled baseline stay fixed,
+including delivery totals collected on Fresh data. The matching form displays
+those totals as read-only and preserves their definitions when parsing other
+run decisions. The submission guard rejects direct changes to them.
 `MappingWorkspaceService.submit_current` checks that projection before
 submission. `confirm_mapping` checks it again while rebinding the same quality
 rules to the newly confirmed mapping. A full matching draft can therefore be
@@ -280,6 +318,11 @@ application `BLOCKED`.
 
 ### Run-owned Review and load projection
 
+`web/run_commands.py` owns preparation enqueue, retry, recovery, and guarded
+run milestone publication. Routes delegate these commands; `web/run_review.py`
+only builds the bounded presentation. This separates command ownership from
+rendering and avoids a dependency cycle through the preparation router.
+
 After Test activation, `start_next_preparation` selects only the first
 unreconciled application in the saved order and delegates to the existing
 preparation command. It never retries a non-retryable job and never starts a
@@ -304,6 +347,41 @@ New preparation requests carry their mapping hash. Old attempts cannot advance
 a changed mapping or prevent a new preparation request after confirmation.
 Saved comparison and verification milestones take precedence over older
 preparation snapshots when the application is reopened.
+
+### Recovering published preparation
+
+When a child exits without a terminal notification, the job manager waits for
+it to exit and drains its event queue before checking durable evidence once.
+`PreparationRecoveryService` validates the requested mapping and current source,
+schema, and retention metadata. Its DuckDB repository reads the current
+publication headers and their bindings in one query. It does not load row
+evidence, rescan source files, or contact Odoo.
+
+A current duplicate evaluation with candidates restores duplicate review.
+A current quality and normalization chain restores prepared-data review only
+after the bounded preparation session is published. The materialized path,
+which has no session row, remains supported. Invalidated or mismatched
+publications do not restore completion. Artifact validation remains with the
+existing review and execution services.
+
+Entering **Review and load**, continuing the current application, and requesting
+preparation can recover that same result after the in-memory job registry is
+lost. Only the first unverified application is considered. Active jobs, existing
+load progress, blocked applications, and later milestones prevent this read.
+An explicit failed or cancelled session result is retained; an unexpected
+worker exit may be recovered. Status polling never performs recovery.
+
+Restoration creates a terminal session snapshot without enqueuing a worker.
+The command retries milestone publication, including when the worker's earlier
+registry notification failed. The registry transaction compares the expected
+mapping hash before recording progress. It cannot transfer a result to a
+changed mapping. Duplicate evidence is rechecked even when a terminal snapshot
+exists, so approving duplicates allows preparation to continue.
+
+Preparation enqueue, retry, and recovery run in the thread pool when called by
+async routes. This phase adds no storage schema or durable job history. Once
+the session registry is lost, recovery identifies current published work; it
+does not reconstruct an interrupted attempt's full history.
 
 Activation and focused target-value GET rendering run outside the async request
 thread. This avoids blocking that thread during local compilation or coverage
@@ -403,15 +481,20 @@ queries must not scale with Recipe count.
 | Application materialization and recovery | [`RunApplicationMaterializer`](../../../src/impodo/application/run/application_materialization.py) and [`RunApplicationRecoveryUseCase`](../../../src/impodo/application/run/application_recovery.py) |
 | Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |
+| Preparation commands and guarded run milestones | [`run_commands.py`](../../../src/impodo/web/run_commands.py) |
+| Current publication recovery | [`PreparationRecoveryService`](../../../src/impodo/application/workspace/preparation/recovery.py) and [`PreparationRecoveryRepository`](../../../src/impodo/adapters/duckdb/preparation_recovery_repository.py) |
 | Application order and resume decisions | [`progress.py`](../../../src/impodo/application/run/progress.py) |
 | Immutable Recipe mapping meaning | [`mapping_adaptation.py`](../../../src/impodo/domain/recipe/mapping_adaptation.py) |
 | Mapping baseline and business checks | [`RecipeQualitySeedRepository`](../../../src/impodo/adapters/duckdb/recipe_quality_seed_repository.py) |
-| Focused target-value review | [`recipe_target_matches.py`](../../../src/impodo/web/recipe_target_matches.py) |
+| Focused target-value review and confirmation | [`target_matches.py`](../../../src/impodo/application/run/target_matches.py) |
+| Ordered key and scope serialization shared with capture | [`supporting_lookups.py`](../../../src/impodo/domain/workspace/supporting_lookups.py) |
 | Background preparation summary | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
 | Background load summary | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
 | Registry and recovery | [`MigrationRunPlanningRepository`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
 | Test setup persistence | [`TestRunRepository`](../../../src/impodo/adapters/duckdb/test_run_repository.py) |
 | Shared Recipe run-value validation | [`recipe_parameters.py`](../../../src/impodo/domain/recipe_parameters.py) |
+| Typed run answers and frozen-answer rules | [`test_setup.py`](../../../src/impodo/domain/run/test_setup.py) |
+| Shared control-total validation | [`control_values.py`](../../../src/impodo/domain/recipe/control_values.py) |
 | Forward-compatible registry schema | [`migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) |
 | Run-owned schema projection | [`RunAwareSchemaRepository`](../../../src/impodo/adapters/duckdb/run_aware_schema_repository.py) |
 | Run-owned reference projection | [`RunAwareAdvancedCoverageRepository`](../../../src/impodo/adapters/duckdb/run_aware_advanced_coverage_repository.py) |
@@ -422,11 +505,18 @@ queries must not scale with Recipe count.
 
 ## Verification
 
+- [`Worker and recovery boundaries`](../../../tests/application/workspace/preparation/test_recovery.py)
+- [`Duplicate publication recovery`](../../../tests/integration/duckdb/test_preparation_recovery.py)
+- [`Actual worker and browser recovery`](../../../tests/integration/web/test_recipe_preparation_recovery.py)
+- [`tests/application/run/test_fresh_data_controls.py`](../../../tests/application/run/test_fresh_data_controls.py)
+- [`tests/integration/web/test_fresh_data_controls.py`](../../../tests/integration/web/test_fresh_data_controls.py)
 - [`tests/application/run/test_stabilization.py`](../../../tests/application/run/test_stabilization.py)
 - [`tests/integration/duckdb/test_recipe_application_evidence.py`](../../../tests/integration/duckdb/test_recipe_application_evidence.py)
 - [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
 - [`tests/application/run/test_integrated_recipe_runs.py`](../../../tests/application/run/test_integrated_recipe_runs.py)
 - [`tests/application/run/test_recipe_target_matches.py`](../../../tests/application/run/test_recipe_target_matches.py)
+- [`tests/application/run/test_target_match_service.py`](../../../tests/application/run/test_target_match_service.py)
+- [`tests/integration/web/test_recipe_target_matches.py`](../../../tests/integration/web/test_recipe_target_matches.py)
 - [`tests/application/run/test_target_defaults.py`](../../../tests/application/run/test_target_defaults.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/application/workspace/test_journeys.py`](../../../tests/application/workspace/test_journeys.py)

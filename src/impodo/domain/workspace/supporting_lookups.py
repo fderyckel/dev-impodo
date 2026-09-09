@@ -24,6 +24,14 @@ _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 SUPPORTING_LOOKUP_CONTRACT_VERSION = 4
 
 
+def portable_supporting_value(values: tuple[object, ...]) -> str:
+    """Serialize ordered key and scope components without delimiter collisions."""
+
+    if len(values) == 1:
+        return str(values[0])
+    return canonical_json([str(value) for value in values])
+
+
 @dataclass(frozen=True, slots=True)
 class SupportingLookupChoice:
     """One portable Odoo business-key value displayed to the operator."""

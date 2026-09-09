@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from ...application.workspace.preparation.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobStateError,
 )
-from impodo.domain.project.foundation import MigrationFoundationError
-from impodo.domain.run.contracts import RecipeApplicationStatus
-from impodo.application.run.progress import assert_application_is_current
 from impodo.application.workspace.preparation.job_models import PreparationJob, PreparationJobStatus
-from impodo.application.workspace.preparation.job_models import PreparationWorkspace
 from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
+from ..run_commands import enqueue_preparation, _preparation_workspace, _assert_recipe_application_can_prepare
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_preparation_workspace_navigation
@@ -89,7 +86,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
-            job = enqueue_preparation(context, workspace_id)
+            job = await run_in_threadpool(enqueue_preparation, context, workspace_id)
         except WorkspaceError as error:
             request.session["summary_error"] = str(error)
             return RedirectResponse(
@@ -97,7 +94,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         request.session.pop("summary_error", None)
-        _flash(request, "Preparation started. You can follow each step here.")
+        _flash(request, _preparation_message(job, retrying=False))
         return RedirectResponse(_progress_url(workspace_id, job.job_id), status_code=303)
 
     @router.get(
@@ -129,15 +126,8 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
-            workspace = _preparation_workspace(context, workspace_id)
-            _assert_recipe_application_can_prepare(context, workspace)
-            job = _manager(context).retry(
-                workspace_id,
-                job_id,
-                _migration_project_name(context, workspace.project_id),
-                _preparation_row_count(context, workspace_id),
-                actor=context.actor,
-                workspace=workspace,
+            job = await run_in_threadpool(
+                enqueue_preparation, context, workspace_id, retry_job_id=job_id,
             )
         except PreparationJobNotFoundError as error:
             raise HTTPException(status_code=404, detail="Preparation job not found") from error
@@ -149,133 +139,18 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
-        _flash(request, "Preparation started again.")
+        _flash(request, _preparation_message(job, retrying=True))
         return RedirectResponse(_progress_url(workspace_id, job.job_id), status_code=303)
 
     return router
 
 
-def enqueue_preparation(context: WebContext, workspace_id: str) -> PreparationJob:
-    """Capture lightweight display/scale metadata before starting the process."""
-
-    workspace = _preparation_workspace(context, workspace_id)
-    workspace = _assert_recipe_application_can_prepare(context, workspace)
-    total_rows = _preparation_row_count(context, workspace_id)
-    return _manager(context).enqueue(
-        workspace_id,
-        _migration_project_name(context, workspace.project_id),
-        total_rows,
-        actor=context.actor,
-        workspace=workspace,
-    )
-
-
-def _assert_recipe_application_can_prepare(
-    context: WebContext,
-    workspace: PreparationWorkspace,
-) -> PreparationWorkspace:
-    """Keep preparation behind the run's remaining Recipe reviews."""
-
-    application_id = workspace.recipe_application_id
-    if application_id is None:
-        return workspace
-    application = context.run_planning.repository.get_application(application_id)
-    if application.workspace_id != workspace.workspace_id:
-        raise WorkspaceError("This Recipe work area no longer matches its run")
-    assert_application_is_current(
-        context.run_planning.repository.get_bundle(workspace.migration_run_id), application,
-    )
-    issues = context.run_planning.repository.list_issues(application_id)
-    actionable = tuple(
-        item for item in issues if item.level.value != "INFORMATION"
-    )
-    if application.status is RecipeApplicationStatus.BLOCKED or actionable:
-        if actionable and all(
-            item.code == "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE"
-            for item in actionable
-        ):
-            raise WorkspaceError(
-                "Review the current Odoo defaults before preparing this Recipe"
-            )
-        raise WorkspaceError(
-            actionable[0].message
-            if actionable
-            else "Finish the remaining Recipe review before preparation"
-        )
-    if application.status not in {
-        RecipeApplicationStatus.READY,
-        RecipeApplicationStatus.RUNNING,
-        RecipeApplicationStatus.FAILED,
-    }:
-        raise WorkspaceError(
-            "Continue this Recipe from its current Review and load step"
-        )
-    return replace(workspace, mapping_content_hash=application.mapping_content_hash)
-
-
-def _migration_project_name(context: WebContext, migration_project_id: str) -> str:
-    """Return the business Project name without opening a workspace database."""
-
-    return context.migration_projects.get(
-        migration_project_id,
-        actor=context.actor,
-    ).display_name
-
-
-def _preparation_workspace(
-    context: WebContext,
-    workspace_id: str,
-) -> PreparationWorkspace:
-    """Resolve one open workspace and its Project-owned DataVersion."""
-
-    try:
-        workspace = context.migration_workspaces.get(
-            workspace_id,
-            actor=context.actor,
-        )
-        data_version = context.data_versions.get(
-            workspace.data_version_id,
-            actor=context.actor,
-        )
-        run = context.migration_runs.get(
-            workspace.migration_run_id,
-            actor=context.actor,
-        )
-        prepared_workspace = PreparationWorkspace.from_context(
-            workspace,
-            data_version,
-            run,
-        )
-        projection = (
-            context.data_version_source_projection.projections.repository
-            .get_workspace_source_projection(workspace_id)
-        )
-        if projection is None:
-            return prepared_workspace
-        return replace(
-            prepared_workspace,
-            source_package_hash=projection.package_hash,
-            source_dataset_ids=tuple(
-                item.dataset_id for item in projection.datasets
-            ),
-        )
-    except MigrationFoundationError as error:
-        raise WorkspaceError(
-            f"{error}. No Odoo records were changed. Return to the Project "
-            "overview and continue from its current authoring workspace."
-        ) from error
-
-
-def _preparation_row_count(context: WebContext, workspace_id: str) -> int:
-    """Return optional progress metadata without bypassing worker validation."""
-
-    try:
-        selection = context.queries.get_source_selection(workspace_id)
-    except WorkspaceError:
-        # The worker owns authoritative validation and records a durable failed
-        # job. Display metadata must not prevent that governed failure path.
-        selection = None
-    return sum(item.row_count for item in selection.datasets) if selection else 0
+def _preparation_message(job: PreparationJob, *, retrying: bool) -> str:
+    if job.active:
+        return "Preparation started again." if retrying else "Preparation started. You can follow each step here."
+    if job.status in {PreparationJobStatus.SUCCEEDED, PreparationJobStatus.REVIEW_REQUIRED}:
+        return "Your saved preparation is ready to review."
+    return "Preparation needs attention. Review the saved result."
 
 
 def _render_progress(

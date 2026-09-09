@@ -16,7 +16,7 @@ from .forward_upgrades import (
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 5
+MIGRATION_REGISTRY_VERSION = 6
 
 
 EXPECTED_REGISTRY_COLUMNS = {
@@ -519,9 +519,11 @@ def _upgrade_migration_registry_v2_to_v3(
 
 def _create_test_run_parameter_values(
     connection: duckdb.DuckDBPyConnection,
+    *,
+    with_controls: bool = False,
 ) -> None:
     connection.execute(
-        """
+        f"""
         CREATE TABLE test_run_parameter_values (
             test_run_setup_id VARCHAR PRIMARY KEY,
             project_id VARCHAR NOT NULL REFERENCES
@@ -535,7 +537,7 @@ def _create_test_run_parameter_values(
             updated_by_subject VARCHAR NOT NULL,
             updated_by_display_name VARCHAR NOT NULL,
             updated_at VARCHAR NOT NULL,
-            contract_version INTEGER NOT NULL CHECK (contract_version = 1)
+            contract_version INTEGER NOT NULL CHECK (contract_version IN ({'1, 2' if with_controls else '1'}))
         )
         """
     )
@@ -629,6 +631,17 @@ def _upgrade_migration_registry_v4_to_v5(
     _create_correction_run_binding(connection)
 
 
+def _upgrade_migration_registry_v5_to_v6(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Preserve old hashed answers while allowing typed control evidence."""
+
+    connection.execute("ALTER TABLE test_run_parameter_values RENAME TO test_run_values_v1")
+    _create_test_run_parameter_values(connection, with_controls=True)
+    connection.execute("INSERT INTO test_run_parameter_values SELECT * FROM test_run_values_v1")
+    connection.execute("DROP TABLE test_run_values_v1")
+
+
 MIGRATION_REGISTRY_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="migration-registry-v1-to-v2-migration-ledger",
@@ -645,6 +658,10 @@ MIGRATION_REGISTRY_UPGRADES = {
     4: ForwardSchemaUpgrade(
         migration_id="migration-registry-v4-to-v5-correction-binding",
         apply=_upgrade_migration_registry_v4_to_v5,
+    ),
+    5: ForwardSchemaUpgrade(
+        migration_id="migration-registry-v5-to-v6-run-control-values",
+        apply=_upgrade_migration_registry_v5_to_v6,
     ),
 }
 
@@ -1130,22 +1147,6 @@ def _initialize_migration_registry(
                 contract_version INTEGER NOT NULL CHECK (contract_version = 1)
             );
 
-            CREATE TABLE test_run_parameter_values (
-                test_run_setup_id VARCHAR PRIMARY KEY,
-                project_id VARCHAR NOT NULL REFERENCES
-                    migration_project_identity(project_id),
-                migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
-                    migration_run_identity(migration_run_id),
-                revision INTEGER NOT NULL CHECK (revision >= 1),
-                values_json VARCHAR NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                updated_by_issuer VARCHAR NOT NULL,
-                updated_by_subject VARCHAR NOT NULL,
-                updated_by_display_name VARCHAR NOT NULL,
-                updated_at VARCHAR NOT NULL,
-                contract_version INTEGER NOT NULL CHECK (contract_version = 1)
-            );
-
             CREATE TABLE production_run_binding (
                 production_run_binding_id VARCHAR PRIMARY KEY,
                 project_id VARCHAR NOT NULL REFERENCES
@@ -1223,6 +1224,7 @@ def _initialize_migration_registry(
             );
             """
         )
+        _create_test_run_parameter_values(connection, with_controls=True)
         _create_correction_run_binding(connection)
         create_schema_migration_ledger(connection)
         connection.commit()

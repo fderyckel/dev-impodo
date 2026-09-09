@@ -31,8 +31,10 @@ belongs or which dependencies it may introduce.
 | Publish optional Recipes | `RecipePublicationService` | `RecipeRepository`, protected Recipe store |
 | Plan an integrated Test run | focused use cases under `application/run`; `MigrationRunPlanningService` is the stable facade | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `RecipeApplicationService` | one isolated workspace and run-aware target projections |
-| Resolve application order and resume steps | `application/run/progress.py` | `web/run_review.py` and run/preparation routes use durable registry milestones and current attempt snapshots |
+| Resolve application order and resume steps | `application/run/progress.py` | `web/run_commands.py` coordinates commands and guarded milestones; `web/run_review.py` builds the view |
+| Recover published preparation | `application/workspace/preparation/recovery.py` | `adapters/duckdb/preparation_recovery_repository.py` checks current publication bindings; the job manager restores a terminal snapshot without spawning a worker |
 | Preserve Recipe meaning during run decisions | `domain/recipe/mapping_adaptation.py`, `MappingWorkspaceService` | `RecipeQualitySeedRepository` retains the compiler baseline and rebinds business checks |
+| Review and confirm run-owned target values | `application/run/target_matches.py`, `RecipeTargetMatchService` | integrated run routes execute the service in the thread pool; `domain/workspace/supporting_lookups.py` shares ordered key serialization with capture |
 | Compile and execute an Odoo-to-Odoo transfer | `TransferExecutionService`, `ExecutionService.execute_transfer`, and `ExecutionService.resume_transfer` | `web/routers/transfer_load.py` separates no-write preparation, explicit confirmation, background loading, read-back, and read-before-resume recovery; the existing execution journal binds the current transfer preflight |
 | Qualify a governed profile scenario | `domain/scenarios` defines immutable inputs and compact results; `application/scenarios/ScenarioRunner` asserts checkpoints | `adapters/scenarios` loads contained fixtures, adapts the existing profile/preflight/writer/reconciliation services, and retains protected execution evidence; `web/composition/cli.py` exposes validation and explicit local execution |
 | Recover an interrupted Odoo batch | `application/workspace/execution/reconciliation.py` assesses exact read-back; `ExecutionService.resume` and `resume_transfer` classify the same frozen schedule | `ExecutionRepository.record_batch_started` and `record_recovery` persist the checkpoint and report binding inside the existing row journal |
@@ -178,6 +180,18 @@ Project identity, workspace identity, run identity, or cutover authority.
 
 ## Integrated Test run trace
 
+`TestRunValues` keeps typed Recipe parameters and delivery control expectations
+under one revision. Fresh data and the compiler share the domain control
+normalizer. Activation reads those answers once and passes separate maps to
+the existing compiler; the compiled baseline fixes accepted totals during
+later mapping decisions.
+
+`RecipeTargetMatchService` owns target-value review and confirmation. It reuses
+one source coverage collection and caches each distinct captured lookup within
+that review. It verifies complete composite and scope values without changing
+their matching rule. The normal mapping service remains the authority for
+validation and submission. Browser routes handle the form and navigation.
+
 1. The Project route creates one Test setup over exact Recipe revisions and
    explicit dependencies, then accepts one fresh Test DataVersion.
 2. `TestRunOdooRequirementsUseCase.for_workspace` authorizes the run-owned
@@ -206,9 +220,10 @@ Project identity, workspace identity, run identity, or cutover authority.
 7. `RecipeApplicationService` selects each application's DataVersion datasets,
    builds fresh mapping evidence, and checks and submits a clean mapping through
    the existing mapping service. A new warning or invalid result blocks.
-8. `run_review.py` starts only the first safe Test preparation and builds
-   ordered cards from bounded registry reads plus one latest-snapshot pass per
-   job manager. The run page and status poll do not open every workspace.
+8. `run_commands.py` starts only the first safe Test preparation. On run entry,
+   it can recover that application's current published review. `run_review.py`
+   builds ordered cards from bounded registry reads and one latest-snapshot
+   pass per job manager. Status polling does not open a workspace.
 9. Preparation and load workers publish coarse run milestones. Detailed
    prepared rows, comparison, execution journal, and reconciliation remain in
    each isolated workspace; only verified reconciliation unlocks the next
@@ -239,7 +254,9 @@ Project identity, workspace identity, run identity, or cutover authority.
 2. The existing workspace source and schema services accept the complete
    latest package and capture the different Production Odoo 19 target with
    read-only credential evidence.
-3. `MigrationRunPlanningService.review_production_run` recompiles current
+3. `ProductionRunValuesUseCase` builds typed prompts from one batch of pinned
+   Recipe revisions. Shared parameter and control validators normalize answers
+   before access checks. `MigrationRunPlanningService.review_production_run` recompiles current
    bindings, parameters, controls, requirements, references, dependencies, and
    write ownership against the exact selected plan.
 4. `MigrationRunPlanningRepository.activate_production_run` records one
@@ -247,8 +264,12 @@ Project identity, workspace identity, run identity, or cutover authority.
    restart-safe transaction.
 5. The shared application materializer creates fresh workspace engines and
    mapping drafts using immutable DataVersion references. It copies no Test
-   workspace evidence.
-6. `ProductionCutoverService.assert_execution_authority` rechecks selection,
+   workspace evidence. The activation intent saves canonical answers and
+   non-secret write identity evidence. `ProductionCutoverService.resume_activation`
+   finishes local materialization from that request and skips completed mappings.
+6. Readiness and run entry require the activation intent's final commit.
+   Project overview queries setup completion in one batch and distinguishes it
+   from run completion. `ProductionCutoverService.assert_execution_authority` rechecks selection,
    target, read/write identities, and credential generations before
    `execution.py` constructs a writer.
 
@@ -294,6 +315,8 @@ separate from read capability.
 - `tests/application/run/test_integrated_recipe_runs.py`
 - `tests/application/cutover/test_qualification.py`
 - `tests/application/run/test_production_rollout.py`
+- `tests/application/run/test_production_values.py`
+- `tests/integration/web/test_production_readiness.py`
 - `tests/domain/recipe/test_representative_shapes.py`
 - `tests/application/workspace/preparation/test_jobs.py`
 

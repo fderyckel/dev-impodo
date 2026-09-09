@@ -9,7 +9,9 @@ from enum import StrEnum
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.data_version.models import DataVersion
 from impodo.domain.serialization import content_hash
+from impodo.domain.recipe.control_values import normalize_control_total
 from impodo.domain.project.foundation import (
+    MigrationConflictError,
     require_aware,
     require_revision,
     require_uuid,
@@ -198,7 +200,33 @@ class RecipeRunParameterValue:
 
 
 @dataclass(frozen=True, slots=True)
-class TestRunParameterValues:
+class RecipeRunControlValue:
+    """Keep a delivery's expected total scoped to its selected Recipe."""
+
+    recipe_id: str
+    logical_control_id: str
+    expected_total: str
+
+    def __post_init__(self) -> None:
+        require_uuid(self.recipe_id, "recipe_id")
+        logical_id = required_text(self.logical_control_id, "logical_control_id", maximum=300)
+        if not logical_id.startswith("control:"):
+            raise ValueError("Run control must use a Recipe control identity")
+        object.__setattr__(self, "logical_control_id", logical_id)
+        object.__setattr__(self, "expected_total", normalize_control_total(
+            self.expected_total, label="Expected total",
+        ))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "recipe_id": self.recipe_id,
+            "logical_control_id": self.logical_control_id,
+            "expected_total": self.expected_total,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TestRunValues:
     """Record the run-owned answers collected from selected Recipes."""
 
     test_run_setup_id: str
@@ -208,7 +236,9 @@ class TestRunParameterValues:
     values: tuple[RecipeRunParameterValue, ...]
     updated_by: ActorIdentity
     updated_at: datetime
-    contract_version: int = 1
+    contract_version: int = 2
+    controls: tuple[RecipeRunControlValue, ...] = ()
+    recipe_revisions: tuple[RecipeRevisionSelection, ...] = ()
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -218,8 +248,25 @@ class TestRunParameterValues:
         ):
             require_uuid(value, name)
         require_revision(self.revision, "run_parameter_values_revision")
-        if self.contract_version != 1:
+        if self.contract_version not in {1, 2}:
             raise ValueError("Test run value contract is unsupported")
+        selections = tuple(sorted(self.recipe_revisions))
+        selected_ids = {item.recipe_id for item in selections}
+        if self.contract_version == 1 and (self.controls or selections):
+            raise ValueError("Legacy run values cannot contain control or Recipe revision evidence")
+        if self.contract_version == 2 and (
+            not selections or len(selected_ids) != len(selections)
+        ):
+            raise ValueError("Run values require each selected Recipe revision once")
+        controls = tuple(sorted(self.controls, key=lambda item: (item.recipe_id, item.logical_control_id)))
+        if len({(item.recipe_id, item.logical_control_id) for item in controls}) != len(controls):
+            raise ValueError("Store each Recipe control value only once")
+        if self.contract_version == 2 and any(
+            item.recipe_id not in selected_ids for item in (*self.values, *controls)
+        ):
+            raise ValueError("Run values must belong to selected Recipe revisions")
+        object.__setattr__(self, "controls", controls)
+        object.__setattr__(self, "recipe_revisions", selections)
         ordered = tuple(
             sorted(
                 self.values,
@@ -247,6 +294,27 @@ class TestRunParameterValues:
             ] = item.value
         return result
 
+    @property
+    def controls_by_recipe(self) -> dict[str, dict[str, str]]:
+        result: dict[str, dict[str, str]] = {}
+        for item in self.controls:
+            result.setdefault(item.recipe_id, {})[item.logical_control_id] = item.expected_total
+        return result
+
+    def assert_frozen_answers_preserved(self, previous: TestRunValues | None) -> None:
+        """Allow missing legacy totals once while preserving accepted answers."""
+
+        if previous is None:
+            return
+        if (
+            previous.contract_version == 1 and self.contract_version == 2
+            and previous.values == self.values and not previous.controls and self.controls
+        ):
+            return
+        raise MigrationConflictError(
+            "Run details were accepted with this fresh data; start a new Test run to change them"
+        )
+
     def to_dict(self, *, include_hash: bool = True) -> dict[str, object]:
         value: dict[str, object] = {
             "contract_version": self.contract_version,
@@ -262,6 +330,9 @@ class TestRunParameterValues:
             },
             "values": [item.to_dict() for item in self.values],
         }
+        if self.contract_version == 2:
+            value["controls"] = [item.to_dict() for item in self.controls]
+            value["recipe_revisions"] = [item.to_dict() for item in self.recipe_revisions]
         if include_hash:
             value["content_hash"] = self.content_hash
         return value

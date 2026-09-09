@@ -12,6 +12,11 @@ developers deciding what is ready to review and what still needs end-to-end
 evidence. The changes preserve Project, DataVersion, Recipe, run, and isolated
 application ownership. They do not constitute full workflow acceptance.
 
+The next implementation phase is recorded in the
+[delivery control expectations report](recipe-workflow-phase-2-2026-09-09.md).
+Production readiness and restart recovery are recorded in
+[phase 5](recipe-workflow-phase-5-2026-09-09.md).
+
 ## Implemented changes
 
 | Problem | Current behavior |

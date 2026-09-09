@@ -86,7 +86,7 @@ class RecipeApplicationEvidenceTests(TestCase):
         self.connection.execute("DELETE FROM recipe_quality_seed")
         self.assertEqual(self.repository.get_quality_seed(self.workspace_id, self.definition.content_hash), ())
 
-    def test_target_choices_and_current_totals_preserve_quality_rules(self):
+    def test_target_choices_and_missing_legacy_totals_preserve_quality_rules(self):
         self.save_seed()
         dataset = self.definition.datasets[0]
         changed = replace(self.definition, datasets=(replace(
@@ -99,6 +99,17 @@ class RecipeApplicationEvidenceTests(TestCase):
         self.assertEqual(self.repository.get_quality_seed(self.workspace_id, changed.content_hash), (self.rule,))
         row = self.connection.execute("SELECT mapping_definition_json FROM recipe_quality_seed").fetchone()
         self.assertEqual(row[0], self.definition.to_json())
+
+    def test_totals_accepted_before_compilation_cannot_change_in_the_matcher(self):
+        dataset = replace(self.definition.datasets[0], control_expectations=(MappingControlExpectation("total", "125.50"),))
+        self.definition = replace(self.definition, datasets=(dataset,))
+        self.save_seed()
+        changed = replace(self.definition, datasets=(replace(dataset,
+            control_expectations=(MappingControlExpectation("total", "999"),),
+        ),))
+        with self.assertRaisesRegex(WorkspaceError, "accepted delivery totals"):
+            self.repository.rebind_quality_seed(self.workspace_id, definition=changed, actor=LOCAL_ACTOR)
+        self.assertEqual(self.repository.get_quality_seed(self.workspace_id, self.definition.content_hash), (self.rule,))
 
     def test_semantic_changes_and_invariant_totals_are_rejected(self):
         self.save_seed()

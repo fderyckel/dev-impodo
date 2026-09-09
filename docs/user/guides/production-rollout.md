@@ -13,7 +13,7 @@ different compatible Odoo 19 Production database. The Recipe rules come from
 the qualified plan. The data, access, checks, approval, load results, and
 verification are all new Production evidence.
 
-![The selected integrated qualification is the starting point; Production setup creates fresh data and target evidence instead of promoting this Test result.](../../images/user/04-integrated-qualification.png)
+![Production readiness asks for the opening balance total from the latest delivery and a separate Production write key.](../../images/user/05a-production-readiness.png)
 
 ## Before you start
 
@@ -39,12 +39,14 @@ Production check.
 5. Under **Check Odoo**, connect the Production Odoo 19 database with the read-only key and capture
    its current fields and supporting lists.
 6. Select **Return to Production run setup**.
-7. Enter any values or controls required for this delivery.
+7. Under **Details for this run**, enter the values requested by the Recipes.
+   Shared values are entered once. Under **Expected totals for this delivery**,
+   enter each Recipe's latest totals. The export date comes from this delivery;
+   checks fixed by a Recipe are shown without an editing control.
 8. Enter the separate Production write key and select **Create Production work
    areas**.
-9. On the Production run, select **Continue review and load** for each Recipe
-   in the shown dependency order. Prepare, compare, approve, load, and verify
-   it as fresh work.
+9. Open the Production run and follow its current **Review and load** action.
+   Prepare, compare, approve, load, and verify each Recipe in dependency order.
 
 Impodo creates one Recipe work area for each Recipe in the selected plan.
 They share the accepted Production data version and reviewed target identity,
@@ -64,9 +66,10 @@ but they do not share mutable mappings, approvals, or results.
 
 ## What Complete means
 
-**Active** means Impodo created the Production Recipe work areas from the
-exact selected plan after accepting fresh data and reviewing current
-Production access. It does not mean the migration is loaded.
+**Complete** on the readiness page means Impodo finished creating the
+Production Recipe work areas. The Project overview then shows **Setup complete**
+and directs you to continue review and load. Preparing the work areas does not
+load records into Odoo.
 
 The rollout is complete only after every Recipe work area has its own approved
 comparison, controlled load, and verified reconciliation in dependency order.
@@ -88,6 +91,20 @@ If activation stops, use the recovery action shown by Impodo. Common causes
 are an incomplete latest delivery, a changed source structure, a new uncovered
 business value, an incompatible Odoo field or supporting value, a rotated key,
 or a conflicting write owner.
+
+If the page offers **Finish Production setup**, select it to continue with
+the saved values and access review. Impodo keeps completed work areas and
+finishes the remaining setup, even after restarting the app. This action
+does not load records. You still need current access for comparison and load.
+
+![An interrupted Production setup offers Finish Production setup and keeps the existing work areas.](../../images/user/05b-production-resume.png)
+
+For example, a customer balances Test might total 125.50 EUR while the latest
+Production delivery totals 200.00 EUR. Enter 200.00 for Production. If a value
+needs correction, the page retains your other entries; it never redisplays
+the write key. Once setup starts creating work areas, its saved values are
+fixed. Older interrupted setups that lack saved values direct you to
+**Start Production setup** again.
 
 Correct reusable transformation meaning in authoring and qualify a new plan
 revision. Do not add a hidden Production-only rule. Correct delivery-specific

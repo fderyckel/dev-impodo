@@ -98,6 +98,9 @@ from ..application.workspace.preparation.resolution_service import ResolutionSer
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
+from ..application.run.target_matches import RecipeTargetMatchService
+from ..application.workspace.preparation.recovery import PreparationRecoveryService
+from ..adapters.duckdb.preparation_recovery_repository import PreparationRecoveryRepository
 from ..application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
 )
@@ -258,7 +261,7 @@ from .routers.transfer_review import build_transfer_review_router
 from .routers.transfer_preflight import build_transfer_preflight_router
 from .routers.transfer_load import build_transfer_load_router
 from .remote_connection import RemoteConnectionStatusService
-from .run_review import publish_load_progress, publish_preparation_progress
+from .run_commands import publish_load_progress, publish_preparation_progress
 from .security import (
     LoopbackSecurityMiddleware,
     WorkspaceAccessMiddleware,
@@ -922,6 +925,7 @@ def create_local_app(
 
         resolved_destination_match_reader = injected_destination_match_reader
 
+    supporting_lookups = SupportingLookupService(supporting_lookup_repository, workspace_access)
     context = WebContext(
         queries=BrowserQueryService(
             workspace_state_repository,
@@ -979,12 +983,15 @@ def create_local_app(
         ),
         schema_workspace=schema_workspace,
         mapping_workspace=mapping_workspace,
-        supporting_lookups=SupportingLookupService(
-            supporting_lookup_repository,
-            workspace_access,
+        supporting_lookups=supporting_lookups,
+        recipe_target_matches=RecipeTargetMatchService(
+            mapping_workspace, run_planning, supporting_lookups,
         ),
         categorical_coverage=categorical_coverage,
         preparation=preparation,
+        preparation_recovery=PreparationRecoveryService(
+            PreparationRecoveryRepository(database), mapping_workspace, workspace_state_repository,
+        ),
         preparation_jobs=preparation_jobs,
         quality=quality,
         resolution=resolution,
@@ -1036,6 +1043,11 @@ def create_local_app(
         remote_connections=RemoteConnectionStatusService(),
     )
     if preparation_jobs is not None:
+        preparation_jobs.set_result_reader(
+            lambda job: context.preparation_recovery.current(
+                job.workspace_id, job.workspace.mapping_content_hash, actor=context.actor,
+            )
+        )
         preparation_jobs.set_status_listener(
             lambda job: publish_preparation_progress(context, job)
         )

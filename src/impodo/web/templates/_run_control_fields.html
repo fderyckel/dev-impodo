@@ -1,0 +1,19 @@
+<fieldset>
+  <legend>Expected totals for this delivery</legend>
+  <p>Enter the totals you expect from this delivery. Impodo will compare them with the prepared data using the checks in each Recipe.</p>
+  {% for item in run_value_plan.controls if item.automatic %}
+    <dl class="summary-list">
+      <div>
+        <dt>{{ item.requirement.label }} · {{ item.recipe_name }}</dt>
+        <dd>{{ item.supplied_value }} {{ item.requirement.unit }} <span class="muted">· Fixed by the Recipe</span></dd>
+      </div>
+    </dl>
+  {% endfor %}
+  {% for item in run_value_plan.editable_controls %}
+    <label for="control-{{ loop.index0 }}">
+      {{ item.requirement.label }}{% if item.requirement.unit %} ({{ item.requirement.unit }}){% endif %} <span aria-hidden="true">*</span>
+      <input id="control-{{ loop.index0 }}" name="control_{{ loop.index0 }}" type="number" step="any" value="{{ item.supplied_value if item.supplied_value is not none else '' }}" aria-describedby="control-help-{{ loop.index0 }}" required>
+      <small id="control-help-{{ loop.index0 }}">{{ item.recipe_name }} · {{ item.requirement.dataset_label }}. Allowed difference: {{ item.requirement.tolerance }}{% if item.requirement.unit %} {{ item.requirement.unit }}{% endif %}.</small>
+    </label>
+  {% endfor %}
+</fieldset>

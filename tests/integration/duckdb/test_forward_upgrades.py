@@ -236,6 +236,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     (2, 3, "migration-registry-v2-to-v3-test-run-setup"),
                     (3, 4, "migration-registry-v3-to-v4-test-run-values"),
                     (4, 5, "migration-registry-v4-to-v5-correction-binding"),
+                    (5, 6, "migration-registry-v5-to-v6-run-control-values"),
                 ],
             )
             self.assertEqual(

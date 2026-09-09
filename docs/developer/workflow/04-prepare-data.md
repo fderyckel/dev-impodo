@@ -94,6 +94,14 @@ normalization binding change invalidates dependent evidence. A failed or
 cancelled attempt retains its status; retry creates a controlled attempt and
 must not partially reuse uncommitted tables.
 
+Recipe runs can recover an already published review after an unexpected worker
+exit or loss of session state. The coordinator checks only the current eligible
+application's publication bindings before restoring a terminal job snapshot.
+See [integrated-run recovery](07-integrated-test-runs.md#recovering-published-preparation)
+for the publication checks and concurrency guards. Status polling does not
+perform this recovery, and an explicit failed or cancelled session result is
+not replaced by older successful work.
+
 A changed application build or incompatible workspace contract is deterministic
 for the running process. The operator must restart Impodo or follow the
 workspace compatibility action. Retrying the same job cannot repair either

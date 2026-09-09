@@ -286,7 +286,7 @@ Evidence: [run review](../../src/impodo/application/run/review.py),
 [Recipe service](../../src/impodo/application/recipe/service.py),
 [Recipe repository](../../src/impodo/adapters/duckdb/recipe_repository.py),
 [Odoo check route](../../src/impodo/web/routers/schema.py),
-[target-value review](../../src/impodo/web/recipe_target_matches.py),
+[target-value review](../../src/impodo/application/run/target_matches.py),
 [polling](../../src/impodo/web/static/job-polling.js).
 
 ## What the architecture gets right

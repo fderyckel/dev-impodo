@@ -19,10 +19,12 @@ from impodo.domain.project.foundation import (
 )
 from impodo.domain.run.test_setup import (
     RecipeRunParameterValue,
-    TestRunParameterValues,
+    RecipeRunControlValue,
+    TestRunValues,
     TestRunSetupBinding,
 )
 from .migration_foundation_repository import MigrationFoundationRepository
+from impodo.domain.run.contracts import RecipeRevisionSelection
 
 
 class TestRunRepository:
@@ -155,10 +157,10 @@ class TestRunRepository:
             )
         return tuple(self._from_row(row) for row in rows)
 
-    def get_parameter_values(
+    def get_run_values(
         self,
         migration_run_id: str,
-    ) -> TestRunParameterValues | None:
+    ) -> TestRunValues | None:
         """Read the current run-owned Recipe answers in one bounded query."""
 
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
@@ -169,26 +171,29 @@ class TestRunRepository:
                 "WHERE migration_run_id = ?",
                 [migration_run_id],
             )
-        return self._parameter_values_from_row(rows[0]) if rows else None
+        return self._run_values_from_row(rows[0]) if rows else None
 
-    def replace_parameter_values(
+    def replace_run_values(
         self,
-        values: TestRunParameterValues,
+        values: TestRunValues,
         *,
         expected_revision: int | None,
         actor: Actor,
-    ) -> TestRunParameterValues:
+    ) -> TestRunValues:
         """Replace run-owned answers before the Test setup is activated."""
 
         with self.database.connect(self.registry_path) as connection:
             connection.begin()
             try:
                 binding = connection.execute(
-                    "SELECT test_run_setup_id, project_id, state "
-                    "FROM test_run_setup_binding WHERE migration_run_id = ?",
+                    "SELECT b.test_run_setup_id, b.project_id, b.state, "
+                    "b.selected_revisions_json, d.state "
+                    "FROM test_run_setup_binding b JOIN data_version d "
+                    "ON d.data_version_id = b.data_version_id "
+                    "WHERE b.migration_run_id = ?",
                     [values.migration_run_id],
                 ).fetchone()
-                if binding != (
+                if binding is None or binding[:3] != (
                     values.test_run_setup_id,
                     values.project_id,
                     "SETUP",
@@ -196,13 +201,23 @@ class TestRunRepository:
                     raise MigrationConflictError(
                         "Run values require the current editable Test setup"
                     )
-                current = connection.execute(
-                    "SELECT revision FROM test_run_parameter_values "
-                    "WHERE migration_run_id = ?",
+                if values.contract_version == 2 and values.recipe_revisions != tuple(sorted(
+                    RecipeRevisionSelection(**item) for item in json.loads(str(binding[3]))
+                )):
+                    raise MigrationConflictError("Run values do not match the selected Recipe revisions")
+                rows = self.foundation._rows(
+                    connection, "SELECT * FROM test_run_parameter_values WHERE migration_run_id = ?",
                     [values.migration_run_id],
-                ).fetchone()
+                )
+                previous = self._run_values_from_row(rows[0]) if rows else None
+                current = (previous.revision,) if previous is not None else None
+                if binding[4] == "FROZEN":
+                    values.assert_frozen_answers_preserved(previous)
+                payload = values.to_dict(include_hash=False)
                 stored_values = canonical_json(
-                    [item.to_dict() for item in values.values]
+                    payload["values"] if values.contract_version == 1 else {
+                        key: payload[key] for key in ("values", "controls", "recipe_revisions")
+                    }
                 )
                 if current is None:
                     if expected_revision is not None or values.revision != 1:
@@ -272,6 +287,7 @@ class TestRunRepository:
                     detail={
                         "content_hash": values.content_hash,
                         "parameter_count": len(values.values),
+                        "control_count": len(values.controls),
                     },
                     actor=actor,
                     occurred_at=values.updated_at,
@@ -280,7 +296,7 @@ class TestRunRepository:
             except Exception:
                 connection.rollback()
                 raise
-        saved = self.get_parameter_values(values.migration_run_id)
+        saved = self.get_run_values(values.migration_run_id)
         if saved is None:
             raise MigrationConflictError("Run values were not saved")
         return saved
@@ -366,10 +382,16 @@ class TestRunRepository:
         return TestRunSetupBinding.from_dict(dict(value))
 
     @staticmethod
-    def _parameter_values_from_row(
+    def _run_values_from_row(
         value: Mapping[str, object],
-    ) -> TestRunParameterValues:
-        result = TestRunParameterValues(
+    ) -> TestRunValues:
+        contract_version = int(value["contract_version"])
+        payload = json.loads(str(value["values_json"]))
+        if contract_version == 1:
+            payload = {"values": payload, "controls": [], "recipe_revisions": []}
+        if not isinstance(payload, dict) or set(payload) != {"values", "controls", "recipe_revisions"}:
+            raise ValueError("Stored Test run value fields are invalid")
+        result = TestRunValues(
             test_run_setup_id=str(value["test_run_setup_id"]),
             project_id=str(value["project_id"]),
             migration_run_id=str(value["migration_run_id"]),
@@ -380,7 +402,11 @@ class TestRunRepository:
                     logical_parameter_id=str(item["logical_parameter_id"]),
                     value=item["value"],
                 )
-                for item in json.loads(str(value["values_json"]))
+                for item in payload["values"]
+            ),
+            controls=tuple(RecipeRunControlValue(**item) for item in payload["controls"]),
+            recipe_revisions=tuple(
+                RecipeRevisionSelection(**item) for item in payload["recipe_revisions"]
             ),
             updated_by=ActorIdentity(
                 issuer=str(value["updated_by_issuer"]),
@@ -388,7 +414,7 @@ class TestRunRepository:
                 display_name=str(value["updated_by_display_name"]),
             ),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
-            contract_version=int(value["contract_version"]),
+            contract_version=contract_version,
         )
         if str(value["content_hash"]) != result.content_hash:
             raise ValueError("Stored Test run value hash is inconsistent")

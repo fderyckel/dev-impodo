@@ -38,7 +38,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
     )
     async def new_production_run_form(request: Request, project_id: str):
         require_session(request)
-        return _render_new(request, context, project_id)
+        return await run_in_threadpool(_render_new, request, context, project_id)
 
     @router.post("/projects/{project_id}/production-runs/new")
     async def new_production_run(request: Request, project_id: str):
@@ -56,7 +56,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             },
         )
         try:
-            bundle = context.production_runs.start_setup(
+            bundle = await run_in_threadpool(context.production_runs.start_setup,
                 project_id,
                 expected_workspace_revision=int(
                     _text(form, "expected_workspace_revision")
@@ -103,7 +103,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         migration_run_id: str,
     ):
         require_session(request)
-        return _render_activation(
+        return await run_in_threadpool(_render_activation,
             request,
             context,
             project_id,
@@ -119,23 +119,38 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         migration_run_id: str,
     ):
         form = await request.form()
-        view = _activation_view(context, project_id, migration_run_id)
+        require_session(request)
+        view = await run_in_threadpool(_activation_view, context, project_id, migration_run_id)
+        value_plan = view["run_value_plan"]
         allowed = {
             "csrf_token",
             "expected_workspace_revision",
             "operation_id",
             "remember_write_api_key",
             "write_api_key",
-        } | {item["field_name"] for item in (*view["parameters"], *view["controls"])}
+            "values_evidence_hash",
+        } | {f"parameter_{index}" for index, _ in enumerate(value_plan.editable_values)} | {
+            f"control_{index}" for index, _ in enumerate(value_plan.editable_controls)
+        }
         _secure_form(request, form, allowed)
+        submitted_parameters, submitted_controls = _submitted_values(form, value_plan)
         try:
+            if (view["activation_complete"] and view["saved_operation"].operation_id == _text(form, "operation_id")):
+                return RedirectResponse(f"/projects/{project_id}/runs/{migration_run_id}", status_code=303)
+            if view["activation_pending"] or view["activation_complete"]:
+                raise MigrationFoundationError("Continue the saved Production setup from its current step")
+            if int(_text(form, "expected_workspace_revision")) != view["project"].optimistic_revision:
+                raise MigrationFoundationError("The Project changed. Reload and review Production setup.")
+            values = context.production_runs.values.submitted_values(
+                view["value_review"], submitted_parameters, submitted_controls,
+                expected_evidence_hash=_text(form, "values_evidence_hash"),
+            )
             setup_state = view["setup_state"]
-            target_schema, target_references = (
-                context.run_planning.target_evidence_from_workspace(
+            target_schema, target_references = await run_in_threadpool(
+                context.run_planning.target_evidence_from_workspace,
                     project_id,
                     setup_state.workspace_id,
                     actor=context.actor,
-                )
             )
             read_credential = get_target_credential(
                 context.secret_store,
@@ -186,9 +201,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 )
             else:
                 write_credential = current_write
-            parameter_values = _submitted_values(form, view["parameters"])
-            control_values = _submitted_values(form, view["controls"])
-            context.production_runs.activate(
+            await run_in_threadpool(context.production_runs.activate,
                 project_id,
                 migration_run_id,
                 expected_workspace_revision=int(
@@ -199,8 +212,8 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 read_credential_generation=read_credential.binding_hash,
                 write_identity=write_identity,
                 write_credential_generation=write_credential.binding_hash,
-                parameter_values=parameter_values,
-                control_values=control_values,
+                parameter_values=values.parameters,
+                control_values=values.controls,
                 operation_id=_text(form, "operation_id"),
                 actor=context.actor,
             )
@@ -211,7 +224,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             TypeError,
             ValueError,
         ) as error:
-            return _render_activation(
+            return await run_in_threadpool(_render_activation,
                 request,
                 context,
                 project_id,
@@ -219,6 +232,9 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
                 operation_id=_text(form, "operation_id"),
+                submitted_parameters=submitted_parameters,
+                submitted_controls=submitted_controls,
+                submitted_evidence_hash=_text(form, "values_evidence_hash"),
             )
         _flash(
             request,
@@ -228,6 +244,22 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             f"/projects/{project_id}/runs/{migration_run_id}",
             status_code=303,
         )
+
+    @router.post("/projects/{project_id}/production-runs/{migration_run_id}/activate/resume")
+    async def resume_production_activation(request: Request, project_id: str, migration_run_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        try:
+            await run_in_threadpool(
+                context.production_runs.resume_activation, project_id, migration_run_id, actor=context.actor,
+            )
+        except (MigrationFoundationError, ValueError) as error:
+            return await run_in_threadpool(
+                _render_activation, request, context, project_id, migration_run_id,
+                error=str(error), status_code=422,
+            )
+        _flash(request, "Production setup is complete. Continue with fresh review and load.")
+        return RedirectResponse(f"/projects/{project_id}/runs/{migration_run_id}", status_code=303)
 
     return router
 
@@ -279,8 +311,15 @@ def _render_activation(
     error=None,
     status_code=200,
     operation_id=None,
+    submitted_parameters=None,
+    submitted_controls=None,
+    submitted_evidence_hash=None,
 ):
     view = _activation_view(context, project_id, migration_run_id)
+    if submitted_evidence_hash == view["value_review"].evidence_hash:
+        view["run_value_plan"] = view["value_review"].with_answers(
+            submitted_parameters or {}, submitted_controls or {},
+        )
     return _render(
         request,
         "project_production_activation.html",
@@ -310,42 +349,9 @@ def _activation_view(context, project_id, migration_run_id):
         binding.cutover_plan_id,
         binding.cutover_plan_revision,
     )
-    recipes = {
-        item.recipe_id: item
-        for item in context.recipes.list(project_id, actor=context.actor)
-    }
-    parameters = []
-    controls = []
-    for recipe_index, selection in enumerate(plan.selected_revisions):
-        envelope = context.recipes.read_revision(
-            selection.recipe_id,
-            selection.recipe_revision,
-            actor=context.actor,
-        )
-        definition = dict(envelope["recipe"])
-        recipe = recipes[selection.recipe_id]
-        for index, item in enumerate(
-            dict(definition.get("parameter_definitions", {})).get("parameters", ())
-        ):
-            parameters.append(
-                {
-                    "definition": dict(item),
-                    "field_name": f"parameter_{recipe_index}_{index}",
-                    "recipe_id": selection.recipe_id,
-                    "recipe_name": recipe.display_name,
-                }
-            )
-        for index, item in enumerate(
-            dict(definition.get("control_definitions", {})).get("controls", ())
-        ):
-            controls.append(
-                {
-                    "definition": dict(item),
-                    "field_name": f"control_{recipe_index}_{index}",
-                    "recipe_id": selection.recipe_id,
-                    "recipe_name": recipe.display_name,
-                }
-            )
+    value_review = context.production_runs.values.review(binding, plan, data_version, actor=context.actor)
+    operation = context.production_runs.activation_operation(migration_run_id, actor=context.actor)
+    activation_pending = operation is not None and operation.state.value != "COMMITTED"
     read_status = get_target_credential_status(
         context.secret_store,
         setup_state,
@@ -386,9 +392,14 @@ def _activation_view(context, project_id, migration_run_id):
         setup_action_label = "Review Production setup"
     return {
         "binding": binding,
-        "controls": tuple(controls),
+        "value_review": value_review,
+        "run_value_plan": value_review.values,
+        "activation_pending": activation_pending,
+        "activation_resumable": bool(operation and isinstance(operation.detail.get("activation_inputs"), dict)
+                                     and operation.detail["activation_inputs"].get("contract_version") == 1),
+        "activation_complete": binding.state.value == "ACTIVE" and not activation_pending,
+        "saved_operation": operation,
         "data_version": data_version,
-        "parameters": tuple(parameters),
         "plan": plan,
         "project": project,
         "read_status": read_status,
@@ -403,16 +414,12 @@ def _activation_view(context, project_id, migration_run_id):
     }
 
 
-def _submitted_values(form, definitions):
-    result: dict[str, dict[str, object]] = {}
-    for item in definitions:
-        value = _text(form, item["field_name"])
-        logical_id = str(
-            item["definition"].get("logical_parameter_id")
-            or item["definition"].get("logical_control_id")
-            or ""
-        )
-        if value or item["definition"].get("required"):
-            result.setdefault(item["recipe_id"], {})[logical_id] = value
-    return result
-
+def _submitted_values(form, plan):
+    parameters = {
+        item.logical_parameter_id: _text(form, f"parameter_{index}")
+        for index, item in enumerate(plan.editable_values)
+    }
+    controls = {}
+    for index, item in enumerate(plan.editable_controls):
+        controls.setdefault(item.recipe_id, {})[item.requirement.logical_control_id] = _text(form, f"control_{index}")
+    return parameters, controls

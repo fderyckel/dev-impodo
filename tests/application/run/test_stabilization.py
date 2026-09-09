@@ -17,7 +17,8 @@ from impodo.adapters.duckdb.test_run_repository import TestRunRepository
 from impodo.domain.project.foundation import MigrationOperationState
 from impodo.domain.run.contracts import RecipeApplicationStatus, RecipeDependency
 from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.web.run_review import build_integrated_run_review, publish_preparation_progress
+from impodo.web.run_review import build_integrated_run_review
+from impodo.web.run_commands import publish_preparation_progress
 from tests.application.run import test_integrated_recipe_runs as fixtures
 
 
@@ -195,9 +196,9 @@ class RecipeActivationRecoveryTests(TestCase):
                 target_schema=replace(fixture.schema, workspace_id=state.workspace_id),
                 target_reference_bundle=None,
                 credential_generation=fixture.schema.read_credential_binding_hash,
-                parameter_values=service._fresh_data.activation_parameter_values(
+                parameter_values=service._fresh_data.activation_values(
                     setup.binding, "2026-08-24", actor=LOCAL_ACTOR,
-                ), operation_id=operation_id, actor=LOCAL_ACTOR, fault=crash,
+                ).parameters, operation_id=operation_id, actor=LOCAL_ACTOR, fault=crash,
             )
         with patch.object(fixture.cutover_repository, "ensure_for_run", side_effect=fixtures.SimulatedCrash("plan")):
             with self.assertRaises(fixtures.SimulatedCrash):

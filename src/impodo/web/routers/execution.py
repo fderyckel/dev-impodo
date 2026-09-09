@@ -50,7 +50,7 @@ from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_load_workspace_navigation
 from ..security import require_session
-from ..run_review import publish_reconciled_application
+from ..run_commands import publish_reconciled_application
 from ..target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,

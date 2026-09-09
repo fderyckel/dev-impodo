@@ -16,7 +16,7 @@
   {% if migration_workspace and migration_workspace.recipe_application_id %}
     <div class="notice" role="status">
       <strong>These decisions apply to this Recipe run.</strong>
-      <p>You can confirm target value matches and this delivery's control totals. Changes to field providers, transformations, record identities, or relationships require a new Recipe version.</p>
+      <p>You can confirm target value matches here. Totals accepted on Fresh data are fixed for this run. Changes to field providers, transformations, record identities, or relationships require a new Recipe version.</p>
       <a href="/projects/{{ migration_project.project_id }}/runs/{{ migration_run.migration_run_id }}">Return to Review and load</a>
     </div>
   {% endif %}

@@ -75,7 +75,7 @@
     {% elif source_selection and not accepted %}
       <form method="post" action="{{ action_href }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        {% if run_value_plan.values %}{% include "_test_run_value_fields.html" %}{% endif %}
+        {% if run_value_plan.has_values %}<input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">{% include "_run_value_fields.html" %}{% endif %}
         {% if run_value_plan.can_confirm %}<div class="actions"><button class="button primary" type="submit">{{ action_label }}</button></div>{% endif %}
       </form>
     {% endif %}
@@ -93,7 +93,7 @@
 
       <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/accept">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        {% if run_value_plan.values %}{% include "_test_run_value_fields.html" %}{% endif %}
+        {% if run_value_plan.has_values %}<input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">{% include "_run_value_fields.html" %}{% endif %}
         <div class="recipe-match-list">
           {% for match in match_plan.inputs %}
             <article class="recipe-match-card {% if match.status.value == 'MATCHED' %}matched{% elif match.status.value == 'AMBIGUOUS' %}choice{% else %}blocked{% endif %}">
@@ -173,7 +173,7 @@
     </section>
   {% endif %}
 
-  {% if accepted and run_value_plan.values %}
+  {% if accepted and run_value_plan.has_values %}
     <section class="form-card" aria-labelledby="run-details-title">
       <div class="section-heading">
         <div>
@@ -187,12 +187,15 @@
           {% for item in run_value_plan.values %}
             <div><dt>{{ item.label }}</dt><dd>{{ item.supplied_value }}</dd></div>
           {% endfor %}
+          {% for item in run_value_plan.controls %}
+            <div><dt>{{ item.requirement.label }} · {{ item.recipe_name }}</dt><dd>{{ item.supplied_value }} {{ item.requirement.unit }}{% if item.automatic %} · Fixed by the Recipe{% endif %}</dd></div>
+          {% endfor %}
         </dl>
-        {% if run_value_plan.editable_values %}<p class="muted">These details were accepted with this fresh data. Start a new Test run if they need to change.</p>{% endif %}
+        {% if run_value_plan.requires_confirmation %}<p class="muted">These details were accepted with this fresh data. Start a new Test run if they need to change.</p>{% endif %}
       {% else %}
         <form method="post" action="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data/accept">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          {% include "_test_run_value_fields.html" %}
+          <input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">{% include "_run_value_fields.html" %}
           {% if run_value_plan.can_confirm %}<div class="actions"><button class="button primary" type="submit">Save run details</button></div>{% endif %}
         </form>
       {% endif %}

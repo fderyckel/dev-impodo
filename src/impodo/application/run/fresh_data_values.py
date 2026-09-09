@@ -1,4 +1,4 @@
-"""Parse and merge Recipe-declared values for one fresh Test delivery."""
+"""Parse and merge Recipe-declared values for a fresh Test or Production delivery."""
 
 from __future__ import annotations
 
@@ -12,9 +12,11 @@ from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
 )
-from impodo.domain.run.test_setup import TestRunParameterValues, TestRunSetupBinding
+from impodo.domain.run.test_setup import TestRunValues, TestRunSetupBinding
+from impodo.domain.recipe.control_values import normalize_control_total
 from .fresh_data_matching import (
     FreshDataInputRequirement,
+    FreshDataControlRequirement,
     FreshDataParameterRequirement,
     FreshDataRecipeRequirement,
 )
@@ -58,12 +60,39 @@ class FreshDataRunValue:
 
 
 @dataclass(frozen=True, slots=True)
+class FreshDataControlValue:
+    """Present one Recipe's expected total for this delivery."""
+
+    recipe_id: str
+    recipe_name: str
+    requirement: FreshDataControlRequirement
+    supplied_value: str | None
+
+    @property
+    def automatic(self) -> bool:
+        return self.requirement.invariant_total is not None
+
+
+@dataclass(frozen=True, slots=True)
 class FreshDataRunValuePlan:
     """Hold every Recipe-declared run value and its current confirmation."""
 
     values: tuple[FreshDataRunValue, ...]
     revision: int | None
     confirmed: bool
+    controls: tuple[FreshDataControlValue, ...] = ()
+
+    @property
+    def has_values(self) -> bool:
+        return bool(self.values or self.controls)
+
+    @property
+    def editable_controls(self) -> tuple[FreshDataControlValue, ...]:
+        return tuple(item for item in self.controls if not item.automatic)
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return bool(self.editable_values or self.editable_controls)
 
     @property
     def editable_values(self) -> tuple[FreshDataRunValue, ...]:
@@ -79,7 +108,9 @@ class FreshDataRunValuePlan:
             return False
         if any(item.required and not item.supplied_value for item in self.values):
             return False
-        return not self.editable_values or self.confirmed
+        if any(item.supplied_value is None for item in self.controls):
+            return False
+        return not self.requires_confirmation or self.confirmed
 
     @property
     def can_confirm(self) -> bool:
@@ -89,6 +120,14 @@ class FreshDataRunValuePlan:
             item.automatic and item.required and not item.supplied_value
             for item in self.values
         )
+
+
+@dataclass(frozen=True, slots=True)
+class FreshDataActivationValues:
+    """Pass separately validated parameters and totals to the existing compiler."""
+
+    parameters: dict[str, dict[str, object]]
+    controls: dict[str, dict[str, str]]
 
 
 def recipe_definition(envelope: Mapping[str, object]) -> Mapping[str, object]:
@@ -173,13 +212,46 @@ def fresh_input_requirements(
     return tuple(sorted(result, key=lambda item: item.logical_dataset_id))
 
 
+def control_definitions(definition: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    """Read control declarations from a verified Recipe envelope."""
+
+    payload = definition.get("control_definitions", {})
+    if not isinstance(payload, Mapping):
+        raise RecipeError("Stored Recipe control totals are invalid")
+    controls = payload.get("controls", ())
+    if not isinstance(controls, (list, tuple)) or any(not isinstance(item, Mapping) for item in controls):
+        raise RecipeError("Stored Recipe control totals are invalid")
+    return tuple(controls)
+
+
+def fresh_control_requirements(definition: Mapping[str, object]) -> tuple[FreshDataControlRequirement, ...]:
+    """Keep reusable controls visible and request only delivery-owned totals."""
+
+    datasets = {item.logical_dataset_id: item.label for item in fresh_input_requirements(definition)}
+    return tuple(
+        FreshDataControlRequirement(
+            logical_control_id=str(item["logical_control_id"]),
+            label=str(item["name"]),
+            dataset_label=datasets.get(str(item["dataset_id"]), str(item["dataset_id"])),
+            unit=str(item.get("unit", "")),
+            tolerance=str(item.get("tolerance", "0")),
+            invariant_total=(
+                normalize_control_total(item["invariant_expected_total"], label=str(item["name"]))
+                if item.get("invariant_expectation") else None
+            ),
+        )
+        for item in sorted(control_definitions(definition), key=lambda item: str(item["logical_control_id"]))
+    )
+
+
 def build_fresh_data_run_value_plan(
     requirements: tuple[FreshDataRecipeRequirement, ...],
-    current: TestRunParameterValues | None,
+    current: TestRunValues | None,
 ) -> FreshDataRunValuePlan:
     """Merge compatible Recipe requests so the data manager answers once."""
 
     stored = current.by_recipe if current is not None else {}
+    stored_controls = current.controls_by_recipe if current is not None else {}
     grouped: dict[
         str,
         list[tuple[FreshDataRecipeRequirement, FreshDataParameterRequirement]],
@@ -214,7 +286,7 @@ def build_fresh_data_run_value_plan(
         ):
             conflict = (
                 "Selected Recipes disagree about the meaning of "
-                f"{first.label}. Start a new Test run with compatible "
+                f"{first.label}. Use a plan with compatible "
                 "Recipe versions."
             )
 
@@ -224,7 +296,7 @@ def build_fresh_data_run_value_plan(
         if len(automatic_flags) != 1:
             conflict = (
                 "Selected Recipes disagree about who supplies "
-                f"{first.label}. Start a new Test run with compatible "
+                f"{first.label}. Use a plan with compatible "
                 "Recipe versions."
             )
         automatic = automatic_flags == {True}
@@ -258,12 +330,24 @@ def build_fresh_data_run_value_plan(
         values=tuple(values),
         revision=current.revision if current is not None else None,
         confirmed=current is not None,
+        controls=tuple(
+            FreshDataControlValue(
+                recipe_id=recipe.recipe_id,
+                recipe_name=recipe.display_name,
+                requirement=control,
+                supplied_value=(
+                    control.invariant_total if control.invariant_total is not None else
+                    stored_controls.get(recipe.recipe_id, {}).get(control.logical_control_id)
+                ),
+            )
+            for recipe in requirements for control in recipe.controls
+        ),
     )
 
 
 def assert_run_value_ownership(
     binding: TestRunSetupBinding,
-    current: TestRunParameterValues | None,
+    current: TestRunValues | None,
 ) -> None:
     """Reject saved values belonging to another Test setup aggregate."""
 
@@ -271,6 +355,10 @@ def assert_run_value_ownership(
         current.test_run_setup_id != binding.test_run_setup_id
         or current.project_id != binding.project_id
         or current.migration_run_id != binding.migration_run_id
+        or (
+            current.contract_version == 2
+            and current.recipe_revisions != binding.selected_revisions
+        )
     ):
         raise MigrationConflictError(
             "Saved run values do not belong to this Test setup"
@@ -285,5 +373,5 @@ def normalize_export_date(export_as_of: object) -> str:
         return date.fromisoformat(candidate).isoformat()
     except ValueError as error:
         raise MigrationFoundationError(
-            "The Test delivery cutoff must start with a year-month-day date"
+            "The delivery cutoff must start with a year-month-day date"
         ) from error

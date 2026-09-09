@@ -86,7 +86,7 @@ the portable Recipe never stores a delivery-specific file or table ID. The
 compiler accepts both this logical-ID-derived name and the earlier exact
 logical-name convention so saved Recipe evidence remains forward compatible.
 
-## Run-owned parameter values
+## Run-owned parameters and control expectations
 
 Each selected Recipe revision declares the values a fresh application may
 need. The standard export-as-of date is supplied from the Test DataVersion
@@ -109,6 +109,22 @@ The combined Odoo check reads the record once and validates it again against
 the exact protected Recipe revisions. Changing these answers never changes a
 Recipe revision, Authoring evidence, source snapshot, target snapshot, or
 application workspace.
+
+The version 2 `TestRunValues` contract binds typed control expectations and
+parameter answers to the exact selected Recipe revisions and semantic hashes.
+Control identities are scoped to a Recipe; the browser never merges their
+answers across Recipes. Every non-invariant control requires a finite decimal
+total before fresh-data acceptance or activation. Invariant totals are supplied
+from the Recipe and cannot be overridden.
+
+Parameters and controls publish atomically under one optimistic revision.
+The repository verifies the selected revisions, editable setup, and frozen
+delivery state in its write transaction. A legacy version 1 record may add
+missing controls once before activation, preserving all accepted parameters.
+Existing hashes remain verifiable after the registry upgrade. Activation and
+recovery pass the same saved totals to the compiler; changing them changes the
+application binding hash. Totals present in the compiled baseline cannot be
+changed through the matching UI or mapping submission service.
 
 ## Planning gate
 
@@ -162,6 +178,17 @@ domain, or mutate the protected Recipe revision. A submitted decision may
 change only the application mapping draft. The normal mapping validator and
 submission service must accept the complete mapping before the application can
 become `READY`.
+
+`RecipeTargetMatchService` owns focused review and confirmation. Composite
+and scoped Many2one keys are verified as complete ordered tuples using the
+same portable representation as supporting-value capture. The existing
+single-key translation contract is unchanged; this view cannot translate a
+composite key, remove company scope, or select an ambiguous target value.
+Unsupported source domains and uncovered fixed providers block confirmation.
+The form binds the mapping revision and source, schema, read-identity, and
+lookup evidence. A stale form must be reviewed again before any mapping write.
+Validation failures stay in the run review and never redirect this confirmation
+to the authoring editor.
 
 Submitting or confirming a run mapping must preserve its compiled Recipe
 baseline. Permitted run choices are target categorical matches and current
@@ -221,6 +248,28 @@ requested workspace, collected in one pass. A restart may remove the live job
 snapshot, but the registry milestone and workspace evidence retain the safe
 recovery point. A failed preparation remains the next recoverable application;
 it does not unlock a dependent Recipe.
+
+Entering or continuing a run may inspect the first unverified application's
+current publication metadata when no active preparation, load progress,
+blocking issue, or later milestone supersedes it. A current duplicate review
+or complete preparation publication may restore its session snapshot without
+starting another worker. Status polling remains a registry and memory read.
+
+Recovery requires the requested current submitted mapping, source selections,
+schema, derived plan, and supported evaluator versions. Prepared-data recovery
+also requires mutually current quality and normalization bindings, current
+quality rules and retention settings, and a published bounded session when
+one exists. Duplicate recovery requires current policy-bound candidates;
+approving them ends that recovery destination. Incomplete or invalidated
+publications cannot establish completion. These checks verify publication
+bindings; downstream services still validate row artifacts before their use.
+
+An absent terminal worker notification may trigger one recovery read after
+the child exits. An explicit failure or cancellation still held in the session
+registry must not be replaced by an older publication. Restored progress must
+compare the application mapping hash inside the registry transaction and must
+not reverse blocked or later progress. Recovery grants no comparison, load,
+verification, qualification, or Production authority.
 
 ## Browser journey boundary
 

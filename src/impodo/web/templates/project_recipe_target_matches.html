@@ -26,9 +26,12 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">Odoo compatibility check</p>
-          {% if review.needs_review_count %}
-            <h2 id="target-match-summary-title">{{ review.needs_review_count }} value{% if review.needs_review_count != 1 %}s{% endif %} need a match</h2>
-            <p>{{ review.verified_count }} existing match{% if review.verified_count != 1 %}es{% endif %} are already valid for this Odoo.</p>
+          {% if not review.can_confirm %}
+            <h2 id="target-match-summary-title">Resolve the checks below</h2>
+            <p>The Recipe's rules and accepted totals stay fixed during this review.</p>
+          {% elif review.needs_review_count %}
+            <h2 id="target-match-summary-title">{{ review.needs_review_count }} value{% if review.needs_review_count != 1 %}s need{% else %} needs{% endif %} a match</h2>
+            <p>{{ review.verified_count }} existing match{% if review.verified_count != 1 %}es are{% else %} is{% endif %} already valid for this Odoo.</p>
           {% else %}
             <h2 id="target-match-summary-title">All target-specific values already match</h2>
             <p>No rematching is needed. Confirm this target check to continue with preparation.</p>
@@ -41,6 +44,11 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="expected_working_draft_version" value="{{ review.working_draft_version }}">
       <input type="hidden" name="expected_definition_hash" value="{{ review.definition_hash }}">
+      <input type="hidden" name="expected_evidence_hash" value="{{ review.evidence_hash }}">
+
+      {% for reason in review.blocking_reasons %}
+        <div class="notice warning" role="alert"><p>{{ reason }}</p></div>
+      {% endfor %}
 
       {% for field in review.fields %}
         <section class="form-card target-match-card" aria-labelledby="target-match-field-{{ loop.index }}">
@@ -50,7 +58,9 @@
               <h2 id="target-match-field-{{ loop.index }}">{{ field.target_field_label }}</h2>
               <p>Match <strong>{{ field.source_column_label }}</strong> to {{ field.target_model_label }} values.</p>
             </div>
-            {% if field.needs_review_count %}
+            {% if field.blocking_reason %}
+              <span class="status review">Needs attention</span>
+            {% elif field.needs_review_count %}
               <span class="status review">{{ field.needs_review_count }} to review</span>
             {% else %}
               <span class="status ready">Matched</span>
@@ -59,8 +69,11 @@
 
           {% if field.blocking_reason %}
             <div class="notice warning">
-              <strong>This field needs the full matcher.</strong>
+              <strong>This field needs attention.</strong>
               <p>{{ field.blocking_reason }}</p>
+              {% if field.review_rows %}
+                <ul>{% for row in field.review_rows %}<li>{{ row.source_label or row.source_value }} &middot; {{ row.row_count }} row{% if row.row_count != 1 %}s{% endif %}</li>{% endfor %}</ul>
+              {% endif %}
             </div>
           {% elif field.review_rows %}
             <div class="target-match-rows">
@@ -68,7 +81,7 @@
                 <div class="target-match-row">
                   <div class="target-match-source">
                     <span class="field-label">Fresh-data value</span>
-                    <strong>{{ row.source_value }}</strong>
+                    <strong>{{ row.source_label or row.source_value }}</strong>
                     <small>{{ row.row_count }} row{% if row.row_count != 1 %}s{% endif %}</small>
                   </div>
                   <div class="target-match-arrow" aria-hidden="true">&rarr;</div>
@@ -94,8 +107,8 @@
               <dl class="summary-list">
                 {% for row in field.verified_rows %}
                   <div>
-                    <dt>{{ row.source_value }} <small>&middot; {{ row.row_count }} row{% if row.row_count != 1 %}s{% endif %}</small></dt>
-                    <dd><strong>{{ row.current_target_label }}</strong>{% if row.current_target_label != row.current_target_value %} <code>{{ row.current_target_value }}</code>{% endif %}</dd>
+                    <dt>{{ row.source_label or row.source_value }} <small>&middot; {{ row.row_count }} row{% if row.row_count != 1 %}s{% endif %}</small></dt>
+                    <dd><strong>{{ row.current_target_label }}</strong></dd>
                   </div>
                 {% endfor %}
               </dl>
@@ -116,16 +129,19 @@
           </button>
         {% endif %}
         <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
-        <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/mapping">Open full field matcher</a>
+        {% if not review.can_confirm %}
+          <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/odoo">Recheck Odoo</a>
+        {% endif %}
       </div>
     </form>
   {% else %}
     <section class="form-card">
-      <h2>No simple target-value review is available</h2>
-      <p>Use the full field matcher for this Recipe application's remaining mapping work.</p>
+      <h2>No target choices can be changed here</h2>
+      {% if review %}{% for reason in review.blocking_reasons %}<p>{{ reason }}</p>{% endfor %}{% endif %}
+      <p>Review the run's checks. If the source data needs correction, start a new run with the corrected delivery. If a field rule needs changing, publish a new Recipe version from its authoring workspace.</p>
       <div class="actions">
-        <a class="button primary" href="/workspaces/{{ application.workspace_id }}/mapping">Open full field matcher</a>
         <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
+        <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/odoo">Recheck Odoo</a>
       </div>
     </section>
   {% endif %}

@@ -33,6 +33,8 @@ from ..domain.run.models import MigrationRunPurpose
 from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, SourceMode
+from impodo.domain.run.contracts import MigrationRunTargetSchema, MigrationRunReferenceBundle
+from .run.production_values import ProductionRunValuesUseCase
 
 
 class ProductionCutoverService:
@@ -62,6 +64,7 @@ class ProductionCutoverService:
         self.production_runs = production_runs
         self.run_planning = run_planning
         self.authorization = authorization
+        self.values = ProductionRunValuesUseCase(run_planning.recipes)
 
     def start_setup(
         self,
@@ -298,6 +301,10 @@ class ProductionCutoverService:
         binding = self.production_runs.get(migration_run_id)
         if binding.project_id != project_id:
             raise ProductionRunError("Production run does not belong to this Project")
+        self.authorization.require(actor, Capability.PRODUCTION_RUN_ACTIVATE, project_id=project_id)
+        existing = self.run_planning.repository.production_activation_operation(migration_run_id)
+        if existing is not None and existing.operation_id != operation_id:
+            raise ProductionRunError("Continue the saved Production activation before starting another request")
         selection = self.cutover_plans.get_selection(binding.cutover_selection_id)
         current_selection = self.cutover_plans.current_selection(project_id)
         if selection != current_selection:
@@ -322,6 +329,10 @@ class ProductionCutoverService:
         test_target = self.run_planning.repository.get_target_binding(
             qualification.test_run_id
         )
+        value_review = self.values.review(
+            binding, plan, self.data_versions.get(binding.data_version_id, actor=actor), actor=actor,
+        )
+        normalized = self.values.normalize(value_review, parameter_values, control_values)
         return self.run_planning.activate_production_run(
             project_id,
             expected_workspace_revision=expected_workspace_revision,
@@ -333,8 +344,8 @@ class ProductionCutoverService:
             read_credential_generation=read_credential_generation,
             write_identity=write_identity,
             write_credential_generation=write_credential_generation,
-            parameter_values=parameter_values,
-            control_values=control_values,
+            parameter_values=normalized.parameters,
+            control_values=normalized.controls,
             shared_control_values={
                 "control:project.integrated_reconciliation": False,
                 "control:project.package_completeness": True,
@@ -342,6 +353,58 @@ class ProductionCutoverService:
             operation_id=operation_id,
             actor=actor,
             fault=fault,
+        )
+
+    def completed_activations(self, project_id: str, *, actor: Actor) -> frozenset[str]:
+        """Read setup completion for the Project overview without per-run queries."""
+
+        self.authorization.require(actor, Capability.PROJECT_VIEW, project_id=project_id)
+        return self.run_planning.repository.completed_production_activations(project_id)
+
+    def activation_operation(self, migration_run_id: str, *, actor: Actor):
+        """Read activation completion separately from registered target authority."""
+
+        binding = self.production_runs.get(migration_run_id)
+        self.authorization.require(actor, Capability.PROJECT_VIEW, project_id=binding.project_id)
+        operation = self.run_planning.repository.production_activation_operation(migration_run_id)
+        if binding.state is ProductionRunBindingState.ACTIVE and operation is None:
+            raise ProductionRunError("The saved Production activation is missing")
+        return operation
+
+    def resume_activation(self, project_id: str, migration_run_id: str, *, actor: Actor):
+        """Finish local compilation from the original reviewed activation inputs."""
+
+        binding = self.production_runs.get(migration_run_id)
+        if binding.project_id != project_id:
+            raise ProductionRunError("Production run does not belong to this Project")
+        self.authorization.require(actor, Capability.PRODUCTION_RUN_ACTIVATE, project_id=project_id)
+        operation = self.activation_operation(migration_run_id, actor=actor)
+        if operation is None:
+            raise ProductionRunError("Review Production readiness before activation")
+        if (operation.actor.issuer != actor.identity.issuer
+                or operation.actor.subject_id != actor.identity.subject_id):
+            raise ProductionRunError("The saved Production activation belongs to another actor")
+        if operation.state is MigrationOperationState.COMMITTED:
+            return self.run_planning.repository.get_bundle(migration_run_id)
+        inputs = operation.detail.get("activation_inputs")
+        if not isinstance(inputs, Mapping) or inputs.get("contract_version") != 1:
+            raise ProductionRunError("This older activation needs its original values and access evidence to resume")
+        schema = MigrationRunTargetSchema.from_json(str(operation.detail["target_schema_json"])).source_schema
+        references = operation.detail.get("reference_bundle")
+        references = (MigrationRunReferenceBundle.from_dict(dict(references)).for_workspace(binding.setup_workspace_id)
+                      if references is not None else None)
+        saved_binding = operation.detail["production_binding"]
+        identity = dict(inputs["write_identity"])
+        identity["readable_models"] = tuple(identity["readable_models"])
+        identity["writable_models"] = tuple(identity["writable_models"])
+        return self.activate(
+            project_id, migration_run_id, expected_workspace_revision=operation.expected_revision,
+            target_schema=schema, target_reference_bundle=references,
+            read_credential_generation=saved_binding["read_credential_generation"],
+            write_identity=OdooWriteIdentity(**identity),
+            write_credential_generation=saved_binding["write_credential_generation"],
+            parameter_values=inputs["parameters"], control_values=inputs["controls"],
+            operation_id=operation.operation_id, actor=actor,
         )
 
     def write_scope(self, migration_run_id: str) -> OdooApiScope:
@@ -395,6 +458,9 @@ class ProductionCutoverService:
             raise ProductionRunError(
                 "Complete Production activation before loading data into Odoo"
             )
+        operation = self.activation_operation(binding.migration_run_id, actor=actor)
+        if operation.state is not MigrationOperationState.COMMITTED:
+            raise ProductionRunError("Finish Production setup before loading data into Odoo")
         current_selection = self.cutover_plans.current_selection(binding.project_id)
         if (
             current_selection is None

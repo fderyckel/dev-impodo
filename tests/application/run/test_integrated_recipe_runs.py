@@ -152,9 +152,9 @@ from impodo.web.app import create_local_app
 from impodo.web.routers.mapping import (
     _confirmed_recipe_mapping_destination,
 )
+from impodo.web.run_commands import publish_preparation_progress
 from impodo.web.run_review import (
     build_integrated_run_review,
-    publish_preparation_progress,
 )
 from impodo.web.target_credentials import (
     TargetCredentialRole,
@@ -1374,9 +1374,10 @@ class RequiredFieldDefaultRecoveryTests(unittest.TestCase):
             )
         )
         service.test_run_values = SimpleNamespace(
-            get_parameter_values=lambda current_id: SimpleNamespace(
+            get_run_values=lambda current_id: SimpleNamespace(
                 project_id=project_id,
                 migration_run_id=run_id,
+                controls_by_recipe={},
                 by_recipe={
                     recipe_id: {"parameter:batch": "AUGUST"}
                 },

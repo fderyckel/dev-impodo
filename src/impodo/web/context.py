@@ -62,6 +62,8 @@ from ..application.workspace.preparation.resolution_service import ResolutionSer
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
+from ..application.run.target_matches import RecipeTargetMatchService
+from ..application.workspace.preparation.recovery import PreparationRecoveryService
 from ..application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
 )
@@ -196,8 +198,10 @@ class WebContext:
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
     supporting_lookups: SupportingLookupService
+    recipe_target_matches: RecipeTargetMatchService
     categorical_coverage: CategoricalCoverageService
     preparation: PreparationService
+    preparation_recovery: PreparationRecoveryService
     preparation_jobs: PreparationJobManager | None
     quality: QualityService
     resolution: ResolutionService

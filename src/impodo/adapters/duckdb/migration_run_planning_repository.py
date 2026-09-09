@@ -270,12 +270,14 @@ class MigrationRunPlanningRepository:
         operation_id: str,
         request_hash: str,
         actor: Actor,
+        activation_inputs: Mapping[str, object] | None = None,
         fault: FaultInjector | None = None,
     ) -> IntegratedRunBundle:
         """Activate an existing setup-only run with fresh Production evidence."""
 
         operation_id = require_uuid(operation_id, "operation_id")
         detail = {
+            "activation_inputs": dict(activation_inputs) if activation_inputs is not None else None,
             "applications": [self._planned_dict(item) for item in applications],
             "production_binding": production_binding.to_dict(),
             "reference_bundle": (
@@ -310,6 +312,34 @@ class MigrationRunPlanningRepository:
             actor=actor,
             fault=fault,
         )
+
+    def completed_production_activations(self, project_id: str) -> frozenset[str]:
+        """Project setup completion in one registry query without intent payloads."""
+
+        project_id = require_uuid(project_id, "project_id")
+        with self.database.connect(self.registry_path) as connection:
+            rows = connection.execute(
+                "SELECT owner_id FROM project_operation_intent WHERE project_id = ? "
+                "AND owner_kind = 'MIGRATION_RUN' AND kind = 'PRODUCTION_RUN_ACTIVATE' "
+                "GROUP BY owner_id HAVING count(*) = 1 AND min(state) = 'COMMITTED'",
+                [project_id],
+            ).fetchall()
+        return frozenset(str(row[0]) for row in rows)
+
+    def production_activation_operation(self, migration_run_id: str):
+        """Find the sole saved Production request without opening child stores."""
+
+        migration_run_id = require_uuid(migration_run_id, "migration_run_id")
+        with self.database.connect(self.registry_path) as connection:
+            rows = self.foundation._rows(
+                connection,
+                "SELECT * FROM project_operation_intent WHERE owner_kind = 'MIGRATION_RUN' "
+                "AND owner_id = ? AND kind = 'PRODUCTION_RUN_ACTIVATE' ORDER BY created_at",
+                [migration_run_id],
+            )
+        if len(rows) > 1:
+            raise MigrationConflictError("The saved Production activation could not be identified")
+        return self.foundation._intent_from_row(rows[0]) if rows else None
 
     def resume_production_activation(
         self,
@@ -804,6 +834,7 @@ class MigrationRunPlanningRepository:
         expected_statuses: tuple[RecipeApplicationStatus, ...],
         status: RecipeApplicationStatus,
         actor: Actor,
+        expected_mapping_content_hash: str | None = None,
     ) -> RunRecipeApplication:
         """Advance one run summary without opening its application workspace.
 
@@ -828,13 +859,15 @@ class MigrationRunPlanningRepository:
             connection.begin()
             try:
                 row = connection.execute(
-                    "SELECT project_id, status FROM recipe_application "
+                    "SELECT project_id, status, mapping_content_hash FROM recipe_application "
                     "WHERE application_id = ?",
                     [application_id],
                 ).fetchone()
                 if row is None:
                     self.foundation._raise_missing_identity(connection, application_id)
                 current = RecipeApplicationStatus(str(row[1]))
+                if expected_mapping_content_hash is not None and row[2] != expected_mapping_content_hash:
+                    raise MigrationConflictError("Recipe application mapping changed before this progress update")
                 if current is target:
                     connection.rollback()
                     return self.get_application(application_id)

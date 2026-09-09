@@ -1149,11 +1149,19 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 schema,
                 governance,
             )
+            access = context.workspace_access.require(
+                context.actor, Capability.PROJECT_VIEW, workspace_id=workspace_id,
+            )
+            fixed_controls = {
+                item.dataset_id: item for item in active_definition.datasets
+                if len(item.effective_control_totals) == len(item.control_definitions)
+            } if active_definition is not None and access.recipe_application_id is not None else {}
             datasets = _mapping_datasets_from_form(
                 form,
                 selection,
                 schema,
                 governance,
+                fixed_controls=fixed_controls,
             )
             datasets = _merge_partial_mapping_datasets(
                 datasets,

@@ -24,6 +24,7 @@ from impodo.application.workspace.preparation.preparation_job_registry import (
     PreparationJobRegistry,
     PreparationJobStateError,
 )
+from impodo.application.workspace.preparation.recovery import RecoveredPreparation
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.errors import ReadinessError
 from impodo.application.workspace.preparation.job_models import (
@@ -78,6 +79,7 @@ class PreparationJobManager:
         self._workers: dict[str, _RunningWorker] = {}
         self._pending: dict[str, tuple[PreparationJob, Actor]] = {}
         self._status_listener = status_listener
+        self._result_reader: Callable[[PreparationJob], RecoveredPreparation | None] | None = None
         self._diagnostic_recorder = diagnostic_recorder
 
     def set_status_listener(
@@ -87,6 +89,44 @@ class PreparationJobManager:
         """Publish coarse run progress without coupling it to worker evidence."""
 
         self._status_listener = listener
+
+    def set_result_reader(self, reader: Callable[[PreparationJob], RecoveredPreparation | None]) -> None:
+        """Read committed evidence only after a child exits without its result."""
+
+        self._result_reader = reader
+
+    def restore_result(
+        self, workspace: PreparationWorkspace, result: RecoveredPreparation, *,
+        actor: Actor, migration_project_name: str, expected_job_id: str | None,
+    ) -> PreparationJob | None:
+        """Restore a terminal session snapshot without launching preparation."""
+
+        if workspace.mapping_content_hash != result.mapping_content_hash:
+            raise PreparationJobStateError("Saved preparation belongs to another mapping")
+        with self._lock:
+            latest = self.registry.latest_many((workspace.workspace_id,)).get(workspace.workspace_id)
+            if (latest.job_id if latest else None) != expected_job_id:
+                return latest
+            if latest is not None and (latest.active or (
+                latest.status is result.status and latest.result_run_id == result.result_run_id
+                and latest.workspace.mapping_content_hash == result.mapping_content_hash
+            )):
+                return latest
+            job, created = self.registry.enqueue(
+                workspace.workspace_id, migration_project_name, 0,
+                actor.identity, workspace, self.build_contract,
+            )
+            if not created:
+                return job
+            return self._finish_recovered(job.job_id, result)
+
+    def _finish_recovered(self, job_id: str, result: RecoveredPreparation) -> PreparationJob:
+        job = self.registry.get_by_id(job_id)
+        if job.workspace.mapping_content_hash != result.mapping_content_hash:
+            raise PreparationJobStateError("Saved preparation belongs to another mapping")
+        if result.status is PreparationJobStatus.SUCCEEDED:
+            return self.registry.mark_succeeded(job_id, result.result_run_id)
+        return self.registry.mark_review_required(job_id, result_run_id=result.result_run_id)
 
     def enqueue(
         self,
@@ -99,16 +139,16 @@ class PreparationJobManager:
     ) -> PreparationJob:
         """Register one attempt and start it without holding the HTTP request."""
 
-        job, created = self.registry.enqueue(
-            workspace_id,
-            migration_project_name,
-            total_rows,
-            actor.identity,
-            workspace,
-            self.build_contract,
-        )
-        if created:
-            with self._lock:
+        with self._lock:
+            job, created = self.registry.enqueue(
+                workspace_id,
+                migration_project_name,
+                total_rows,
+                actor.identity,
+                workspace,
+                self.build_contract,
+            )
+            if created:
                 self._pending[job.job_id] = (job, actor)
                 self._schedule_locked()
         return job
@@ -280,14 +320,24 @@ class PreparationJobManager:
             if not terminal_received:
                 current = self.registry.get_by_id(job_id)
                 if current.active:
-                    self._notify(
-                        self.registry.mark_failed(
+                    recovered = None
+                    if self._result_reader is not None:
+                        try:
+                            recovered = self._result_reader(current)
+                            if recovered is not None and recovered.mapping_content_hash != current.workspace.mapping_content_hash:
+                                raise PreparationJobStateError("Saved preparation belongs to another mapping")
+                        except Exception:
+                            recovered = None
+                            logging.getLogger(__name__).exception("Could not recover saved preparation after worker exit")
+                    if recovered is not None:
+                        self._notify(self._finish_recovered(job_id, recovered))
+                    else:
+                        self._notify(self.registry.mark_failed(
                             job_id,
                             "WORKER_EXITED",
                             "Preparation stopped unexpectedly. Your previous saved "
-                            "evidence remains available; try again.",
-                        )
-                    )
+                            "evidence remains available. Return to the run to check it before trying again.",
+                        ))
         finally:
             events.close()
             with self._lock:

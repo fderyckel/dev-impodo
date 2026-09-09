@@ -37,6 +37,18 @@ class FreshDataParameterRequirement:
 
 
 @dataclass(frozen=True, slots=True)
+class FreshDataControlRequirement:
+    """Describe a total without copying expectations from an older delivery."""
+
+    logical_control_id: str
+    label: str
+    dataset_label: str
+    unit: str
+    tolerance: str
+    invariant_total: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class FreshDataRecipeRequirement:
     """Present the source contract of one exact selected Recipe revision."""
 
@@ -46,6 +58,7 @@ class FreshDataRecipeRequirement:
     business_purpose: str
     inputs: tuple[FreshDataInputRequirement, ...]
     parameters: tuple[FreshDataParameterRequirement, ...]
+    controls: tuple[FreshDataControlRequirement, ...] = ()
 
 
 class FreshDataMatchStatus(StrEnum):

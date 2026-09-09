@@ -135,11 +135,17 @@ class RecipeQualitySeedRepository(DuckDbRepository):
                 "Reapply the pinned Recipe before changing run decisions."
             )
         baseline = MappingDefinition.from_dict(json.loads(str(row[1])))
-        if recipe_mapping_shape(baseline) != recipe_mapping_shape(definition):
+        fixed_controls = frozenset(
+            expectation.control_id for dataset in baseline.datasets
+            for expectation in dataset.control_expectations
+        )
+        if recipe_mapping_shape(baseline, fixed_control_ids=fixed_controls) != recipe_mapping_shape(
+            definition, fixed_control_ids=fixed_controls,
+        ):
             raise WorkspaceError(
-                "This change alters the pinned Recipe. Run decisions may change "
-                "target value matches and current control expectations only. "
-                "Publish a new Recipe version for other changes."
+                "This change alters the pinned Recipe or accepted delivery totals. "
+                "Confirm target value matches here. Start a new run to change "
+                "accepted totals, or publish a new Recipe version to change its rules."
             )
 
     def rebind_quality_seed(

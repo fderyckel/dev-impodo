@@ -349,6 +349,8 @@ def _render_project_overview(
         cutover_selection=cutover_selection,
         test_bindings=test_bindings,
         production_bindings=production_bindings,
+        completed_production_setups=(context.production_runs.completed_activations(project_id, actor=context.actor)
+                                    if production_bindings else frozenset()),
         production_data_versions=data_version_by_id,
         production_runs=run_by_id,
         authoring_workspace=authoring_workspace,

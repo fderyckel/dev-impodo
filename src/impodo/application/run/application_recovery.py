@@ -243,7 +243,7 @@ class RunApplicationRecoveryUseCase:
             bundle.run.data_version_id,
             actor=actor,
         )
-        saved_run_values = self._test_run_values.get_parameter_values(migration_run_id)
+        saved_run_values = self._test_run_values.get_run_values(migration_run_id)
         if saved_run_values is not None and (
             saved_run_values.project_id != bundle.run.project_id
             or saved_run_values.migration_run_id != migration_run_id
@@ -254,10 +254,13 @@ class RunApplicationRecoveryUseCase:
         saved_values_by_recipe = (
             saved_run_values.by_recipe if saved_run_values is not None else {}
         )
+        saved_controls_by_recipe = (
+            saved_run_values.controls_by_recipe if saved_run_values is not None else {}
+        )
         application_recipe_ids = {
             application.recipe_id for application in bundle.applications
         }
-        if set(saved_values_by_recipe) - application_recipe_ids:
+        if (set(saved_values_by_recipe) | set(saved_controls_by_recipe)) - application_recipe_ids:
             raise MigrationRunPlanningError(
                 "The saved Recipe values do not match this Test run"
             )
@@ -358,7 +361,7 @@ class RunApplicationRecoveryUseCase:
                     else None
                 ),
                 parameter_values=parameter_values,
-                control_values={},
+                control_values=saved_controls_by_recipe.get(application.recipe_id, {}),
             )
             legacy_binding_hash = content_hash(
                 {

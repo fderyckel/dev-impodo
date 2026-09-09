@@ -42,7 +42,12 @@ Production.
 
 `ProductionCutoverService.activate` revalidates selection and protected
 qualification, reads the qualified Test target identity, and delegates to
-`MigrationRunPlanningService.activate_production_run`. Review uses the exact
+`MigrationRunPlanningService.activate_production_run`. Its
+`ProductionRunValuesUseCase` reads the pinned Recipe revisions in one batch
+and uses the same typed prompts and canonical parameter/control validators
+as Test. The form binds its answers to the exact plan and delivery. Invalid
+answers and stale forms are rejected before the write probe or vault update.
+Failed forms retain editable answers without redisplaying secrets. Review uses the exact
 plan revisions and dependency graph. It recompiles current physical source
 bindings, parameters, controls, Odoo requirements, references, and write
 claims without creating an application.
@@ -57,9 +62,10 @@ evidence.
 After review, `MigrationRunPlanningRepository.activate_production_run`
 atomically adds the run target, union requirement plan, run schema/reference
 capture, Recipe applications, application workspaces, and active Production
-binding. The shared `_materialize_applications` path then creates each workspace
-store, selects only its logical datasets, provisions a fresh engine state, and
-invokes the existing compiler.
+binding. The repository then creates each workspace store. The shared
+`RunApplicationMaterializer` selects its logical datasets, provisions a fresh
+engine state, and invokes the existing compiler. Activation and rendering run
+in the thread pool so compilation does not block the async request loop.
 
 ## Evidence and state
 
@@ -84,9 +90,13 @@ enters each one through **Review and load**. Authoring retains the normal six
 stages; Production setup and application workspaces cannot expose that
 Authoring journey.
 
-`ACTIVE` means application workspaces exist and their current compiler results
-are retained. It is readiness to begin fresh Production comparison work, not a
-claim that records were loaded or reconciled.
+`ACTIVE` records the registry's target authority and may precede completed
+compilation. The activation operation must be `COMMITTED` before the browser
+calls setup complete or opens its Review and load page. Preparation commands
+and the execution authority guard enforce this boundary too. The Project
+overview distinguishes setup completion from `MigrationRunState.COMPLETED`.
+The Production run page resolves its plan through `ProductionRunBinding`;
+it does not require a Test run binding.
 
 ## Invalidation and recovery
 
@@ -100,11 +110,21 @@ existing dependency guard still stops downstream applications until
 predecessors reconcile.
 
 Activation has one registry transaction followed by application-store creation
-and compiler materialization. A retry after `REGISTRY_COMMITTED` resumes the
-stored immutable intent; it does not rebuild current meaning or duplicate
-workspaces. A retry with changed credentials, values, controls, or target fails
-closed. Reconciliation remains available after an unknown write outcome so an
-operator can establish what happened before retry.
+and compiler materialization. The versioned `activation_inputs` payload in
+its existing operation intent stores canonical answers and the observed write
+identity, with no API secret. `resume_activation` uses that payload and the
+saved schema, references, generations, operation ID, and expected revision.
+The original actor may resume before or after registry commit; mapped work
+areas are reused. A competing operation for the same run is rejected.
+
+`POST .../activate/resume` requires the authenticated session and CSRF token.
+It completes local setup without another write probe or credential-store
+change. Current selection, plan, qualification, and Recipe meaning are
+revalidated. Later comparison and execution still require current credentials.
+Completed replay returns the same run. Older pending intents without saved
+inputs retain their history and offer a new setup instead of an unusable retry.
+Reconciliation remains available after an unknown write outcome so an operator
+can establish what happened before retry.
 
 ## Odoo 19 and performance
 
@@ -113,7 +133,8 @@ The exact registry generation is
 that generation upgrade transactionally before use. Other generations remain
 unchanged and fail closed.
 
-Project overview loads Production bindings with one registry query. Credential
+Project overview loads Production bindings with one registry query and setup
+completion with one additional query that excludes intent payloads. Credential
 owner resolution is one joined registry query. Activation captures one
 run-level filtered schema and reference bundle, then projects them to
 applications. It performs no source copy, target recapture per Recipe, Odoo
@@ -125,6 +146,8 @@ call per source row, or N+1 workspace open for Project status.
 | --- | --- |
 | Domain binding | [`migration_production.py`](../../../src/impodo/domain/run/production.py) |
 | Setup and authority guard | [`production_cutover_service.py`](../../../src/impodo/application/production_cutover_service.py) |
+| Typed Production answers | [`production_values.py`](../../../src/impodo/application/run/production_values.py) |
+| Shared Test and Production prompts | [`fresh_data_values.py`](../../../src/impodo/application/run/fresh_data_values.py), [`_run_value_fields.html`](../../../src/impodo/web/templates/_run_value_fields.html), [`_run_control_fields.html`](../../../src/impodo/web/templates/_run_control_fields.html) |
 | Shared review and compiler path | [`planning_service.py`](../../../src/impodo/application/run/planning_service.py) |
 | Production registry binding | [`production_run_repository.py`](../../../src/impodo/adapters/duckdb/production_run_repository.py) |
 | Run activation and recovery | [`migration_run_planning_repository.py`](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py) |
@@ -133,12 +156,29 @@ call per source row, or N+1 workspace open for Project status.
 ## Verification
 
 - [`tests/application/run/test_production_rollout.py`](../../../tests/application/run/test_production_rollout.py)
+- [`Typed values and stale evidence`](../../../tests/application/run/test_production_values.py)
+- [`Production browser compilation and restart recovery`](../../../tests/integration/web/test_production_readiness.py)
 
 The focused gate proves fresh setup identity, exact plan pins, a different
 Production target, separate credential generations, isolated application
 workspaces, stale credential-generation rejection, same-identity rotation
 after fresh comparison, target-reuse rejection, browser separation language,
 and recovery after a registry/store boundary fault.
+
+The browser journey uses real qualification publication, Recipe compilation,
+source acceptance, and preparation. Its Production total differs from Test.
+It substitutes Odoo metadata, the write probe, and completed Test execution
+evidence. It therefore does not establish live Odoo qualification-to-load
+acceptance or representative performance.
+
+## Current limitations
+
+Production still uses the generic source confirmation and Odoo capture pages.
+Its upload and logical table matching do not yet share the complete guided
+Test Fresh data flow. Unsubmitted Production answers are retained on form
+errors but are not a durable draft. Large-plan setup compilation remains
+synchronous within its worker thread; no background activation queue or
+whole-workflow timing improvement is claimed.
 
 ## Related documentation
 

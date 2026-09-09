@@ -14,7 +14,7 @@ from impodo.domain.project.foundation import (
 )
 from impodo.domain.run.contracts import RecipeDependency, MigrationRunTargetSchema, MigrationRunReferenceBundle
 from impodo.domain.run.test_setup import (
-    TestRunParameterValues,
+    TestRunValues,
     TestRunSetupBinding,
     TestRunSetupBundle,
 )
@@ -129,6 +129,9 @@ class TestRunSetupService:
         if binding.project_id != require_uuid(project_id, "project_id"):
             raise MigrationFoundationError("Test run does not belong to this Project")
         data_version = self.data_versions.get(binding.data_version_id, actor=actor)
+        run_values = self._fresh_data.activation_values(
+            binding, data_version.export_as_of, actor=actor,
+        )
         return self.run_planning.activate_test_run(
             project_id,
             expected_workspace_revision=expected_workspace_revision,
@@ -136,11 +139,8 @@ class TestRunSetupService:
             target_schema=target_schema,
             target_reference_bundle=target_reference_bundle,
             credential_generation=credential_generation,
-            parameter_values=self._fresh_data.activation_parameter_values(
-                binding,
-                data_version.export_as_of,
-                actor=actor,
-            ),
+            parameter_values=run_values.parameters,
+            control_values=run_values.controls,
             operation_id=operation_id,
             actor=actor,
         )
@@ -227,7 +227,8 @@ class TestRunSetupService:
         *,
         expected_revision: int | None,
         actor: Actor,
-    ) -> TestRunParameterValues | None:
+        supplied_controls: Mapping[str, Mapping[str, object]] | None = None,
+    ) -> TestRunValues | None:
         """Validate and save only the answers declared by selected Recipes."""
 
         return self._fresh_data.replace_run_values(
@@ -235,6 +236,7 @@ class TestRunSetupService:
             supplied,
             expected_revision=expected_revision,
             actor=actor,
+            supplied_controls=supplied_controls,
         )
 
     @staticmethod

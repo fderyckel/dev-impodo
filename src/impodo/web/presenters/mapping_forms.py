@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import json
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from fastapi.responses import RedirectResponse
 from starlette.datastructures import FormData
@@ -364,6 +364,8 @@ def _mapping_datasets_from_form(
     selection,
     schema,
     governance,
+    *,
+    fixed_controls: Mapping[str, DatasetMapping] | None = None,
 ) -> tuple[DatasetMapping, ...]:
     models = {item.name: item for item in schema.models}
     keys = _available_mapping_business_keys(schema, governance)
@@ -1069,7 +1071,8 @@ def _mapping_datasets_from_form(
             for item in scalar_fields
             if item.type in {"integer", "float", "monetary"}
         }
-        for control_index in range(MAX_CONTROL_TOTALS_PER_DATASET):
+        fixed = (fixed_controls or {}).get(source_dataset.dataset_id)
+        for control_index in range(0 if fixed is not None else MAX_CONTROL_TOTALS_PER_DATASET):
             name = _text(
                 form, f"control_name_{dataset_index}_{control_index}"
             )
@@ -1157,8 +1160,8 @@ def _mapping_datasets_from_form(
                     )
                 ),
                 approved_write_fields=approved_write_fields,
-                control_definitions=tuple(control_definitions),
-                control_expectations=tuple(control_expectations),
+                control_definitions=fixed.control_definitions if fixed is not None else tuple(control_definitions),
+                control_expectations=fixed.control_expectations if fixed is not None else tuple(control_expectations),
             )
         )
     return tuple(datasets)

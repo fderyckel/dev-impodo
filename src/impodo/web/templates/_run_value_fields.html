@@ -1,4 +1,4 @@
-<input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">
+{% if run_value_plan.values %}
 <fieldset>
   <legend>Details for this run</legend>
   <p>The selected Recipes ask for these values. If several Recipes use the same value, enter it once here.</p>
@@ -38,3 +38,5 @@
     {% endif %}
   {% endfor %}
 </fieldset>
+{% endif %}
+{% if run_value_plan.controls %}{% include "_run_control_fields.html" %}{% endif %}

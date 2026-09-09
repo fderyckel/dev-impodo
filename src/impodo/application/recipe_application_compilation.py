@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from impodo.domain.workspace.derived_entities import (
@@ -52,6 +51,7 @@ from ..domain.recipe_applications import (
     RecipeApplicationIssue,
     RecipeApplicationIssueLevel,
 )
+from impodo.domain.recipe.control_values import normalize_recipe_control_values
 from ..domain.recipe_parameters import (
     RecipeParameterValueError,
     normalize_recipe_parameter_values,
@@ -111,23 +111,7 @@ class RecipeApplicationCompiler:
 
     @staticmethod
     def _control_values(definitions, supplied):
-        expected = {str(item["logical_control_id"]): dict(item) for item in definitions}
-        unknown = sorted(set(supplied) - set(expected))
-        if unknown:
-            raise RecipeApplicationError(f"Control {unknown[0]} is not declared by this Recipe")
-        values: dict[str, str] = {}
-        for logical_id, definition in expected.items():
-            if bool(definition.get("invariant_expectation")):
-                values[logical_id] = str(definition["invariant_expected_total"])
-                continue
-            raw = str(supplied.get(logical_id, "")).strip()
-            if not raw:
-                continue
-            try:
-                values[logical_id] = format(Decimal(raw), "f")
-            except InvalidOperation as error:
-                raise RecipeApplicationError(f"Control {definition.get('name', logical_id)} must be a number") from error
-        return values
+        return normalize_recipe_control_values(definitions, supplied)
 
     def _source_assessment(self, definition, selection, overrides):
         issues = []

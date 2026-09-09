@@ -26,7 +26,7 @@
 
     <nav class="setup-steps" aria-label="Recipe run steps">
       <a class="setup-step complete" href="{% if bundle.run.purpose.value == 'TEST' %}/projects/{{ project.project_id }}/test-runs/{{ bundle.run.migration_run_id }}/fresh-data{% else %}/projects/{{ project.project_id }}/production-runs/{{ bundle.run.migration_run_id }}/activate{% endif %}">1. Fresh data</a>
-      <a class="setup-step {% if review.odoo_needs_attention %}attention{% else %}complete{% endif %}" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/odoo">2. Check Odoo{% if review.odoo_needs_attention %} · Needs attention{% endif %}</a>
+      <a class="setup-step {% if review.odoo_needs_attention %}attention{% else %}complete{% endif %}" href="{% if bundle.run.purpose.value == 'TEST' %}/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/odoo{% else %}/projects/{{ project.project_id }}/production-runs/{{ bundle.run.migration_run_id }}/activate{% endif %}">2. Check Odoo{% if review.odoo_needs_attention %} · Needs attention{% endif %}</a>
       <span class="setup-step current" aria-current="step">3. Review and load</span>
     </nav>
 
