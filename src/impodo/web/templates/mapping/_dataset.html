@@ -7,7 +7,7 @@
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">
-                Table {{ dataset_position }}
+                Step {{ view.display_position }} of {{ dataset_views|length }}
                 {% if view.related_role %} · prepared {{ view.related_role }} records{% endif %}
               </p>
               <h2>{{ view.source.name }}</h2>

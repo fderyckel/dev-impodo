@@ -164,11 +164,13 @@ automatically. A verified result closes the successor run and workspace.
 compiled identity, scope, and relationship resolvers. The same immutable edge
 evidence is used by browser and profile validation, compilation, preflight,
 and `build_execution_snapshot`. The preflight requirement plan records the
-hard and deferrable edges in its semantic hash.
-`dependency_ordered_execution_datasets` calculates strongly connected dataset
-components, places every acyclic dependency component before its consumers,
-and retains reviewed order only inside a component. The resulting order and
-dependency list contribute to the `ExecutionSnapshot` semantic hash.
+hard and deferrable edges in its semantic hash. The pure
+`order_dataset_dependency_components` function calculates strongly connected
+dataset components, places every acyclic dependency component before its
+consumers, and retains reviewed order only inside a component.
+`dependency_ordered_execution_datasets` projects that result onto the snapshot
+datasets. The resulting order and dependency list contribute to the
+`ExecutionSnapshot` semantic hash.
 
 `plan_execution_rows` then resolves each incoming relationship through the
 frozen source business-key index. Each actionable row receives a deterministic
@@ -250,6 +252,7 @@ recorded outcome.
 | Browser load-job contract | [`LoadJob`](../../../src/impodo/application/workspace/execution/job_models.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 | Dataset dependency order | [`dependency_ordered_execution_datasets`](../../../src/impodo/domain/execution_snapshot.py) |
+| Pure dataset component ordering | [`matching_order.py`](../../../src/impodo/domain/matching_order.py) |
 | Row dependency scheduling | [`dependency_scheduler.py`](../../../src/impodo/domain/execution/dependency_scheduler.py) |
 | Bounded component paging | [`dependency_component_pages`](../../../src/impodo/domain/execution/dependency_scheduler.py) |
 | Snapshot row-plan construction | [`plan_execution_rows`](../../../src/impodo/domain/execution_snapshot.py) |
@@ -391,6 +394,7 @@ qualify another remote topology.
 - [`tests/domain/execution/test_dependency_scheduler.py`](../../../tests/domain/execution/test_dependency_scheduler.py)
 - [`tests/domain/recipe/test_profile_and_values.py`](../../../tests/domain/recipe/test_profile_and_values.py)
 - [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
+- [`tests/domain/test_matching_order.py`](../../../tests/domain/test_matching_order.py)
 - [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
 - [`tests/integration/odoo/test_readback_retries.py`](../../../tests/integration/odoo/test_readback_retries.py)
 - [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)

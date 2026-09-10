@@ -19,9 +19,45 @@ have a functional decision for every required field, stable identity,
 selection value, and relationship. Captured Odoo records keep their protected
 record identity automatically.
 
+### Use the recommended table order
+
+At the top of **Match data**, **Recommended matching order** shows where to
+start when the data version contains several tables. Impodo puts a supporting
+table before a table whose saved relationship refers to it. Select **Edit
+table** to open any item in the queue; each editor heading shows its visible
+**Step N of M** position.
+
+The initial recommendation uses only saved local evidence: source-preparation
+relationships, saved incoming-table choices, and the Odoo structure captured
+in Stage 2. Opening this page does not contact Odoo. **Preliminary** means the
+position comes from an unambiguous captured Odoo relationship that has not yet
+been confirmed by a saved incoming-table choice. **Starting order** means
+Impodo does not yet know a dependency and keeps the stable source-table order.
+
+After **Save progress**, select **Next recommended table** when another table
+still needs its minimum identity choices.
+
+To use your own working sequence, select **Reorder tables**. Drag a table, or
+use **Move up** and **Move down** when you prefer buttons or a keyboard. Select
+**Save table order** to keep the sequence in this workspace. **Custom order**
+then identifies your saved choice. If it places a table before one that it
+refers to, Impodo shows an amber explanation but still allows the choice.
+Select **Use Impodo order** to remove the custom sequence and restore the
+current recommendation.
+
+If the source-table set changes, Impodo keeps the relative order of tables
+that still exist, removes absent tables, and adds new tables after them. The
+page tells you when it has made that adjustment. A stale browser tab cannot
+replace a newer saved order; it shows the latest saved sequence instead.
+
+This queue guides matching work only. It does not change matching rules, a
+Recipe, prepared data, or the safe order used later to load Odoo.
+
 ## Steps in Impodo
 
-1. Open **Match data** and work through one table at a time.
+1. Open **Match data**, review the recommended order, and work through one
+   table at a time. Optionally select **Reorder tables**, arrange the queue,
+   and select **Save table order**.
 2. Choose whether the table is a reference, create, update, or upsert dataset.
 3. Match the source identity to the confirmed Odoo business key.
 4. For each writable field, choose one source value, combine source columns,
@@ -33,7 +69,8 @@ record identity automatically.
 5. Configure text, number, date, and selection-value preparation where needed.
 6. Resolve linked fields using a stable key in another project table or
    approved existing Odoo data.
-7. Select **Save progress** before leaving the page.
+7. Select **Save progress** before leaving the page. When shown, use **Next
+   recommended table** to continue through the queue.
    If an advanced formula is malformed, Impodo shows **Must fix** beside the
    field. Saving still preserves the formula and reports **Saved — needs
    attention**.

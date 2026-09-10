@@ -5,7 +5,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (modelPicker) {
     const search = modelPicker.querySelector("[data-model-search]");
     const showAll = modelPicker.querySelector("[data-show-all-models]");
+    const showSelected = modelPicker.querySelector(
+      "[data-show-selected-models]"
+    );
     const count = modelPicker.querySelector("[data-model-count]");
+    const empty = modelPicker.querySelector("[data-model-empty]");
     const submit = modelPicker.querySelector("[data-model-submit]");
     const submitStatus = modelPicker.querySelector(
       "[data-model-submit-status]"
@@ -22,13 +26,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const query = search?.value.trim().toLocaleLowerCase() || "";
       const hasQuery = Boolean(query);
       const browseAll = Boolean(showAll?.checked);
+      const selectedOnly = Boolean(showSelected?.checked);
       let visibleCount = 0;
       let selectedCount = 0;
       for (const choice of choices) {
         const selected = Boolean(choice.checkbox?.checked);
         const matches = choice.searchText.includes(query);
         const visible =
-          matches && (hasQuery || browseAll || choice.inFocus || selected);
+          matches &&
+          (selectedOnly
+            ? selected
+            : hasQuery || browseAll || choice.inFocus || selected);
         choice.element.hidden = !visible;
         visibleCount += visible ? 1 : 0;
         selectedCount += selected ? 1 : 0;
@@ -38,9 +46,13 @@ document.addEventListener("DOMContentLoaded", () => {
           `${visibleCount} of ${choices.length} Odoo data choices shown · ` +
           `${selectedCount} selected`;
       }
+      if (empty) {
+        empty.hidden = !selectedOnly || visibleCount > 0;
+      }
     };
     search?.addEventListener("input", updateModelChoices);
     showAll?.addEventListener("change", updateModelChoices);
+    showSelected?.addEventListener("change", updateModelChoices);
     for (const choice of choices) {
       choice.checkbox?.addEventListener("change", updateModelChoices);
     }

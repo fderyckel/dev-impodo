@@ -15,6 +15,7 @@ from impodo.adapters.artifacts.mapping_review import (
     mapping_review_workbook_name,
 )
 from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
@@ -44,6 +45,14 @@ from ...domain.mapping.scalar_values import (
     evaluate_scalar_mapping_value,
 )
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
+from ...domain.matching_order import (
+    MatchingOrderConfidence,
+    MatchingOrderPreference,
+    MatchingOrderRecommendation,
+    MatchingOrderSource,
+    MatchingOrderCheckStatus,
+    live_matching_order_recommendation,
+)
 from ...domain.mapping.create_field_policy import supports_create_default_capture
 from impodo.domain.preparation.quality import (
     MAX_MANAGER_RULES_PER_DATASET,
@@ -222,6 +231,88 @@ def _render_mapping(
         preparation_plan,
         source_catalogs,
     )
+    source_related_links = related_dataset_links(preparation_plan)
+    matching_order_preference = (
+        context.matching_order.current_preference(
+            workspace_id,
+            actor=context.actor,
+        )
+        if selection is not None
+        else None
+    )
+    preference_tie_break = (
+        context.matching_order.effective_preference_order(
+            matching_order_preference,
+            (item.dataset_id for item in selection.datasets),
+        )
+        if selection is not None and matching_order_preference is not None
+        else None
+    )
+    matching_order = (
+        context.matching_order.recommend(
+            selection,
+            schema,
+            active_definition,
+            related_links=source_related_links,
+            derived_links=lookup_links,
+            tie_break_order=preference_tie_break,
+        )
+        if selection is not None and schema is not None
+        else None
+    )
+    matching_order_check = (
+        context.matching_order.current_check(workspace_id, actor=context.actor)
+        if selection is not None and schema is not None
+        else None
+    )
+    matching_order_check_current = bool(
+        matching_order_check is not None
+        and selection is not None
+        and schema is not None
+        and context.matching_order.check_is_current(
+            matching_order_check,
+            selection,
+            schema,
+            governance,
+            working_draft,
+        )
+    )
+    if (
+        matching_order is not None
+        and matching_order_check is not None
+        and matching_order_check_current
+    ):
+        matching_order = live_matching_order_recommendation(
+            matching_order,
+            matching_order_check.relationship_results,
+            tie_break_order=preference_tie_break,
+        )
+    matching_order_attempt = (
+        context.matching_order.active_check_attempt(
+            workspace_id,
+            actor=context.actor,
+        )
+        if selection is not None
+        else None
+    )
+    requested_check_id = request.query_params.get("order_check", "").strip()
+    if matching_order_attempt is None and requested_check_id:
+        try:
+            matching_order_attempt = context.matching_order.check_attempt(
+                workspace_id,
+                requested_check_id,
+                actor=context.actor,
+            )
+        except WorkspaceError:
+            matching_order_attempt = None
+    display_order = (
+        context.matching_order.effective_preference_order(
+            matching_order_preference,
+            matching_order.ordered_dataset_ids,
+        )
+        if matching_order is not None
+        else ()
+    )
     dataset_views = (
         _mapping_dataset_views(
             selection,
@@ -233,7 +324,7 @@ def _render_mapping(
                 index: request.query_params.get(f"target_model_{index}", "")
                 for index, _item in enumerate(selection.datasets)
             },
-            related_dataset_links(preparation_plan),
+            source_related_links,
             lookup_links,
             lookup_samples,
             active_dataset_index=active_dataset_index,
@@ -247,6 +338,11 @@ def _render_mapping(
         )
         if selection and schema
         else ()
+    )
+    dataset_views = _ordered_mapping_dataset_views(
+        dataset_views,
+        matching_order,
+        display_order=display_order,
     )
     dataset_views = _add_mapping_dataset_urls(
         request,
@@ -301,6 +397,23 @@ def _render_mapping(
     )
     validation_problem_count = len(visible_validation_issues) + (
         1 if readonly_field_recovery else 0
+    )
+    matching_order_view = _matching_order_view(
+        request,
+        workspace_id,
+        selection,
+        active_definition,
+        matching_order,
+        matching_order_preference,
+        display_order,
+        dataset_views,
+        validation,
+        formula_authoring_issues,
+        context.matching_order,
+        matching_order_check,
+        matching_order_check_current,
+        matching_order_attempt,
+        working_draft_is_current,
     )
     mapping_review_workbook_ready = False
     if revision is not None and validation is not None and not has_unvalidated_changes:
@@ -374,6 +487,7 @@ def _render_mapping(
             formula_authoring_issues_by_dataset
         ),
         dataset_views=dataset_views,
+        matching_order=matching_order_view,
         warning_issues=warning_issues,
         readonly_field_recovery=readonly_field_recovery,
         visible_validation_issues=visible_validation_issues,
@@ -744,6 +858,459 @@ def _add_mapping_dataset_urls(
             else None
         )
     return result
+
+
+def _ordered_mapping_dataset_views(
+    dataset_views,
+    recommendation: MatchingOrderRecommendation | None,
+    *,
+    display_order: tuple[str, ...] | None = None,
+) -> tuple[dict[str, object], ...]:
+    """Apply a display order without changing stable mapping form indexes."""
+
+    views = tuple(dict(view) for view in dataset_views)
+    if recommendation is None:
+        ordered = views
+    else:
+        by_id = {view["source"].dataset_id: view for view in views}
+        ordered_dataset_ids = (
+            display_order
+            if display_order is not None
+            else recommendation.ordered_dataset_ids
+        )
+        ordered = tuple(
+            by_id[dataset_id]
+            for dataset_id in ordered_dataset_ids
+            if dataset_id in by_id
+        )
+        included = {view["source"].dataset_id for view in ordered}
+        ordered = (
+            *ordered,
+            *(view for view in views if view["source"].dataset_id not in included),
+        )
+    for display_position, view in enumerate(ordered, start=1):
+        view["display_position"] = display_position
+    return tuple(ordered)
+
+
+def _matching_order_view(
+    request: Request,
+    workspace_id: str,
+    selection,
+    active_definition,
+    recommendation: MatchingOrderRecommendation | None,
+    preference: MatchingOrderPreference | None,
+    display_order: tuple[str, ...],
+    dataset_views,
+    validation,
+    formula_authoring_issues,
+    matching_order_service: MatchingOrderService,
+    live_check,
+    live_check_current: bool,
+    check_attempt,
+    working_draft_is_current: bool,
+) -> dict[str, object] | None:
+    """Project local ordering evidence into a compact data-manager queue."""
+
+    if selection is None or recommendation is None or not dataset_views:
+        return None
+    view_by_id = {
+        view["source"].dataset_id: view for view in dataset_views
+    }
+    components_by_dataset = {
+        dataset_id: component
+        for component in recommendation.components
+        for dataset_id in component
+    }
+    issue_dataset_ids = {
+        issue.dataset_id
+        for issue in (validation.issues if validation is not None else ())
+        if issue.severity == "error"
+    }
+    issue_dataset_ids.update(
+        issue.dataset_id for issue in formula_authoring_issues
+    )
+    cyclic_dataset_ids = {
+        dataset_id
+        for component in recommendation.components
+        if len(component) > 1
+        and any(
+            fact.confidence is MatchingOrderConfidence.CONFIRMED
+            and fact.owner_dataset in component
+            and fact.dependency_dataset in component
+            for fact in recommendation.facts
+        )
+        for dataset_id in component
+    }
+    items = []
+    for dataset_id in display_order:
+        view = view_by_id.get(dataset_id)
+        if view is None:
+            continue
+        source = view["source"]
+        mapping = view["mapping"]
+        if dataset_id in issue_dataset_ids or dataset_id in cyclic_dataset_ids:
+            status_label = "Needs attention"
+            status_class = "review"
+        elif matching_order_service.ready_for_check(source, mapping):
+            status_label = "Ready to check"
+            status_class = "ready"
+        elif mapping is not None:
+            status_label = "In progress"
+            status_class = ""
+        else:
+            status_label = "Ready now"
+            status_class = "ready"
+        reason, confidence = _matching_order_reason(
+            dataset_id,
+            recommendation,
+            view_by_id,
+            components_by_dataset.get(dataset_id, (dataset_id,)),
+        )
+        items.append(
+            {
+                "dataset_id": dataset_id,
+                "display_position": view["display_position"],
+                "dataset_name": source.name,
+                "model_label": (
+                    view["model"].label
+                    if view["model"] is not None
+                    else view["selected_model"]
+                ),
+                "status_label": status_label,
+                "status_class": status_class,
+                "reason": reason,
+                "confidence": confidence,
+                "active": view["active"],
+                "edit_url": view["edit_url"],
+                "can_move_up": view["display_position"] > 1,
+                "can_move_down": (
+                    view["display_position"] < len(display_order)
+                ),
+            }
+        )
+
+    active_view = next(
+        (view for view in dataset_views if view["active"]),
+        None,
+    )
+    next_url = None
+    if active_view is not None:
+        next_dataset_id = matching_order_service.next_incomplete_dataset_id(
+            selection,
+            recommendation,
+            active_definition,
+            current_dataset_id=active_view["source"].dataset_id,
+            work_order=display_order,
+        )
+        next_view = view_by_id.get(next_dataset_id)
+        if next_view is not None:
+            next_url = _mapping_return_url(
+                request,
+                workspace_id,
+                mapping_dataset=next_view["index"],
+                scalar_page=1,
+                relation_page=1,
+            )
+    confirmed_count = sum(
+        fact.confidence is MatchingOrderConfidence.CONFIRMED
+        for fact in recommendation.facts
+    )
+    preliminary_count = len(recommendation.facts) - confirmed_count
+    custom_warnings = _matching_order_custom_warnings(
+        preference,
+        display_order,
+        recommendation,
+        view_by_id,
+    )
+    preference_adjusted = bool(
+        preference is not None
+        and (
+            preference.source_selection_hash != selection.content_hash
+            or preference.ordered_dataset_ids != display_order
+        )
+    )
+    check_running = bool(check_attempt is not None and check_attempt.active)
+    check_failed = bool(
+        check_attempt is not None
+        and check_attempt.status is MatchingOrderCheckStatus.FAILED
+    )
+    schema_changed = bool(live_check is not None and live_check.schema_changed)
+    if check_running:
+        result_status_label = "Preliminary"
+        result_status_class = "review"
+        check_message = check_attempt.message
+    elif live_check is not None and (schema_changed or not live_check_current):
+        result_status_label = "Needs refresh"
+        result_status_class = "review"
+        check_message = (
+            "Odoo fields changed. Return to Odoo data before using a new suggestion."
+            if schema_changed
+            else "The saved source, Odoo details, or matching draft changed. Check Odoo again."
+        )
+    elif live_check is not None and live_check.partial:
+        result_status_label = "Partial"
+        result_status_class = "review"
+        check_message = (
+            "Odoo refined the relationships it could prove. Incomplete relationships stay in the conservative order."
+        )
+    elif live_check is not None:
+        result_status_label = "Current"
+        result_status_class = "registered"
+        check_message = "The suggestion includes the current saved Odoo relationship check."
+    else:
+        result_status_label = "Preliminary"
+        result_status_class = "review" if preliminary_count else ""
+        check_message = (
+            check_attempt.failure_message
+            if check_failed
+            else "This suggestion uses saved local evidence until you explicitly check Odoo."
+        )
+    counts = live_check.counts if live_check is not None else {}
+    return {
+        "rows": tuple(items),
+        "fact_count": len(recommendation.facts),
+        "confirmed_count": confirmed_count,
+        "preliminary_count": preliminary_count,
+        "status_label": result_status_label,
+        "status_class": result_status_class,
+        "custom_order": preference is not None,
+        "preference_version": (
+            preference.version if preference is not None else None
+        ),
+        "preference_adjusted": preference_adjusted,
+        "custom_warnings": custom_warnings,
+        "active_dataset_id": (
+            active_view["source"].dataset_id if active_view is not None else ""
+        ),
+        "next_recommended_url": next_url,
+        "show_next_recommended": bool(
+            next_url and request.query_params.get("progress_saved") == "1"
+        ),
+        "check": {
+            "running": check_running,
+            "failed": check_failed,
+            "message": check_message,
+            "progress_percent": (
+                check_attempt.progress_percent if check_running else 0
+            ),
+            "status_url": (
+                f"/workspaces/{workspace_id}/mapping/order/check/{check_attempt.check_id}"
+                if check_running
+                else ""
+            ),
+            "can_start": working_draft_is_current and not check_running,
+            "can_apply": bool(
+                live_check is not None
+                and live_check_current
+                and not schema_changed
+                and not check_running
+            ),
+            "partial": bool(live_check is not None and live_check.partial),
+            "checked_relationship_count": (
+                len(live_check.relationship_results)
+                if live_check is not None
+                else 0
+            ),
+            "unchecked_relationship_count": (
+                live_check.unchecked_relationship_count
+                if live_check is not None
+                else 0
+            ),
+            "target_count": counts.get("target", 0),
+            "incoming_count": counts.get("incoming", 0),
+            "missing_count": counts.get("missing", 0),
+            "ambiguous_count": counts.get("ambiguous", 0),
+            "schema_changed": schema_changed,
+        },
+    }
+
+
+def _matching_order_custom_warnings(
+    preference: MatchingOrderPreference | None,
+    display_order: tuple[str, ...],
+    recommendation: MatchingOrderRecommendation,
+    view_by_id: dict[str, dict[str, object]],
+) -> tuple[str, ...]:
+    if preference is None:
+        return ()
+    position = {
+        dataset_id: index for index, dataset_id in enumerate(display_order)
+    }
+    messages: list[str] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for fact in recommendation.facts:
+        pair = (fact.owner_dataset, fact.dependency_dataset)
+        if (
+            pair in seen_pairs
+            or position.get(fact.owner_dataset, -1)
+            > position.get(fact.dependency_dataset, -1)
+        ):
+            continue
+        owner_view = view_by_id.get(fact.owner_dataset)
+        dependency_view = view_by_id.get(fact.dependency_dataset)
+        if owner_view is None or dependency_view is None:
+            continue
+        seen_pairs.add(pair)
+        messages.append(
+            "Impodo recommends matching "
+            f"{dependency_view['source'].name} first because "
+            f"{owner_view['source'].name} refers to it."
+        )
+    return tuple(messages)
+
+
+def _matching_order_reason(
+    dataset_id: str,
+    recommendation: MatchingOrderRecommendation,
+    view_by_id: dict[str, dict[str, object]],
+    component: tuple[str, ...],
+) -> tuple[str, str]:
+    if len(component) > 1:
+        other_names = tuple(
+            view_by_id[item]["source"].name
+            for item in component
+            if item != dataset_id and item in view_by_id
+        )
+        component_facts = tuple(
+            fact
+            for fact in recommendation.facts
+            if fact.owner_dataset in component
+            and fact.dependency_dataset in component
+        )
+        preliminary = any(
+            fact.confidence is MatchingOrderConfidence.PRELIMINARY
+            for fact in component_facts
+        )
+        return (
+            "Match together with "
+            f"{', '.join(other_names)}; the local relationship evidence forms "
+            "a cycle.",
+            "Preliminary" if preliminary else "Confirmed relationship",
+        )
+
+    owned = tuple(
+        fact
+        for fact in recommendation.facts
+        if fact.owner_dataset == dataset_id
+    )
+    if owned:
+        fact = min(owned, key=_matching_order_fact_priority)
+        dependency_name = view_by_id[fact.dependency_dataset]["source"].name
+        return (
+            _owner_order_reason(
+                fact,
+                dependency_name,
+                view_by_id,
+            ),
+            _matching_order_confidence_label(fact),
+        )
+    supporting = tuple(
+        fact
+        for fact in recommendation.facts
+        if fact.dependency_dataset == dataset_id
+    )
+    if supporting:
+        fact = min(supporting, key=_matching_order_fact_priority)
+        owner_name = view_by_id[fact.owner_dataset]["source"].name
+        return (
+            _dependency_order_reason(
+                fact,
+                owner_name,
+                view_by_id,
+            ),
+            _matching_order_confidence_label(fact),
+        )
+    return (
+        "No earlier supporting table is known from the saved local evidence.",
+        "Local structure",
+    )
+
+
+def _owner_order_reason(fact, dependency_name: str, view_by_id) -> str:
+    if fact.source is MatchingOrderSource.RELATED_TABLE:
+        return (
+            f"Match after {dependency_name}; source preparation makes this the "
+            "child table."
+        )
+    if fact.source is MatchingOrderSource.DERIVED_TABLE:
+        return (
+            f"Match after {dependency_name}; source preparation extracted that "
+            "supporting table for this one."
+        )
+    field_label = _matching_order_field_label(fact, view_by_id)
+    if fact.source is MatchingOrderSource.ODOO_SCHEMA:
+        return (
+            f"Preliminary: match after {dependency_name}; the captured Odoo "
+            f"field {field_label} can refer to it."
+        )
+    return (
+        f"Match after {dependency_name}; the saved {field_label} match refers "
+        "to that table."
+    )
+
+
+def _dependency_order_reason(fact, owner_name: str, view_by_id) -> str:
+    if fact.source is MatchingOrderSource.RELATED_TABLE:
+        return (
+            f"Match before {owner_name}; source preparation makes this its "
+            "parent table."
+        )
+    if fact.source is MatchingOrderSource.DERIVED_TABLE:
+        return (
+            f"Match before {owner_name}; source preparation extracted this "
+            "supporting table for it."
+        )
+    field_label = _matching_order_field_label(fact, view_by_id)
+    if fact.source is MatchingOrderSource.ODOO_SCHEMA:
+        return (
+            f"Preliminary: match before {owner_name}; its captured Odoo field "
+            f"{field_label} can refer to this table."
+        )
+    return (
+        f"Match before {owner_name}; its saved {field_label} match refers to "
+        "this table."
+    )
+
+
+def _matching_order_field_label(fact, view_by_id) -> str:
+    owner_view = view_by_id.get(fact.owner_dataset)
+    model = owner_view.get("model") if owner_view is not None else None
+    field = next(
+        (
+            item
+            for item in (model.fields if model is not None else ())
+            if item.name == fact.target_field
+        ),
+        None,
+    )
+    return field.label if field is not None else fact.target_field
+
+
+def _matching_order_fact_priority(fact) -> tuple[int, int, str, str]:
+    confidence_rank = (
+        0 if fact.confidence is MatchingOrderConfidence.CONFIRMED else 1
+    )
+    source_rank = {
+        MatchingOrderSource.SAVED_MAPPING: 0,
+        MatchingOrderSource.RELATED_TABLE: 1,
+        MatchingOrderSource.DERIVED_TABLE: 2,
+        MatchingOrderSource.ODOO_SCHEMA: 3,
+    }
+    return (
+        confidence_rank,
+        source_rank[fact.source],
+        fact.dependency_dataset,
+        fact.target_field,
+    )
+
+
+def _matching_order_confidence_label(fact) -> str:
+    return (
+        "Confirmed relationship"
+        if fact.confidence is MatchingOrderConfidence.CONFIRMED
+        else "Preliminary"
+    )
 
 
 def _readonly_field_recovery(validation, selection, schema):

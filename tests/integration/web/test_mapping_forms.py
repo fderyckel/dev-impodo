@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tests.support.paths import REPOSITORY_ROOT
 
+from datetime import UTC, datetime
 import json
 import unittest
 from dataclasses import replace
@@ -11,6 +12,13 @@ from starlette.datastructures import FormData
 
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition, MappingControlExpectation, RelationshipValueSource, ResolverOrigin,
+)
+from impodo.domain.matching_order import (
+    MatchingOrderConfidence,
+    MatchingOrderFact,
+    MatchingOrderPreference,
+    MatchingOrderRecommendation,
+    MatchingOrderSource,
 )
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
@@ -28,10 +36,81 @@ from impodo.web.presenters.mapping_forms import (
     _mapping_datasets_from_form,
     _text_steps_from_form,
 )
-from impodo.web.presenters.mapping_view import _is_phone_field, _mapping_dataset_views
+from impodo.web.presenters.mapping_view import (
+    _is_phone_field,
+    _mapping_dataset_views,
+    _matching_order_custom_warnings,
+    _ordered_mapping_dataset_views,
+)
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_recommended_display_order_preserves_stable_form_indexes(self) -> None:
+        views = (
+            {"index": 0, "source": SimpleNamespace(dataset_id="consumer")},
+            {"index": 1, "source": SimpleNamespace(dataset_id="support")},
+        )
+        recommendation = MatchingOrderRecommendation(
+            ordered_dataset_ids=("support", "consumer"),
+            components=(("support",), ("consumer",)),
+            facts=(),
+        )
+
+        ordered = _ordered_mapping_dataset_views(views, recommendation)
+
+        self.assertEqual(
+            tuple(view["source"].dataset_id for view in ordered),
+            ("support", "consumer"),
+        )
+        self.assertEqual(tuple(view["index"] for view in ordered), (1, 0))
+        self.assertEqual(
+            tuple(view["display_position"] for view in ordered),
+            (1, 2),
+        )
+
+    def test_custom_dependency_inversion_has_an_explained_warning(self) -> None:
+        preference = MatchingOrderPreference(
+            workspace_id="workspace:test",
+            version=1,
+            source_selection_hash="sha256:" + "a" * 64,
+            ordered_dataset_ids=("consumer", "support"),
+            updated_at=datetime.now(UTC),
+            actor_issuer="urn:test",
+            actor_subject="operator",
+            actor_display_name="Data manager",
+        )
+        recommendation = MatchingOrderRecommendation(
+            ordered_dataset_ids=("support", "consumer"),
+            components=(("support",), ("consumer",)),
+            facts=(
+                MatchingOrderFact(
+                    owner_dataset="consumer",
+                    dependency_dataset="support",
+                    source=MatchingOrderSource.SAVED_MAPPING,
+                    confidence=MatchingOrderConfidence.CONFIRMED,
+                ),
+            ),
+        )
+        views = {
+            "consumer": {"source": SimpleNamespace(name="plw_bom")},
+            "support": {"source": SimpleNamespace(name="plw_article")},
+        }
+
+        warnings = _matching_order_custom_warnings(
+            preference,
+            ("consumer", "support"),
+            recommendation,
+            views,
+        )
+
+        self.assertEqual(
+            warnings,
+            (
+                "Impodo recommends matching plw_article first because "
+                "plw_bom refers to it.",
+            ),
+        )
+
     def test_mapping_form_preserves_incoming_resolution_for_relational_scope(
         self,
     ) -> None:
@@ -646,9 +725,22 @@ class OrderedTextStepFormTests(unittest.TestCase):
         script = (root / "src" / "impodo" / "web" / "static" / "mapping.js").read_text(
             encoding="utf-8"
         )
+        order_script = (
+            root / "src" / "impodo" / "web" / "static" / "mapping-order.js"
+        ).read_text(encoding="utf-8")
+        order_template = (
+            root
+            / "src"
+            / "impodo"
+            / "web"
+            / "templates"
+            / "mapping"
+            / "_matching_order.html"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("/mapping.css", template)
         self.assertIn("/mapping-save-recovery.js", template)
+        self.assertIn("/mapping-order.js", template)
         self.assertIn("/mapping-editor.js", template)
         self.assertIn("/mapping-formula-validation.js", template)
         self.assertIn("/mapping-value-rules.js", template)
@@ -660,6 +752,12 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("window.impodoMappingPosition", script)
         self.assertIn("[data-mapping-form]", script)
         self.assertIn("[data-table-fields-toggle]", script)
+        self.assertIn("[data-matching-order-form]", order_script)
+        self.assertIn('button[value^="move_up:"]', order_script)
+        self.assertIn("dataTransfer.effectAllowed", order_script)
+        self.assertIn("notice warning mapping-order-warnings", order_template)
+        self.assertIn("Move up", order_template)
+        self.assertIn("Move down", order_template)
         self.assertIn('aria-controls="mapping-table-fields-{{ dataset_index }}"', dataset_template)
         self.assertIn("data-table-fields-panel", dataset_template)
         self.assertIn("Close this table's fields", dataset_template)

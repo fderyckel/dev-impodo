@@ -22,6 +22,10 @@ from .execution.dependency_scheduler import (
     ScheduleBlocker,
     schedule_dependencies,
 )
+from .matching_order import (
+    DatasetOrderEdge,
+    order_dataset_dependency_components,
+)
 from .preflight.frozen_input import FrozenPreflightInput
 from impodo.domain.shared.models import (
     BusinessReference,
@@ -1263,90 +1267,20 @@ def dependency_ordered_execution_datasets(
     by_name = {dataset.dataset: dataset for dataset in datasets}
     if len(by_name) != len(datasets):
         raise ValueError("execution snapshot contains duplicate datasets")
-    rank = {dataset.dataset: index for index, dataset in enumerate(datasets)}
-    dependencies: dict[str, tuple[str, ...]] = {}
-    for dataset in datasets:
-        dependencies[dataset.dataset] = tuple(
-            sorted(
-                set(dataset.dependencies).intersection(by_name),
-                key=rank.__getitem__,
+    order = order_dataset_dependency_components(
+        tuple(dataset.dataset for dataset in datasets),
+        (
+            DatasetOrderEdge(
+                owner_dataset=dataset.dataset,
+                dependency_dataset=dependency,
             )
-        )
-
-    next_index = 0
-    indices: dict[str, int] = {}
-    low_links: dict[str, int] = {}
-    stack: list[str] = []
-    on_stack: set[str] = set()
-    components: list[tuple[str, ...]] = []
-
-    def collect_component(name: str) -> None:
-        nonlocal next_index
-        indices[name] = next_index
-        low_links[name] = next_index
-        next_index += 1
-        stack.append(name)
-        on_stack.add(name)
-        for dependency in dependencies[name]:
-            if dependency not in indices:
-                collect_component(dependency)
-                low_links[name] = min(low_links[name], low_links[dependency])
-            elif dependency in on_stack:
-                low_links[name] = min(low_links[name], indices[dependency])
-        if low_links[name] != indices[name]:
-            return
-        members: list[str] = []
-        while True:
-            member = stack.pop()
-            on_stack.remove(member)
-            members.append(member)
-            if member == name:
-                break
-        components.append(tuple(sorted(members, key=rank.__getitem__)))
-
-    for dataset in datasets:
-        if dataset.dataset not in indices:
-            collect_component(dataset.dataset)
-
-    component_by_name = {
-        name: component_index
-        for component_index, component in enumerate(components)
-        for name in component
-    }
-    following = {index: set() for index in range(len(components))}
-    indegree = {index: 0 for index in range(len(components))}
-    for owner, owner_dependencies in dependencies.items():
-        owner_component = component_by_name[owner]
-        for dependency in owner_dependencies:
-            dependency_component = component_by_name[dependency]
-            if dependency_component == owner_component:
-                continue
-            if owner_component not in following[dependency_component]:
-                following[dependency_component].add(owner_component)
-                indegree[owner_component] += 1
-
-    component_rank = {
-        index: min(rank[name] for name in component)
-        for index, component in enumerate(components)
-    }
-    ready = sorted(
-        (index for index, count in indegree.items() if count == 0),
-        key=component_rank.__getitem__,
+            for dataset in datasets
+            for dependency in dataset.dependencies
+        ),
     )
-    ordered_names: list[str] = []
-    while ready:
-        component_index = ready.pop(0)
-        ordered_names.extend(components[component_index])
-        for follower in sorted(
-            following[component_index], key=component_rank.__getitem__
-        ):
-            indegree[follower] -= 1
-            if indegree[follower] == 0:
-                ready.append(follower)
-                ready.sort(key=component_rank.__getitem__)
-    if len(ordered_names) != len(datasets):
+    if len(order.ordered_dataset_ids) != len(datasets):
         raise ValueError("execution snapshot dependency order is incomplete")
-    return tuple(by_name[name] for name in ordered_names)
+    return tuple(by_name[name] for name in order.ordered_dataset_ids)
 
 
 def _identity_fields(

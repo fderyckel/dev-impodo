@@ -159,7 +159,7 @@
                       {% endif %}
                   {% if stage.href %}</a>{% else %}</span>{% endif %}
 
-                  {% if stage.active and stage.pages|length > 1 %}
+                  {% if (stage.active or stage.pages_always_visible) and stage.pages|length > 1 %}
                     <ol class="sidebar-subnav" aria-label="{{ stage.label }} pages">
                       {% for page in stage.pages %}
                         <li>

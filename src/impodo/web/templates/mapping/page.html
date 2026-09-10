@@ -5,6 +5,7 @@
 {% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/mapping-save-recovery.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/mapping-order.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-editor.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-formula-validation.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-value-rules.js') }}" defer></script>
@@ -27,6 +28,7 @@
     </div>
   {% endif %}
   {% if selection and schema and (governance or odoo_pinned) %}
+    {% include "mapping/_matching_order.html" %}
     <form
       method="post"
       action="/workspaces/{{ workspace_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
@@ -62,7 +64,6 @@
         </div>
       </details>
       {% for view in dataset_views %}
-        {% set dataset_position = loop.index %}
         {% include "mapping/_dataset.html" %}
       {% endfor %}
 

@@ -24,10 +24,11 @@ from pathlib import Path
 import secrets
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import ClientDisconnect
 
 from impodo.domain.shared.access import (
     Actor,
@@ -105,6 +106,7 @@ from ..adapters.duckdb.preparation_recovery_repository import PreparationRecover
 from ..application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
 )
+from ..application.workspace.mapping.order_service import MatchingOrderService
 from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
 from impodo.application.data_version.intake import SourceIntakeService
@@ -128,6 +130,7 @@ from ..adapters.duckdb.run_aware_advanced_coverage_repository import (
 )
 from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from ..adapters.duckdb.mapping_repository import MappingRepository
+from ..adapters.duckdb.matching_order_repository import MatchingOrderRepository
 from ..adapters.duckdb.correction_repository import CorrectionRepository
 from ..adapters.duckdb.mapping_field_catalog_repository import (
     MappingFieldCatalogRepository,
@@ -282,6 +285,7 @@ from .workspace_journeys import (
 
 
 DEFAULT_BROWSER_DATABASE_LOCK_WAIT_SECONDS = 2.0
+CLIENT_CLOSED_REQUEST_STATUS_CODE = 499
 
 
 def create_local_app(
@@ -387,6 +391,10 @@ def create_local_app(
         run_planning_repository,
     )
     mapping_repository = MappingRepository(database, workspace_mapping_sources)
+    matching_order_repository = MatchingOrderRepository(
+        database,
+        workspace_mapping_sources,
+    )
     supporting_lookup_repository = SupportingLookupRepository(database)
     mapping_field_catalog_repository = MappingFieldCatalogRepository(database)
     staging_repository = StagingRepository(
@@ -549,6 +557,11 @@ def create_local_app(
         supporting_lookups=supporting_lookup_repository,
         downstream_invalidator=correction_repository,
         recipe_applications=recipe_application_state,
+    )
+    matching_order = MatchingOrderService(
+        matching_order_repository,
+        workspace_access,
+        categorical_coverage,
     )
     recipe_application_service = RecipeApplicationService(
         sources=workspace_mapping_sources,
@@ -984,6 +997,7 @@ def create_local_app(
         ),
         schema_workspace=schema_workspace,
         mapping_workspace=mapping_workspace,
+        matching_order=matching_order,
         supporting_lookups=supporting_lookups,
         recipe_target_matches=RecipeTargetMatchService(
             mapping_workspace, run_planning, supporting_lookups,
@@ -1258,6 +1272,12 @@ def create_local_app(
             RequestDiagnosticsMiddleware,
             recorder=diagnostic_recorder,
         )
+
+    @app.exception_handler(ClientDisconnect)
+    async def client_disconnected(_request: Request, _error: ClientDisconnect):
+        """End an abandoned request without reporting an application failure."""
+
+        return Response(status_code=CLIENT_CLOSED_REQUEST_STATUS_CODE)
 
     @app.exception_handler(WorkspaceStateNotFoundError)
     async def project_not_found(_request: Request, _error: WorkspaceStateNotFoundError):

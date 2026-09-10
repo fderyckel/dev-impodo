@@ -1,0 +1,182 @@
+    {% if matching_order %}
+      <section class="form-card mapping-order" aria-labelledby="matching-order-title">
+          <div class="page-heading compact mapping-order-heading">
+            <div>
+              <p class="eyebrow">Recommended matching order</p>
+              <h2 id="matching-order-title">Match supporting tables first</h2>
+              {% if matching_order.custom_order %}
+                <p>
+                  Your saved table order is shown. Impodo still explains where
+                  its relationship-based recommendation differs.
+                </p>
+              {% elif matching_order.fact_count %}
+                <p>
+                  Impodo used your saved relationships and captured Odoo structure.
+                </p>
+              {% else %}
+                <p>
+                  Starting order: no table dependency is known yet, so Impodo is
+                  showing the stable source-table order. Saving relationship choices
+                  can improve it.
+                </p>
+              {% endif %}
+              <p class="muted">This page did not contact Odoo. A live check runs only when you request it.</p>
+            </div>
+            <div class="mapping-order-summary">
+              <span class="status {{ matching_order.status_class }}">{{ matching_order.status_label }}</span>
+              <span class="muted">
+                {% if matching_order.custom_order %}Custom order &middot; {% endif %}
+                {{ matching_order.rows|length }} table{{ "s" if matching_order.rows|length != 1 else "" }}
+                {% if matching_order.fact_count %}
+                  &middot; {{ matching_order.confirmed_count }} confirmed
+                  {% if matching_order.preliminary_count %}
+                    &middot; {{ matching_order.preliminary_count }} preliminary
+                  {% endif %}
+                {% endif %}
+              </span>
+            </div>
+          </div>
+
+          <div
+            class="mapping-order-live-check{% if matching_order.check.running %} running{% endif %}"
+            {% if matching_order.check.status_url %}data-matching-order-check data-status-url="{{ matching_order.check.status_url }}"{% endif %}
+          >
+            <div>
+              <strong>Odoo refinement</strong>
+              <p data-matching-order-check-message>{{ matching_order.check.message }}</p>
+              {% if matching_order.check.checked_relationship_count or matching_order.check.unchecked_relationship_count %}
+                <small class="muted">
+                  {{ matching_order.check.checked_relationship_count }} checked
+                  {% if matching_order.check.unchecked_relationship_count %}&middot; {{ matching_order.check.unchecked_relationship_count }} unchecked{% endif %}
+                  {% if matching_order.check.target_count %}&middot; {{ matching_order.check.target_count }} already in Odoo{% endif %}
+                  {% if matching_order.check.incoming_count %}&middot; {{ matching_order.check.incoming_count }} incoming{% endif %}
+                  {% if matching_order.check.missing_count %}&middot; {{ matching_order.check.missing_count }} missing{% endif %}
+                  {% if matching_order.check.ambiguous_count %}&middot; {{ matching_order.check.ambiguous_count }} ambiguous{% endif %}
+                </small>
+              {% endif %}
+            </div>
+            {% if matching_order.check.running %}
+              <div class="mapping-order-check-progress" aria-label="Odoo check progress">
+                <progress max="100" value="{{ matching_order.check.progress_percent }}" data-matching-order-check-progress>{{ matching_order.check.progress_percent }}%</progress>
+              </div>
+            {% else %}
+              <form method="post" action="/workspaces/{{ workspace_id }}/mapping/order/check">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="button secondary compact" type="submit" {% if not matching_order.check.can_start %}disabled{% endif %}>
+                  Check Odoo and update suggestion
+                </button>
+              </form>
+            {% endif %}
+          </div>
+          {% if not matching_order.check.can_start and not matching_order.check.running %}
+            <p class="muted mapping-order-check-help">Save the current matching choices before checking Odoo.</p>
+          {% endif %}
+
+          <form
+            method="post"
+            action="/workspaces/{{ workspace_id }}/mapping/order"
+            data-matching-order-form
+            data-custom-order="{{ 'true' if matching_order.custom_order else 'false' }}"
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="expected_order_version" value="{{ matching_order.preference_version or '' }}">
+            <input type="hidden" name="active_dataset_id" value="{{ matching_order.active_dataset_id }}">
+
+          <input
+            class="visually-hidden mapping-order-toggle"
+            id="matching-order-toggle"
+            type="checkbox"
+            data-matching-order-toggle
+          >
+          <div class="mapping-order-toolbar">
+            <label
+              class="button secondary compact"
+              for="matching-order-toggle"
+              data-matching-order-toggle-label
+            >Reorder tables</label>
+            {% if matching_order.custom_order %}
+              <button class="button secondary compact" type="submit" name="action" value="reset">
+                Use Impodo order
+              </button>
+            {% endif %}
+            {% if matching_order.check.can_apply %}
+              <button class="button secondary compact" type="submit" name="action" value="apply_recommendation">
+                Apply recommendation
+              </button>
+            {% endif %}
+          </div>
+
+          {% if matching_order.preference_adjusted %}
+            <div class="notice mapping-order-adjusted" role="status">
+              <strong>Custom order adjusted for the current source tables</strong>
+              <p>Impodo kept tables that still exist, removed absent tables, and added new tables to the recommendation.</p>
+            </div>
+          {% endif %}
+
+          {% if matching_order.custom_warnings %}
+            <div class="notice warning mapping-order-warnings" role="status">
+              <strong>Your order differs from the relationship recommendation</strong>
+              <ul>
+                {% for warning in matching_order.custom_warnings %}
+                  <li>{{ warning }}</li>
+                {% endfor %}
+              </ul>
+              <p>This changes only your matching workflow. Impodo calculates the safe Odoo load order separately.</p>
+            </div>
+          {% endif %}
+
+          <ol class="mapping-order-list" data-matching-order-list>
+            {% for item in matching_order.rows %}
+              <li
+                class="mapping-order-item{% if item.active %} active{% endif %}"
+                data-matching-order-row="{{ item.dataset_id }}"
+                draggable="false"
+                {% if item.active %}aria-current="step"{% endif %}
+              >
+                <input type="hidden" name="dataset_order" value="{{ item.dataset_id }}">
+                <span class="mapping-order-position" data-matching-order-position aria-hidden="true">{{ item.display_position }}</span>
+                <div class="mapping-order-table">
+                  <strong>{{ item.dataset_name }}</strong>
+                  <span class="muted">{{ item.model_label }}</span>
+                </div>
+                <div class="mapping-order-reason">
+                  <span>{{ item.reason }}</span>
+                  <small>{{ item.confidence }}</small>
+                </div>
+                <div class="mapping-order-state">
+                  <span class="status {{ item.status_class }}">{{ item.status_label }}</span>
+                  {% if item.active %}
+                    <span class="mapping-order-editing">Editing</span>
+                  {% else %}
+                    <a class="button secondary compact" href="{{ item.edit_url }}">Edit table</a>
+                  {% endif %}
+                </div>
+                <div class="mapping-order-row-controls" data-matching-order-row-controls>
+                  <span class="mapping-order-drag-handle" title="Drag to another position" aria-hidden="true">&#8597;</span>
+                  <button
+                    class="button secondary compact"
+                    type="submit"
+                    name="action"
+                    value="move_up:{{ item.dataset_id }}"
+                    {% if not item.can_move_up %}disabled{% endif %}
+                  >Move up</button>
+                  <button
+                    class="button secondary compact"
+                    type="submit"
+                    name="action"
+                    value="move_down:{{ item.dataset_id }}"
+                    {% if not item.can_move_down %}disabled{% endif %}
+                  >Move down</button>
+                </div>
+              </li>
+            {% endfor %}
+          </ol>
+          <p class="visually-hidden" data-matching-order-announcement aria-live="polite"></p>
+
+          <div class="mapping-order-save-controls" data-matching-order-save-controls>
+            <button class="button primary" type="submit" name="action" value="save">Save table order</button>
+            <label class="button secondary" for="matching-order-toggle">Cancel reordering</label>
+          </div>
+          </form>
+      </section>
+    {% endif %}

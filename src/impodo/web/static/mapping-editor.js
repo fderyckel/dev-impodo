@@ -292,6 +292,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveStatus = mappingForm.querySelector(
       "[data-mapping-save-status]"
     );
+    const nextRecommendedTable = mappingForm.querySelector(
+      "[data-next-recommended-table]"
+    );
     const confirmMapping = mappingForm.querySelector("[data-confirm-mapping]");
     let dirty = false;
     let submitting = false;
@@ -416,6 +419,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
+      }
+      if (nextRecommendedTable) {
+        nextRecommendedTable.hidden = true;
       }
       if (confirmMapping) {
         confirmMapping.disabled = true;

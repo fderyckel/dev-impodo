@@ -55,6 +55,14 @@
         </div>
         <a class="button secondary" href="/workspaces/{{ workspace_id }}/{{ 'sources' if odoo_pinned else 'schema' }}">Back to Odoo data</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
+        {% if matching_order and matching_order.next_recommended_url %}
+          <a
+            class="button secondary"
+            href="{{ matching_order.next_recommended_url }}"
+            data-next-recommended-table
+            {% if not matching_order.show_next_recommended %}hidden{% endif %}
+          >Next recommended table</a>
+        {% endif %}
         <button
           class="button secondary"
           name="action"

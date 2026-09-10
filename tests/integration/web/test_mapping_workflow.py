@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from io import BytesIO
 from openpyxl import load_workbook
+from time import sleep
 
 from impodo.domain.mapping.contracts import (
     RelationshipValueSource,
     UnsupportedMappingContractError,
+)
+from impodo.web.target_credentials import (
+    TargetCredentialRole,
+    get_target_credential as actual_get_target_credential,
 )
 
 from tests.support.browser_scenarios import (
@@ -43,6 +48,36 @@ from tests.support.browser_scenarios import (
 
 
 class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_stage_two_sidebar_keeps_connection_credentials_accessible(self) -> None:
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=1,
+        )
+
+        mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(mapping_page.status_code, 200, mapping_page.text)
+        self.assertIn('aria-label="Odoo data pages"', mapping_page.text)
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/target"',
+            mapping_page.text,
+        )
+        self.assertIn("Connection &amp; credentials", mapping_page.text)
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/schema"',
+            mapping_page.text,
+        )
+        self.assertIn("Choose Odoo records", mapping_page.text)
+
+        target_page = self.client.get(f"/workspaces/{workspace_id}/target")
+
+        self.assertEqual(target_page.status_code, 200, target_page.text)
+        self.assertRegex(
+            target_page.text,
+            rf'class="sidebar-subnav-link active"\s+'
+            rf'href="/workspaces/{workspace_id}/target"\s+'
+            r'aria-current="page"',
+        )
+
     def test_supported_legacy_mapping_opens_with_successor_notice(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
@@ -199,6 +234,189 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Close this table's fields", page.text)
         self.assertIn('id="mapping-table-fields-0" data-table-fields-panel', page.text)
 
+    def test_mapping_page_shows_the_local_recommended_table_queue(self) -> None:
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=1
+        )
+
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Recommended matching order", page.text)
+        self.assertIn("Match supporting tables first", page.text)
+        self.assertIn("This page did not contact Odoo", page.text)
+        self.assertIn("Starting order", page.text)
+        self.assertIn("Step 1 of 1", page.text)
+        self.assertIn('aria-current="step"', page.text)
+        self.assertIn("Ready now", page.text)
+
+    def test_table_order_can_be_saved_conflict_checked_and_reset(self) -> None:
+        workspace_id, dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=1
+        )
+        order_url = f"/workspaces/{workspace_id}/mapping/order"
+
+        initial = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(initial.status_code, 200, initial.text)
+        self.assertIn("Reorder tables", initial.text)
+        self.assertIn("Save table order", initial.text)
+        self.assertIn("Move up", initial.text)
+        self.assertIn("Move down", initial.text)
+        self.assertIn("/static/mapping-order.js", initial.text)
+
+        rejected = self.client.post(
+            order_url,
+            data={
+                "csrf_token": "wrong",
+                "action": "save",
+                "dataset_order": dataset.dataset_id,
+                "expected_order_version": "",
+                "active_dataset_id": dataset.dataset_id,
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(rejected.status_code, 403, rejected.text)
+
+        saved = self.client.post(
+            order_url,
+            data={
+                "csrf_token": self.csrf,
+                "action": "save",
+                "dataset_order": dataset.dataset_id,
+                "expected_order_version": "",
+                "active_dataset_id": dataset.dataset_id,
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(saved.status_code, 303, saved.text)
+        custom = self.client.get(saved.headers["location"])
+        self.assertEqual(custom.status_code, 200, custom.text)
+        self.assertIn("Custom order", custom.text)
+        self.assertIn("Use Impodo order", custom.text)
+
+        stale = self.client.post(
+            order_url,
+            data={
+                "csrf_token": self.csrf,
+                "action": "save",
+                "dataset_order": dataset.dataset_id,
+                "expected_order_version": "",
+                "active_dataset_id": dataset.dataset_id,
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(stale.status_code, 409, stale.text)
+        self.assertIn("newer order was saved", stale.text)
+        self.assertIn("Custom order", stale.text)
+
+        reset = self.client.post(
+            order_url,
+            data={
+                "csrf_token": self.csrf,
+                "action": "reset",
+                "dataset_order": dataset.dataset_id,
+                "expected_order_version": "1",
+                "active_dataset_id": dataset.dataset_id,
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(reset.status_code, 303, reset.text)
+        restored = self.client.get(reset.headers["location"])
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertNotIn("Custom order", restored.text)
+        self.assertNotIn("Use Impodo order", restored.text)
+
+    def test_explicit_order_check_uses_only_read_access_and_safe_status(self) -> None:
+        workspace_id, dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=1,
+            connection_mode=OdooConnectionMode.REMOTE,
+        )
+        context = self.app.state.context
+        source_identity = dataset.columns[0]
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        context.read_identity_probe = lambda _state, _secret, models: OdooReadIdentity(
+            target_hash=schema.connection_target_hash,
+            principal_hash=schema.read_principal_hash,
+            permission_hash=schema.read_permission_hash,
+            context_hash=schema.read_context_hash,
+            readable_models=tuple(models),
+            observed_at="2026-09-10T10:00:00+00:00",
+        )
+        context.mapping_workspace.save_working_draft(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=("ref",),
+                        ),
+                    ),
+                ),
+            ),
+            expected_version=None,
+            actor=context.actor,
+        )
+        calls = []
+
+        def readiness_reader(workspace_state, metadata_requests, record_requests):
+            calls.append((metadata_requests, record_requests))
+            available = _browser_schema(workspace_state)
+            metadata = replace(available, models={})
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={},
+                requested_fields={},
+            )
+
+        context.readiness_reader = readiness_reader
+        credential_roles = []
+
+        def credential_reader(store, target_workspace, role):
+            credential_roles.append(role)
+            return actual_get_target_credential(store, target_workspace, role)
+
+        with patch(
+            "impodo.web.composition.target_readers.get_target_credential",
+            side_effect=credential_reader,
+        ):
+            started = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/order/check",
+                json={"entries": [["csrf_token", self.csrf]]},
+                headers={**POST_HEADERS, "Accept": "application/json"},
+            )
+            self.assertEqual(started.status_code, 202, started.text)
+            status_url = started.json()["status_url"]
+            status = None
+            for _attempt in range(100):
+                status = self.client.get(status_url)
+                self.assertEqual(status.status_code, 200, status.text)
+                if status.json()["terminal"]:
+                    break
+                sleep(0.02)
+
+        self.assertIsNotNone(status)
+        self.assertEqual(status.json()["status"], "SUCCEEDED", status.text)
+        self.assertEqual(credential_roles, [TargetCredentialRole.READ])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], ((), ()))
+        self.assertNotIn("odoo_id", status.text)
+        self.assertNotIn("read-secret", status.text)
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertIn("Odoo refinement", page.text)
+        self.assertIn("Current", page.text)
+        self.assertIn("Apply recommendation", page.text)
+
     def test_invalid_formula_saves_as_attention_but_full_check_rejects_it(
         self,
     ) -> None:
@@ -238,6 +456,8 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(saved.status_code, 200, saved.text)
         payload = saved.json()
+        self.assertIsNone(payload["next_recommended_url"])
+        self.assertIn("progress_saved=1", payload["redirect_url"])
         self.assertIn("Saved — needs attention", payload["message"])
         self.assertEqual(len(payload["authoring_issues"]), 1)
         self.assertEqual(

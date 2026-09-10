@@ -199,6 +199,51 @@ class CategoricalCoverageService:
             values.append(value or None)
         return tuple(values)
 
+    def source_key_tuples(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: Sequence[str],
+    ) -> tuple[tuple[str | None, ...], ...]:
+        """Return a bounded row-aligned key projection for an Odoo read plan.
+
+        The projection is deliberately exact and ephemeral. Callers may place
+        it only in protected target-specific evidence, never in browser or
+        portable Recipe contracts.
+        """
+
+        keys = tuple(source_column_keys)
+        if not keys or len(keys) != len(set(keys)):
+            raise WorkspaceError("Choose current source matching columns")
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen source evidence is incomplete")
+        dataset = next(
+            (item for item in selection.datasets if item.dataset_id == dataset_id),
+            None,
+        )
+        available = (
+            {item.stable_key for item in dataset.columns}
+            if dataset is not None
+            else set()
+        )
+        if dataset is None or any(key not in available for key in keys):
+            raise WorkspaceError(
+                "Live ordering is available for original frozen matching columns"
+            )
+        frame = self._scan_dataset(workspace_id, selection, dataset_id, keys)
+        result: list[tuple[str | None, ...]] = []
+        for row in frame.select(keys).iter_rows():
+            result.append(
+                tuple(
+                    None
+                    if raw is None or raw is False or not str(raw).strip()
+                    else str(raw).strip()
+                    for raw in row
+                )
+            )
+        return tuple(result)
+
     def collect(
         self,
         workspace_id: str,

@@ -198,6 +198,15 @@ confirm a mapping, acknowledge a warning, qualify preparation, or authorize
 execution. A changed working draft, source selection, governed schema, or
 validation binding makes the prior workbook ineligible for current download.
 
+The Stage 3 matching-order preference is workspace-local presentation state,
+not portable evidence. It binds its own optimistic version and the effective
+source-selection hash so the browser can reconcile its table IDs, but it is
+excluded from `MappingWorkingDraft`, `MappingDefinition`, Recipe revisions,
+prepared evidence, preflight evidence, compiled plans, and execution
+snapshots. Saving or resetting this preference changes only its singleton row
+and audit history. It never invalidates or qualifies semantic evidence, and
+the execution planner never consumes its custom order.
+
 When a checked mapping belongs to a verified Recipe application, the workbook
 may identify that Recipe revision and classify each distinct current source
 value as covered or not covered by its Recipe-based rules. This is a fresh

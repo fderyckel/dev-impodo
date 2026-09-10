@@ -94,6 +94,43 @@ _MAPPING_MUTATION_RECEIPT_COLUMNS = (
     "actor_issuer",
     "actor_subject",
 )
+_MATCHING_ORDER_PREFERENCE_COLUMNS = (
+    "singleton_id",
+    "version",
+    "source_selection_hash",
+    "updated_at",
+    "actor_issuer",
+    "actor_subject",
+    "actor_display_name",
+    "preference_json",
+)
+_MATCHING_ORDER_CHECK_COLUMNS = (
+    "check_id",
+    "captured_at",
+    "source_selection_hash",
+    "schema_hash",
+    "governance_hash",
+    "working_draft_version",
+    "working_draft_hash",
+    "target_hash",
+    "read_credential_binding_hash",
+    "read_principal_hash",
+    "read_permission_hash",
+    "read_context_hash",
+    "recommendation_hash",
+    "check_json",
+)
+_MATCHING_ORDER_CHECK_ATTEMPT_COLUMNS = (
+    "check_id",
+    "status",
+    "phase",
+    "message",
+    "progress_percent",
+    "failure_message",
+    "created_at",
+    "updated_at",
+    "finished_at",
+)
 _ODOO_CAPTURE_SELECTION_CURRENT_COLUMNS = (
     "model",
     "selection_id",
@@ -114,6 +151,9 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "effective_dataset_current", "effective_dataset_reconciliation", "effective_row",
         "execution_current", "execution_row", "execution_run", "mapping_current",
         "mapping_mutation_receipt", "mapping_revision", "mapping_submission", "mapping_validation",
+        "matching_order_preference", "matching_order_check",
+        "matching_order_check_active", "matching_order_check_attempt",
+        "matching_order_check_current", "matching_order_protected_snapshot",
         "mapping_working_draft", "normalization_current", "normalization_effect",
         "normalization_group", "normalization_run", "normalization_transition",
         "odoo_capture_manifest_current", "odoo_capture_manifest_revision",
@@ -328,6 +368,62 @@ class WorkspaceEngineSchemaMixin:
                 completed_at VARCHAR,
                 actor_issuer VARCHAR NOT NULL,
                 actor_subject VARCHAR NOT NULL
+            );
+
+            CREATE TABLE matching_order_preference (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                version INTEGER NOT NULL,
+                source_selection_hash VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL,
+                actor_issuer VARCHAR NOT NULL,
+                actor_subject VARCHAR NOT NULL,
+                actor_display_name VARCHAR NOT NULL,
+                preference_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE matching_order_check (
+                check_id VARCHAR PRIMARY KEY,
+                captured_at VARCHAR NOT NULL,
+                source_selection_hash VARCHAR NOT NULL,
+                schema_hash VARCHAR NOT NULL,
+                governance_hash VARCHAR NOT NULL,
+                working_draft_version INTEGER NOT NULL,
+                working_draft_hash VARCHAR NOT NULL,
+                target_hash VARCHAR NOT NULL,
+                read_credential_binding_hash VARCHAR NOT NULL,
+                read_principal_hash VARCHAR NOT NULL,
+                read_permission_hash VARCHAR NOT NULL,
+                read_context_hash VARCHAR NOT NULL,
+                recommendation_hash VARCHAR NOT NULL,
+                check_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE matching_order_check_current (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                check_id VARCHAR NOT NULL
+            );
+
+            CREATE TABLE matching_order_check_attempt (
+                check_id VARCHAR PRIMARY KEY,
+                status VARCHAR NOT NULL,
+                phase VARCHAR NOT NULL,
+                message VARCHAR NOT NULL,
+                progress_percent INTEGER NOT NULL,
+                failure_message VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL,
+                finished_at VARCHAR
+            );
+
+            CREATE TABLE matching_order_check_active (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                check_id VARCHAR NOT NULL
+            );
+
+            CREATE TABLE matching_order_protected_snapshot (
+                check_id VARCHAR PRIMARY KEY,
+                snapshot_hash VARCHAR NOT NULL,
+                snapshot_json VARCHAR NOT NULL
             );
 
             CREATE TABLE retired_evidence (
@@ -821,6 +917,15 @@ class WorkspaceEngineSchemaMixin:
                 _MAPPING_MUTATION_RECEIPT_COLUMNS,
             ),
             (
+                "matching_order_preference",
+                _MATCHING_ORDER_PREFERENCE_COLUMNS,
+            ),
+            ("matching_order_check", _MATCHING_ORDER_CHECK_COLUMNS),
+            (
+                "matching_order_check_attempt",
+                _MATCHING_ORDER_CHECK_ATTEMPT_COLUMNS,
+            ),
+            (
                 "odoo_capture_selection_current",
                 _ODOO_CAPTURE_SELECTION_CURRENT_COLUMNS,
             ),
@@ -1008,6 +1113,78 @@ def _upgrade_workspace_engine_v9_to_v10(
     )
 
 
+def _upgrade_workspace_engine_v10_to_v11(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add isolated Stage 3 table-order presentation state."""
+
+    connection.execute(
+        """
+        CREATE TABLE matching_order_preference (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            version INTEGER NOT NULL,
+            source_selection_hash VARCHAR NOT NULL,
+            updated_at VARCHAR NOT NULL,
+            actor_issuer VARCHAR NOT NULL,
+            actor_subject VARCHAR NOT NULL,
+            actor_display_name VARCHAR NOT NULL,
+            preference_json VARCHAR NOT NULL
+        )
+        """
+    )
+
+
+def _upgrade_workspace_engine_v11_to_v12(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add isolated Stage 3 read-only matching recommendation evidence."""
+
+    connection.execute(
+        """
+        CREATE TABLE matching_order_check (
+            check_id VARCHAR PRIMARY KEY,
+            captured_at VARCHAR NOT NULL,
+            source_selection_hash VARCHAR NOT NULL,
+            schema_hash VARCHAR NOT NULL,
+            governance_hash VARCHAR NOT NULL,
+            working_draft_version INTEGER NOT NULL,
+            working_draft_hash VARCHAR NOT NULL,
+            target_hash VARCHAR NOT NULL,
+            read_credential_binding_hash VARCHAR NOT NULL,
+            read_principal_hash VARCHAR NOT NULL,
+            read_permission_hash VARCHAR NOT NULL,
+            read_context_hash VARCHAR NOT NULL,
+            recommendation_hash VARCHAR NOT NULL,
+            check_json VARCHAR NOT NULL
+        );
+        CREATE TABLE matching_order_check_current (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            check_id VARCHAR NOT NULL
+        );
+        CREATE TABLE matching_order_check_attempt (
+            check_id VARCHAR PRIMARY KEY,
+            status VARCHAR NOT NULL,
+            phase VARCHAR NOT NULL,
+            message VARCHAR NOT NULL,
+            progress_percent INTEGER NOT NULL,
+            failure_message VARCHAR NOT NULL,
+            created_at VARCHAR NOT NULL,
+            updated_at VARCHAR NOT NULL,
+            finished_at VARCHAR
+        );
+        CREATE TABLE matching_order_check_active (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            check_id VARCHAR NOT NULL
+        );
+        CREATE TABLE matching_order_protected_snapshot (
+            check_id VARCHAR PRIMARY KEY,
+            snapshot_hash VARCHAR NOT NULL,
+            snapshot_json VARCHAR NOT NULL
+        );
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1044,5 +1221,13 @@ WORKSPACE_ENGINE_UPGRADES = {
     9: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v9-to-v10-recipe-mapping-baseline",
         apply=_upgrade_workspace_engine_v9_to_v10,
+    ),
+    10: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v10-to-v11-matching-order-preference",
+        apply=_upgrade_workspace_engine_v10_to_v11,
+    ),
+    11: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v11-to-v12-matching-order-checks",
+        apply=_upgrade_workspace_engine_v11_to_v12,
     ),
 }

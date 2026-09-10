@@ -85,6 +85,9 @@ applies those rules when documentation is created or rewritten.
   — the proposed generic dataset and row dependency planner for hierarchies,
   Product relationships, BOM-shaped migrations, cycle handling, bounded Odoo
   calls, recovery, and scale qualification.
+- [Smart Match data ordering and early Odoo refinement](plans/smart-match-data-ordering.md)
+  — the implemented local Stage 3 work queue and persisted user-controlled
+  table order, plus the planned explicit read-only Odoo refinement.
 - [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
   delivery roadmap.
 - [Combine source columns into one Odoo field](plans/concatenate-source-columns-matching-rule.md)

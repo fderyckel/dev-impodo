@@ -247,12 +247,18 @@
               aria-describedby="model-picker-count"
             >
           </label>
-          {% if focus_model_count < model_choices|length %}
+          <div class="model-picker-filters">
+            {% if focus_model_count < model_choices|length %}
+              <label class="checkbox">
+                <input type="checkbox" data-show-all-models>
+                Show all available data
+              </label>
+            {% endif %}
             <label class="checkbox">
-              <input type="checkbox" data-show-all-models>
-              Show all available data
+              <input type="checkbox" data-show-selected-models>
+              Show selected only
             </label>
-          {% endif %}
+          </div>
           <p
             class="muted"
             id="model-picker-count"
@@ -282,6 +288,9 @@
             </label>
           {% endfor %}
         </fieldset>
+        <p class="notice" role="status" data-model-empty hidden>
+          No selected Odoo data matches these filters.
+        </p>
         <small>
           Changing these choices clears later matching work that no longer applies.
         </small>

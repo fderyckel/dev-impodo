@@ -49,6 +49,7 @@ class WorkflowStage:
     status_label: str
     pages: tuple[WorkflowPage, ...] = ()
     active: bool = False
+    pages_always_visible: bool = False
 
     @property
     def available(self) -> bool:
@@ -196,6 +197,7 @@ _TEMPLATE_LOCATION = {
         "source",
         "Separate combined information",
     ),
+    "workspace_target.html": ("odoo", "Connection & credentials"),
     "workspace_schema.html": ("odoo", "Choose Odoo records"),
     "project_recipe_target_matches.html": ("odoo", "Review target values"),
     "mapping/page.html": ("match", "Match fields"),
@@ -931,12 +933,19 @@ def _build_authoring_workspace_navigation(
             pages=(
                 _page(
                     workspace_id,
+                    "odoo-connection",
+                    "Connection & credentials",
+                    "/target",
+                ),
+                _page(
+                    workspace_id,
                     "schema",
                     "Choose Odoo records",
                     "/schema",
                     complete=schema_complete,
                 ),
             ),
+            pages_always_visible=True,
         )
     )
     if not schema_complete:
@@ -1800,6 +1809,7 @@ def _stage(
     status: str,
     status_label: str,
     pages: tuple[WorkflowPage, ...],
+    pages_always_visible: bool = False,
 ) -> WorkflowStage:
     return WorkflowStage(
         stage_id=stage_id,
@@ -1809,6 +1819,7 @@ def _stage(
         status=status,
         status_label=status_label,
         pages=pages,
+        pages_always_visible=pages_always_visible,
     )
 
 

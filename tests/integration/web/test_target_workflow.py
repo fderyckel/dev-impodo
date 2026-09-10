@@ -657,6 +657,9 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Has Odoo changed?", verified_page.text)
         self.assertIn("Save choices and continue", verified_page.text)
         self.assertNotIn("Save Odoo choices", verified_page.text)
+        self.assertIn("data-show-selected-models", verified_page.text)
+        self.assertIn("Show selected only", verified_page.text)
+        self.assertIn("data-model-empty", verified_page.text)
         context.local_stack = LocalStackService()
         cached_page = self.client.get(
             f"/workspaces/{registered.workspace_id}/schema"

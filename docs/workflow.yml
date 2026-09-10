@@ -308,6 +308,8 @@ stages:
     code_references:
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService.submit_current
+      - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService
+      - src/impodo/adapters/duckdb/matching_order_repository.py::MatchingOrderRepository
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService.prepare_mapping_review_rows
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
@@ -322,6 +324,9 @@ stages:
       - src/impodo/domain/compiler/browser_mapping_compiler.py::compile_browser_mapping
       - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler
       - src/impodo/domain/relationship_dependencies.py::extract_dataset_dependency_edges
+      - src/impodo/domain/matching_order.py::order_dataset_dependency_components
+      - src/impodo/domain/matching_order.py::recommend_dataset_matching_order
+      - src/impodo/domain/matching_order.py::MatchingOrderPreference
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
@@ -341,6 +346,7 @@ stages:
       - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogProjectionCache
       - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogSearchCoordinator
       - src/impodo/web/presenters/mapping_view.py::_render_mapping
+      - src/impodo/web/presenters/mapping_view.py::_matching_order_view
     tests:
       - tests/integration/web/test_mapping_forms.py
       - tests/domain/mapping/test_validation.py
@@ -357,10 +363,15 @@ stages:
       - tests/integration/artifacts/test_mapping_review_workbook.py
       - tests/domain/preparation/test_target_first_relationships.py
       - tests/domain/test_relationship_dependencies.py
+      - tests/domain/test_matching_order.py
+      - tests/application/workspace/mapping/test_order_service.py
+      - tests/integration/duckdb/test_matching_order_repository.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
       - docs/developer/contracts/recipe-lifecycle.md
       - docs/developer/contracts/canonical-staging.md
+    references:
+      - docs/plans/smart-match-data-ordering.md
 
   - id: prepare
     order: 4
@@ -476,6 +487,7 @@ stages:
       - src/impodo/adapters/correction_review_pipeline.py::NativeCorrectionReviewPipeline
       - src/impodo/adapters/polars_correction.py::write_polars_correction_candidates
       - src/impodo/domain/execution_snapshot.py::dependency_ordered_execution_datasets
+      - src/impodo/domain/matching_order.py::order_dataset_dependency_components
       - src/impodo/domain/execution_snapshot.py::plan_execution_rows
       - src/impodo/domain/execution_snapshot.py::resequence_execution_rows
       - src/impodo/domain/execution/dependency_scheduler.py::schedule_dependencies
@@ -508,6 +520,7 @@ stages:
       - tests/domain/execution/test_dependency_scheduler.py
       - tests/domain/recipe/test_profile_and_values.py
       - tests/domain/test_relationship_dependencies.py
+      - tests/domain/test_matching_order.py
       - tests/application/workspace/execution/test_reconciliation.py
       - tests/integration/odoo/test_readback_retries.py
       - tests/integration/web/test_load_workflow.py

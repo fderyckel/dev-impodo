@@ -594,11 +594,22 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             'data-model-search-text="product product.template product stock"',
             model_page.text,
         )
+        self.assertIn("data-show-selected-models", model_page.text)
+        self.assertIn("Show selected only", model_page.text)
+        self.assertIn("data-model-empty", model_page.text)
+        self.assertIn(
+            "No selected Odoo data matches these filters.",
+            model_page.text,
+        )
 
         model_picker_script = self.client.get("/static/schema.js")
         self.assertIn("const hasQuery = Boolean(query);", model_picker_script.text)
         self.assertIn(
-            "matches && (hasQuery || browseAll || choice.inFocus || selected)",
+            "const selectedOnly = Boolean(showSelected?.checked);",
+            model_picker_script.text,
+        )
+        self.assertIn(
+            "selectedOnly\n            ? selected",
             model_picker_script.text,
         )
         self.assertIn(

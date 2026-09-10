@@ -27,6 +27,7 @@ from ..application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
 from ..application.workspace.mapping.service import MappingWorkspaceService
+from ..application.workspace.mapping.order_service import MatchingOrderService
 from ..application.workspace.preparation.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_capture_job_service import OdooCaptureJobManager
@@ -199,6 +200,7 @@ class WebContext:
     derived_entities: DerivedEntityWorkspaceService
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
+    matching_order: MatchingOrderService
     supporting_lookups: SupportingLookupService
     recipe_target_matches: RecipeTargetMatchService
     categorical_coverage: CategoricalCoverageService

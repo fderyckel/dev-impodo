@@ -39,6 +39,10 @@ from impodo.adapters.artifacts.mapping_review import (
 )
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.matching_order import (
+    MatchingOrderCheckStatus,
+    MatchingOrderVersionConflict,
+)
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.project.foundation import MigrationFoundationError
@@ -48,9 +52,14 @@ from impodo.domain.run.contracts import (
 )
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.contracts import MappingWorkingDraft
+from impodo.domain.workspace.derived_entities import (
+    derived_dataset_links,
+    related_dataset_links,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
 from impodo.web.composition.target_readers import (
+    _read_readiness_snapshots,
     _refresh_mapping_odoo_defaults,
     _relationship_value_choices,
     _source_value_choices,
@@ -161,6 +170,250 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             return response
 
         return await run_in_threadpool(render_mapping_page)
+
+    @router.post("/workspaces/{workspace_id}/mapping/order")
+    async def save_workspace_matching_order(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Save or reset the isolated Stage 3 table display order."""
+
+        require_session(request)
+        _require_mapping_idle(context, workspace_id)
+        form = await _mapping_request_form(request)
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "action",
+                "dataset_order",
+                "expected_order_version",
+                "active_dataset_id",
+            },
+        )
+        selection = context.queries.get_mapping_source_selection(workspace_id)
+        if selection is None or not selection.datasets:
+            raise HTTPException(status_code=422, detail="Source selection missing")
+        action = _text(form, "action")
+        ordered_dataset_ids = _texts(form, "dataset_order")
+        try:
+            expected_version = _optional_int(
+                _text(form, "expected_order_version")
+            )
+            if action == "reset":
+                await run_in_threadpool(
+                    context.matching_order.reset_preference,
+                    workspace_id,
+                    expected_version=expected_version,
+                    actor=context.actor,
+                )
+                message = "Impodo's recommended table order is restored."
+            else:
+                if action == "apply_recommendation":
+                    schema = context.queries.get_odoo_schema_catalog(workspace_id)
+                    governance = context.queries.get_schema_governance(workspace_id)
+                    draft = context.queries.get_mapping_working_draft(workspace_id)
+                    check = context.matching_order.current_check(
+                        workspace_id,
+                        actor=context.actor,
+                    )
+                    if (
+                        schema is None
+                        or check is None
+                        or not context.matching_order.check_is_current(
+                            check,
+                            selection,
+                            schema,
+                            governance,
+                            draft,
+                        )
+                    ):
+                        raise WorkspaceError(
+                            "Check Odoo again before applying this recommendation"
+                        )
+                    ordered_dataset_ids = check.ordered_dataset_ids
+                elif action.startswith("move_up:"):
+                    ordered_dataset_ids = context.matching_order.move_dataset(
+                        ordered_dataset_ids,
+                        action.removeprefix("move_up:"),
+                        direction="up",
+                    )
+                elif action.startswith("move_down:"):
+                    ordered_dataset_ids = context.matching_order.move_dataset(
+                        ordered_dataset_ids,
+                        action.removeprefix("move_down:"),
+                        direction="down",
+                    )
+                elif action != "save":
+                    raise WorkspaceError("Choose a supported table-order action")
+                await run_in_threadpool(
+                    context.matching_order.save_preference,
+                    workspace_id,
+                    selection,
+                    ordered_dataset_ids,
+                    expected_version=expected_version,
+                    actor=context.actor,
+                )
+                message = (
+                    "Odoo-refined recommendation applied."
+                    if action == "apply_recommendation"
+                    else "Custom table order saved."
+                )
+        except MatchingOrderVersionConflict as error:
+            return await run_in_threadpool(
+                _render_mapping,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=409,
+            )
+        except WorkspaceError as error:
+            return await run_in_threadpool(
+                _render_mapping,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        active_dataset_id = _text(form, "active_dataset_id")
+        active_dataset_index = next(
+            (
+                index
+                for index, item in enumerate(selection.datasets)
+                if item.dataset_id == active_dataset_id
+            ),
+            0,
+        )
+        _flash(request, message)
+        return RedirectResponse(
+            _mapping_return_url(
+                request,
+                workspace_id,
+                mapping_dataset=active_dataset_index,
+            ),
+            status_code=303,
+        )
+
+    @router.post("/workspaces/{workspace_id}/mapping/order/check")
+    async def start_workspace_matching_order_check(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Start one explicit read-only Odoo refinement of the saved draft."""
+
+        require_session(request)
+        _require_mapping_idle(context, workspace_id)
+        form = await _mapping_request_form(request)
+        _secure_form(request, form, {"csrf_token"})
+        try:
+            selection = context.queries.get_mapping_source_selection(workspace_id)
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            governance = context.queries.get_schema_governance(workspace_id)
+            draft = context.queries.get_mapping_working_draft(workspace_id)
+            state = context.queries.get(workspace_id)
+            if selection is None or schema is None or state is None:
+                raise WorkspaceError(
+                    "Choose and confirm the source and Odoo data before checking"
+                )
+            preference = context.matching_order.current_preference(
+                workspace_id,
+                actor=context.actor,
+            )
+            tie_break_order = context.matching_order.effective_preference_order(
+                preference,
+                (item.dataset_id for item in selection.datasets),
+            )
+            preparation_plan = context.queries.get_derived_entity_plan(workspace_id)
+            local = context.matching_order.recommend(
+                selection,
+                schema,
+                draft.definition if draft is not None else None,
+                related_links=related_dataset_links(preparation_plan),
+                derived_links=derived_dataset_links(preparation_plan),
+                tie_break_order=tie_break_order,
+            )
+            prepared = await run_in_threadpool(
+                context.matching_order.prepare_live_check,
+                workspace_id,
+                selection,
+                schema,
+                governance,
+                draft,
+                local,
+                tie_break_order=tie_break_order,
+                actor=context.actor,
+            )
+            attempt = context.matching_order.start_live_check(
+                prepared,
+                lambda requirements: _read_readiness_snapshots(
+                    context,
+                    state,
+                    requirements,
+                ),
+            )
+        except WorkspaceError as error:
+            return await run_in_threadpool(
+                _render_mapping,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        status_url = (
+            f"/workspaces/{workspace_id}/mapping/order/check/{attempt.check_id}"
+        )
+        if _is_json_request(request):
+            return JSONResponse(
+                {
+                    "check_id": attempt.check_id,
+                    "status": attempt.status.value,
+                    "status_url": status_url,
+                },
+                status_code=202,
+            )
+        return RedirectResponse(
+            f"/workspaces/{workspace_id}/mapping?order_check={attempt.check_id}",
+            status_code=303,
+        )
+
+    @router.get("/workspaces/{workspace_id}/mapping/order/check/{check_id}")
+    async def workspace_matching_order_check_status(
+        request: Request,
+        workspace_id: str,
+        check_id: str,
+    ):
+        """Return an aggregate-only status projection for one browser session."""
+
+        require_session(request)
+        try:
+            attempt = await run_in_threadpool(
+                context.matching_order.check_attempt,
+                workspace_id,
+                check_id,
+                actor=context.actor,
+            )
+        except WorkspaceError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return JSONResponse(
+            {
+                "check_id": attempt.check_id,
+                "status": attempt.status.value,
+                "phase": attempt.phase.value,
+                "message": attempt.message,
+                "progress_percent": attempt.progress_percent,
+                "failure_message": attempt.failure_message,
+                "terminal": attempt.terminal,
+                "refresh": attempt.status
+                in {
+                    MatchingOrderCheckStatus.SUCCEEDED,
+                    MatchingOrderCheckStatus.STALE,
+                },
+            }
+        )
 
     @router.get(
         "/workspaces/{workspace_id}/mapping/field-catalog",
@@ -1192,6 +1445,67 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     if formula_issues
                     else "Progress saved. Check matches when ready."
                 )
+                preparation_plan = context.queries.get_derived_entity_plan(
+                    workspace_id
+                )
+                preference = context.matching_order.current_preference(
+                    workspace_id,
+                    actor=context.actor,
+                )
+                preference_tie_break = (
+                    context.matching_order.effective_preference_order(
+                        preference,
+                        (item.dataset_id for item in selection.datasets),
+                    )
+                    if preference is not None
+                    else None
+                )
+                recommendation = context.matching_order.recommend(
+                    selection,
+                    schema,
+                    working_draft.definition,
+                    related_links=related_dataset_links(preparation_plan),
+                    derived_links=derived_dataset_links(preparation_plan),
+                    tie_break_order=preference_tie_break,
+                )
+                work_order = context.matching_order.effective_preference_order(
+                    preference,
+                    recommendation.ordered_dataset_ids,
+                )
+                next_dataset_id = (
+                    context.matching_order.next_incomplete_dataset_id(
+                        selection,
+                        recommendation,
+                        working_draft.definition,
+                        current_dataset_id=(
+                            selection.datasets[active_dataset].dataset_id
+                        ),
+                        work_order=work_order,
+                    )
+                )
+                next_dataset_index = next(
+                    (
+                        index
+                        for index, item in enumerate(selection.datasets)
+                        if item.dataset_id == next_dataset_id
+                    ),
+                    None,
+                )
+                next_recommended_url = (
+                    _mapping_return_url(
+                        request,
+                        workspace_id,
+                        mapping_dataset=next_dataset_index,
+                        scalar_page=1,
+                        relation_page=1,
+                    )
+                    if next_dataset_index is not None
+                    else None
+                )
+                progress_return_url = (
+                    f"{_mapping_return_url(request, workspace_id, progress_saved=1)}"
+                    f"#mapping-dataset-{active_dataset}"
+                )
                 if json_request:
                     return JSONResponse(
                         await _mapping_mutation_result_payload(
@@ -1200,9 +1514,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             workspace_id,
                             operation_id,
                             message=save_message,
-                            redirect_url=mapping_return_url,
+                            redirect_url=progress_return_url,
                             extra={
                                 "saved_at": working_draft.updated_at.isoformat(),
+                                "next_recommended_url": next_recommended_url,
                                 "authoring_issues": [
                                     issue.portable_dict()
                                     for issue in formula_issues
@@ -1215,7 +1530,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     save_message,
                 )
                 return RedirectResponse(
-                    mapping_return_url,
+                    progress_return_url,
                     status_code=303,
                 )
             if action == "draft":

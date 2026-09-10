@@ -102,6 +102,13 @@
   margin: 0;
 }
 
+.model-picker-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .55rem 1rem;
+}
+
 .model-picker-tools .muted,
 .field-catalog-tools .muted {
   grid-column: 1 / -1;

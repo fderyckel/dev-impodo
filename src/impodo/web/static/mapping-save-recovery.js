@@ -32,6 +32,9 @@
     const checkMappingOutcome = mappingForm.querySelector(
       "[data-check-mapping-outcome]"
     );
+    const nextRecommendedTable = mappingForm.querySelector(
+      "[data-next-recommended-table]"
+    );
     const mutationTimeoutMs = Number.parseInt(
       mappingForm.dataset.mutationTimeoutMs || "15000",
       10
@@ -181,6 +184,13 @@
           saveStatus.textContent =
             savedLabel + (payload.message || "Matches saved.");
           saveStatus.classList.remove("unsaved");
+        }
+        if (operation.action === "save_progress" && nextRecommendedTable) {
+          const nextUrl = String(payload.next_recommended_url || "");
+          nextRecommendedTable.hidden = !nextUrl;
+          if (nextUrl) {
+            nextRecommendedTable.href = nextUrl;
+          }
         }
         if (operation.action !== "save_progress") {
           navigateToMappingResult(payload.redirect_url);
