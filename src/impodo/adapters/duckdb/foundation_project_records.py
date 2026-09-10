@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -259,7 +260,10 @@ class FoundationProjectRecords:
         if registry_deleted:
             for _original, temporary in staged:
                 if temporary.is_dir():
-                    shutil.rmtree(temporary, ignore_errors=True)
+                    cleanup_path = temporary
+                    if os.name == "nt":
+                        cleanup_path = Path("\\\\?\\" + str(temporary.resolve()))
+                    shutil.rmtree(cleanup_path, ignore_errors=True)
                 elif temporary.exists():
                     temporary.unlink()
         return project
@@ -457,6 +461,7 @@ class FoundationProjectRecords:
             "test_run_setup_binding": "project_id = ?",
             "test_run_parameter_values": "project_id = ?",
             "production_run_binding": "project_id = ?",
+            "production_run_values": f"migration_run_id IN ({run_ids})",
             "correction_run_binding": "project_id = ?",
             "project_operation_intent": "project_id = ?",
             "migration_event": "project_id = ?",

@@ -7,6 +7,7 @@ import shutil
 import unittest
 from dataclasses import replace
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
@@ -414,6 +415,58 @@ class ProjectAuthoringTests(unittest.TestCase):
                 ).fetchone(),
                 (0,),
             )
+
+    def test_delete_removes_production_run_values(self) -> None:
+        selected = self._bundle()
+        run_id = selected.run.migration_run_id
+        with self.database.connect(self.database.registry_path) as connection:
+            connection.execute(
+                "INSERT INTO production_run_values VALUES (?, ?, ?, ?)",
+                [run_id, 1, "{}", content_hash({})],
+            )
+
+        self.projects.delete(
+            selected.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=selected.project.optimistic_revision,
+        )
+
+        with self.database.connect(self.database.registry_path) as connection:
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT count(*) FROM production_run_values
+                    WHERE migration_run_id = ?
+                    """,
+                    [run_id],
+                ).fetchone(),
+                (0,),
+            )
+
+    def test_delete_removes_staged_long_path_artifacts(self) -> None:
+        selected = self._bundle()
+        artifact_root = self.root / "artifacts" / "dv"
+        data_version_artifacts = artifact_root / selected.data_version.data_version_id
+        artifact = (
+            data_version_artifacts
+            / "snapshots"
+            / "source"
+            / "v4"
+            / ("a" * 24)
+            / (("b" * 64) + ".parquet")
+        )
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        long_artifact = Path("\\\\?\\" + str(artifact.resolve()))
+        long_artifact.write_bytes(b"test artifact")
+
+        self.projects.delete(
+            selected.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=selected.project.optimistic_revision,
+        )
+
+        self.assertFalse(data_version_artifacts.exists())
+        self.assertEqual(tuple(artifact_root.iterdir()), ())
 
     def test_delete_removes_cutover_revision_after_its_saved_references(self) -> None:
         selected = self._bundle()
