@@ -198,7 +198,7 @@ MatchingOrderSnapshotReader = Callable[
 
 
 class MatchingOrderService:
-    """Recommend authoring order without reading Odoo or changing mapping."""
+    """Recommend authoring order and run an explicit read-only refinement."""
 
     def __init__(
         self,
@@ -210,6 +210,7 @@ class MatchingOrderService:
         self._authorization = authorization
         self._source_keys = source_keys
         self._check_lock = RLock()
+        self._running_check_ids: set[str] = set()
 
     def recommend(
         self,
@@ -554,6 +555,7 @@ class MatchingOrderService:
             )
             if not created:
                 return stored
+            self._running_check_ids.add(prepared.check_id)
             Thread(
                 target=self._run_live_check,
                 args=(prepared, reader),
@@ -580,7 +582,32 @@ class MatchingOrderService:
     ) -> MatchingOrderCheckAttempt | None:
         preferences, authorization = self._preference_dependencies()
         authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=workspace_id)
-        return preferences.get_active_check_attempt(workspace_id)
+        attempt = preferences.get_active_check_attempt(workspace_id)
+        if attempt is None:
+            return None
+        with self._check_lock:
+            running_here = attempt.check_id in self._running_check_ids
+        if running_here:
+            return attempt
+
+        # A persisted active row with no worker in this process is an
+        # interrupted prior attempt. Retire it instead of polling forever.
+        finished = datetime.now(timezone.utc)
+        failed = replace(
+            attempt,
+            status=MatchingOrderCheckStatus.FAILED,
+            phase=MatchingOrderCheckPhase.COMPLETE,
+            message="Odoo check was interrupted",
+            progress_percent=100,
+            updated_at=finished,
+            finished_at=finished,
+            failure_message=(
+                "Impodo restarted before publishing a new suggestion. "
+                "The previous result is unchanged; start the check again."
+            ),
+        )
+        preferences.fail_check(workspace_id, failed, actor=actor)
+        return None
 
     def check_attempt(
         self,
@@ -759,6 +786,9 @@ class MatchingOrderService:
                 )
             except Exception:
                 return
+        finally:
+            with self._check_lock:
+                self._running_check_ids.discard(prepared.check_id)
 
     def _live_probe(
         self,
@@ -1097,7 +1127,13 @@ def _matching_schema_changed(
 ) -> bool:
     """Compare only planned field semantics and the captured target identity."""
 
-    if live.fingerprint.target_hash != captured.connection_target_hash:
+    fingerprint = live.fingerprint
+    if (
+        fingerprint.target_hash != captured.connection_target_hash
+        or fingerprint.connection_mode != captured.connection_mode
+        or fingerprint.database != captured.database
+        or fingerprint.odoo_version != captured.odoo_version
+    ):
         return True
     captured_models = {item.name: item for item in captured.models}
     compared = (
@@ -1106,7 +1142,6 @@ def _matching_schema_changed(
         "readonly",
         "relation",
         "relation_field",
-        "selection",
         "stored",
         "computed",
         "has_inverse",
@@ -1129,6 +1164,10 @@ def _matching_schema_changed(
             if captured_field is None or any(
                 getattr(captured_field, name) != getattr(live_field, name)
                 for name in compared
+            ):
+                return True
+            if tuple(item[0] for item in captured_field.selection) != tuple(
+                item[0] for item in live_field.selection
             ):
                 return True
     return False
@@ -1193,13 +1232,9 @@ def _matching_key_value(value: object) -> str | None:
     return normalized or None
 
 
-def _safe_matching_order_failure(error: Exception) -> str:
+def _safe_matching_order_failure(_error: Exception) -> str:
     """Keep credentials, rows, and implementation details out of status."""
 
-    if type(error).__module__.startswith("impodo."):
-        message = str(error).strip()
-        if message:
-            return message[:1000]
     return (
         "Impodo stopped before publishing a new suggestion. The previous "
         "result is unchanged; review the Odoo read connection and try again."

@@ -449,6 +449,15 @@ or invalidate mapping, Recipe, preparation, preflight, or execution evidence.
 
 ### Phase 3: Early read-only Odoo refinement
 
+**Implemented, 2026-09-11.** Stage 3 now offers one explicit, bounded,
+read-only Odoo check for the exact governed relationship keys in the saved
+working draft. It stores exact keys and target records behind the protected
+workspace boundary, publishes only aggregate outcomes, preserves the previous
+result on failure or drift, and removes a dependency only for complete unique
+target coverage. One durable attempt may be active per workspace; the browser
+shows recoverable progress and freshness, while applying a changed suggestion
+remains a separate user action.
+
 - Add the bounded read plan, protected result, single active attempt, and
   partial coverage rules.
 - Add the explicit check action, progress state, failure recovery, freshness,

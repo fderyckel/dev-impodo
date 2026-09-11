@@ -309,10 +309,13 @@ stages:
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService.submit_current
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService
+      - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.prepare_live_check
+      - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.start_live_check
       - src/impodo/adapters/duckdb/matching_order_repository.py::MatchingOrderRepository
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService.prepare_mapping_review_rows
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_key_tuples
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/contracts.py::ScalarConcatenation
       - src/impodo/domain/mapping/contracts.py::ConstantBusinessReference
@@ -327,6 +330,9 @@ stages:
       - src/impodo/domain/matching_order.py::order_dataset_dependency_components
       - src/impodo/domain/matching_order.py::recommend_dataset_matching_order
       - src/impodo/domain/matching_order.py::MatchingOrderPreference
+      - src/impodo/domain/matching_order.py::MatchingOrderCheck
+      - src/impodo/domain/matching_order.py::live_matching_order_recommendation
+      - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v11_to_v12
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
@@ -365,7 +371,9 @@ stages:
       - tests/domain/test_relationship_dependencies.py
       - tests/domain/test_matching_order.py
       - tests/application/workspace/mapping/test_order_service.py
+      - tests/application/workspace/mapping/test_matching_order_live_check.py
       - tests/integration/duckdb/test_matching_order_repository.py
+      - tests/integration/duckdb/test_forward_upgrades.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
       - docs/developer/contracts/recipe-lifecycle.md

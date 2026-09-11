@@ -207,6 +207,16 @@ snapshots. Saving or resetting this preference changes only its singleton row
 and audit history. It never invalidates or qualifies semantic evidence, and
 the execution planner never consumes its custom order.
 
+The optional Stage 3 matching-order check is target-bound advisory evidence,
+separate from both the preference and portable mapping evidence. Its public
+record binds aggregate relationship outcomes and a proposed dataset order to
+the exact source selection, governed schema, target, read credential,
+principal, permission context, and saved working-draft version and hash. Exact
+source keys, returned target values, and numeric Odoo IDs remain in a protected
+workspace snapshot. A stale or failed attempt cannot replace the current
+published check, and the check never qualifies preparation, preflight, or
+execution. Final review performs its own current target comparison.
+
 When a checked mapping belongs to a verified Recipe application, the workbook
 may identify that Recipe revision and classify each distinct current source
 value as covered or not covered by its Recipe-based rules. This is a fresh
@@ -251,6 +261,9 @@ portable source or relationship identities.
 | Change governed business keys | Mapping, target comparison, and execution evidence |
 | Change the governed-reference policy | Mapping validation and submission, supporting lookups, preparation, comparison, and new Recipe target contracts |
 | Save or remove a related-dataset plan | Mapping and downstream prepared evidence |
+| Rearrange or reset the Stage 3 matching-order preference | No semantic evidence; only workspace-local presentation state changes |
+| Complete a Stage 3 matching-order check | No semantic evidence; publish target-bound advisory evidence only |
+| Change a binding used by the current Stage 3 order check | Mark that advisory check stale; preserve mapping and downstream evidence |
 | Save a new mapping revision | Prior validation, impact review, submission, and downstream evidence |
 | Change a constant relationship provider, key, scope value, required policy, or failure policy | Prior validation, impact review, submission, preparation, comparison, transfer-order, execution, and reconciliation evidence |
 | Add, remove, edit, or reorder a conditional Selection rule | Prior categorical coverage, impact review, submission, preparation, comparison, and execution evidence |

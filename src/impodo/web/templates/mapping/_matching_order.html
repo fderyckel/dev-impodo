@@ -1,4 +1,5 @@
     {% if matching_order %}
+      {% set order_check = matching_order.get("check") %}
       <section class="form-card mapping-order" aria-labelledby="matching-order-title">
           <div class="page-heading compact mapping-order-heading">
             <div>
@@ -37,39 +38,41 @@
             </div>
           </div>
 
+          {% if order_check %}
           <div
-            class="mapping-order-live-check{% if matching_order.check.running %} running{% endif %}"
-            {% if matching_order.check.status_url %}data-matching-order-check data-status-url="{{ matching_order.check.status_url }}"{% endif %}
+            class="mapping-order-live-check{% if order_check.running %} running{% endif %}"
+            {% if order_check.status_url %}data-matching-order-check data-status-url="{{ order_check.status_url }}"{% endif %}
           >
             <div>
               <strong>Odoo refinement</strong>
-              <p data-matching-order-check-message>{{ matching_order.check.message }}</p>
-              {% if matching_order.check.checked_relationship_count or matching_order.check.unchecked_relationship_count %}
+              <p data-matching-order-check-message>{{ order_check.message }}</p>
+              {% if order_check.checked_relationship_count or order_check.unchecked_relationship_count %}
                 <small class="muted">
-                  {{ matching_order.check.checked_relationship_count }} checked
-                  {% if matching_order.check.unchecked_relationship_count %}&middot; {{ matching_order.check.unchecked_relationship_count }} unchecked{% endif %}
-                  {% if matching_order.check.target_count %}&middot; {{ matching_order.check.target_count }} already in Odoo{% endif %}
-                  {% if matching_order.check.incoming_count %}&middot; {{ matching_order.check.incoming_count }} incoming{% endif %}
-                  {% if matching_order.check.missing_count %}&middot; {{ matching_order.check.missing_count }} missing{% endif %}
-                  {% if matching_order.check.ambiguous_count %}&middot; {{ matching_order.check.ambiguous_count }} ambiguous{% endif %}
+                  {{ order_check.checked_relationship_count }} checked
+                  {% if order_check.unchecked_relationship_count %}&middot; {{ order_check.unchecked_relationship_count }} unchecked{% endif %}
+                  {% if order_check.target_count %}&middot; {{ order_check.target_count }} already in Odoo{% endif %}
+                  {% if order_check.incoming_count %}&middot; {{ order_check.incoming_count }} incoming{% endif %}
+                  {% if order_check.missing_count %}&middot; {{ order_check.missing_count }} missing{% endif %}
+                  {% if order_check.ambiguous_count %}&middot; {{ order_check.ambiguous_count }} ambiguous{% endif %}
                 </small>
               {% endif %}
             </div>
-            {% if matching_order.check.running %}
+            {% if order_check.running %}
               <div class="mapping-order-check-progress" aria-label="Odoo check progress">
-                <progress max="100" value="{{ matching_order.check.progress_percent }}" data-matching-order-check-progress>{{ matching_order.check.progress_percent }}%</progress>
+                <progress max="100" value="{{ order_check.progress_percent }}" data-matching-order-check-progress>{{ order_check.progress_percent }}%</progress>
               </div>
             {% else %}
               <form method="post" action="/workspaces/{{ workspace_id }}/mapping/order/check">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="button secondary compact" type="submit" {% if not matching_order.check.can_start %}disabled{% endif %}>
+                <button class="button secondary compact" type="submit" {% if not order_check.can_start %}disabled{% endif %}>
                   Check Odoo and update suggestion
                 </button>
               </form>
             {% endif %}
           </div>
-          {% if not matching_order.check.can_start and not matching_order.check.running %}
+          {% if not order_check.can_start and not order_check.running %}
             <p class="muted mapping-order-check-help">Save the current matching choices before checking Odoo.</p>
+          {% endif %}
           {% endif %}
 
           <form
@@ -99,7 +102,7 @@
                 Use Impodo order
               </button>
             {% endif %}
-            {% if matching_order.check.can_apply %}
+            {% if order_check and order_check.can_apply %}
               <button class="button secondary compact" type="submit" name="action" value="apply_recommendation">
                 Apply recommendation
               </button>

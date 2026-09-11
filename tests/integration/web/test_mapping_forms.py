@@ -8,6 +8,7 @@ import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 
+from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
 
 from impodo.domain.mapping.contracts import (
@@ -774,6 +775,34 @@ class OrderedTextStepFormTests(unittest.TestCase):
             dataset_template.index("data-table-fields-toggle"),
             dataset_template.index("data-table-fields-panel"),
         )
+
+    def test_matching_order_template_accepts_a_pre_live_check_presenter(self) -> None:
+        """A template reload must not break an already-running older process."""
+
+        template_root = REPOSITORY_ROOT / "src" / "impodo" / "web" / "templates"
+        template = Environment(loader=FileSystemLoader(template_root)).get_template(
+            "mapping/_matching_order.html"
+        )
+        html = template.render(
+            workspace_id="workspace:test",
+            csrf_token="test-token",
+            matching_order={
+                "custom_order": False,
+                "fact_count": 0,
+                "status_class": "info",
+                "status_label": "Starting order",
+                "rows": (),
+                "confirmed_count": 0,
+                "preliminary_count": 0,
+                "preference_version": None,
+                "active_dataset_id": "",
+                "preference_adjusted": False,
+                "custom_warnings": (),
+            },
+        )
+
+        self.assertIn("Recommended matching order", html)
+        self.assertNotIn("Odoo refinement", html)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,27 @@ position comes from an unambiguous captured Odoo relationship that has not yet
 been confirmed by a saved incoming-table choice. **Starting order** means
 Impodo does not yet know a dependency and keeps the stable source-table order.
 
+After saving the current matching choices, select **Check Odoo and update
+suggestion** when you want Impodo to refine that advice against the current
+Odoo data. This is an explicit, read-only check. Impodo reads only the exact
+governed relationship keys required by the saved draft and shows aggregate
+counts; source values, Odoo keys, and numeric Odoo record IDs are not returned
+to the browser.
+
+**Current** means the result still matches the saved source selection, Odoo
+schema, business-key governance, target, read access, and working draft.
+**Partial** means some relationships could not be checked safely from the
+current choices. **Needs refresh** means one of those inputs changed. A
+relationship is removed from the conservative order only when every checked
+source key has exactly one match in Odoo. Mixed, missing, ambiguous, and
+unchecked relationships keep the supporting table first. If Odoo reports a
+schema change, return to **Odoo data** before relying on a new suggestion.
+
+The check does not rearrange a saved custom sequence. Select **Apply
+recommendation** to replace that sequence deliberately. If a check fails or
+Impodo restarts, the previous result and custom sequence remain unchanged; fix
+the read connection if needed and start the check again.
+
 After **Save progress**, select **Next recommended table** when another table
 still needs its minimum identity choices.
 
@@ -55,9 +76,11 @@ Recipe, prepared data, or the safe order used later to load Odoo.
 
 ## Steps in Impodo
 
-1. Open **Match data**, review the recommended order, and work through one
-   table at a time. Optionally select **Reorder tables**, arrange the queue,
-   and select **Save table order**.
+1. Open **Match data** and review the recommended order. After saving the
+   relevant relationship choices, optionally select **Check Odoo and update
+   suggestion** and then **Apply recommendation**. Work through one table at a
+   time. You can also select **Reorder tables**, arrange the queue, and select
+   **Save table order**.
 2. Choose whether the table is a reference, create, update, or upsert dataset.
 3. Match the source identity to the confirmed Odoo business key.
 4. For each writable field, choose one source value, combine source columns,

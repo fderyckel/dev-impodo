@@ -19,11 +19,13 @@ memory to show non-authoritative proposed values and changed-cell lineage.
 It does not publish prepared evidence, perform the final target comparison, or
 write to Odoo.
 
-The browser also presents a local-only recommended authoring order. This queue
-is advisory: it does not reorder the source selection, mapping definition,
-Recipe, compiled plan, or execution snapshot, and rendering it does not open
-an Odoo connection. A custom sequence is isolated, workspace-local
-presentation state rather than portable mapping meaning.
+The browser also presents a recommended authoring order. Its initial result is
+local-only, and rendering or saving the queue does not open an Odoo connection.
+An explicit read-only check may refine that advice from current target records.
+Both forms of advice are advisory: neither reorders the source selection,
+mapping definition, Recipe, compiled plan, or execution snapshot. A custom
+sequence is isolated, workspace-local presentation state rather than portable
+mapping meaning.
 
 ## Entry conditions
 
@@ -67,6 +69,43 @@ workspace-engine row and audit events. The repository checks the same effective
 mapping source projection used by Stage 3, so derived-table changes cannot bind
 a preference to the wrong table set. Saving and resetting this row have no
 semantic invalidation callbacks.
+
+`MatchingOrderService.prepare_live_check` accepts only the current saved
+working draft and constructs one immutable `PreflightRequirementPlan` before
+any connector call. A relationship is eligible only when it uses a direct
+source value with `TARGET_THEN_DATASET`, has exact confirmed business-key and
+scope governance, maps to non-relational target key fields, and has physical
+frozen source values. Metadata requests are merged by model. Exact record
+domains are deduplicated and chunked by the existing bounded record-request
+limit, so request count follows model and page count rather than row count.
+Ineligible relationships are reported as unchecked instead of being guessed.
+
+`POST /workspaces/{workspace_id}/mapping/order/check` requires the
+authenticated workspace session, same-origin form policy, CSRF,
+`MAPPING_EDIT`, and a target-bound `READ` credential. It can never resolve a
+write credential. The route reserves one durable active attempt and starts the
+bounded reader through `_read_readiness_snapshots`. Reopening Stage 3 observes
+that attempt. `GET
+/workspaces/{workspace_id}/mapping/order/check/{check_id}` returns only bounded
+progress and aggregate outcome counts. A process restart retires an orphaned
+active attempt as failed and leaves the previous published result current.
+
+The worker binds metadata and record snapshots, rejects an incomplete
+projection, and compares the planned field semantics and target fingerprint
+with the Stage 2 catalog before classifying values. Only complete unique target
+coverage removes a conservative incoming dependency. Mixed, incoming,
+missing, ambiguous, schema-changed, and unchecked outcomes retain it. Exact
+source keys and target records are serialized only into the protected
+workspace snapshot row; the public `MatchingOrderCheck` contains aggregate
+counts, hashes, and the proposed dataset order without numeric Odoo IDs.
+
+Publication is transactional and succeeds as current only when source
+selection, schema, governance, target/read identities, and working-draft
+version and hash still match the captured inputs. Otherwise the attempt becomes
+stale without replacing the previous current check. Rendering re-evaluates the
+same bindings and labels the result **Current**, **Partial**, or **Needs
+refresh**. **Apply recommendation** is a separate optimistic preference write;
+the check never moves a custom order or the active editor by itself.
 
 `POST /workspaces/{workspace_id}/mapping/order` requires the authenticated
 workspace session, same-origin form policy, CSRF, and `MAPPING_EDIT`. It accepts
@@ -411,6 +450,7 @@ validation result for the malformed formula.
 | Local Stage 3 ordering recommendation | [`MatchingOrderService`](../../../src/impodo/application/workspace/mapping/order_service.py) |
 | Matching-order preference contract | [`MatchingOrderPreference`](../../../src/impodo/domain/matching_order.py) |
 | Matching-order preference persistence | [`MatchingOrderRepository`](../../../src/impodo/adapters/duckdb/matching_order_repository.py) |
+| Matching-order check schema and forward migration | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
 | Constant relationship validation | [`relationships.py`](../../../src/impodo/domain/mapping/validation/relationships.py) |
 | Mapping mutation receipts and conflicts | [`mutations.py`](../../../src/impodo/domain/mapping/mutations.py) |
@@ -447,7 +487,7 @@ validation result for the malformed formula.
 | Canonical relationship dependencies | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Shared dataset component ordering and typed recommendation facts | [`matching_order.py`](../../../src/impodo/domain/matching_order.py) |
 | Recommended-order browser queue | [`_matching_order.html`](../../../src/impodo/web/templates/mapping/_matching_order.html), [`mapping-order.js`](../../../src/impodo/web/static/mapping-order.js), and [`mapping.css`](../../../src/impodo/web/static/mapping.css) |
-| Matching-order domain, service, persistence, and browser tests | [`test_matching_order.py`](../../../tests/domain/test_matching_order.py), [`test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py), [`test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py), and [`test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py) |
+| Matching-order domain, service, persistence, migration, and browser tests | [`test_matching_order.py`](../../../tests/domain/test_matching_order.py), [`test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py), [`test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py), [`test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py), [`test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py), and [`test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py) |
 | Batched Odoo read planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Target-first resolution and classification | [`preflight.py`](../../../src/impodo/domain/preparation/preflight.py) |
 | Reviewed execution hand-off | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
@@ -657,6 +697,9 @@ operational source data.
 - [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
 - [`tests/domain/test_matching_order.py`](../../../tests/domain/test_matching_order.py)
 - [`tests/application/workspace/mapping/test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py)
+- [`tests/application/workspace/mapping/test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py)
+- [`tests/integration/duckdb/test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py)
+- [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/domain/mapping/test_concatenation.py`](../../../tests/domain/mapping/test_concatenation.py)
 - [`tests/integration/columnar/test_polars_transformation.py`](../../../tests/integration/columnar/test_polars_transformation.py)
 
