@@ -21,6 +21,7 @@ from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
 from ..mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
+    IdentityNullPolicy,
     MappingDefinition,
     RelationshipValueSource,
     ResolverOrigin,
@@ -35,7 +36,7 @@ from ..serialization import content_hash, portable
 
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 6
-COLUMNAR_COMPILER_VERSION = 7
+COLUMNAR_COMPILER_VERSION = 8
 
 
 def _optional_string(value: object) -> str | None:
@@ -1340,6 +1341,9 @@ def _identity_component(
             ColumnarExpressionStep(ColumnarOperationKind.COLLAPSE_WHITESPACE),
             ColumnarExpressionStep(ColumnarOperationKind.EMPTY_AS_NULL),
             *conversion_steps,
+        ),
+        required=(
+            component.null_policy is not IdentityNullPolicy.EXPLICIT_SCOPE_NULL
         ),
     )
 

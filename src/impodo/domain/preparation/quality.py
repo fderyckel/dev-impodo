@@ -1661,8 +1661,11 @@ def clean_quality_row_result(row: CanonicalRow) -> QualityRowResult:
 def quality_identity_key(row: CanonicalRow) -> bytes | None:
     """Return the collision key used by the complete quality evaluator."""
 
-    identity = (*row.target_identity, *row.target_scope)
-    if not identity or any(value is None or value == "" for value in identity):
+    if not row.target_identity or any(
+        value is None or value == "" for value in row.target_identity
+    ):
+        return None
+    if any(value == "" for value in row.target_scope):
         return None
     return canonical_json_bytes(
         {

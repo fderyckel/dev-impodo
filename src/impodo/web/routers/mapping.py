@@ -1488,27 +1488,47 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 schema,
                 governance,
             )
-            access = context.workspace_access.require(
-                context.actor, Capability.PROJECT_VIEW, workspace_id=workspace_id,
-            )
-            fixed_controls = {
-                item.dataset_id: item for item in active_definition.datasets
-                if len(item.effective_control_totals) == len(item.control_definitions)
-            } if active_definition is not None and access.recipe_application_id is not None else {}
-            datasets = _mapping_datasets_from_form(
-                form,
-                selection,
-                schema,
-                governance,
-                fixed_controls=fixed_controls,
-            )
-            datasets = _merge_partial_mapping_datasets(
-                datasets,
-                active_definition,
-                form,
-                selection,
-                schema,
-            )
+            if action == "confirm_rows":
+                if active_definition is None:
+                    raise WorkspaceError(
+                        "Check the current mapping before confirming rows"
+                    )
+                datasets = active_definition.datasets
+            else:
+                access = context.workspace_access.require(
+                    context.actor,
+                    Capability.PROJECT_VIEW,
+                    workspace_id=workspace_id,
+                )
+                fixed_controls = {}
+                if (
+                    active_definition is not None
+                    and access.recipe_application_id is not None
+                ):
+                    fixed_controls = {
+                        item.dataset_id: item
+                        for item in active_definition.datasets
+                        if len(item.effective_control_totals)
+                        == len(item.control_definitions)
+                    }
+                preparation_plan = context.queries.get_derived_entity_plan(
+                    workspace_id
+                )
+                datasets = _mapping_datasets_from_form(
+                    form,
+                    selection,
+                    schema,
+                    governance,
+                    fixed_controls=fixed_controls,
+                    derived_links=derived_dataset_links(preparation_plan),
+                )
+                datasets = _merge_partial_mapping_datasets(
+                    datasets,
+                    active_definition,
+                    form,
+                    selection,
+                    schema,
+                )
             if action == "confirm_rows":
                 await run_in_threadpool(
                     context.row_inclusion_reviews.confirm_current,

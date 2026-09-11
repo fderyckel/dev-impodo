@@ -9,7 +9,10 @@ from typing import Mapping
 from uuid import uuid4
 
 from impodo.domain.shared.access import Actor
-from ..domain.mapping.contracts import MappingDefinition
+from ..domain.mapping.contracts import (
+    MappingDefinition,
+    RowInclusionMode,
+)
 from ..domain.mapping.create_field_policy import (
     CREATE_DEFAULT_DECISION_POLICY_VERSION,
 )
@@ -82,6 +85,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         mappings,
         categorical,
         application_state,
+        row_inclusion_reviews=None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
@@ -91,6 +95,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         self.mappings = mappings
         self.categorical = categorical
         self.application_state = application_state
+        self.row_inclusion_reviews = row_inclusion_reviews
 
     def assess(
         self,
@@ -350,6 +355,25 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                         for item in validation.issues
                         if item.severity in {"error", "warning"}
                     )
+                    if not any(item.blocks for item in issues) and any(
+                        item.row_inclusion.mode
+                        is RowInclusionMode.MATCHING_ROWS
+                        for item in revision.definition.datasets
+                    ):
+                        if self.row_inclusion_reviews is None:
+                            raise RecipeApplicationError(
+                                "Rows-to-use review is unavailable for this Recipe application"
+                            )
+                        row_review = self.row_inclusion_reviews.check_current(
+                            workspace_id,
+                            actor=actor,
+                        )
+                        issues.extend(
+                            self._row_inclusion_issues(
+                                row_review,
+                                recipe_id=recipe_id,
+                            )
+                        )
                     checked_draft = (
                         self.mappings.mappings.get_mapping_working_draft(
                             workspace_id
@@ -413,6 +437,77 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             assessment=assessment,
             completed=completed,
         )
+
+    @staticmethod
+    def _row_inclusion_issues(snapshot, *, recipe_id: str):
+        """Project exact fresh-data counts and any required row decision."""
+
+        counts = MigrationRunPlanIssue(
+            code="RECIPE_ROW_INCLUSION_CURRENT_COUNTS",
+            level=MigrationRunPlanIssueLevel.INFORMATION,
+            message=(
+                "Current Data version row result: "
+                f"{snapshot.source_row_count} source, "
+                f"{snapshot.included_count} included, "
+                f"{snapshot.excluded_count} excluded, and "
+                f"{snapshot.cannot_evaluate_count} could not be checked."
+            ),
+            recovery_action=(
+                "These counts belong to this Data version. The reusable "
+                "Recipe rule has not changed."
+            ),
+            recipe_ids=(recipe_id,),
+        )
+        blockers = []
+        if snapshot.cannot_evaluate_count:
+            blockers.append(
+                MigrationRunPlanIssue(
+                    code="MAPPING_ROW_INCLUSION_CANNOT_EVALUATE",
+                    level=MigrationRunPlanIssueLevel.BLOCKER,
+                    message=(
+                        f"{snapshot.cannot_evaluate_count} source row"
+                        f"{'s' if snapshot.cannot_evaluate_count != 1 else ''} "
+                        "could not be checked safely."
+                    ),
+                    recovery_action=(
+                        "Review Rows to use and correct the comparison type, "
+                        "source value, or rule before continuing."
+                    ),
+                    recipe_ids=(recipe_id,),
+                )
+            )
+        if snapshot.included_count == 0:
+            blockers.append(
+                MigrationRunPlanIssue(
+                    code="MAPPING_ROW_INCLUSION_ZERO_INCLUDED",
+                    level=MigrationRunPlanIssueLevel.BLOCKER,
+                    message="The reusable row rule includes no rows in this Data version.",
+                    recovery_action=(
+                        "Review Rows to use and the current source values before "
+                        "continuing."
+                    ),
+                    recipe_ids=(recipe_id,),
+                )
+            )
+        if snapshot.confirmable and snapshot.excluded_count:
+            blockers.append(
+                MigrationRunPlanIssue(
+                    code="MAPPING_ROW_INCLUSION_CONFIRMATION_REQUIRED",
+                    level=MigrationRunPlanIssueLevel.BLOCKER,
+                    message=(
+                        f"Confirm {snapshot.included_count} included row"
+                        f"{'s' if snapshot.included_count != 1 else ''} before "
+                        f"excluding {snapshot.excluded_count} other row"
+                        f"{'s' if snapshot.excluded_count != 1 else ''}."
+                    ),
+                    recovery_action=(
+                        "Open Rows to use, review the current counts, and confirm "
+                        "the rows for this Data version."
+                    ),
+                    recipe_ids=(recipe_id,),
+                )
+            )
+        return (counts, *blockers)
 
     @staticmethod
     def requirements(definition: Mapping[str, object]) -> tuple[OdooModelRequirement, ...]:

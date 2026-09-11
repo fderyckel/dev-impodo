@@ -179,6 +179,7 @@ def compile_browser_mapping(
                                 if item.resolver is not None
                                 else None
                             ),
+                            null_policy=item.null_policy.value,
                         )
                         for item in mapping.target_identity
                     ),
@@ -193,6 +194,7 @@ def compile_browser_mapping(
                                 if item.resolver is not None
                                 else None
                             ),
+                            null_policy=item.null_policy.value,
                         )
                         for item in mapping.target_scope
                     ),

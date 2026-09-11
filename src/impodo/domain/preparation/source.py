@@ -347,6 +347,7 @@ def _prepare_identity_component(
     """
 
     if component.resolve is not None:
+        allows_null_scope = component.null_policy == "explicit_scope_null"
         incoming_key = _parse_reference_key(
             component.source_fields,
             row,
@@ -354,8 +355,23 @@ def _prepare_identity_component(
             row_index,
             component.target_fields[0],
             issues,
-            required=True,
+            required=not allows_null_scope,
         )
+        if allows_null_scope and all(value is None for value in incoming_key):
+            return (None,)
+        if allows_null_scope and any(value is None for value in incoming_key):
+            issues.append(
+                Issue(
+                    code="SOURCE_REQUIRED_VALUE_MISSING",
+                    message=(
+                        "relational scope is only optional when every source "
+                        "key component is empty"
+                    ),
+                    dataset=dataset_name,
+                    row=row_index,
+                    field=component.target_fields[0],
+                )
+            )
         key, scope = _reference_parts(component.resolve, incoming_key)
         return (
             LogicalReference(

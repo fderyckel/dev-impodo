@@ -2,15 +2,21 @@
 
 ## Status and proposed decision
 
-**Status:** Slices 1, 2, and 3 are implemented for the bounded preparation and
-browser paths. The version-16 mapping contract, semantic validation, and
-shared comparison evaluator are current. Preparation evaluates the rule before
-target-oriented transformation, publishes lineage-only excluded or blocked
-decisions, and passes only included rows downstream. A zero-match result blocks
-the dataset. Match data now owns guided authoring, full-domain counts, bounded
-row review, and exact confirmation. The native columnar compiler selects the
-bounded evaluator for this rule until native parity is implemented. Recipe
-reuse and fresh-run review remain planned.
+**Status:** Slices 1, 2, 3, and 4 are implemented for the bounded preparation,
+browser, and Recipe-application paths. The row-inclusion shape introduced in
+mapping contract version 16 is retained by the current contract, semantic
+validation, and shared comparison evaluator. Preparation
+evaluates the rule before target-oriented transformation, publishes
+lineage-only excluded or blocked decisions, and passes only included rows
+downstream. A zero-match result blocks the dataset. Match data owns guided
+authoring, full-domain counts, bounded row review, and exact confirmation.
+Recipe publication stores the logical rule without observed counts. A fresh
+application binds every rule column, checks the new Data version, and shows its
+exact counts in the run review. Missing or ambiguous columns, zero included
+rows, unsafe values, and unconfirmed exclusions block the application. The
+native columnar compiler selects the bounded evaluator for this rule until
+native parity is implemented. The paired documentation and screenshot refresh
+remain planned for Slice 5.
 
 Add one optional, reusable **Rows to use** rule to each mapped dataset. The
 rule lets a data manager include only source rows that meet explicit
@@ -264,14 +270,17 @@ A published Recipe stores the logical dataset field, operator, comparison
 type, comparison value, and join. It does not store source rows or the counts
 observed during authoring.
 
-When the Recipe is applied to a later Data version, source binding must resolve
+When the Recipe is applied to a later Data version, source binding resolves
 each logical rule field to exactly one current stable source column. A missing
 or ambiguous field blocks Recipe application. Impodo never substitutes a
 similarly named column silently.
 
-The fresh-data and final-review pages show the new Data version's actual
-included and excluded counts. A different count does not by itself change the
-Recipe rule. Zero included rows or any cannot-evaluate row blocks the run.
+Impodo checks the rebound rule against the complete current dataset. The run
+review shows the new Data version's source, included, excluded, and
+cannot-evaluate counts. When the rule excludes rows, the data manager follows
+**Review rows to use** to inspect and confirm the current decision. A different
+count does not by itself change the Recipe rule. Zero included rows or any row
+that cannot be evaluated blocks the run.
 
 Changing the inclusion mode, condition, source column, operator, comparison
 value, type, or join changes the mapping hash. Existing validation, row-impact

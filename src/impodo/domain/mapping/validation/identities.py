@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Mapping
 
 from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
-from ..contracts import DatasetMapping, IdentityComponentMapping
+from ..contracts import (
+    DatasetMapping,
+    IdentityComponentMapping,
+    IdentityNullPolicy,
+    ResolverOrigin,
+)
 from .common import (
     _VALUE_TYPES,
     _check_column,
@@ -48,6 +53,7 @@ def _validate_source_identity(
     for column in dataset.source_identity_column_keys:
         _check_column(dataset, column, base, columns, issues)
 
+
 def _validate_identity_component(
     context: ValidationContext,
     dataset: DatasetMapping,
@@ -55,10 +61,25 @@ def _validate_identity_component(
     path: str,
     columns: Mapping[str, SourceColumnView],
     issues: list[MappingValidationIssue],
+    *,
+    is_scope: bool,
 ) -> None:
     fields = context.fields_by_model[dataset.target_model]
     for column in component.source_column_keys:
         _check_column(dataset, column, path, columns, issues)
+    explicit_scope_null = (
+        component.null_policy is IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+    )
+    if explicit_scope_null and (not is_scope or component.resolver is None):
+        issues.append(
+            _issue(
+                "MAPPING_IDENTITY_NULL_POLICY_INVALID",
+                f"{path}/null_policy",
+                "A blank identity value cannot use hierarchy-root semantics.",
+                "Use explicit null only for an optional self-parent scope.",
+                dataset=dataset,
+            )
+        )
     if not component.target_fields:
         issues.append(
             _issue(
@@ -130,6 +151,23 @@ def _validate_identity_component(
                 path,
                 f"Relational identity field {target_field} is not many2one.",
                 "Choose a many2one identity/scope field.",
+                dataset=dataset,
+                target_field=target_field,
+            )
+        )
+    if explicit_scope_null and (
+        metadata.type != "many2one"
+        or metadata.required
+        or metadata.relation != dataset.target_model
+        or component.resolver.origin is not ResolverOrigin.DATASET
+        or component.resolver.dataset_id != dataset.dataset_id
+    ):
+        issues.append(
+            _issue(
+                "MAPPING_IDENTITY_NULL_POLICY_INVALID",
+                f"{path}/null_policy",
+                "Blank scope is not a valid root for this relationship.",
+                "Use explicit null only for an optional self-parent scope.",
                 dataset=dataset,
                 target_field=target_field,
             )

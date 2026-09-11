@@ -56,8 +56,28 @@ class RunApplicationCard:
         """Return source, mapping, and execution issues for their own summary."""
 
         return tuple(
-            item for item in self.issues if not item.code.startswith("RECIPE_TARGET_")
+            item
+            for item in self.issues
+            if not item.code.startswith("RECIPE_TARGET_")
+            and "ROW_INCLUSION" not in item.code
         )
+
+    @property
+    def row_inclusion_issues(self) -> tuple[MigrationRunPlanIssue, ...]:
+        """Return current Data-version row counts and required decisions."""
+
+        return tuple(item for item in self.issues if "ROW_INCLUSION" in item.code)
+
+    @property
+    def row_inclusion_needs_attention(self) -> bool:
+        return any(
+            item.level is not MigrationRunPlanIssueLevel.INFORMATION
+            for item in self.row_inclusion_issues
+        )
+
+    @property
+    def row_inclusion_blocks(self) -> bool:
+        return any(item.blocks for item in self.row_inclusion_issues)
 
     @property
     def target_adaptation_needs_attention(self) -> bool:
@@ -458,6 +478,13 @@ def _application_card(
             item.code.startswith("MAPPING_")
             for item in actionable_issues
         )
+        has_row_inclusion_blocker = (
+            application.mapping_id is not None
+            and any(
+                item.code.startswith("MAPPING_ROW_INCLUSION_")
+                for item in actionable_issues
+            )
+        )
         has_target_value_blocker = (
             automatic_preparation
             and application.mapping_id is not None
@@ -471,7 +498,9 @@ def _application_card(
             recipe_name,
             "ACTION_NEEDED",
             (
-                "Review target values"
+                "Review rows to use"
+                if has_row_inclusion_blocker
+                else "Review target values"
                 if has_target_value_blocker
                 else "Review field matches"
                 if has_mapping_blocker
@@ -480,14 +509,18 @@ def _application_card(
             first.message if first is not None else "This Recipe needs review.",
             "blocked",
             (
-                "Review target values"
+                "Review rows to use"
+                if has_row_inclusion_blocker
+                else "Review target values"
                 if has_target_value_blocker
                 else "Review field matches"
                 if has_mapping_blocker
                 else ""
             ),
             (
-                f"/projects/{application.project_id}/runs/"
+                f"/workspaces/{application.workspace_id}/mapping#rows-to-use-review"
+                if has_row_inclusion_blocker
+                else f"/projects/{application.project_id}/runs/"
                 f"{application.migration_run_id}/applications/"
                 f"{application.application_id}/target-matches"
                 if has_target_value_blocker

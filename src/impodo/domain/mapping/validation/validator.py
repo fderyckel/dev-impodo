@@ -321,6 +321,7 @@ class MappingSemanticValidator:
                         component_path,
                         columns,
                         issues,
+                        is_scope=group_name == "target_scope",
                     )
                     provided.update(component.target_fields)
                     collected.extend(component.target_fields)

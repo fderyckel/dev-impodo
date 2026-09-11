@@ -40,6 +40,10 @@ class DuckDbRepository:
     def _transformation_impact_lock(self):
         return self._database._transformation_impact_lock
 
+    @property
+    def _row_inclusion_review_lock(self):
+        return self._database._row_inclusion_review_lock
+
     def workspace_directory(self, workspace_id: str) -> Path:
         """Delegate contained workspace-directory validation to the database."""
 

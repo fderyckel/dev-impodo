@@ -51,6 +51,7 @@ from impodo.domain.preparation.quality import (
     default_quality_ruleset,
     evaluate_quality,
     manager_quality_rule,
+    quality_identity_key,
 )
 from impodo.domain.preparation.source import PreparedBundle
 from impodo.application.data_version.source_files import prepare_sources
@@ -93,6 +94,26 @@ class _SparseSourceAccounting(_SparseEvidence):
 
 
 class QualityEvaluationTests(unittest.TestCase):
+    def test_null_hierarchy_scope_remains_part_of_collision_identity(self) -> None:
+        first = _canonical_row(
+            "a",
+            2,
+            target_identity=("Root",),
+            target_scope=(None,),
+        )
+        duplicate = _canonical_row(
+            "b",
+            3,
+            target_identity=("Root",),
+            target_scope=(None,),
+        )
+
+        self.assertIsNotNone(quality_identity_key(first))
+        self.assertEqual(
+            quality_identity_key(first),
+            quality_identity_key(duplicate),
+        )
+
     def setUp(self) -> None:
         self.workspace_state = _workspace_state()
 

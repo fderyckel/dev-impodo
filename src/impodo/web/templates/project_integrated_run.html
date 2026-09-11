@@ -93,6 +93,15 @@
                 </div>
               {% endif %}
 
+              {% if card.row_inclusion_issues %}
+                <div class="notice {% if card.row_inclusion_blocks %}error{% elif card.row_inclusion_needs_attention %}warning{% endif %}" data-row-inclusion-run-review>
+                  <strong>Rows to use on this Data version</strong>
+                  {% for issue in card.row_inclusion_issues %}
+                    <p>{{ issue.message }} {{ issue.recovery_action }}</p>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
               {% if card.target_adaptation_issues %}
                 <details class="technical-details">
                   <summary>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import PurePath
@@ -635,6 +636,169 @@ class TargetFirstRelationshipTests(unittest.TestCase):
                     dataset="orders",
                 ),
             )
+
+    def test_hierarchy_root_null_and_child_parent_are_planned_in_order(self) -> None:
+        categories = DatasetSpec(
+            name="categories",
+            source=SourceSpec(file="categories.csv"),
+            target=TargetSpec(model="product.category", mode="upsert"),
+            source_identity=SourceIdentitySpec(fields=("category_key",)),
+            target_identity=TargetIdentitySpec(
+                components=(
+                    IdentityComponent(
+                        source_fields=("name",),
+                        target_fields=("name",),
+                    ),
+                ),
+                scope=(
+                    IdentityComponent(
+                        source_fields=("parent_key",),
+                        target_fields=("parent_id",),
+                        resolve=ResolveSpec(
+                            dataset="categories",
+                            target_source_fields=("category_key",),
+                        ),
+                        null_policy="explicit_scope_null",
+                    ),
+                ),
+            ),
+        )
+        plan = CompiledMigrationPlan(
+            plan_id="category_hierarchy",
+            origin="profile_document",
+            origin_hash=_HASH,
+            datasets=(categories,),
+        )
+        prepared = prepare_source_tables(
+            plan,
+            (
+                SourceTable(
+                    dataset="categories",
+                    path=PurePath("categories.csv"),
+                    headers=("category_key", "name", "parent_key"),
+                    rows=(
+                        SourceRow(
+                            2,
+                            {
+                                "category_key": "CHILD",
+                                "name": "Child",
+                                "parent_key": "ROOT",
+                            },
+                        ),
+                        SourceRow(
+                            3,
+                            {
+                                "category_key": "ROOT",
+                                "name": "Root",
+                                "parent_key": "",
+                            },
+                        ),
+                    ),
+                    content_hash=_HASH,
+                ),
+            ),
+            source_hashes={"categories": _HASH},
+        )
+        root = next(
+            row for row in prepared.records if row.source_identity == ("ROOT",)
+        )
+        child = next(
+            row for row in prepared.records if row.source_identity == ("CHILD",)
+        )
+        self.assertEqual(root.target_scope, (None,))
+        self.assertEqual(root.issues, ())
+        self.assertEqual(
+            child.target_scope,
+            (
+                LogicalReference(
+                    origin="incoming",
+                    key=("ROOT",),
+                    dataset="categories",
+                ),
+            ),
+        )
+
+        fingerprint = TargetFingerprint(
+            target_hash=_HASH,
+            connection_mode="LOCAL",
+            database="category_hierarchy_test",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-09-11T00:00:00Z",
+        )
+        metadata, records = bind_snapshot_hashes(
+            MetadataSnapshot(
+                fingerprint=fingerprint,
+                models={
+                    "product.category": ModelMetadata(
+                        model="product.category",
+                        description="Product Categories",
+                        fields={
+                            "name": FieldMetadata(name="name", type="char"),
+                            "parent_id": FieldMetadata(
+                                name="parent_id",
+                                type="many2one",
+                                relation="product.category",
+                            ),
+                        },
+                    ),
+                },
+            ),
+            RecordSnapshot(
+                fingerprint=fingerprint,
+                records={"product.category": ()},
+                requested_fields={"product.category": ("name", "parent_id")},
+            ),
+        )
+        result = PreflightEngine().run(plan, prepared, metadata, records)
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=_frozen(plan, prepared),
+            result=result,
+        )
+        root_row = next(
+            row for row in snapshot.rows if row.source_identity == ("ROOT",)
+        )
+        child_row = next(
+            row for row in snapshot.rows if row.source_identity == ("CHILD",)
+        )
+        child_parent = next(
+            field for field in child_row.fields if field.field == "parent_id"
+        )
+
+        self.assertLess(root_row.schedule_ordinal, child_row.schedule_ordinal)
+        self.assertEqual(child_parent.dependency_strength, "hard")
+        self.assertEqual(child_parent.dependency_row_ids, (root_row.row_id,))
+
+        existing_metadata, existing_records = bind_snapshot_hashes(
+            replace(metadata, content_hash=None),
+            RecordSnapshot(
+                fingerprint=fingerprint,
+                records={
+                    "product.category": (
+                        TargetRecord(
+                            "product.category",
+                            10,
+                            {"name": "Root", "parent_id": False},
+                        ),
+                    ),
+                },
+                requested_fields={"product.category": ("name", "parent_id")},
+            ),
+        )
+        existing_result = PreflightEngine().run(
+            plan,
+            prepared,
+            existing_metadata,
+            existing_records,
+        )
+        root_decision = next(
+            decision
+            for decision in existing_result.decisions
+            if decision.source_row == root.source_row
+        )
+
+        self.assertIs(root_decision.classification, Classification.UNCHANGED)
+        self.assertEqual(root_decision.target_match_count, 1)
 
     def test_odoo_wins_without_updates_and_missing_pce_uses_incoming(self) -> None:
         plan = _plan()

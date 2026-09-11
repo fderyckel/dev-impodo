@@ -182,6 +182,42 @@ class SimulatedCrash(RuntimeError):
 class RecipeApplicationServiceTests(unittest.TestCase):
     """Exercise the retained compiler with the accepted Customer envelope."""
 
+    def test_fresh_row_counts_require_review_and_fail_closed(self):
+        recipe_id = str(uuid4())
+        changed_counts = RecipeApplicationService._row_inclusion_issues(
+            SimpleNamespace(
+                source_row_count=12,
+                included_count=2,
+                excluded_count=10,
+                cannot_evaluate_count=0,
+                confirmable=True,
+            ),
+            recipe_id=recipe_id,
+        )
+        unsafe_counts = RecipeApplicationService._row_inclusion_issues(
+            SimpleNamespace(
+                source_row_count=3,
+                included_count=0,
+                excluded_count=2,
+                cannot_evaluate_count=1,
+                confirmable=False,
+            ),
+            recipe_id=recipe_id,
+        )
+
+        self.assertIn("12 source, 2 included, 10 excluded", changed_counts[0].message)
+        self.assertEqual(
+            {item.code for item in changed_counts[1:]},
+            {"MAPPING_ROW_INCLUSION_CONFIRMATION_REQUIRED"},
+        )
+        self.assertEqual(
+            {item.code for item in unsafe_counts[1:]},
+            {
+                "MAPPING_ROW_INCLUSION_CANNOT_EVALUATE",
+                "MAPPING_ROW_INCLUSION_ZERO_INCLUDED",
+            },
+        )
+
     def test_required_default_recovery_is_model_agnostic(self):
         definition = {
             "contract_versions": {"odoo_target_contract": 2},
@@ -867,6 +903,55 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertEqual(ready.status, RecipeApplicationStatus.READY, ready.issues)
         self.assertIsNotNone(mapping_state.revision)
         self.assertIsNotNone(mapping_state.submission)
+
+        definition["mapping"]["datasets"][0]["row_inclusion"] = {
+            "mode": "matching_rows",
+            "join": "all",
+            "conditions": [
+                {
+                    "source_column_id": "column:customers.customer_code",
+                    "operator": "equals",
+                    "comparison_value": "KEEP",
+                    "value_type": "string",
+                }
+            ],
+        }
+        materializing_compiler.row_inclusion_reviews = SimpleNamespace(
+            check_current=lambda *args, **kwargs: SimpleNamespace(
+                source_row_count=12,
+                included_count=2,
+                excluded_count=10,
+                cannot_evaluate_count=0,
+                confirmable=True,
+            )
+        )
+        row_limited = materializing_compiler.materialize(
+            workspace_id,
+            application_id=str(uuid4()),
+            recipe_id=str(uuid4()),
+            data_version_id=controls.data_version_id,
+            definition=definition,
+            assessment=assessment,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertTrue(row_limited.completed)
+        self.assertEqual(row_limited.status, RecipeApplicationStatus.BLOCKED)
+        self.assertIn(
+            "MAPPING_ROW_INCLUSION_CONFIRMATION_REQUIRED",
+            {item.code for item in row_limited.issues},
+        )
+        self.assertIn(
+            "RECIPE_ROW_INCLUSION_CURRENT_COUNTS",
+            {item.code for item in row_limited.issues},
+        )
+        self.assertEqual(
+            mapping_state.revision.definition.datasets[0]
+            .row_inclusion.conditions[0]
+            .source_column_key,
+            "current:customer_code",
+        )
+        del definition["mapping"]["datasets"][0]["row_inclusion"]
 
         missing_control = MappingValidationIssue(
             code="MAPPING_CONTROL_EXPECTATION_REQUIRED", severity="error",
@@ -1800,7 +1885,7 @@ class IntegratedRecipeCompiler:
         token = logical_name.casefold()
         return {
             "contract_versions": {
-                "mapping_recipe": 2,
+                "mapping_recipe": 3,
                 "odoo_target_contract": 2,
             },
             "source_shape": {
@@ -3036,6 +3121,40 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             f"/projects/{first.project_id}/runs/{first.migration_run_id}/"
             f"applications/{first.application_id}/target-matches",
         )
+
+        row_counts = replace(
+            review,
+            code="RECIPE_ROW_INCLUSION_CURRENT_COUNTS",
+            level=MigrationRunPlanIssueLevel.INFORMATION,
+            message=(
+                "Rows to use on this Data version: 12 source, 2 included, "
+                "10 excluded, and 0 could not be checked."
+            ),
+            recovery_action="These counts belong to this Data version.",
+        )
+        row_confirmation = replace(
+            review,
+            code="MAPPING_ROW_INCLUSION_CONFIRMATION_REQUIRED",
+            level=MigrationRunPlanIssueLevel.BLOCKER,
+            message="Confirm 2 included rows before excluding 10 other rows.",
+            recovery_action="Open Rows to use and confirm the current rows.",
+        )
+        issue_map[first.application_id] = (row_counts, row_confirmation)
+        row_review = build_integrated_run_review(
+            SimpleNamespace(preparation_jobs=None, load_jobs=None),
+            result,
+            recipes=recipes,
+            issues=issue_map,
+        )
+        row_card = next(
+            item
+            for item in row_review.cards
+            if item.application.application_id == first.application_id
+        )
+        self.assertEqual(row_card.action_label, "Review rows to use")
+        self.assertTrue(row_card.action_url.endswith("#rows-to-use-review"))
+        self.assertEqual(row_card.row_inclusion_issues, (row_counts, row_confirmation))
+        self.assertFalse(row_card.other_issues)
 
         materialization_blocker = replace(
             review,

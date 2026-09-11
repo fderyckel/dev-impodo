@@ -103,6 +103,10 @@ applies those rules when documentation is created or rewritten.
   the implemented, model-neutral Stage 1 hierarchy extraction and Stage 3
   self-parent and consumer matching design, including explicit fixed-parent
   and blank-path decisions.
+- [Accept hierarchy roots and preserve parent-before-child load order](plans/hierarchy-root-null-scope-and-load-order.md)
+  — the proposed corrective design for explicit null root scope, exact Odoo
+  matching, dependency ordering, durable parent receipts, and recovery of
+  affected workspaces.
 - The separate browser-language proposal is active design work. Completed
   delivery history belongs in Git history; current behavior belongs in the
   architecture, contracts, and paired workflow pages.

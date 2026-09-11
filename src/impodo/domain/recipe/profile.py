@@ -298,6 +298,7 @@ class IdentityComponent(StrictModel):
     type: ScalarType = "string"
     normalize: NormalizationSpec = Field(default_factory=NormalizationSpec)
     resolve: ResolveSpec | None = None
+    null_policy: Literal["reject", "explicit_scope_null"] = "reject"
 
     @model_validator(mode="after")
     def validate_arity(self) -> "IdentityComponent":
@@ -309,6 +310,10 @@ class IdentityComponent(StrictModel):
             )
         if self.resolve is not None and len(self.target_fields) != 1:
             raise ValueError("relational identity components target one relation field")
+        if self.null_policy == "explicit_scope_null" and self.resolve is None:
+            raise ValueError(
+                "explicit_scope_null requires a relational identity component"
+            )
         return self
 
 
@@ -317,6 +322,19 @@ class TargetIdentitySpec(StrictModel):
 
     components: tuple[IdentityComponent, ...] = ()
     scope: tuple[IdentityComponent, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_null_policies(self) -> "TargetIdentitySpec":
+        """Keep nullable hierarchy semantics out of the identity key itself."""
+
+        if any(
+            component.null_policy == "explicit_scope_null"
+            for component in self.components
+        ):
+            raise ValueError(
+                "explicit_scope_null is only valid for target identity scope"
+            )
+        return self
 
 
 class SourceIdentitySpec(StrictModel):
@@ -416,6 +434,17 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
             f"{unknown_edge.dependency_dataset!r}"
         )
     for dataset in datasets:
+        for component in dataset.target_identity.scope:
+            if component.null_policy != "explicit_scope_null":
+                continue
+            if (
+                component.resolve is None
+                or component.resolve.dataset != dataset.name
+            ):
+                raise ValueError(
+                    "explicit_scope_null requires a self-referencing incoming "
+                    f"scope in dataset {dataset.name!r}"
+                )
         resolves = [
             component.resolve
             for component in (

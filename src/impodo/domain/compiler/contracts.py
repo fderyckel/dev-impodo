@@ -16,8 +16,8 @@ from impodo.domain.relationship_dependencies import (
 )
 
 
-COMPILED_MIGRATION_PLAN_VERSION = 1
-MIGRATION_COMPILER_VERSION = 2
+COMPILED_MIGRATION_PLAN_VERSION = 2
+MIGRATION_COMPILER_VERSION = 3
 
 
 class CompiledMigrationPlan(BaseModel):
@@ -37,8 +37,8 @@ class CompiledMigrationPlan(BaseModel):
     source_selection_hash: str | None = None
     schema_hash: str | None = None
     derived_plan_hash: str | None = None
-    contract_version: Literal[1] = COMPILED_MIGRATION_PLAN_VERSION
-    compiler_version: Literal[2] = MIGRATION_COMPILER_VERSION
+    contract_version: Literal[1, 2] = COMPILED_MIGRATION_PLAN_VERSION
+    compiler_version: Literal[2, 3] = MIGRATION_COMPILER_VERSION
 
     @field_validator(
         "origin_hash",
@@ -82,6 +82,19 @@ class CompiledMigrationPlan(BaseModel):
         ):
             raise ValueError("profile plans cannot contain browser evidence bindings")
         validate_dataset_graph(self.datasets)
+        if (self.contract_version, self.compiler_version) not in {(1, 2), (2, 3)}:
+            raise ValueError("compiled plan contract and compiler versions disagree")
+        if self.contract_version == 1 and any(
+            component.null_policy != "reject"
+            for dataset in self.datasets
+            for component in (
+                *dataset.target_identity.components,
+                *dataset.target_identity.scope,
+            )
+        ):
+            raise ValueError(
+                "compiled plan v1 cannot contain an explicit identity null policy"
+            )
         return self
 
     def dataset(self, name: str) -> DatasetSpec:
@@ -101,7 +114,14 @@ class CompiledMigrationPlan(BaseModel):
     def to_portable_dict(self) -> dict[str, object]:
         """Return the deterministic contract payload used for evidence hashes."""
 
-        return self.model_dump(mode="json", exclude_none=True)
+        payload = self.model_dump(mode="json", exclude_none=True)
+        if self.contract_version == 1:
+            for dataset in payload["datasets"]:
+                target_identity = dataset["target_identity"]
+                for group in ("components", "scope"):
+                    for component in target_identity[group]:
+                        component.pop("null_policy", None)
+        return payload
 
     def to_json(self) -> str:
         """Serialize the complete compiled contract deterministically."""

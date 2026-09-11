@@ -129,7 +129,7 @@ class RowInclusionContractTests(unittest.TestCase):
         restored = MappingDefinition.from_json(definition.to_json())
 
         self.assertEqual(restored, definition)
-        self.assertEqual(restored.contract_version, 16)
+        self.assertEqual(restored.contract_version, 17)
         self.assertEqual(
             definition.to_dict()["datasets"][0]["row_inclusion"]["mode"],
             "matching_rows",

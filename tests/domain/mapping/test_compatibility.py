@@ -10,6 +10,8 @@ from impodo.domain.mapping.contracts import (
     ConstantBusinessReference,
     ConstantReferenceComponent,
     DatasetMapping,
+    IdentityComponentMapping,
+    IdentityNullPolicy,
     MappingDefinition,
     RelationshipMapping,
     RelationshipResolver,
@@ -24,6 +26,57 @@ HASH = "sha256:" + "1" * 64
 
 
 class MappingContractCompatibilityTests(unittest.TestCase):
+    def test_v17_versions_explicit_scope_null_without_reinterpreting_v16(self) -> None:
+        component = IdentityComponentMapping(
+            source_column_keys=("category.parent_key",),
+            target_fields=("parent_id",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.DATASET,
+                dataset_id="dataset:categories",
+            ),
+            null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+        )
+        definition = MappingDefinition(
+            mapping_id="mapping:categories",
+            source_selection_hash=HASH,
+            schema_hash=HASH,
+            datasets=(
+                DatasetMapping(
+                    dataset_id="dataset:categories",
+                    target_model="product.category",
+                    target_scope=(component,),
+                ),
+            ),
+        )
+
+        payload = definition.to_dict()
+        self.assertEqual(
+            payload["datasets"][0]["target_scope"][0]["null_policy"],
+            "explicit_scope_null",
+        )
+        self.assertEqual(MappingDefinition.from_dict(payload), definition)
+        with self.assertRaisesRegex(ValueError, "identity null policy"):
+            replace(definition, contract_version=16)
+
+        legacy = replace(
+            definition,
+            contract_version=16,
+            datasets=(
+                replace(
+                    definition.datasets[0],
+                    target_scope=(
+                        replace(component, null_policy=IdentityNullPolicy.REJECT),
+                    ),
+                ),
+            ),
+        )
+        legacy_payload = legacy.to_dict()
+        self.assertNotIn(
+            "null_policy",
+            legacy_payload["datasets"][0]["target_scope"][0],
+        )
+        self.assertEqual(MappingDefinition.from_dict(legacy_payload), legacy)
+
     def test_v15_constant_relationship_round_trips_and_changes_hash(self) -> None:
         relationship = RelationshipMapping(
             target_field="product_uom_id",

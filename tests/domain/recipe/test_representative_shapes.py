@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 import unittest
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -25,6 +26,7 @@ from impodo.domain.mapping.contracts import (
     ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
+    IdentityNullPolicy,
     MappingDefinition,
     MAPPING_CONTRACT_VERSION,
     ReferenceKeyMapping,
@@ -220,7 +222,49 @@ def _publish(
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):
-    def test_row_inclusion_fails_closed_until_recipe_reuse_is_supported(
+    def test_hierarchy_root_null_policy_round_trips_through_recipe_mapping(
+        self,
+    ) -> None:
+        compiler = object.__new__(RecipeCompiler)
+        component = IdentityComponentMapping(
+            source_column_keys=("physical:parent",),
+            target_fields=("parent_id",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.DATASET,
+                dataset_id="physical:categories",
+            ),
+            null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+        )
+
+        payload = compiler._identity(
+            component,
+            "physical:categories",
+            {
+                (
+                    "physical:categories",
+                    "physical:parent",
+                ): "column:categories.parent",
+            },
+            {"physical:categories": "dataset:categories"},
+        )
+        restored = RecipeApplicationCompiler()._identity(
+            payload,
+            {
+                "column:categories.parent": "fresh:parent",
+                "dataset:categories": "fresh:categories",
+            },
+        )
+
+        self.assertEqual(payload["null_policy"], "explicit_scope_null")
+        self.assertIs(
+            restored.null_policy,
+            IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+        )
+        self.assertEqual(restored.source_column_keys, ("fresh:parent",))
+        assert restored.resolver is not None
+        self.assertEqual(restored.resolver.dataset_id, "fresh:categories")
+
+    def test_row_inclusion_publishes_logical_meaning_and_rebinds_fresh_column(
         self,
     ) -> None:
         project_id = str(uuid4())
@@ -257,23 +301,110 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             ),
         )
 
-        with self.assertRaisesRegex(
-            AssertionError,
-            "ROW_INCLUSION_NOT_PORTABLE",
-        ):
-            _publish(
-                base_selection=selection,
-                mapping_selection=selection,
-                mappings=(mapping,),
-                models=(
-                    SchemaModel(
-                        "product.template",
-                        "Product",
-                        (_field("name"),),
-                    ),
+        recipe = _publish(
+            base_selection=selection,
+            mapping_selection=selection,
+            mappings=(mapping,),
+            models=(
+                SchemaModel(
+                    "product.template",
+                    "Product",
+                    (_field("name"),),
                 ),
-                business_keys=(),
-            )
+            ),
+            business_keys=(),
+        )
+
+        portable_dataset = recipe["mapping"]["datasets"][0]
+        portable_policy = portable_dataset["row_inclusion"]
+        portable_condition = portable_policy["conditions"][0]
+        self.assertEqual(portable_policy["mode"], "matching_rows")
+        self.assertEqual(portable_condition["comparison_value"], "30")
+        self.assertNotIn("condition_id", portable_condition)
+        required_column = recipe["source_shape"]["datasets"][0]["columns"][0]
+        self.assertEqual(required_column["required_by"], ["row_inclusion"])
+
+        logical_dataset = portable_dataset["logical_dataset_id"]
+        logical_column = portable_condition["source_column_id"]
+        rebound = RecipeApplicationCompiler()._mapping_datasets(
+            recipe,
+            {
+                logical_dataset: "fresh-products",
+                logical_column: "fresh-product-status",
+            },
+            SimpleNamespace(datasets=()),
+            None,
+            None,
+        )[0]
+
+        self.assertIs(
+            rebound.row_inclusion.mode,
+            RowInclusionMode.MATCHING_ROWS,
+        )
+        self.assertEqual(
+            rebound.row_inclusion.conditions[0].source_column_key,
+            "fresh-product-status",
+        )
+        self.assertEqual(
+            rebound.row_inclusion.conditions[0].comparison_value,
+            "30",
+        )
+
+    def test_fresh_row_rule_column_binding_distinguishes_missing_and_ambiguous(
+        self,
+    ) -> None:
+        definition = {
+            "source_shape": {
+                "datasets": (
+                    {
+                        "logical_dataset_id": "dataset:products",
+                        "logical_name": "Products",
+                        "columns": (
+                            {
+                                "logical_column_id": (
+                                    "column:products.code_statut_product"
+                                ),
+                                "source_name": "Code statut product",
+                            },
+                        ),
+                    },
+                )
+            }
+        }
+        missing_dataset = _dataset(
+            "Products",
+            (("Product name", "string"),),
+            "1",
+        )
+        ambiguous_dataset = _dataset(
+            "Products",
+            (
+                ("Code statut product", "string"),
+                ("Code-statut-product", "string"),
+            ),
+            "2",
+        )
+        compiler = RecipeApplicationCompiler()
+
+        _bindings, _candidates, missing = compiler._source_assessment(
+            definition,
+            SimpleNamespace(datasets=(missing_dataset,)),
+            {},
+        )
+        _bindings, _candidates, ambiguous = compiler._source_assessment(
+            definition,
+            SimpleNamespace(datasets=(ambiguous_dataset,)),
+            {},
+        )
+
+        self.assertIn(
+            "RECIPE_SOURCE_COLUMN_MISSING",
+            {item.code for item in missing},
+        )
+        self.assertIn(
+            "RECIPE_SOURCE_COLUMN_AMBIGUOUS",
+            {item.code for item in ambiguous},
+        )
 
     def test_hierarchy_preparation_rebinds_every_ordered_source_level(self) -> None:
         rule = RecipeApplicationCompiler()._preparation_rule(

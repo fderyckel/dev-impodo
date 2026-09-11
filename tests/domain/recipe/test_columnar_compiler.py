@@ -28,6 +28,7 @@ from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
     DatasetMapping,
     IdentityComponentMapping,
+    IdentityNullPolicy,
     MappingControlExpectation,
     MappingDefinition,
     ReferenceKeyMapping,
@@ -405,6 +406,39 @@ class ColumnarCompilerTests(unittest.TestCase):
         self.assertEqual(
             {item.code for item in related.fallback_reasons},
             {"COLUMNAR_NON_DIRECT_DATASET_UNSUPPORTED"},
+        )
+
+    def test_hierarchy_root_scope_keeps_the_identity_resolver_fallback(self) -> None:
+        scope = IdentityComponentMapping(
+            source_column_keys=("product.category",),
+            target_fields=("parent_id",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.DATASET,
+                dataset_id=DATASET_ID,
+            ),
+            null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+        )
+        definition = _definition(
+            self.selection,
+            fields=(
+                ScalarFieldMapping(
+                    target_field="name",
+                    source_column_key="product.name",
+                ),
+            ),
+            target_scope=(scope,),
+        )
+
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+
+        self.assertEqual(decision.support, ColumnarSupport.PYTHON_FALLBACK)
+        self.assertEqual(
+            {item.code for item in decision.fallback_reasons},
+            {"COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED"},
         )
 
     def test_incoming_many2one_compiles_native_key_once_for_set_resolution(
@@ -895,6 +929,7 @@ def _definition(
     *,
     fields: tuple[ScalarFieldMapping, ...],
     target_identity: tuple[IdentityComponentMapping, ...] | None = None,
+    target_scope: tuple[IdentityComponentMapping, ...] = (),
     relationships: tuple[RelationshipMapping, ...] = (),
     control_definitions: tuple[BusinessControlDefinition, ...] = (),
     control_expectations: tuple[MappingControlExpectation, ...] = (),
@@ -918,6 +953,7 @@ def _definition(
                         ),
                     )
                 ),
+                target_scope=target_scope,
                 fields=fields,
                 relationships=relationships,
                 control_definitions=control_definitions,

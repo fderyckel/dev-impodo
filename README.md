@@ -1,201 +1,321 @@
 # Impodo
 
-Impodo is a local browser platform for preparing CSV and XLSX data for an Odoo
-19 migration. It helps a data manager govern the source files, capture the
-target Odoo schema, and build a validated mapping before any migration work is
-considered.
+**Prepare clean data. Review every change. Import into Odoo with confidence.**
 
-Impodo's normal preparation and comparison workflow is read-only. For a
-disposable local or remote Odoo 19 target, it can preview and explicitly load
-a reviewed, schema-bound set of standard or custom models and writable fields
-through Odoo's native API, then read the written records back and show
-actionable fallout.
+Impodo is an open-source data transformation and import product built for
+**Odoo business analysts, Odoo developers, and Odoo data managers**. It brings
+source inspection, field mapping, data quality, relationship handling,
+reviewed loading, and result verification into one local browser application.
 
-## The platform
+Turn CSV files, Excel workbooks, or supported Odoo source records into a
+repeatable migration workflow. Keep the original delivery intact, explain how
+each value becomes an Odoo field, and see what will be created or updated
+before you authorize a load. Save reusable rules as **Recipes** when the next
+delivery should follow the same decisions.
 
-Impodo runs locally on Windows and macOS and opens in the default browser on a
-local-only `127.0.0.1` address. A Project is the business and governance root.
-Each Data version owns its source package, and each contained workspace keeps
-its own mapping, validation, preparation, comparison, and load evidence in
-isolated local DuckDB stores.
+**Odoo 19 · Python 3.12+ · Windows and macOS · Local data processing**
 
-The platform accepts `.csv` and `.xlsx` source files. It can connect to an
-authorised Odoo 19 target. A local Windows instance uses an explicitly
-selected `odoo.conf` and fixed read-only metadata operations without an Odoo
-API key. A remote read connection requires HTTPS and a dedicated read-only API
-key. An explicit local or remote load requires a separately authorized API
-key.
-Impodo does not classify targets by an organisation's lifecycle stages.
+[Get started](#get-started) ·
+[Take the tutorial](docs/user/tutorials/end-to-end-training.md) ·
+[Browse the documentation](docs/README.md) ·
+[Explore the technical stack](#technical-stack)
 
-The browser, source inspection, and read-only Odoo connection work on both
-operating systems. The in-browser assistant that discovers and starts a local
-Odoo and PostgreSQL stack is currently available on Windows only. On macOS,
-start a local Odoo stack separately before connecting to it in Impodo.
+![Impodo previews new, changed, and up-to-date records and shows the order in which related records will load.](docs/images/user/17-load-preview.png)
 
-## What Impodo does today
+*Review the proposed changes and dependencies before loading. Screenshots use
+fictional data; their counts are examples, not performance measurements.*
 
-### Project setup
+## Built for the people responsible for Odoo data
 
-- Records the migration context, responsible people, data classification, and
-  retention details.
-- Selects governed CSV/XLSX files or existing Odoo records as the source mode.
-- Adds and hashes source files for file-mode projects. Odoo-source projects can
-  register without an export date or placeholder file, proceed to read-only
-  model/field discovery, and save one bounded scalar capture plan per selected
-  model. Saving a plan does not contact Odoo. After every model has a plan, one
-  read-only capture freezes the complete dataset set atomically.
-- Configures and optionally tests the read-only Odoo connection.
-- Keeps read and write keys in separate target-bound vault roles and browser
-  fields. Loading and read-back never fall back to the setup read key.
-- Records non-secret removal receipts when target changes or project deletion
-  remove stored target credentials.
+A migration needs more than matching spreadsheet headings. Business keys must
+identify the right records, selection values must mean the right thing, and
+relationships must resolve in the destination database. Impodo makes these
+decisions visible and keeps the evidence needed to review them.
 
-### Source discovery and dataset freeze
+| Your role | What you can do with Impodo |
+| --- | --- |
+| **Odoo business analyst (BA)** | Translate business rules into field matches, selection choices, defaults, and checks. Review proposed values and downloadable Excel workbooks with stakeholders. |
+| **Odoo data manager** | Accept source deliveries, resolve data-quality findings and duplicates, reconcile row totals, rehearse migrations, and verify loaded records. |
+| **Odoo developer** | Inspect the actual Odoo model and field schema, work with supported standard and custom models, author YAML profiles, and extend a Python application with explicit integration contracts. |
 
-- Inspects CSV encoding, delimiter, headers, column types, statistics, and
-  warnings.
-- Inventories XLSX worksheets and named tables, with bounded previews and
-  source-file safety checks.
-- Lets the user confirm the selected source content and freeze it as named
-  datasets. The frozen datasets remain bound to the confirmed source hashes.
-- For an Odoo-source project, saves append-only bounded capture-plan revisions
-  bound to the current authenticated schema identity: one model, at most 50
-  eligible scalar fields, active/archive policy, and at most 10,000 rows. The
-  browser distinguishes this plan from the later live read and immutable
-  snapshot publication.
-- Binds every Odoo capture plan to one executable policy covering Tier-1
-  fields, limits, protected-data handling, connection-only target assurance,
-  and the explicit `PRODUCTION_WRITE_UNSUPPORTED` native JSON-2 disposition.
+For example, a product workbook may repeat category names and contain bill of
+materials (BoM) lines. You can extract reusable category records, separate
+parent and child tables, map product identities and relationships, and review
+the required load order. The
+[training tutorial](docs/user/tutorials/end-to-end-training.md) walks through
+fictional customers, products, categories, and BoMs.
 
-### Target schema and governed mapping
+## From source delivery to verified Odoo records
 
-- Captures the permitted Odoo models and their fields through read-only
-  metadata calls.
-- Stores verified model and effective-field snapshots in the project DuckDB
-  database, so reopening and mapping do not automatically contact Odoo.
-- Binds those catalogues to a non-secret read-credential generation hash. This
-  records Impodo-side key rotation without claiming Odoo principal identity.
-- For remote reads, verifies the API key's own Odoo user and required model-
-  level read access through a closed probe, including a bounded active-company
-  scope check, then binds non-secret principal, observed-permission, and context
-  hashes to model/schema evidence. Raw Odoo user, group, and company IDs are
-  not stored.
-- Records the target business keys and any company or tenant scope fields.
-- Maps each frozen dataset to an Odoo model and its writable scalar fields.
-- Lets each scalar field use a source column, constant, source fallback, or an
-  explicit leave-unset/Odoo-default policy.
-- Applies allowlisted trim, whitespace, empty-to-null, find/replace, casing,
-  locale-aware decimal and explicit rounding, date-format, boolean, UTC
-  datetime, and safe formula transformations, with bounded raw-to-proposed
-  previews.
-- Authors plain-language exact-length and first/last/whole-value character
-  checks, while keeping bounded custom patterns behind an optional advanced
-  control.
-- Configures many2one and many2many relationships using governed business
-  keys; one2many relationships are handled through the child inverse field.
-- Lets a many2one use one source-provided value or the same existing Odoo
-  record for every row, stored by portable business key rather than numeric ID.
-- Authors hash-bound derived-entity rules that assign deterministic,
-  related-entity-owned IDs to reusable values found in denormalized source
-  fields, with bounded alias and hierarchy previews; extracted datasets appear
-  beside the original rows in Mapping and are materialized during readiness.
-- Prepares repeated-parent source tables as guided parent and child logical
-  datasets, carries every source row into the child dataset, and offers both
-  datasets to Mapping with safe inverse-many2one guidance.
-- Creates immutable mapping revisions, validates them, and allows submission
-  of the exact validated revision after blocking findings are resolved.
+Create a data project, then follow the six Authoring workspace stages:
 
-Changing a confirmed source, frozen dataset, Odoo schema capture, or governed
-business key invalidates the active mapping so it must be validated again.
+| Stage | What you decide or review |
+| --- | --- |
+| **1. [Source data](docs/user/workflow/01-source-data.md)** | Inspect files, confirm the source content, and accept the datasets you will use. Odoo-source work has its own capture steps. |
+| **2. [Odoo data](docs/user/workflow/02-odoo-data.md)** | Read the permitted Odoo models and fields, then confirm business keys and relevant company or parent scope. |
+| **3. [Match data](docs/user/workflow/03-match-data.md)** | Define record identity, field values, transformations, relationships, and which source rows belong in the migration. |
+| **4. [Prepare data](docs/user/workflow/04-prepare-data.md)** | Apply the confirmed rules, review quality findings, and resolve duplicate and normalization decisions. |
+| **5. [Final review](docs/user/workflow/05-final-review.md)** | Compare prepared records with Odoo and review proposed creates, updates, unchanged records, ambiguities, and blockers. |
+| **6. [Load into Odoo](docs/user/workflow/06-load-into-odoo.md)** | Explicitly authorize the reviewed changes, follow execution, and read records back to verify the result. |
 
-### Practical Odoo load
+Preparation and comparison do not write to Odoo. A changed source, mapping,
+schema, or business-key decision requires fresh checks before its results can
+be used for loading.
 
-- Freezes the exact compared rows and field intentions automatically.
-- Shows create, update, and unchanged totals before any write.
-- Requires one explicit **Load into Odoo** action.
-- Requires a separately supplied or stored write key for load and read-back;
-  the read-only setup key cannot authorize execution.
-- For remote loads, probes that key independently for read-back access to the
-  exact reviewed model scope and write access only to models with reviewed
-  write fields. The journal binds non-secret credential-generation, principal,
-  observed-permission, and context hashes; read-back re-probes them.
-- Audits successful read/write credential storage and replacement using only
-  the safe random binding hash and storage class, never the key or raw Odoo
-  identity values.
-- Derives an exact per-preview JSON-2 capability from the captured schema and
-  confirmed mapping, uses dependency-ordered batches and exact business-key
-  updates, and exposes no direct SQL or generic RPC.
-- Journals every proposed write and stops without retrying after a lost write
-  response.
-- Reads accepted rows back by Odoo ID, re-matches uncertain responses by the
-  governed business key, and shows verified rows or downloadable fallout.
+In this README, an **Odoo model** is a record type such as `res.partner`; a
+**record** is one instance of that model, and a **field** holds a value or
+relationship. A **business key** is the agreed field or combination of fields
+that identifies a record, within a company or parent **scope** when needed.
+An Odoo **External ID** is a named identifier; it is distinct from the numeric
+database **Odoo ID**. Impodo keeps portable matching rules separate from
+database-specific numeric IDs.
 
-**Delivery status:** The bounded preparation, review, durable preflight,
-execution snapshot, practical load, and read-back reconciliation path are
-implemented. A live 150-row disposable-target run verified every row and
-repeated with no proposed writes or duplicates. The first remote Odoo 19 path
-supports bounded scalar creates, incoming many2one references to earlier
-imports, exact-key many2one references to existing target records, stable
-External IDs, remote many2many creates, and exact-key scalar or relationship
-updates. Create-time cycles made only of deferrable relationships use a
-reviewed two-phase create-then-ORM-update path; identity/scope cycles and
-fields required during create remain blocked. Incremental relationship
-commands, retained live-target throughput evidence and any measurement-led
-tuning, and production cutover controls remain later delivery scope.
+## What you can do
 
-The opt-in [remote Odoo 19 acceptance run](docs/developer/runbooks/remote-odoo-acceptance.md)
-is ready for a disposable on-premises database. It exercises 150 sanitized
-rows through the real remote writer and read-back path and records observed
-throughput; live evidence still requires the target server.
+### Inspect and shape your source data
 
-## Install and start
+- **Read CSV and XLSX files.** Inspect CSV encoding, delimiters, headers, types,
+  statistics, and warnings. Select Excel worksheets or named tables and check
+  their previews before accepting the delivery.
+- **Select rows deliberately.** Use guided conditions to include the intended
+  population, review exclusions, and keep the complete accepted source intact.
+- **Build related tables.** Extract reusable records from repeated values,
+  build hierarchies from separate columns, or split repeated-parent tables
+  into parent and child datasets with source-row traceability.
+- **Capture supported Odoo records.** Define bounded, read-only capture plans
+  and preserve the accepted source snapshot for subsequent work.
 
-Impodo requires Python 3.12 or newer.
+See [Source data](docs/user/workflow/01-source-data.md) and
+[Prepare related tables](docs/user/guides/related-tables.md).
 
-### Windows
+### Map business meaning, values, and relationships
 
-Install 64-bit Python 3.12 or newer first. The standard Windows Python
-installation includes `venv`; no separate virtual-environment package is
-required.
+- **Choose how each field gets its value.** Use a source column, combine
+  columns, supply a constant or fallback, or explicitly use a verified Odoo
+  default where supported.
+- **Transform values visibly.** Trim and normalize whitespace, replace text,
+  change case, parse locale-specific decimals, round numbers, interpret dates
+  and booleans, normalize datetimes to UTC, and apply supported safe formulas.
+- **Check business rules.** Validate required values, text length and character
+  rules, selection choices, relationships, and supported cross-field checks.
+- **Resolve relationships by business key.** Link to incoming records or
+  approved existing Odoo records, including scoped identities and fixed
+  many-to-one (`Many2one`) references. Configure many-to-many (`Many2many`)
+  links and represent one-to-many (`One2many`) relationships through the
+  child's inverse `Many2one` field.
+- **Review in the browser or Excel.** Inspect rule effects and download a
+  matching review workbook with field decisions, issues, proposed values,
+  and explanations of transformed cells.
 
-For the first setup, open PowerShell at the repository root, create the local
-`.venv`, and install Impodo into it:
+![The Match data editor configures a source value, fallback, whitespace cleanup, and text checks for an Odoo Name field.](docs/images/user/11-mapping-fields.png)
+
+Use the [Match data questions and answers](docs/user/tutorials/match-data-questions-and-answers.md)
+for worked examples and the exact meaning of each rule.
+
+### Resolve quality issues and review the load
+
+- **Account for source rows.** Review prepared, excluded, rejected, and
+  quarantined outcomes. Quarantine sets affected records aside for review;
+  it preserves their evidence.
+- **Resolve possible duplicates.** Review candidates and decide whether to
+  merge them or keep distinct business entities separate.
+- **Approve normalization.** Review proposed groups of equivalent values and
+  resolve collisions before proceeding.
+- **Compare with the destination.** Distinguish new records, exact-key updates,
+  unchanged records, ambiguous matches, and blocked rows. Download the final
+  review workbook before approving the proposed load.
+
+### Load, verify, and correct
+
+- **Load the exact reviewed changes.** Impodo uses the Odoo 19 native JSON-2
+  API for supported creates and updates, with stable External IDs on supported
+  create paths. It loads dependencies in order and completes eligible optional
+  relationships in a later pass.
+- **Keep a durable execution record.** Impodo journals write attempts and
+  stops on an unknown write outcome so it can be reconciled before retrying.
+- **Verify the destination.** Read affected records back and download fallout
+  details for rows that could not be verified.
+- **Correct an eligible verified Authoring load.** Review changes to the
+  previously loaded records and apply only the confirmed corrections, with
+  zero creates and a new verification result.
+- **Transfer between Odoo databases.** Capture supported source records,
+  match them against a separate destination, review reuse and creation
+  decisions, check transfer order, and explicitly load and verify the transfer.
+
+Read [Load into Odoo](docs/user/workflow/06-load-into-odoo.md) for the distinct
+prepared-data, Odoo-to-Odoo transfer, and correction workflows.
+
+### Reuse rules and coordinate migrations
+
+A **data project** holds one migration effort. A **Data version** contains one
+accepted delivery of source data. A **workspace** selects datasets from that
+delivery and holds the current working evidence. A **Recipe** saves reusable
+rules; a **migration run** records what happened when those rules and data
+were used.
+
+You can finish a one-off migration without creating a Recipe. For recurring
+work, save versioned Recipes and apply them to fresh data through **Fresh
+data**, **Check Odoo**, and **Review and load**.
+
+An **Integrated Test run** rehearses several Recipe versions together, with
+dependencies such as customers before sales orders. A qualified **Cutover
+plan** records the exact versions, order, field ownership, and shared controls
+proved by that Test. The implemented file-source **Production run** applies
+the selected plan to a fresh delivery and a different compatible Odoo target,
+with its own access, comparison, approval, execution, and verification.
+
+Recipes contain no source rows, target credentials, numeric Odoo record IDs,
+approvals, or migration results. Test qualification does not authorize a
+Production write.
+
+Start with [Impodo concepts](docs/user/concepts.md), then follow
+[Integrated Test runs](docs/user/guides/integrated-test-runs.md),
+[Test qualification](docs/user/guides/qualify-integrated-test.md), and
+[Production rollout](docs/user/guides/production-rollout.md).
+
+## Large-data transformation: measured scope
+
+Impodo uses **Polars, Parquet, and DuckDB** to process data locally, with
+columnar execution for supported transformations and separate preparation
+workers. The goal is repeatable bulk preparation with reviewable results.
+
+The current supported boundaries depend on the execution path:
+
+| Processing path | Current row boundary |
+| --- | ---: |
+| One direct dataset, bound to an exact source snapshot, with all transformations supported by the native columnar engine | 100,000 physical rows |
+| Direct preparation across multiple datasets, direct relationship routes, or mappings requiring the Python fallback | 50,000 physical rows |
+| Derived or materialized preparation | 25,000 physical rows |
+| Durable preflight comparison | 25,000 rows |
+
+These are separate stage limits, not a claim that a 100,000-row migration has
+been qualified end to end. Retained local Odoo acceptance includes a
+150-record load with every row verified and a repeat preview proposing no
+writes. Remote throughput requires its own live-target measurement. See the
+[acceptance evidence](docs/testing/acceptance.md) and
+[remote acceptance runbook](docs/developer/runbooks/remote-odoo-acceptance.md)
+for workloads, measurements, and remaining qualification work.
+
+## Get started
+
+Install **Python 3.12 or newer** and open a terminal at the root of this
+checkout. These commands create a private environment, install Impodo, and
+launch the browser application.
+
+### Windows PowerShell
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
-```
-
-The `.venv` directory now contains this checkout's isolated Python environment
-and the Impodo launcher. Start Impodo with:
-
-```powershell
 .\.venv\Scripts\impodo.exe
 ```
 
-You do not need to activate the virtual environment because these commands use
-its executables directly. On later starts, only run the launcher command.
+### macOS Terminal
 
-The launcher opens a single-use authenticated URL in the default browser. To
-stop Impodo, use **Quit Impodo** in the browser or press `Ctrl+C` in the
-PowerShell window.
+Use a `python3` command that reports Python 3.12 or newer:
 
-### macOS
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/impodo
+```
 
-For the complete GitHub-checkout installation, library verification, and
-launch instructions, see [Install Impodo on macOS](docs/user/installation/macos.md).
-Impodo requires Python 3.12 or newer. From the checkout, start it with
-`.venv/bin/impodo`. The launcher stores projects under
-`$HOME/Library/Application Support/Impodo/projects` by default. Keep the
-Terminal window open while using Impodo; press `Control+C` or select **Quit
-Impodo** in the browser when finished.
+On later starts, run only the launcher command. No environment activation is
+required. Impodo opens a single-use authenticated URL on `127.0.0.1` in your
+default browser. Keep the terminal open; select **Quit Impodo** or press
+`Ctrl+C` to stop it.
 
-Editable installation is the development lane. For use with approved internal
-data, promote and install a clean, evidence-producing bundle by following the
-[internal development and release runbook](docs/developer/runbooks/internal-release.md).
+For checkout instructions and troubleshooting, use the
+[Windows installation guide](docs/user/installation/windows.md) or
+[macOS installation guide](docs/user/installation/macos.md). Then
+[create your first data project](docs/user/getting-started.md).
 
-## Documentation
+The editable installation is for development and evaluation with fictional or
+disposable data. For approved internal data, follow the
+[internal release runbook](docs/developer/runbooks/internal-release.md).
 
-For the complete documentation, choose the data-manager or developer path at
-[docs/README.md](docs/README.md). That index also links the operating runbooks,
-contracts, architecture, plans, and test evidence.
+## Compatibility and operating boundaries
+
+- **Odoo 19 is the supported integration target.** Available models and fields
+  depend on the installed Odoo applications, captured schema, permissions,
+  and supported mapping and write capabilities.
+- **Impodo runs locally on Windows and macOS.** Its browser server binds to
+  `127.0.0.1`. Impodo stores project data locally and does not require its own
+  PostgreSQL server. Odoo and its database remain separate prerequisites.
+- **Local stack assistance is Windows-only.** Impodo can discover and start an
+  eligible local Odoo and PostgreSQL stack on Windows. On macOS, start the
+  stack separately; see [Connect to local Odoo](docs/user/guides/local-odoo.md).
+- **Remote Odoo connections require HTTPS and authorized API access.**
+  Prepared-data workflows separate read and load credentials. Odoo-to-Odoo
+  transfers use a source-fetch key and a separate destination-transfer key;
+  the destination key can write only after explicit load confirmation.
+- **Loading is scoped and explicit.** Impodo exposes no generic RPC or direct
+  SQL write path, and it provides no whole-migration rollback. Missing source
+  rows do not imply deletion or archiving. Production rollout currently
+  accepts file-source plans; Odoo-source round-trip Production writes remain
+  unsupported.
+
+See [Security and infrastructure](docs/architecture/security-and-infrastructure.md)
+for local storage, credential protection, authorization, and deployment
+details. Future work is tracked in the
+[remaining-work plan](docs/plans/remaining-work.md).
+
+## Technical stack
+
+| Layer | Technology and purpose |
+| --- | --- |
+| Runtime | **Python 3.12+** runs the application, domain rules, workers, and CLI. |
+| Web application | **FastAPI**, **Uvicorn**, and **Pydantic** provide HTTP serving and validated contracts. |
+| Browser interface | **Jinja2** renders HTML with local CSS, JavaScript, and Bootstrap Icons. |
+| Data transformation | **Polars** executes supported columnar transformations; **Parquet** stores source and prepared data artifacts. |
+| Local persistence | **DuckDB** stores project registries, workspace state, and migration evidence. |
+| File handling | **openpyxl** handles Excel workbooks; CSV inspection and parsing support governed source acceptance. |
+| Protected data and credentials | **cryptography** and **keyring** support protected evidence and local credential storage. |
+| Odoo integration | Scoped **Odoo 19 JSON-2** adapters provide native API loading and read-back; dedicated read adapters capture schema and reference evidence. |
+| Developer workflows | **PyYAML** supports declarative profiles; **unittest** covers domain, application, adapter, browser-route, architecture, and performance behavior. |
+
+The code separates browser handlers, application workflows, domain rules, and
+storage or Odoo adapters. Both browser mappings and YAML profiles compile into
+shared migration semantics. Start with the
+[architecture overview](docs/architecture/overview.md),
+[code organization](docs/architecture/code-organization.md), and
+[Python code map](docs/architecture/python-code-map.md).
+Dependency requirements live in [pyproject.toml](pyproject.toml); release
+locking and verification are documented in the
+[release runbook](docs/developer/runbooks/internal-release.md).
+
+## Documentation and resources
+
+| You want to… | Start here |
+| --- | --- |
+| Complete a guided migration | [End-to-end training tutorial](docs/user/tutorials/end-to-end-training.md) |
+| Find a browser task or troubleshoot a stage | [User documentation](docs/user/README.md) |
+| Understand Odoo matching rules and edge cases | [Match data questions and answers](docs/user/tutorials/match-data-questions-and-answers.md) |
+| Trial your own files | [Scenario trials](docs/user/guides/scenario-trials.md) |
+| Author declarative migration rules | [YAML profile authoring](docs/developer/cli/profile-authoring.md) and [example profiles](profiles/) |
+| Capture target evidence and compare from the CLI | [Preflight CLI runbook](docs/developer/cli/preflight.md) |
+| Explore sample inputs and scenarios | [Examples](examples/), [fixtures](fixtures/), and [scenarios](scenarios/) |
+| Understand or extend the implementation | [Developer documentation](docs/developer/README.md) and [contracts](docs/developer/contracts/) |
+| Check precise terminology | [Concepts](docs/user/concepts.md) and [glossary](docs/glossary.md) |
+| Find architecture, process diagrams, plans, or test evidence | [Complete documentation index](docs/README.md) |
+
+## Contributing
+
+Useful contributions include reproducible Odoo import cases, clearer business
+rules and tutorials, adapter improvements, and measured performance work.
+Include your Odoo version, relevant installed applications, expected behavior,
+and a small fictional dataset when reporting a problem.
+
+Before changing code, read the
+[developer setup](docs/developer/setup/windows.md) and
+[code-organization rules](docs/architecture/code-organization.md). Run the
+focused tests for the affected behavior using the
+[acceptance strategy](docs/testing/acceptance.md). Documentation changes follow
+the [style guide](docs/style-guide.md) and
+[documentation checks](docs/README.md#documentation-maintenance).
+
+## License
+
+Impodo is intended for open-source distribution. This checkout does not yet
+include a root license file; the project license must be specified before
+redistribution terms can be stated here.

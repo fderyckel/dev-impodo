@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
@@ -30,6 +30,10 @@ from ..domain.mapping.contracts import (
     RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
+    RowInclusionCondition,
+    RowInclusionJoin,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarFieldMapping,
     ScalarConcatenation,
     ScalarValueSource,
@@ -159,7 +163,10 @@ class RecipeApplicationCompiler:
                         issues.append(self._block("RECIPE_SOURCE_OVERRIDE_STALE", f"The confirmed replacement for {required_column['source_name']} is no longer present.", "Choose the current exact replacement column.", logical_column))
                 if selected is None:
                     candidates[logical_column] = tuple((column.stable_key, column.source_name) for column in dataset.columns)
-                    issues.append(self._block("RECIPE_SOURCE_COLUMN_MISSING", f"Required source column {required_column['source_name']} is missing.", "Confirm the exact replacement column.", logical_column))
+                    if len(matches) > 1:
+                        issues.append(self._block("RECIPE_SOURCE_COLUMN_AMBIGUOUS", f"Required source column {required_column['source_name']} matches more than one current column.", "Confirm one exact replacement column.", logical_column))
+                    else:
+                        issues.append(self._block("RECIPE_SOURCE_COLUMN_MISSING", f"Required source column {required_column['source_name']} is missing.", "Confirm the exact replacement column.", logical_column))
                     continue
                 bindings[logical_column] = selected.stable_key
                 used_columns[dataset.dataset_id].add(selected.stable_key)
@@ -947,6 +954,11 @@ class RecipeApplicationCompiler:
                 target_model=str(dataset["target_model"]),
                 mode=mode,
                 on_existing=(str(dataset["on_existing"]) if dataset.get("on_existing") is not None else None),
+                row_inclusion=self._row_inclusion(
+                    dataset.get("row_inclusion"),
+                    logical_dataset=logical_dataset,
+                    bindings=bindings,
+                ),
                 source_identity_column_keys=tuple(bindings[str(value)] for value in dataset.get("source_identity_column_ids", ())),
                 target_identity=tuple(self._identity(item, bindings) for item in dataset.get("identity", ())),
                 target_scope=tuple(self._identity(item, bindings) for item in dataset.get("scope", ())),
@@ -967,6 +979,42 @@ class RecipeApplicationCompiler:
                 control_expectations=expectations,
             ))
         return tuple(result)
+
+    @staticmethod
+    def _row_inclusion(payload, *, logical_dataset, bindings):
+        """Bind portable row-selection meaning to current stable source keys."""
+
+        if payload is None:
+            return RowInclusionPolicy()
+        policy = dict(payload)
+        mode = RowInclusionMode(str(policy.get("mode", "all_rows")))
+        conditions = tuple(
+            RowInclusionCondition(
+                condition_id=str(
+                    uuid5(
+                        NAMESPACE_URL,
+                        f"impodo:{logical_dataset}:row-inclusion:{index}",
+                    )
+                ),
+                source_column_key=bindings[str(condition["source_column_id"])],
+                operator=SelectionConditionOperator(str(condition["operator"])),
+                comparison_value=(
+                    str(condition["comparison_value"])
+                    if condition.get("comparison_value") is not None
+                    else None
+                ),
+                value_type=str(condition.get("value_type", "string")),
+            )
+            for index, condition in enumerate(
+                policy.get("conditions", ()),
+                start=1,
+            )
+        )
+        return RowInclusionPolicy(
+            mode=mode,
+            join=RowInclusionJoin(str(policy.get("join", "all"))),
+            conditions=conditions,
+        )
 
     def _field(self, item, bindings, references):
         provider = dict(item["provider"])
@@ -1065,6 +1113,7 @@ class RecipeApplicationCompiler:
             target_fields=tuple(str(value) for value in item.get("target_fields", ())),
             value_type=str(item.get("value_type", "string")),
             resolver=(self._resolver(resolver, bindings) if resolver else None),
+            null_policy=str(item.get("null_policy", "reject")),
         )
 
     def _relationship(self, item, bindings):

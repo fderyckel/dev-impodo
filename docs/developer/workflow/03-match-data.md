@@ -55,7 +55,8 @@ providers, conversions, identities, relationships, write scope, and coverage.
 values without changing source evidence.
 
 `mapping_forms.py` strictly allowlists eight row-inclusion condition slots per
-dataset. It constructs only the closed version-16 `RowInclusionPolicy` shape;
+dataset. It constructs only the closed `RowInclusionPolicy` shape introduced
+in mapping contract version 16;
 inactive dataset editors preserve their existing policy, and `all_rows`
 rejects a populated condition payload. `mapping-row-inclusion.js` controls
 progressive disclosure only. Domain construction and semantic validation stay
@@ -401,6 +402,13 @@ are hard edges, preflight resolves the parent recursively, and the execution
 snapshot schedules a created parent before every dependent child. Missing,
 ambiguous, or blocked parents continue to fail closed. This behavior does not
 authorize partial loading of otherwise valid rows.
+
+Mapping contract version 17 adds `explicit_scope_null` for the one generated
+hierarchy case that needs a deliberate blank: an optional self-parent scope on
+a root row. `mapping_forms.py` derives this policy only from the current
+`DerivedDatasetLink`, captured optional many-to-one metadata, the selected
+parent-key source column, and a resolver back to the same dataset. All other
+identity and scope components retain `reject`.
 
 A `constant_existing` many2one produces the same target `LogicalReference`
 for every applicable owner row. The row evaluator uses the stored values

@@ -479,6 +479,7 @@ visible for a separate decision.
 
 ## Related documentation
 
+- [Corrective proposal: accept hierarchy roots and preserve load order](hierarchy-root-null-scope-and-load-order.md)
 - [Prepare related tables](../user/guides/related-tables.md)
 - [Source data developer workflow](../developer/workflow/01-source-data.md)
 - [Match data user workflow](../user/workflow/03-match-data.md)

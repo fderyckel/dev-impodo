@@ -46,6 +46,10 @@ class RecipeCompositionTests(TestCase):
         context = app.state.context
         self.assertIs(context.quality.recipe_quality, context.run_planning.compiler.application_state)
         self.assertIs(context.mapping_workspace.recipe_applications, context.quality.recipe_quality)
+        self.assertIs(
+            context.run_planning.compiler.row_inclusion_reviews,
+            context.row_inclusion_reviews,
+        )
         self.assertIsInstance(worker.quality.recipe_quality, RecipeQualitySeedRepository)
 
 

@@ -128,7 +128,7 @@ versions and content identity. A rejected or pending receipt never validates,
 submits, or otherwise authorizes mapping evidence. Pending means the outcome is
 still unknown and forbids automatic mutation replay.
 
-The exact current mapping contract is version 16. It binds an explicit
+The exact current mapping contract is version 17. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -150,6 +150,13 @@ the physical and effective source selections, mapping, schema, derived plan,
 and evaluator version. When any row is excluded, exact snapshot confirmation
 is required before mapping submission. A rule edit or changed source identity
 cannot reuse that confirmation. The accepted Data version itself is unchanged.
+
+Mapping contract version 17 adds a closed `IdentityNullPolicy`. Its default
+`reject` preserves prior identity behavior. `explicit_scope_null` is valid only
+for an optional, generated, self-referencing hierarchy parent in target scope;
+an all-blank parent key then represents a deliberate root and remains part of
+the complete collision identity. Historical version-16 evidence cannot carry
+or inherit this new meaning.
 
 Mapping contract version 13 added the optional captured projection used when
 Odoo creates a relationship target from an imported source record. Version 14

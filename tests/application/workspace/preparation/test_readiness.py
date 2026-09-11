@@ -839,6 +839,60 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(result.counts[Classification.CREATE.value], 3)
         self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
 
+    def test_included_child_does_not_silently_follow_parent_exclusion(self) -> None:
+        evidence = self._evidence(
+            (
+                ("BOM-A", "1", "COMP-1"),
+                ("BOM-B", "1", "COMP-2"),
+            )
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        parent = replace(
+            parent,
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key="column:bom_id",
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="BOM-A",
+                    ),
+                ),
+            ),
+        )
+        staged = stage_browser_mapping(
+            evidence[0],
+            replace(definition, datasets=(parent, child)),
+            *evidence[2:],
+        )
+        metadata, records = self._snapshots(evidence[0])
+        result = PreflightEngine().run(
+            staged.plan,
+            staged.prepared,
+            metadata,
+            records,
+        )
+
+        child_decisions = [
+            item for item in result.decisions if item.dataset == "bom_components"
+        ]
+        self.assertEqual(len(child_decisions), 2)
+        self.assertEqual(
+            {item.classification for item in child_decisions},
+            {Classification.CREATE, Classification.BLOCKED},
+        )
+        blocked_child = next(
+            item
+            for item in child_decisions
+            if item.classification is Classification.BLOCKED
+        )
+        self.assertIn(
+            "REFERENCE_NOT_FOUND",
+            {issue.code for issue in blocked_child.issues},
+        )
+
     def test_unreadable_row_inclusion_value_is_blocking_evidence(self) -> None:
         evidence = self._evidence(
             (

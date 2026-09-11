@@ -48,7 +48,7 @@ SEMANTIC_FIELDS = frozenset(
 )
 CURRENT_RECIPE_CONTRACT_VERSIONS = {
     "control_definitions": 1,
-    "mapping_recipe": 2,
+    "mapping_recipe": 3,
     "odoo_target_contract": 2,
     "quality_recipe": 1,
     "recipe_definition": 2,

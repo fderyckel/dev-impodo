@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 
+import duckdb
+
 from impodo.domain.mapping.row_inclusion_review import (
     MAX_ROW_INCLUSION_REVIEW_PAGE_SIZE,
     RowInclusionReviewConfirmation,
@@ -38,6 +40,24 @@ class RowInclusionReviewRepository(DuckDbRepository):
         """Publish one complete check before making it current."""
 
         self._assert_workspace_mutable(workspace_id)
+        with self._row_inclusion_review_lock:
+            return self._replace_current_review_locked(
+                workspace_id,
+                report,
+                actor=actor,
+                retry_duplicate=True,
+            )
+
+    def _replace_current_review_locked(
+        self,
+        workspace_id: str,
+        report: RowInclusionReviewReport,
+        *,
+        actor: Actor,
+        retry_duplicate: bool,
+    ) -> RowInclusionReviewSnapshot:
+        """Publish once, then recover an identical cross-process race."""
+
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -107,9 +127,23 @@ class RowInclusionReviewRepository(DuckDbRepository):
                     actor=actor,
                 )
                 connection.commit()
+            except duckdb.ConstraintException as error:
+                connection.rollback()
+                if not retry_duplicate or "Duplicate key" not in str(error):
+                    raise
+                duplicate_error = error
             except Exception:
                 connection.rollback()
                 raise
+            else:
+                duplicate_error = None
+        if duplicate_error is not None:
+            return self._replace_current_review_locked(
+                workspace_id,
+                report,
+                actor=actor,
+                retry_duplicate=False,
+            )
         return self.get_current_review(workspace_id, report.identity) or snapshot
 
     def get_current_review(

@@ -204,8 +204,10 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Check and confirm", blocked.json()["detail"])
 
         confirm_entries = [
-            [name, "confirm_rows" if name == "action" else value]
-            for name, value in current_entries
+            ["csrf_token", self.csrf],
+            ["action", "confirm_rows"],
+            ["expected_parent_version", str(revision.version)],
+            ["expected_working_draft_version", str(working.version)],
         ]
         confirmed = self.client.post(
             f"/workspaces/{workspace_id}/mapping/save",
@@ -286,7 +288,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("created with mapping contract v12", page.text)
-        self.assertIn("create a v16 successor revision", page.text)
+        self.assertIn("create a v17 successor revision", page.text)
 
     def test_unsupported_mapping_has_controlled_stage_and_project_pages(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(

@@ -12,13 +12,18 @@ from uuid import uuid4
 from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
 
+from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
+    IdentityNullPolicy,
+    MappingDefinition,
     MappingControlExpectation,
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionPolicy,
 )
+from impodo.domain.mapping.validation.evidence import MappingValidationStatus
+from impodo.domain.mapping.validation.validator import MappingSemanticValidator
 from impodo.domain.matching_order import (
     MatchingOrderConfidence,
     MatchingOrderFact,
@@ -29,6 +34,7 @@ from impodo.domain.matching_order import (
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
+    SchemaGovernance,
 )
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import (
@@ -38,6 +44,7 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.derived_entities import DerivedDatasetLink
 from impodo.web.presenters.mapping_forms import (
     _mapping_allowed_fields,
     _mapping_datasets_from_form,
@@ -308,6 +315,159 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertEqual(incoming_only.dataset_id, "dataset:orders")
         self.assertIsNone(incoming_only.model)
         self.assertEqual(incoming_only.key_mappings, ())
+
+    def test_generated_hierarchy_self_parent_allows_an_explicit_root_null(
+        self,
+    ) -> None:
+        source = SourceDataset(
+            dataset_id="dataset:categories",
+            name="product_categories",
+            source=FileSourceBinding(
+                file_id="file:products",
+                table_key="csv",
+                source_sha256="a" * 64,
+                catalog_hash="sha256:" + "b" * 64,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
+            row_count=2,
+            columns=(
+                SourceDatasetColumn(1, "Key", "category.key", "string"),
+                SourceDatasetColumn(2, "Name", "category.name", "string"),
+                SourceDatasetColumn(
+                    3,
+                    "Parent key",
+                    "category.parent_key",
+                    "string",
+                ),
+            ),
+        )
+        schema = SimpleNamespace(
+            content_hash="sha256:" + "d" * 64,
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    "product.category",
+                    "Product Category",
+                    (
+                        SchemaField(
+                            name="name",
+                            label="Name",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                        ),
+                        SchemaField(
+                            name="parent_id",
+                            label="Parent Category",
+                            type="many2one",
+                            required=False,
+                            readonly=False,
+                            relation="product.category",
+                            relation_field=None,
+                            selection=(),
+                        ),
+                    ),
+                ),
+            )
+        )
+        key = BusinessKeyDefinition(
+            key_id="key:category-name-parent",
+            model="product.category",
+            key_fields=("name",),
+            scope_fields=("parent_id",),
+            description="Category name within parent",
+            status=BusinessKeyStatus.CONFIRMED,
+        )
+        form = FormData(
+            (
+                ("target_model_0", "product.category"),
+                ("business_key_0", key.key_id),
+                ("source_identity_0", "category.key"),
+                ("identity_source_0_0", "category.name"),
+                ("identity_source_0_1", "category.parent_key"),
+                ("identity_origin_0_1", "dataset"),
+                ("identity_dataset_0_1", "dataset:categories"),
+            )
+        )
+        link = DerivedDatasetLink(
+            derived_dataset_id="dataset:categories",
+            consumer_dataset_id="dataset:products",
+            source_column_key="product.category_key",
+            canonical_key_column_key="category.key",
+            name_column_key="category.name",
+            parent_key_column_key="category.parent_key",
+            target_model="product.category",
+            target_name_field="name",
+            source_level_column_keys=("product.group", "product.category"),
+        )
+        governance = SchemaGovernance(
+            governance_id="governance:categories",
+            version=1,
+            workspace_id="workspace:categories",
+            catalog_hash=schema.content_hash,
+            permitted_models=("product.category",),
+            business_keys=(key,),
+            recorded_at=datetime(2026, 9, 11, tzinfo=UTC),
+            recorded_by="tester",
+        )
+        selection = SimpleNamespace(
+            content_hash="sha256:" + "c" * 64,
+            datasets=(source,),
+        )
+
+        trusted = _mapping_datasets_from_form(
+            form,
+            selection,
+            schema,
+            governance,
+            derived_links=(link,),
+        )[0]
+        untrusted = _mapping_datasets_from_form(
+            form,
+            SimpleNamespace(datasets=(source,)),
+            schema,
+            SimpleNamespace(business_keys=(key,)),
+        )[0]
+
+        self.assertIs(
+            trusted.target_scope[0].null_policy,
+            IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+        )
+        self.assertIs(
+            untrusted.target_scope[0].null_policy,
+            IdentityNullPolicy.REJECT,
+        )
+        compiled = compile_browser_mapping(
+            definition := MappingDefinition(
+                mapping_id="mapping:categories",
+                source_selection_hash=selection.content_hash,
+                schema_hash=governance.content_hash,
+                datasets=(trusted,),
+            ),
+            selection,
+        )
+        self.assertEqual(
+            compiled.dataset("product_categories")
+            .target_identity.scope[0]
+            .null_policy,
+            "explicit_scope_null",
+        )
+        validation = MappingSemanticValidator().validate(
+            definition,
+            selection,
+            schema,
+            governance,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.VALID)
+        self.assertNotIn(
+            "MAPPING_IDENTITY_NULL_POLICY_INVALID",
+            {item.code for item in validation.issues},
+        )
 
     def test_mapping_form_builds_constant_existing_many2one_without_source(self) -> None:
         source = SourceDataset(

@@ -15,7 +15,6 @@ from ..domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     DatasetMapping,
     MappingTargetMode,
-    RowInclusionMode,
     UnsupportedMappingContractError,
     relationship_target_fields,
 )
@@ -240,18 +239,6 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
         )
-        if any(
-            item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
-            for item in revision.definition.datasets
-        ):
-            return None, (
-                self._issue(
-                    "ROW_INCLUSION_NOT_PORTABLE",
-                    "Rows to use rules are not yet reusable Recipe meaning.",
-                    "Change each dataset to Use every row before publishing a Recipe.",
-                    RecipeDraftRecoveryStep.MATCH_DATA,
-                ),
-            )
         if any(
             item.mode is MappingTargetMode.ODOO_PINNED_UPDATE
             for item in revision.definition.datasets
@@ -740,6 +727,23 @@ class RecipeCompiler:
                     "logical_dataset_id": logical_dataset,
                     "mode": dataset.mode.value.upper(),
                     "on_existing": dataset.on_existing,
+                    "row_inclusion": {
+                        "mode": dataset.row_inclusion.mode.value,
+                        "join": dataset.row_inclusion.join.value,
+                        "conditions": [
+                            {
+                                "source_column_id": self._column(
+                                    dataset.dataset_id,
+                                    condition.source_column_key,
+                                    columns,
+                                ),
+                                "operator": condition.operator.value,
+                                "comparison_value": condition.comparison_value,
+                                "value_type": condition.value_type,
+                            }
+                            for condition in dataset.row_inclusion.conditions
+                        ],
+                    },
                     "relationships": relationships,
                     "source_identity_column_ids": [
                         self._column(dataset.dataset_id, key, columns)
@@ -767,6 +771,7 @@ class RecipeCompiler:
             ],
             "target_fields": list(item.target_fields),
             "value_type": item.value_type,
+            "null_policy": item.null_policy.value,
             "resolver": (
                 {
                     "origin": resolver.origin.value,
@@ -840,6 +845,12 @@ class RecipeCompiler:
             for key in keys:
                 self._column(dataset.dataset_id, key, columns)
                 used.setdefault((dataset.dataset_id, key), set()).add("mapping")
+            for condition in dataset.row_inclusion.conditions:
+                key = condition.source_column_key
+                self._column(dataset.dataset_id, key, columns)
+                used.setdefault((dataset.dataset_id, key), set()).add(
+                    "row_inclusion"
+                )
         return used
 
     def _quality(

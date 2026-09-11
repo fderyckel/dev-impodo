@@ -14,7 +14,9 @@ from impodo.adapters.duckdb.recipe_quality_seed_repository import RecipeQualityS
 from impodo.adapters.duckdb.schema.workspace_engine import WorkspaceEngineSchemaMixin
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition, CategoricalCoveragePolicy, DatasetMapping,
-    MappingControlExpectation, MappingDefinition, ScalarFieldMapping, ValueMapping,
+    MappingControlExpectation, MappingDefinition, RowInclusionCondition,
+    RowInclusionMode, RowInclusionPolicy, ScalarFieldMapping,
+    SelectionConditionOperator, ValueMapping,
 )
 from impodo.domain.preparation.quality import manager_quality_rule, QualityRuleFamily, QualityOutcomePolicy
 from impodo.domain.serialization import content_hash
@@ -119,6 +121,20 @@ class RecipeApplicationEvidenceTests(TestCase):
             replace(dataset, source_identity_column_keys=("other",)),
             replace(dataset, fields=(replace(dataset.fields[0], source_column_key="other"),)),
             replace(dataset, control_definitions=(replace(dataset.control_definitions[0], tolerance="100"),)),
+            replace(
+                dataset,
+                row_inclusion=RowInclusionPolicy(
+                    mode=RowInclusionMode.MATCHING_ROWS,
+                    conditions=(
+                        RowInclusionCondition(
+                            condition_id=str(uuid4()),
+                            source_column_key="name",
+                            operator=SelectionConditionOperator.EQUALS,
+                            comparison_value="Active",
+                        ),
+                    ),
+                ),
+            ),
         ):
             with self.subTest(changed=changed), self.assertRaisesRegex(WorkspaceError, "alters the pinned Recipe"):
                 self.repository.rebind_quality_seed(

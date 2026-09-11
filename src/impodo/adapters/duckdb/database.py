@@ -52,6 +52,7 @@ class DuckDbWorkspaceDatabase(
             lock_wait_timeout_seconds=lock_wait_timeout_seconds
         )
         self._transformation_impact_lock = RLock()
+        self._row_inclusion_review_lock = RLock()
         self.root.mkdir(parents=True, exist_ok=True)
 
     def workspace_directory(self, workspace_id: str) -> Path:

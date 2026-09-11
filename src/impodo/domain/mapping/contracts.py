@@ -30,9 +30,9 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 16
+MAPPING_CONTRACT_VERSION = 17
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
@@ -72,6 +72,13 @@ class ResolverOrigin(StrEnum):
     DATASET = "dataset"
     TARGET_CATALOG = "target_catalog"
     TARGET_THEN_DATASET = "target_then_dataset"
+
+
+class IdentityNullPolicy(StrEnum):
+    """Choose whether a blank relational identity component is valid."""
+
+    REJECT = "reject"
+    EXPLICIT_SCOPE_NULL = "explicit_scope_null"
 
 
 class RelationshipValueSource(StrEnum):
@@ -435,6 +442,12 @@ class IdentityComponentMapping:
     target_fields: tuple[str, ...]
     value_type: str = "string"
     resolver: RelationshipResolver | None = None
+    null_policy: IdentityNullPolicy = IdentityNullPolicy.REJECT
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
+        object.__setattr__(self, "target_fields", tuple(self.target_fields))
+        object.__setattr__(self, "null_policy", IdentityNullPolicy(self.null_policy))
 
 
 @dataclass(frozen=True, slots=True)
@@ -938,6 +951,15 @@ class MappingDefinition:
                 f"Mapping contract v{self.contract_version} cannot contain "
                 "row inclusion rules"
             )
+        if self.contract_version < 17 and any(
+            component.null_policy is not IdentityNullPolicy.REJECT
+            for dataset in self.datasets
+            for component in (*dataset.target_identity, *dataset.target_scope)
+        ):
+            raise ValueError(
+                f"Mapping contract v{self.contract_version} cannot contain "
+                "an explicit identity null policy"
+            )
         if self.contract_version == 12 and any(
             resolver.dataset_projection_field is not None
             for dataset in self.datasets
@@ -1149,6 +1171,10 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 17:
+        for group in ("target_identity", "target_scope"):
+            for component in payload.get(group, ()):
+                component.pop("null_policy", None)
     if contract_version < 16:
         payload.pop("row_inclusion", None)
     if contract_version < 15:
@@ -1484,9 +1510,12 @@ def _identity_component_from_dict(
     *,
     contract_version: int,
 ) -> IdentityComponentMapping:
+    expected_fields = _contract_fields(IdentityComponentMapping)
+    if contract_version < 17:
+        expected_fields.remove("null_policy")
     _require_contract_fields(
         payload,
-        _contract_fields(IdentityComponentMapping),
+        expected_fields,
         "Identity mapping fields do not match the current contract",
     )
     return IdentityComponentMapping(
@@ -1500,6 +1529,9 @@ def _identity_component_from_dict(
             )
             if payload.get("resolver") is not None
             else None
+        ),
+        null_policy=IdentityNullPolicy(
+            payload.get("null_policy", IdentityNullPolicy.REJECT.value)
         ),
     )
 

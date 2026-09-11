@@ -149,6 +149,21 @@ def validate_plan_metadata(
                         field=field_name,
                     )
                 )
+            if (
+                component.null_policy == "explicit_scope_null"
+                and field_metadata.required
+            ):
+                issues.append(
+                    Issue(
+                        code="TARGET_IDENTITY_NULL_POLICY_INVALID",
+                        message=(
+                            f"identity scope field {field_name} is required; "
+                            "it cannot represent a hierarchy root"
+                        ),
+                        dataset=dataset.name,
+                        field=field_name,
+                    )
+                )
 
         coverage.append(
             {

@@ -66,12 +66,19 @@ source-to-canonical lineage, control totals, quality findings, quarantine,
 resolution state, normalization decisions, and preparation-session status.
 Publication is project-scoped and hash-bound.
 
-A version-16 `matching_rows` policy runs before target-oriented preparation.
+A version-16-or-newer `matching_rows` policy runs before target-oriented
+preparation.
 The bounded materialized and durable paths publish the same lineage-only
 `EXCLUDED` or `BLOCKED` decisions while passing only included records to later
 work. The columnar capability compiler currently routes this policy to the
 bounded evaluator with `COLUMNAR_ROW_INCLUSION_UNSUPPORTED`; it does not
 silently run an unverified native interpretation.
+
+For mapping contract version 17, a generated hierarchy component carrying
+`explicit_scope_null` prepares an all-blank parent key as one plain `None`
+scope value without an issue or dependency edge. A populated parent remains a
+`LogicalReference` and therefore a hard row dependency. Target identity keys
+remain required, and partially blank composite parent keys remain invalid.
 
 When an incoming record supplies part of a dependent row's target identity,
 `evaluate_quality` treats the parent and its dependent rows as one update

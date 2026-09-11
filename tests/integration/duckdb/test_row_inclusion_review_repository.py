@@ -111,6 +111,11 @@ class RowInclusionReviewRepositoryTests(unittest.TestCase):
             report,
             actor=LOCAL_ACTOR,
         )
+        repeated = self.repository.replace_current_review(
+            self.workspace_id,
+            report,
+            actor=LOCAL_ACTOR,
+        )
         page = self.repository.get_review_page(
             self.workspace_id,
             snapshot.snapshot_hash,
@@ -118,6 +123,7 @@ class RowInclusionReviewRepositoryTests(unittest.TestCase):
             page_size=1,
         )
 
+        self.assertEqual(repeated, snapshot)
         self.assertEqual((snapshot.included_count, snapshot.excluded_count), (1, 2))
         self.assertEqual(page.matching_count, 2)
         self.assertEqual(page.rows[0].values[0].value, "20")

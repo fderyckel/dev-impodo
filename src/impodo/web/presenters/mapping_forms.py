@@ -24,6 +24,7 @@ from ...domain.mapping.contracts import (
     ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
+    IdentityNullPolicy,
     MappingDefinition,
     MappingControlExpectation,
     MappingTargetMode,
@@ -55,6 +56,7 @@ from impodo.domain.recipe.value_rules import (
 )
 from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
+from impodo.domain.workspace.derived_entities import DerivedDatasetLink
 from impodo.domain.workspace.reference_keys import standard_reference_key
 from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
@@ -383,9 +385,15 @@ def _mapping_datasets_from_form(
     governance,
     *,
     fixed_controls: Mapping[str, DatasetMapping] | None = None,
+    derived_links: Iterable[DerivedDatasetLink] = (),
 ) -> tuple[DatasetMapping, ...]:
     models = {item.name: item for item in schema.models}
     keys = _available_mapping_business_keys(schema, governance)
+    hierarchy_parent_links = {
+        (link.derived_dataset_id, link.parent_key_column_key): link
+        for link in derived_links
+        if link.hierarchical and link.parent_key_column_key is not None
+    }
     datasets: list[DatasetMapping] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
         pinned_update = source_dataset.origin is SourceOriginKind.ODOO
@@ -435,6 +443,9 @@ def _mapping_datasets_from_form(
                 if item in source_columns
             )
             metadata = field_by_name.get(target_field)
+            is_scope = bool(
+                selected_key and target_field in selected_key.scope_fields
+            )
             resolver = None
             if metadata is not None and metadata.type == "many2one":
                 origin = ResolverOrigin(
@@ -476,6 +487,29 @@ def _mapping_datasets_from_form(
                             else None
                         ),
                     )
+            hierarchy_link = (
+                hierarchy_parent_links.get(
+                    (source_dataset.dataset_id, selected_sources[0])
+                )
+                if len(selected_sources) == 1
+                else None
+            )
+            null_policy = (
+                IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+                if (
+                    is_scope
+                    and resolver is not None
+                    and resolver.origin is ResolverOrigin.DATASET
+                    and resolver.dataset_id == source_dataset.dataset_id
+                    and metadata is not None
+                    and metadata.type == "many2one"
+                    and not metadata.required
+                    and metadata.relation == target_model
+                    and hierarchy_link is not None
+                    and hierarchy_link.target_model == target_model
+                )
+                else IdentityNullPolicy.REJECT
+            )
             component = IdentityComponentMapping(
                 source_column_keys=selected_sources,
                 target_fields=(target_field,),
@@ -487,11 +521,11 @@ def _mapping_datasets_from_form(
                     )
                 ),
                 resolver=resolver,
+                null_policy=null_policy,
             )
             target = (
                 scope_components
-                if selected_key
-                and target_field in selected_key.scope_fields
+                if is_scope
                 else identity_components
             )
             target.append(component)

@@ -22,7 +22,12 @@ from impodo.domain.shared.models import (
     portable_value,
     restore_portable_value,
 )
-from impodo.domain.recipe.profile import NormalizationSpec
+from impodo.domain.recipe.profile import (
+    IdentityComponent,
+    NormalizationSpec,
+    ResolveSpec,
+    TargetIdentitySpec,
+)
 from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
 
 
@@ -55,6 +60,28 @@ class CanonicalValueTests(unittest.TestCase):
         self.assertTrue(values_equal(None, "", "equivalent"))
         self.assertFalse(values_equal(None, "", "distinct"))
         self.assertTrue(values_equal(None, "target", "ignore_source_null"))
+
+    def test_explicit_null_is_restricted_to_relational_target_scope(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a relational"):
+            IdentityComponent(
+                source_fields=("parent",),
+                target_fields=("parent_id",),
+                null_policy="explicit_scope_null",
+            )
+        with self.assertRaisesRegex(ValueError, "only valid for target identity scope"):
+            TargetIdentitySpec(
+                components=(
+                    IdentityComponent(
+                        source_fields=("parent",),
+                        target_fields=("parent_id",),
+                        resolve=ResolveSpec(
+                            dataset="categories",
+                            target_source_fields=("key",),
+                        ),
+                        null_policy="explicit_scope_null",
+                    ),
+                ),
+            )
 
     def test_portable_preflight_values_round_trip_losslessly(self) -> None:
         values = {
@@ -97,12 +124,26 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(first.plan_id, profile.profile.id)
         self.assertEqual(first.origin, "profile_document")
         self.assertEqual(first.datasets, profile.datasets)
+        self.assertEqual((first.contract_version, first.compiler_version), (2, 3))
         self.assertEqual(first.semantic_hash, second.semantic_hash)
         self.assertEqual(
             CompiledMigrationPlan.from_json(first.to_json()),
             first,
         )
         self.assertFalse(hasattr(first, "profile"))
+
+        legacy = first.model_copy(
+            update={"contract_version": 1, "compiler_version": 2}
+        )
+        legacy_payload = legacy.to_portable_dict()
+        self.assertNotIn(
+            "null_policy",
+            legacy_payload["datasets"][0]["target_identity"]["components"][0],
+        )
+        self.assertEqual(
+            CompiledMigrationPlan.from_dict(legacy_payload).to_portable_dict(),
+            legacy_payload,
+        )
 
     def test_example_profiles_validate(self) -> None:
         for path in (ROOT / "profiles/examples").glob("*.yaml"):

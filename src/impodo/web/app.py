@@ -568,6 +568,20 @@ def create_local_app(
         recipe_applications=recipe_application_state,
         row_inclusion_confirmations=row_inclusion_review_repository,
     )
+    transformation_impacts = TransformationImpactService(
+        workspace_state_repository,
+        mapping_repository,
+        source_repository,
+        derived_entity_repository,
+        transformation_impact_repository,
+        artifacts,
+        workspace_access,
+    )
+    row_inclusion_reviews = RowInclusionReviewService(
+        transformation_impacts,
+        row_inclusion_review_repository,
+        workspace_access,
+    )
     matching_order = MatchingOrderService(
         matching_order_repository,
         workspace_access,
@@ -582,6 +596,7 @@ def create_local_app(
         mappings=mapping_workspace,
         categorical=categorical_coverage,
         application_state=recipe_application_state,
+        row_inclusion_reviews=row_inclusion_reviews,
     )
     run_planning = MigrationRunPlanningService(
         projects=migration_projects,
@@ -950,20 +965,6 @@ def create_local_app(
         resolved_destination_match_reader = injected_destination_match_reader
 
     supporting_lookups = SupportingLookupService(supporting_lookup_repository, workspace_access)
-    transformation_impacts = TransformationImpactService(
-        workspace_state_repository,
-        mapping_repository,
-        source_repository,
-        derived_entity_repository,
-        transformation_impact_repository,
-        artifacts,
-        workspace_access,
-    )
-    row_inclusion_reviews = RowInclusionReviewService(
-        transformation_impacts,
-        row_inclusion_review_repository,
-        workspace_access,
-    )
     context = WebContext(
         queries=BrowserQueryService(
             workspace_state_repository,
